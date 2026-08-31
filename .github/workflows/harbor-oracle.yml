@@ -1,0 +1,144 @@
+name: Harbor Oracle
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Optional task directory name; leave empty to run all tasks
+        required: false
+        default: ""
+        type: string
+  pull_request:
+    paths:
+      - "tasks/**"
+  push:
+    branches:
+      - ci/harbor-oracle-prebuild-experiment
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-24.04
+    outputs:
+      tasks: ${{ steps.tasks.outputs.tasks }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Select tasks
+        id: tasks
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_TASK: ${{ inputs.task }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          selected_file="$(mktemp)"
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && -n "$REQUESTED_TASK" ]]; then
+            test -d "tasks/$REQUESTED_TASK"
+            printf '%s\n' "$REQUESTED_TASK" > "$selected_file"
+          elif [[ "$EVENT_NAME" == "pull_request" ]]; then
+            git diff --name-only --diff-filter=A "$BASE_SHA" "$HEAD_SHA" |
+              awk -F/ '$1 == "tasks" && NF >= 3 {print $2}' |
+              sort -u |
+              while read -r task; do
+                if ! git cat-file -e "$BASE_SHA:tasks/$task" 2>/dev/null; then
+                  printf '%s\n' "$task"
+                fi
+              done > "$selected_file"
+          else
+            find tasks -mindepth 1 -maxdepth 1 -type d -printf '%f\n' |
+              sort > "$selected_file"
+          fi
+
+          tasks="$(jq -R . < "$selected_file" | jq -sc .)"
+          printf 'Selected tasks: %s\n' "$tasks"
+          printf 'tasks=%s\n' "$tasks" >> "$GITHUB_OUTPUT"
+
+  oracle:
+    needs: discover
+    if: needs.discover.outputs.tasks != '[]'
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        task: ${{ fromJSON(needs.discover.outputs.tasks) }}
+    name: Oracle (${{ matrix.task }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      TASK_NAME: ${{ matrix.task }}
+      HARBOR_VERSION: 0.22.0
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Record runner resources
+        run: |
+          set -euxo pipefail
+          nproc
+          free -h
+          df -h /
+          docker info
+
+      - name: Install Harbor
+        run: |
+          set -euxo pipefail
+          python -m pip install "harbor==${HARBOR_VERSION}"
+          harbor --version
+
+      - name: Build and retain task image
+        run: |
+          set -euxo pipefail
+          test -d "tasks/${TASK_NAME}"
+          python3 templates/vllm-harbor-all-in-one/build.py "tasks/${TASK_NAME}"
+          docker image ls --digests
+          df -h /
+
+      - name: Run Oracle using local build cache
+        run: |
+          set -euxo pipefail
+          harbor run \
+            --path "tasks/${TASK_NAME}" \
+            --agent oracle \
+            --env docker \
+            --jobs-dir harbor-jobs \
+            --job-name "oracle-${TASK_NAME}" \
+            --n-concurrent 1 \
+            --cpus ignore \
+            --memory ignore \
+            --delete \
+            --yes
+
+      - name: Require full reward
+        run: |
+          set -euxo pipefail
+          result="harbor-jobs/oracle-${TASK_NAME}/result.json"
+          jq -e '
+            .stats.n_completed_trials == 1 and
+            .stats.n_errored_trials == 0 and
+            ([.stats.evals[].metrics[].reward] | length == 1 and all(. == 1))
+          ' "$result"
+
+      - name: Record final resources
+        if: always()
+        run: |
+          free -h
+          df -h /
+          docker system df
+
+      - name: Upload Harbor logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harbor-oracle-${{ env.TASK_NAME }}
+          path: harbor-jobs/
+          if-no-files-found: warn
+          retention-days: 7
