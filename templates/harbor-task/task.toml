@@ -20,9 +20,6 @@ base_commit = "<40-char-sha>"
 # Keep the reference/gold commit in curator-only metadata until release. Do not
 # expose it to an evaluated agent through task metadata.
 source_cutoff = "<YYYY-MM-DD>"
-accelerator_vendor = "<cpu|nvidia|amd|intel|ascend|cambricon>"
-accelerator_type = "<sku>"
-accelerator_count = 1
 checkpoint_digests = ["sha256:<digest>"]
 image_digest = "sha256:<digest>"
 grader_kind = "<correctness|correctness_and_performance>"
@@ -38,11 +35,17 @@ timeout_sec = 1800.0
 environment_mode = "shared"
 
 [environment]
+# CI runner contract. Supported accelerators are currently CPU and A100.
+# A100 tasks must also set topology to 1, 2, or 4; CPU tasks must omit it.
+accelerator = "<CPU|A100>"
+# topology = <1|2|4>
 network_mode = "no-network"
 build_timeout_sec = 3600.0
 os = "linux"
 cpus = 8
 memory_mb = 65536
 storage_mb = 102400
-gpus = 1
-gpu_types = ["<canonical-gpu-type>"]
+# Keep these at zero/empty for CPU. For A100, set gpus equal to topology and
+# set gpu_types to the exact accepted A100 SKU for the runner.
+gpus = 0
+gpu_types = []
