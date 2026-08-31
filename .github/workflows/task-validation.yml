@@ -1,0 +1,129 @@
+name: Task validation
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      tasks:
+        description: Comma-separated task directory names, or all
+        required: true
+        default: all
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: task-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.discover.outputs.matrix }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Select tasks and trusted runners
+        id: discover
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REQUESTED_TASKS: ${{ inputs.tasks }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            matrix="$(
+              python3 .github/scripts/task_ci.py discover \
+                --mode pr \
+                --base "$BASE_SHA" \
+                --head "$HEAD_SHA"
+            )"
+          else
+            matrix="$(
+              python3 .github/scripts/task_ci.py discover \
+                --mode manual \
+                --tasks "$REQUESTED_TASKS"
+            )"
+          fi
+          printf 'Selected matrix: %s\n' "$matrix"
+          printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+
+  validate:
+    needs: discover
+    if: needs.discover.outputs.matrix != '[]'
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        include: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    name: Validate ${{ matrix.task }}
+    runs-on: ${{ matrix.runs_on }}
+    environment:
+      name: ${{ matrix.approval_environment }}
+    timeout-minutes: 240
+    env:
+      TASK_NAME: ${{ matrix.task }}
+      TARGET_PLATFORM: ${{ matrix.platform }}
+      HARBOR_VERSION: 0.22.0
+      PUBLISH_IMAGE: "false"
+      GHCR_REPOSITORY: ghcr.io/${{ github.repository_owner }}/ai-infra-bench-task-envs
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Log in to GHCR for cache reads
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Harbor
+        run: |
+          set -euxo pipefail
+          python -m pip install "harbor==${HARBOR_VERSION}"
+          harbor --version
+
+      - name: Build or pull image and validate every case
+        run: bash .github/scripts/run_task_validation.sh
+
+      - name: Record runner resources
+        if: always()
+        run: |
+          free -h
+          df -h /
+          docker system df
+
+      - name: Upload Harbor logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: task-validation-${{ matrix.task }}
+          path: harbor-jobs/${{ matrix.task }}/
+          if-no-files-found: warn
+          retention-days: 14
+
+  required:
+    name: Task validation
+    needs:
+      - discover
+      - validate
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require selected task validations
+        env:
+          DISCOVER_RESULT: ${{ needs.discover.result }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+        run: |
+          set -euo pipefail
+          [[ "$DISCOVER_RESULT" == "success" ]]
+          [[ "$VALIDATE_RESULT" == "success" || "$VALIDATE_RESULT" == "skipped" ]]
