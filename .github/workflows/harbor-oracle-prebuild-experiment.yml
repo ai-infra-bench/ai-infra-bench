@@ -1,0 +1,81 @@
+name: Harbor Oracle prebuild experiment
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Task directory name
+        required: true
+        default: vllm-kv-admission-thrashing
+        type: string
+  push:
+    branches:
+      - ci/harbor-oracle-prebuild-experiment
+
+permissions:
+  contents: read
+
+jobs:
+  oracle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      TASK_NAME: ${{ inputs.task || 'vllm-kv-admission-thrashing' }}
+      HARBOR_VERSION: 0.16.1
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Record runner resources
+        run: |
+          set -euxo pipefail
+          nproc
+          free -h
+          df -h /
+          docker info
+
+      - name: Install Harbor
+        run: |
+          set -euxo pipefail
+          python -m pip install "harbor==${HARBOR_VERSION}"
+          harbor --version
+
+      - name: Build and retain task image
+        run: |
+          set -euxo pipefail
+          test -d "tasks/${TASK_NAME}"
+          python3 templates/vllm-harbor-all-in-one/build.py "tasks/${TASK_NAME}"
+          docker image ls --digests
+          df -h /
+
+      - name: Run Oracle using local build cache
+        run: |
+          set -euxo pipefail
+          harbor run \
+            --path "tasks/${TASK_NAME}" \
+            --agent oracle \
+            --env docker \
+            --jobs-dir harbor-jobs \
+            --job-name "oracle-${TASK_NAME}" \
+            --n-concurrent 1 \
+            --cpus ignore \
+            --memory ignore \
+            --delete \
+            --yes
+
+      - name: Record final resources
+        if: always()
+        run: |
+          free -h
+          df -h /
+          docker system df
+
+      - name: Upload Harbor logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harbor-oracle-prebuild-${{ env.TASK_NAME }}
+          path: harbor-jobs/
+          if-no-files-found: warn
+          retention-days: 7
