@@ -158,6 +158,4 @@ Traceback (most recent call last):
 RuntimeError: API server ApiServer_0 closed its address pipe without reporting its bound ZMQ addresses
 
 
-Why can one API server fail to read the configuration while the other servers load the same model successfully? Fix the startup failure in `/workspace/vllm` so valid model configurations load reliably with multiple API servers.
-
-Genuinely missing, malformed, or unsupported configurations must continue to fail instead of being silently accepted.
+Why does only one API server fail to read a configuration that the other three load successfully? I need a change in `/workspace/vllm` that lets valid configurations load reliably when multiple API servers start together, while genuinely missing, malformed, or unsupported configurations must still be rejected.

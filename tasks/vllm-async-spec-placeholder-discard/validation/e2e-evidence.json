@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-08-31T01:21:29+08:00",
+  "recorded_at": "2026-08-31T17:28:18+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-255",
     "instance_id": "vllm-project__vllm-46066",
@@ -13,6 +13,7 @@
   "image": {
     "canonical_tag": "ai-infra-bench/vllm-async-spec-placeholder-discard:base-641cb595928a",
     "image_id": "sha256:4f29dae6b97d4d6fcbc7e8eb7238e71e95823e14aac1868c393678df5aa52496",
+    "size_bytes": 2632568749,
     "dockerfile_sha256": "e89bd918d9f7cddef15e556b2d1e82951daf9965193a1ff0b539842a194044d4",
     "dependency_lock_sha256": "74ac97c318da0924986c4e44e4832ee68e5e4fa9e97f49f48d316ceeef3d43ad",
     "dependency_lock_manifest_sha256": "f990f1e5cfd14637b5e7dbc3b5026be1f9b29ea71c55fbbf4832318b143632fb"
@@ -20,57 +21,82 @@
   "artifacts": {
     "instruction_sha256": "89e34501a41c5523967f4d6f696d242ccce5e29bcc2c994b58bd29bcb5578ba2",
     "oracle_patch_sha256": "25a94c75b1e52ffe8c53880643033772900d66d626067fbcfe5fd241558b7070",
-    "test_script_sha256": "4b68d5ab4b51a221b991d491a61b0e628d2bc6eb7e86a4c02061780802a16fe8",
-    "regression_test_sha256": "1bd6bd912fd25c52a523fd136cc730dfc592802e8e740d3ad4f4e54de4bc73cd",
-    "junit_checker_sha256": "4ff526addef80090e51f8f7284e8d883204e45d8b5004a5175aa1cc0ae6523d6",
-    "real_lifecycle_test_sha256": "3499888c88dc1af58ec3e15ad4eca8a22a496a13622a0efc0d0dd6c55ef0e19f"
+    "test_script_sha256": "f2403ac2d4c2546430fdf4e6e755c3b4628e0eb5d0717b5769bc68b2b83f1d64",
+    "regression_test_sha256": "7191789d46fadc380e595d57749fa268f9a0ff76dff604a4a6b32100dc22d993",
+    "verifier_support_sha256": "1ac904c3aa1c8a99ea9344426dae8871a27a26b1cc34cd4b2be3dc1f98e97cab",
+    "real_lifecycle_test_sha256": "ce276df8e068cc4b3070a8d4fbb4574737f97fee3fe10206b6cece8ba75a54c8",
+    "junit_checker_sha256": "1275b5f70a0c49d83e3565270571aaf0097530a786719e2fd1891e07bf100057",
+    "alternative_early_stale_discard_patch_sha256": "029df77eaa546f4d35073ee1f9b0fa37729b1d905dbbb17d391e99c39efd1b46",
+    "clamp_patch_sha256": "f68765d0988bae0096842ececa85f389526e05f85e5b45cf85c3f7af598f2ccc",
+    "placeholder_only_patch_sha256": "599e9b3d8b2f8c5d6a9626f9adbeb6a7a56423ed4c85af8b86d16ef932266821",
+    "five_draft_special_case_patch_sha256": "2e145a5dba6e1c570f8e4552189140ae2c3398af4a24075b823681416451befd",
+    "skip_all_conftest_patch_sha256": "9c99e33ae04abacf33cb464c74a9644152e1775ec25d64f6d1731dcb1f19a0fc"
   },
   "verifier_contract": {
-    "asserts_private_implementation_structure": false,
-    "behavior_cases": 13,
+    "behavior_cases": 15,
     "draft_widths": [1, 2, 3, 5, 7],
     "behaviors": [
-      "stale speculative frames preserve fresh placeholder and computed-token state",
-      "each returned stale frame consumes one existing discard unit",
-      "ordinary speculative rejection accounting remains unchanged",
-      "stale and ordinary requests in one model-runner batch remain independent",
-      "empty and non-speculative async outputs remain unchanged"
+      "stale speculative frames do not alter resumed placeholder, computed-token, output-token, or request-status state",
+      "ordinary speculative acceptance and rejection behavior remains unchanged",
+      "empty stale results and non-speculative async frames preserve existing behavior",
+      "stale frames drain and a following normal output makes forward progress",
+      "placeholder counts remain non-negative"
     ],
-    "collection_integrity": "JUnit must contain exactly 13 unique, passing, non-skipped cases"
+    "implementation_independence": [
+      "verifier runs directly from the read-only /tests mount",
+      "does not import candidate repository test utilities",
+      "constructs VllmConfig, AsyncScheduler, KV cache config, and requests in verifier-owned support code",
+      "does not assert a specific async_tokens_to_discard value or decrement policy",
+      "does not import or reference the Oracle condition",
+      "accepts both the Oracle accounting guard and an earlier whole-frame discard design"
+    ],
+    "collection_integrity": "JUnit must contain exactly 15 unique, passing, non-skipped cases"
   },
   "real_lifecycle_boundary": {
-    "kind": "real AsyncScheduler reset, preemption, resume, and stale-output lifecycle",
+    "kind": "real AsyncScheduler schedule, reset, resume, stale-output drain, and normal-output progress lifecycle",
     "entrypoint": "AsyncScheduler.reset_prefix_cache(reset_running_requests=True)",
-    "cycles": 3,
-    "draft_widths": [2, 5, 7],
+    "concurrent_requests": 24,
+    "reset_cycles": 11,
+    "draft_widths": [1, 2, 3, 5, 7, 2, 5, 1, 7, 3, 5],
+    "stale_request_frames_delivered": 1248,
+    "normal_progress_events": 264,
     "uses_real_scheduler_and_block_pool": true,
     "uses_real_schedule_and_update_from_output": true,
     "physical_gpu_model_runner_exercised": false,
-    "limitation": "The task image is CPU-only and ngram_gpu speculative decoding requires a GPU, so real SchedulerOutput and ModelRunnerOutput objects drive the actual scheduler lifecycle without launching a GPU model server."
+    "limitation": "The task image is CPU-only and ngram_gpu speculative decoding requires a GPU, so real SchedulerOutput and ModelRunnerOutput objects drive the production scheduler lifecycle without launching a GPU model server."
   },
   "repeated_runs": [
     {
       "case": "base",
       "rounds": 5,
       "rewards": [0, 0, 0, 0, 0],
-      "behavior_tests_each_round": {"passed": 6, "failed": 7},
+      "behavior_tests_each_round": {"passed": 6, "failed": 9},
       "e2e_exit_codes": [1, 1, 1, 1, 1]
     },
     {
       "case": "oracle",
       "rounds": 5,
       "rewards": [1, 1, 1, 1, 1],
-      "behavior_tests_each_round": {"passed": 13, "failed": 0},
+      "behavior_tests_each_round": {"passed": 15, "failed": 0},
       "e2e_exit_codes": [0, 0, 0, 0, 0]
     }
   ],
+  "alternative_implementation_run": {
+    "case": "early_whole_frame_discard_before_speculative_accounting",
+    "patch_sha256": "029df77eaa546f4d35073ee1f9b0fa37729b1d905dbbb17d391e99c39efd1b46",
+    "reward": 1,
+    "tests_passed": 15,
+    "tests_failed": 0,
+    "e2e_exit_code": 0,
+    "reason_accepted": "It preserves the same observable reset and progress behavior without using the Oracle conditional structure."
+  },
   "adversarial_runs": [
     {
       "case": "clamp_placeholder_at_zero",
       "patch_sha256": "f68765d0988bae0096842ececa85f389526e05f85e5b45cf85c3f7af598f2ccc",
       "reward": 0,
       "tests_passed": 6,
-      "tests_failed": 7,
+      "tests_failed": 9,
       "e2e_exit_code": 1
     },
     {
@@ -78,23 +104,32 @@
       "patch_sha256": "599e9b3d8b2f8c5d6a9626f9adbeb6a7a56423ed4c85af8b86d16ef932266821",
       "reward": 0,
       "tests_passed": 6,
-      "tests_failed": 7,
+      "tests_failed": 9,
       "e2e_exit_code": 1
     },
     {
       "case": "special_case_visible_five_draft_reproduction",
       "patch_sha256": "2e145a5dba6e1c570f8e4552189140ae2c3398af4a24075b823681416451befd",
       "reward": 0,
-      "tests_passed": 9,
-      "tests_failed": 4,
+      "tests_passed": 8,
+      "tests_failed": 7,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "skip_all_conftest",
+      "patch_sha256": "9c99e33ae04abacf33cb464c74a9644152e1775ec25d64f6d1731dcb1f19a0fc",
+      "reward": 0,
+      "tests_passed": 6,
+      "tests_failed": 9,
+      "tests_skipped": 0,
       "e2e_exit_code": 1
     }
   ],
   "harbor": {
     "version": "0.22.0",
-    "job_id": "ca5ebcab-6177-48fd-87d6-6753f02e7034",
-    "trial_id": "874f36fa-f665-406d-ab76-1a0cdfd1682c",
-    "input_task_checksum": "872a6fd8cc0c7e4c09a9a394a062394d08e08a8a58e43e61604890b1773eab07",
+    "job_id": "c115242f-5385-4942-943a-11f7d1ea8bc7",
+    "trial_id": "e07e3c8c-b979-4b1e-ae3d-0e2f4fb7caaa",
+    "input_task_checksum": "472644f155a15d56db9177bd7a6a6e61ca82a93bfa5df767484370120865f889",
     "agent": "oracle",
     "environment": "docker",
     "n_completed_trials": 1,
@@ -104,7 +139,10 @@
     "pytest_exit_code": 0,
     "integrity_exit_code": 0,
     "e2e_exit_code": 0,
-    "runtime_seconds": 33,
+    "tests_passed": 15,
+    "tests_failed": 0,
+    "tests_skipped": 0,
+    "runtime_seconds": 32,
     "canonical_image_retained_after_run": true
   },
   "provenance_gates": {
@@ -116,6 +154,11 @@
     "vllm_imports_from_base_worktree": true,
     "installed_dependencies_match_lock": true,
     "cached_rebuild_digest_stable": true,
-    "runtime_network_disabled": true
+    "runtime_network_disabled": true,
+    "pytest_plugin_autoload_disabled": true,
+    "repository_conftests_disabled": true,
+    "exact_test_collection_enforced": true,
+    "skipped_tests_rejected": true,
+    "verifier_mount_read_only": true
   }
 }

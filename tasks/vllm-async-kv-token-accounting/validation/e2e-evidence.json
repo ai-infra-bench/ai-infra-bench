@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-08-30T23:10:03+08:00",
+  "recorded_at": "2026-08-31T16:26:16+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-053",
     "instance_id": "vllm-project__vllm-34616",
@@ -20,88 +20,121 @@
   "artifacts": {
     "instruction_sha256": "4cbc383cf873bdf2214d48db2fde9aaf49e8cbd579d6fe43e506a3fd49fb4418",
     "oracle_patch_sha256": "16d0b16869e3933a6cae72fbdf59aea094f8dacf8148ac8001512c17073dfb6a",
-    "test_script_sha256": "446aa64ce36519056d77789775155099c899524b47768d958a1b53d46549c973",
-    "regression_test_sha256": "33d842804e718d8f006e9f5e4d9ebca83d0fa38f81e52a5687ef0e41c61b87d5",
-    "junit_checker_sha256": "3f1d34a0a4c5797f742deb4374897b5c9e3c5be206f488ec8455a6310d0399",
-    "wait_state_only_patch_sha256": "5ceedb80c667000306cddf286e33b3862b18b9d418a0c1484f9c144eae454a7f",
+    "test_script_sha256": "32fecb0ba20fdee815524f3669e01682b59fa51c3d08ab0727e38f167694b9ab",
+    "regression_test_sha256": "31f871f9aa165dafa323965699b00557bde3b6b1bc5fd272f7529b59b08fb217",
+    "verifier_support_sha256": "bab73e54d78dcc5803c8ff04c6fb68c54e6d750aba47b6e385b66d47ddf80646",
+    "real_async_lifecycle_sha256": "496d7d322dcd033faf43566acd40b5ff194a62f81cdd0a149a33e0f43cfaa14c",
+    "junit_checker_sha256": "196f419f0ce53743cc31666904335b7bc16a0c3c8be12ec13800f05ad141e313",
+    "alternative_minimal_patch_sha256": "8f1a7e6485085f598f3c14cacec5af4e3cea91dc11bc804e438e049792b26851",
     "external_count_only_patch_sha256": "851accd97d4e7c375ed56de25554fbaea347d38d97e263667e57ea62239a9ce6",
-    "prompt_trace_special_case_patch_sha256": "70272afcc5f8f2b4486da3ddb3350aa0e71e64b3531f9bdd962a70530591851d",
-    "partial_hit_only_patch_sha256": "8f1a7e6485085f598f3c14cacec5af4e3cea91dc11bc804e438e049792b26851",
+    "no_full_hit_recompute_patch_sha256": "d067fcfe267644c21b5c61d01d8ddf43d9eb64560150069d6d065ee94cc666ef",
     "output_only_spoof_patch_sha256": "43aef330a2db91046d97f5eff52eea391acb2d817245e89235b3e1f2aefcf449",
-    "skip_all_conftest_patch_sha256": "b0ee05dd4efd430607e4f3d3a0dd6559f41fe23d37b29f2707c313609f746f40"
+    "prompt_trace_special_case_patch_sha256": "70272afcc5f8f2b4486da3ddb3350aa0e71e64b3531f9bdd962a70530591851d",
+    "skip_all_conftest_patch_sha256": "b0ee05dd4efd430607e4f3d3a0dd6559f41fe23d37b29f2707c313609f746f40",
+    "wait_state_only_patch_sha256": "5ceedb80c667000306cddf286e33b3862b18b9d418a0c1484f9c144eae454a7f"
   },
   "verifier_coverage": {
-    "collected_tests": 15,
+    "collected_tests": 23,
     "dimensions": [
-      "partial async hits across multiple block sizes",
-      "multiple concurrent requests with distinct hit counts",
-      "combined local and external cache hits",
-      "block-aligned async hits",
-      "full-prompt hits and last-token recomputation",
-      "unchanged synchronous connector behavior",
-      "asynchronous load failure recovery",
-      "cache commit token counts",
-      "JUnit collection, uniqueness, and no-skip integrity"
-    ]
+      "exact asynchronous hit counts from one token through prompt-minus-one across block sizes",
+      "multiple concurrent requests with staggered completion and distinct hit counts",
+      "combined local and external prefix hits",
+      "block-aligned, zero-hit, synchronous, and full-prompt behavior",
+      "full-prompt last-token recomputation",
+      "failed-block fallback at the first and later external blocks",
+      "prefix visibility under constrained block capacity",
+      "cancellation while an asynchronous transfer remains in flight",
+      "JUnit collection, uniqueness, and no-skip integrity",
+      "cross-process scheduler-to-worker connector lifecycle with real asynchronous byte copies"
+    ],
+    "implementation_independence": [
+      "does not import repository test utilities or the oracle patch",
+      "does not replace the scheduler connector with a mock",
+      "does not inspect private scheduler sets or spy on cache-manager calls",
+      "asserts only request lifecycle and scheduler outputs visible at the model-runner boundary",
+      "runs verifier files from the read-only verifier mount rather than copying them into the candidate source tree"
+    ],
+    "e2e_boundary": {
+      "scheduler": "production vLLM Scheduler",
+      "connector_creation": "production KVConnectorFactory",
+      "worker_boundary": "separate spawned process",
+      "transfer": "background-thread memory copy with completion reported through the worker connector contract",
+      "model_inference": false
+    }
   },
   "runs": [
     {
       "case": "base",
       "repetitions": 5,
       "rewards": [0, 0, 0, 0, 0],
-      "tests_passed_per_run": [6, 6, 6, 6, 6],
-      "tests_failed_per_run": [9, 9, 9, 9, 9]
+      "tests_passed_per_run": [14, 14, 14, 14, 14],
+      "tests_failed_per_run": [9, 9, 9, 9, 9],
+      "e2e_exit_codes": [1, 1, 1, 1, 1]
     },
     {
       "case": "oracle",
       "repetitions": 5,
       "rewards": [1, 1, 1, 1, 1],
-      "tests_passed_per_run": [15, 15, 15, 15, 15],
-      "tests_failed_per_run": [0, 0, 0, 0, 0]
+      "tests_passed_per_run": [23, 23, 23, 23, 23],
+      "tests_failed_per_run": [0, 0, 0, 0, 0],
+      "e2e_exit_codes": [0, 0, 0, 0, 0]
     },
     {
-      "case": "wait_state_only",
-      "reward": 0,
-      "tests_passed": 6,
-      "tests_failed": 9
+      "case": "alternative_minimal_correct_fix",
+      "reward": 1,
+      "tests_passed": 23,
+      "tests_failed": 0,
+      "e2e_exit_code": 0
     },
     {
       "case": "external_count_only",
       "reward": 0,
-      "tests_passed": 11,
-      "tests_failed": 4
+      "tests_passed": 22,
+      "tests_failed": 1,
+      "e2e_exit_code": 0
     },
     {
-      "case": "prompt_trace_special_case",
+      "case": "no_full_hit_recompute",
       "reward": 0,
-      "tests_passed": 7,
-      "tests_failed": 8
-    },
-    {
-      "case": "partial_hit_only",
-      "reward": 0,
-      "tests_passed": 12,
-      "tests_failed": 3
+      "tests_passed": 20,
+      "tests_failed": 3,
+      "e2e_exit_code": 0
     },
     {
       "case": "output_only_spoof",
       "reward": 0,
-      "tests_passed": 5,
-      "tests_failed": 10
+      "tests_passed": 9,
+      "tests_failed": 14,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "prompt_trace_special_case",
+      "reward": 0,
+      "tests_passed": 16,
+      "tests_failed": 7,
+      "e2e_exit_code": 1
     },
     {
       "case": "skip_all_conftest",
       "reward": 0,
-      "tests_passed": 6,
+      "tests_passed": 14,
       "tests_failed": 9,
-      "tests_skipped": 0
+      "tests_skipped": 0,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "wait_state_only",
+      "reward": 0,
+      "tests_passed": 14,
+      "tests_failed": 9,
+      "e2e_exit_code": 1
     }
   ],
   "harbor": {
     "version": "0.22.0",
-    "job_id": "ded05355-29b3-4e13-9599-7bc76a37f896",
-    "trial_id": "099fb026-f145-4b94-8248-f85fee0a5040",
-    "input_task_checksum": "9794426702dbeff7cacc68a68dc5a746dabd3c1765006d2b6a038d6fcfdedfdf",
+    "job_id": "3c1868c0-a695-48a5-9da1-e024c0824da8",
+    "trial_id": "017abe7b-a99a-4040-a78d-48916f1ae132",
+    "input_task_checksum": "5c0e856d4f0079601d58f9a3335df73245226df3e840dd284ce161600c2aea11",
     "agent": "oracle",
     "environment": "docker",
     "n_completed_trials": 1,
@@ -110,10 +143,11 @@
     "command_exit_code": 0,
     "pytest_exit_code": 0,
     "integrity_exit_code": 0,
-    "tests_passed": 15,
+    "e2e_exit_code": 0,
+    "tests_passed": 23,
     "tests_failed": 0,
     "tests_skipped": 0,
-    "runtime_seconds": 29,
+    "runtime_seconds": 36,
     "canonical_image_retained_after_run": true
   },
   "provenance_gates": {
@@ -129,6 +163,7 @@
     "pytest_plugin_autoload_disabled": true,
     "repository_conftests_disabled": true,
     "exact_test_collection_enforced": true,
-    "skipped_tests_rejected": true
+    "skipped_tests_rejected": true,
+    "verifier_mount_read_only": true
   }
 }

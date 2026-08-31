@@ -23,4 +23,4 @@ ray.exceptions.RayChannelTimeoutError: System error: Timed out acquiring the rea
 vllm.v1.engine.exceptions.EngineDeadError: EngineCore encountered an issue.
 ```
 
-I tried to debug the problem in a single-node Ray setup, but could not reproduce it there. Fix the multi-node crash so the service remains healthy and its existing completion behavior, including returned log probabilities, continues to work normally.
+I cannot reproduce this on a single node, so something about the multi-node path is leaving the service unhealthy after an otherwise successful response. I need the two-node deployment to keep serving requests normally without changing completion results or returned log probabilities.

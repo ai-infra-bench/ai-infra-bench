@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-08-30T21:19:00+08:00",
+  "recorded_at": "2026-08-31T15:26:57+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-282",
     "instance_id": "vllm-project__vllm-49001",
@@ -17,54 +17,115 @@
   "artifacts": {
     "instruction_sha256": "82cd476d9a3ddfcc1fb46467b9e025480aaaa49da7de760cccacf05b99b7bc42",
     "oracle_patch_sha256": "a1d086d4aa4f13d9bc0345bc0b002ed3bb39bf9f70e0b7286ecf207eb83d05ff",
-    "test_script_sha256": "8a486b757da7835203d98b9b4c2a2c0c85d817cb7f7d25f20e34c0aa9a9c9738",
-    "regression_test_sha256": "f9693f2ebb626dff3beb02605a712015c87629562f61170a7fffff9a3ffdb1ba",
-    "four_api_startup_test_sha256": "656f99843330a2625103138a8270f9fc4099ae47f36fd457e4b92a8ec8c22899",
-    "fault_injector_sha256": "00eb6b8fee970e5f13c18539ba3835e1ba9e3c2e434522c8c632b6c16e5d059e",
-    "insufficient_patch_sha256": "28baf8cedbade7805165228a27adce6bfb0bc8cf91934460362f99854a1520d9"
+    "test_script_sha256": "25c1d57604241cbf7c14ce0a9ce7f65f6092c35c7a3141ffdb1598bc6d081e3e",
+    "regression_test_sha256": "e61781ca0a37e372279baa111bef3dcca1fcec759c0c749ca9d92f27d9f19f7a",
+    "junit_checker_sha256": "d72c4b1c23873e9bd79192020806dd2ec984d0b84b1d813f164388e1315eaa83",
+    "four_api_startup_sha256": "0bce13e78197a2874fc3663559e8f943d43da915eea62bf6dfe12f00f9362370",
+    "fault_injector_sha256": "332ea9a3f2b85eb6c73b40d2777beda74e78ba86dba979462371caf417966016",
+    "invalid_startup_sha256": "06215988d063cbd12b03508aa89277e55dd21c8746aa53e9cfb9eb244a1e3f22"
   },
-  "runs": [
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "asserts_retry_count": false,
+    "asserts_retry_log_text": false,
+    "behavior_cases": 4,
+    "behaviors": [
+      "a valid local OPT configuration loads through the production ModelConfig boundary",
+      "persistently missing, malformed, and unsupported configurations fail within a bounded time"
+    ],
+    "authoritative_boundary": "real multi-process vllm serve startup, health, and completion behavior",
+    "collection_integrity": "JUnit must contain exactly 4 unique, passing, non-skipped cases"
+  },
+  "hidden_end_to_end": {
+    "tests_mounted_only_during_verification": true,
+    "transient_startup": {
+      "real_model_weights": true,
+      "api_server_processes": 4,
+      "faults": [
+        {"worker": "ApiServer_0", "behavior": "one ENOENT while opening config.json"},
+        {"worker": "ApiServer_1", "behavior": "one empty read from config.json"}
+      ],
+      "faults_verified_by_injector_markers": true,
+      "retry_logs_used_for_scoring": false,
+      "all_workers_ready_required": true,
+      "real_health_request_required": true,
+      "real_completion_request_required": true
+    },
+    "persistent_invalid_startup": {
+      "cases": ["missing", "malformed", "unsupported"],
+      "each_case_contains_real_model_weights_before_config_is_removed_or_corrupted": true,
+      "bounded_failure_seconds": 15,
+      "nonzero_process_exit_required": true,
+      "startup_success_forbidden": true
+    }
+  },
+  "repeated_runs": [
     {
       "case": "base",
-      "repetitions": 5,
+      "rounds": 5,
       "rewards": [0, 0, 0, 0, 0],
-      "unit_tests_passed": 1,
-      "unit_tests_failed": 4
-    },
-    {
-      "case": "base_four_api_startup",
-      "repetitions": 3,
-      "failed_workers_per_run": [1, 1, 1],
-      "workers_resolving_config_per_run": [3, 3, 3],
-      "ready_workers_per_run": [0, 0, 0]
+      "behavior_tests_each_round": {"passed": 4, "failed": 0},
+      "startup_exit_codes": [1, 1, 1, 1, 1],
+      "invalid_exit_codes": [0, 0, 0, 0, 0]
     },
     {
       "case": "oracle",
-      "repetitions": 5,
+      "rounds": 5,
       "rewards": [1, 1, 1, 1, 1],
-      "unit_tests_passed": 5,
-      "unit_tests_failed": 0,
-      "ready_workers_per_run": [4, 4, 4, 4, 4]
-    },
-    {
-      "case": "file_not_found_only_retry",
-      "reward": 0,
-      "unit_tests_passed": 3,
-      "unit_tests_failed": 2
+      "behavior_tests_each_round": {"passed": 4, "failed": 0},
+      "startup_exit_codes": [0, 0, 0, 0, 0],
+      "invalid_exit_codes": [0, 0, 0, 0, 0]
     }
   ],
+  "adversarial_runs": [
+    {
+      "case": "retries_file_not_found_only",
+      "patch_sha256": "28baf8cedbade7805165228a27adce6bfb0bc8cf91934460362f99854a1520d9",
+      "reward": 0,
+      "behavior_tests": {"passed": 4, "failed": 0},
+      "startup_exit_code": 1,
+      "invalid_exit_code": 0
+    },
+    {
+      "case": "hardcoded_instruction_model_path_only",
+      "patch_sha256": "e39549705444adeed8a9c8665628839f88d9afa0bb68bd507f9f7d91afd6cdab",
+      "reward": 0,
+      "behavior_tests": {"passed": 4, "failed": 0},
+      "startup_exit_code": 1,
+      "invalid_exit_code": 0
+    },
+    {
+      "case": "unbounded_retry",
+      "patch_sha256": "381edf81fb213c628c6d79279a6c6764c566fb557ac5844f942c10034fb66c61",
+      "reward": 0,
+      "behavior_tests": {"passed": 2, "failed": 2},
+      "failure": "persistent malformed and unsupported configurations exceeded the 12 second bound"
+    }
+  ],
+  "conforming_alternative_run": {
+    "change": "renamed the retry helper, changed retry logging text, and used three attempts instead of two",
+    "reward": 1,
+    "behavior_tests": {"passed": 4, "failed": 0},
+    "startup_exit_code": 0,
+    "invalid_exit_code": 0
+  },
   "harbor": {
     "version": "0.22.0",
-    "job_id": "738c63d2-b993-4d6b-9322-a600ac15e028",
-    "trial_id": "085daa30-3940-4047-991b-2223c1e80cf1",
-    "input_task_checksum": "aad82b1c2cc8d72674fb4b4c566cb10975381e097a8bbc73fa57a0409c19ca5a",
+    "job_id": "26908d27-c0c6-475e-b380-c8b5bd3b6b34",
+    "trial_id": "d5eda0b9-3280-424d-a4e0-e762fe620e71",
+    "input_task_checksum": "4bfc8c7d2d9dcf83bbf9ecb7b10537a60c650fb0d94d75490c98aabdd94f0fd4",
     "agent": "oracle",
     "environment": "docker",
     "n_completed_trials": 1,
     "n_errored_trials": 0,
     "reward": 1,
     "command_exit_code": 0,
-    "runtime_seconds": 57,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "startup_exit_code": 0,
+    "invalid_exit_code": 0,
+    "runtime_seconds": 90,
     "canonical_image_retained_after_run": true
   },
   "provenance_gates": {

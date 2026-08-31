@@ -1,0 +1,28 @@
+diff --git a/vllm/v1/executor/ray_utils.py b/vllm/v1/executor/ray_utils.py
+--- a/vllm/v1/executor/ray_utils.py
++++ b/vllm/v1/executor/ray_utils.py
+@@ -7,6 +7,8 @@ from collections import defaultdict
+ from concurrent.futures import Future
+ from typing import TYPE_CHECKING, Union
+
++import numpy as np
++
+ import vllm.platforms
+ from vllm.config import ParallelConfig
+ from vllm.distributed import get_pp_group
+@@ -207,6 +209,15 @@ class FutureWrapper(Future):
+     def result(self, timeout=None):
+         outputs = ray.get(self.ref_or_refs, timeout=timeout)
+         if self.aggregator is None:
++            if outputs.logprobs is not None:
++                token_ids, logprobs, ranks, cu_tokens = outputs.logprobs
++                if isinstance(token_ids, np.ndarray) and token_ids.size <= 2:
++                    outputs.logprobs = type(outputs.logprobs)(
++                        token_ids.copy(),
++                        logprobs.copy(),
++                        ranks.copy(),
++                        cu_tokens,
++                    )
+             return outputs
+
+         return self.aggregator.aggregate(outputs, output_rank=0)

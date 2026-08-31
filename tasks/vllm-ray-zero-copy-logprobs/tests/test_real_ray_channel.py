@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Exercise vLLM result boundaries over a real Ray compiled-DAG channel."""
+"""Exercise the PP-style vLLM result boundary over a real Ray SHM channel."""
 
 from __future__ import annotations
 
 import os
-from types import SimpleNamespace
 
 import numpy as np
 import ray
 from ray.dag import InputNode
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
-from vllm.v1.executor import ray_executor, ray_utils
+from vllm.v1.executor import ray_utils
 from vllm.v1.outputs import LogprobsLists, ModelRunnerOutput
 
 
@@ -20,28 +19,87 @@ class _Stage:
     def node_id(self) -> str:
         return ray.get_runtime_context().get_node_id()
 
-    def make_output(self, value: int) -> ModelRunnerOutput:
-        token_ids = np.array([[value, value + 1]], dtype=np.int32)
-        logprobs = np.array([[value / 10, value / 20]], dtype=np.float32)
-        ranks = np.array([value], dtype=np.int16)
+    def make_output(self, case_id: int) -> ModelRunnerOutput:
+        if case_id == 50:
+            return ModelRunnerOutput(
+                req_ids=["no-logprobs"],
+                req_id_to_index={"no-logprobs": 0},
+                sampled_token_ids=[[case_id]],
+                logprobs=None,
+            )
+
+        rows, cols = {
+            10: (1, 2),
+            20: (3, 5),
+            30: (64, 32),
+            40: (2, 1),
+            60: (7, 11),
+            70: (4, 17),
+        }[case_id]
+        token_ids = (
+            np.arange(rows * cols, dtype=np.int32).reshape(rows, cols) + case_id
+        )
+        logprobs = np.linspace(
+            -case_id / 10,
+            -0.001,
+            rows * cols,
+            dtype=np.float32,
+        ).reshape(rows, cols)
+        ranks = np.arange(rows, dtype=np.int16) + case_id
         return ModelRunnerOutput(
-            req_ids=[f"req-{value}"],
-            req_id_to_index={f"req-{value}": 0},
-            logprobs=LogprobsLists(token_ids, logprobs, ranks, [0, 1]),
+            req_ids=[f"req-{case_id}-{index}" for index in range(rows)],
+            req_id_to_index={
+                f"req-{case_id}-{index}": index for index in range(rows)
+            },
+            logprobs=LogprobsLists(
+                token_ids,
+                logprobs,
+                ranks,
+                list(range(rows + 1)),
+            ),
         )
 
     def forward(self, output: ModelRunnerOutput) -> ModelRunnerOutput:
         return output
 
 
-def _check_output(output: ModelRunnerOutput, value: int) -> bool:
+def _check_output(output: ModelRunnerOutput, case_id: int) -> dict[str, object]:
+    if case_id == 50:
+        assert output.logprobs is None
+        assert output.sampled_token_ids == [[case_id]]
+        return {"case": case_id, "logprobs": False}
+
+    rows, cols = {
+        10: (1, 2),
+        20: (3, 5),
+        30: (64, 32),
+        40: (2, 1),
+        60: (7, 11),
+        70: (4, 17),
+    }[case_id]
     assert output.logprobs is not None
     token_ids, logprobs, ranks, cu_tokens = output.logprobs
-    np.testing.assert_array_equal(token_ids, [[value, value + 1]])
-    np.testing.assert_allclose(logprobs, [[value / 10, value / 20]])
-    np.testing.assert_array_equal(ranks, [value])
-    assert cu_tokens == [0, 1]
-    return all(array.flags.writeable for array in (token_ids, logprobs, ranks))
+    expected_ids = (
+        np.arange(rows * cols, dtype=np.int32).reshape(rows, cols) + case_id
+    )
+    expected_logprobs = np.linspace(
+        -case_id / 10,
+        -0.001,
+        rows * cols,
+        dtype=np.float32,
+    ).reshape(rows, cols)
+    np.testing.assert_array_equal(token_ids, expected_ids)
+    np.testing.assert_allclose(logprobs, expected_logprobs)
+    np.testing.assert_array_equal(ranks, np.arange(rows, dtype=np.int16) + case_id)
+    assert cu_tokens == list(range(rows + 1))
+    assert token_ids.dtype == np.int32
+    assert logprobs.dtype == np.float32
+    assert ranks.dtype == np.int16
+    return {
+        "case": case_id,
+        "logprobs": True,
+        "shape": list(token_ids.shape),
+    }
 
 
 def main() -> int:
@@ -57,8 +115,7 @@ def main() -> int:
     def actor_on(node):
         return _Stage.options(
             scheduling_strategy=NodeAffinitySchedulingStrategy(
-                node_id=node["NodeID"],
-                soft=False,
+                node_id=node["NodeID"], soft=False
             )
         ).remote()
 
@@ -74,34 +131,22 @@ def main() -> int:
     )
 
     held_outputs = []
-    detached_results = []
+    observations = []
+    cases = [10, 20, 30, 40, 50, 60, 70]
     try:
-        first = ray_utils.FutureWrapper(compiled.execute(10)).result(timeout=5)
-        detached_results.append(_check_output(first, 10))
-        held_outputs.append(first)
-
-        class _DagAdapter:
-            def execute(self, args):
-                return [compiled.execute(args[0])]
-
-        executor = SimpleNamespace(forward_dag=_DagAdapter(), has_connector=False)
-        for value in (20, 30):
-            output = ray_executor.RayDistributedExecutor._execute_dag(
-                executor,
-                value,
-                None,
-                non_block=False,
+        for case_id in cases:
+            output = ray_utils.FutureWrapper(compiled.execute(case_id)).result(
+                timeout=5
             )
-            detached_results.append(_check_output(output, value))
+            observations.append(_check_output(output, case_id))
             held_outputs.append(output)
-        assert detached_results == [True, True, True]
         print(
             {
-                "results": len(held_outputs),
-                "all_logprob_arrays_detached": all(detached_results),
-                "values": [10, 20, 30],
+                "results_held_concurrently": len(held_outputs),
+                "cases": observations,
                 "ray_nodes": [node["NodeManagerAddress"] for node in nodes],
                 "actor_node_ids": actor_node_ids,
+                "channel_buffer_slots": 1,
             },
             flush=True,
         )

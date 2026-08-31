@@ -1,40 +1,56 @@
 #!/usr/bin/env python3
-"""Exercise both public streaming speech endpoints across audio chunks."""
+"""Exercise public speech APIs with real WAV decoding and audio splitting."""
 
 from __future__ import annotations
 
 import asyncio
-import sys
 
-sys.path.insert(0, "/tests")
-
-import test_regression as suite
+from speech_harness import run_public_speech_request
 
 
 async def run():
-    transcription = await suite._stream(
-        suite.OpenAIServingTranscription,
-        "transcription_stream_generator",
+    transcription = await run_public_speech_request(
+        "transcription",
+        True,
         "en",
-        [("A founding member",), ("of OpenAI",), ("joined", " the server")],
+        [
+            ("A founding member",),
+            ("of OpenAI",),
+            ("joined", " the server"),
+        ],
     )
-    translation = await suite._stream(
-        suite.OpenAIServingTranslation,
-        "translation_stream_generator",
+    translation = await run_public_speech_request(
+        "translation",
+        False,
         "zh",
-        [("你好",), ("世界",)],
+        [("The service",), ("is healthy",)],
     )
-    assert transcription == "A founding member of OpenAI joined the server"
-    assert translation == "你好世界"
+    chinese = await run_public_speech_request(
+        "translation",
+        True,
+        "en",
+        [("你好",), ("世界",)],
+        to_language="zh",
+    )
+    assert transcription.text == "A founding member of OpenAI joined the server"
+    assert translation.text == "The service is healthy"
+    assert chinese.text == "你好世界"
+    assert transcription.done is True
+    assert chinese.done is True
+    assert transcription.engine_calls == transcription.prompt_count == 3
+    assert translation.engine_calls == translation.prompt_count == 2
+    assert chinese.engine_calls == chinese.prompt_count == 2
     print(
         {
             "entrypoints": [
-                "OpenAIServingTranscription.transcription_stream_generator",
-                "OpenAIServingTranslation.translation_stream_generator",
+                "OpenAIServingTranscription.create_transcription",
+                "OpenAIServingTranslation.create_translation",
             ],
-            "english": transcription,
-            "chinese": translation,
-            "audio_chunks": [3, 2],
+            "real_wav_decode_and_split": True,
+            "streaming_transcription": transcription.text,
+            "nonstreaming_translation": translation.text,
+            "streaming_chinese_translation": chinese.text,
+            "audio_chunks": [3, 2, 2],
         },
         flush=True,
     )
@@ -46,7 +62,13 @@ def main() -> int:
         return 0
     except Exception as exc:
         lines = str(exc).splitlines()
-        print({"error": type(exc).__name__, "message": lines[0] if lines else "no exception message"}, flush=True)
+        print(
+            {
+                "error": type(exc).__name__,
+                "message": lines[0] if lines else "no exception message",
+            },
+            flush=True,
+        )
         return 1
 
 

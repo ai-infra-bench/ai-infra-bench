@@ -1,81 +1,66 @@
-from collections import deque
-from unittest.mock import patch
+import json
+import subprocess
+import sys
 
 import pytest
-from transformers import PretrainedConfig
+from transformers import OPTConfig
 
-from vllm.transformers_utils import config as config_module
-
-
-class SequenceParser:
-    def __init__(self, outcomes) -> None:
-        self.outcomes = deque(outcomes)
-        self.calls = 0
-
-    def parse(self, *args, **kwargs):
-        self.calls += 1
-        outcome = self.outcomes.popleft()
-        if isinstance(outcome, BaseException):
-            raise outcome
-        return {}, outcome
+from vllm.config import ModelConfig
 
 
-def _get_config(tmp_path, parser):
-    (tmp_path / "config.json").write_text('{"model_type":"bert"}')
-    with (
-        patch.object(config_module, "get_config_parser", return_value=parser),
-        patch("vllm.transformers_utils.repo_utils.time.sleep", return_value=None),
-    ):
-        return config_module.get_config(
-            tmp_path,
-            trust_remote_code=False,
-            config_format="hf",
-        )
+def _valid_model(path):
+    config = OPTConfig(
+        vocab_size=64,
+        hidden_size=128,
+        ffn_dim=256,
+        num_hidden_layers=1,
+        num_attention_heads=4,
+        max_position_embeddings=128,
+        word_embed_proj_dim=128,
+        do_layer_norm_before=True,
+    )
+    config.save_pretrained(path)
 
 
-@pytest.mark.parametrize(
-    "transient_error",
-    [
-        FileNotFoundError("config.json temporarily unavailable"),
-        ValueError("config.json temporarily empty or malformed"),
-    ],
-)
-def test_transient_parse_failure_recovers(tmp_path, transient_error) -> None:
-    expected = PretrainedConfig(architectures=["BertModel"])
-    parser = SequenceParser([transient_error, expected])
-
-    config = _get_config(tmp_path, parser)
-
-    assert parser.calls == 2
-    assert config.architectures == ["BertModel"]
-
-
-def test_valid_config_is_not_retried(tmp_path) -> None:
-    expected = PretrainedConfig(architectures=["BertModel"])
-    parser = SequenceParser([expected])
-
-    config = _get_config(tmp_path, parser)
-
-    assert parser.calls == 1
-    assert config.architectures == ["BertModel"]
-
-
-@pytest.mark.parametrize(
-    "persistent_error",
-    [
-        FileNotFoundError("config.json is missing"),
-        ValueError("config.json is malformed"),
-    ],
-)
-def test_persistent_parse_failure_remains_an_error(tmp_path, persistent_error) -> None:
-    parser = SequenceParser(
-        [
-            type(persistent_error)(str(persistent_error)),
-            type(persistent_error)(str(persistent_error)),
-        ]
+def _load(path):
+    return ModelConfig(
+        model=str(path),
+        trust_remote_code=False,
+        dtype="float32",
+        seed=0,
+        skip_tokenizer_init=True,
     )
 
-    with pytest.raises(type(persistent_error), match=str(persistent_error)):
-        _get_config(tmp_path, parser)
 
-    assert parser.calls == 2
+def test_valid_local_configuration_loads(tmp_path):
+    _valid_model(tmp_path)
+    config = _load(tmp_path)
+    assert config.hf_config.model_type == "opt"
+    assert config.hf_config.architectures
+
+
+@pytest.mark.parametrize("kind", ["missing", "malformed", "unsupported"])
+def test_persistent_invalid_configuration_fails(tmp_path, kind):
+    if kind == "malformed":
+        (tmp_path / "config.json").write_text("{")
+    elif kind == "unsupported":
+        (tmp_path / "config.json").write_text(json.dumps({
+            "model_type": "unsupported_hidden_model",
+            "architectures": ["UnsupportedHiddenModel"],
+        }))
+    program = """
+import sys
+from vllm.config import ModelConfig
+ModelConfig(model=sys.argv[1], trust_remote_code=False, dtype='float32',
+            seed=0, skip_tokenizer_init=True)
+"""
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", program, str(tmp_path)],
+            capture_output=True,
+            text=True,
+            timeout=12,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail(f"{kind} configuration did not fail within 12 seconds")
+    assert result.returncode != 0

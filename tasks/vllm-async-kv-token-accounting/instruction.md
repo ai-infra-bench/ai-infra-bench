@@ -7,4 +7,4 @@ runner input after transfer completion: num_computed_tokens=48
 tokens scheduled after transfer completion: 22
 ```
 
-Investigate and fix this discrepancy without breaking existing correct behavior.
+Where are the extra cached tokens coming from between the connector result and the runner input? Fix this so the two sides agree on how much of the request has already been computed, while behavior that already works correctly stays unchanged.

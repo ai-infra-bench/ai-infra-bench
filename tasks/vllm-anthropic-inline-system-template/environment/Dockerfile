@@ -709,16 +709,16 @@ from huggingface_hub import snapshot_download
 snapshot_download(
     repo_id='Qwen/Qwen3.5-27B',
     revision='fc05daec18b0a78c049392ed2e771dde82bdf654',
-    local_dir='/opt/harbor-assets/qwen3.5-27b',
+    local_dir='/opt/models/qwen-template',
     allow_patterns=['config.json', 'tokenizer.json', 'tokenizer_config.json', 'chat_template.jinja'],
 )
 VLLM_RUNTIME_ASSET_EOF
-RUN rm -rf /opt/harbor-assets/qwen3.5-27b/.cache /root/.cache/huggingface \
- && test -f /opt/harbor-assets/qwen3.5-27b/config.json \
- && test -f /opt/harbor-assets/qwen3.5-27b/tokenizer.json \
- && test -f /opt/harbor-assets/qwen3.5-27b/tokenizer_config.json \
- && test -f /opt/harbor-assets/qwen3.5-27b/chat_template.jinja \
- && test -z "$(find /opt/harbor-assets/qwen3.5-27b -type f \
+RUN rm -rf /opt/models/qwen-template/.cache /root/.cache/huggingface \
+ && test -f /opt/models/qwen-template/config.json \
+ && test -f /opt/models/qwen-template/tokenizer.json \
+ && test -f /opt/models/qwen-template/tokenizer_config.json \
+ && test -f /opt/models/qwen-template/chat_template.jinja \
+ && test -z "$(find /opt/models/qwen-template -type f \
       \( -name '*.bin' -o -name '*.gguf' -o -name '*.pt' -o -name '*.pth' -o -name '*.safetensors' \) \
       -print -quit)"
 LABEL ai.infra.bench.runtime-asset-repository=Qwen/Qwen3.5-27B \

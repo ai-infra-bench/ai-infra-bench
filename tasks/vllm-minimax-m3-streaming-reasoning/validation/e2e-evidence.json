@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-08-31T09:22:49+08:00",
+  "recorded_at": "2026-08-31T18:14:32+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-223",
     "instance_id": "vllm-project__vllm-45718",
@@ -26,27 +26,27 @@
     "instruction_sha256": "c7555a03a7e152ea86945249c5471040702ea53e822a1b2e68e8a950130de1dc",
     "oracle_patch_sha256": "d292b3b7636132a78428c6c5c9e85b4004f4944e6a5d1f7eabdcb88ae9059033",
     "test_script_sha256": "36b2bd098caa09b25f1b1646a9a6941adab9d98752c473dbbe08347f165c4fc7",
-    "regression_test_sha256": "83ff19282b20a012478ebea30152b3bf3b3096d143ac4578592bd182e06fd53b",
-    "junit_checker_sha256": "d120f7e52512a0f7c9fcb4b60d584bef1420b131f36da4375359a7536509b533",
-    "real_tokenizer_test_sha256": "a8f40f568b10a04affaa4bf638ec168d7f33481187e5032a31eef3329464e67a",
-    "real_http_mcp_test_sha256": "a6c195c84724c808fb158bb20ab28b4f77c386f278ba925cb00ea367c3f745ba"
+    "regression_test_sha256": "84f61c5deaed29e6df6908ca77eaba2359842695aa4073415b18f555d8722673",
+    "junit_checker_sha256": "ae31379f0e72494968c6665f9b5632c9c45c50415a08b95ebefc22386bb5a779",
+    "real_tokenizer_test_sha256": "5686ea24963712c5632ccedf0d3d010e13f19244f0a44dbfd42c16e84f4742dd",
+    "real_http_mcp_test_sha256": "f70eafd48ed18b87f3d0232af6bf3f2aef3e7a29610cf7dfd4871685dc1b6570"
   },
   "verifier_contract": {
     "asserts_private_implementation_structure": false,
-    "behavior_cases": 17,
+    "behavior_cases": 20,
     "behaviors": [
-      "complete visible markers encoded as ordinary runtime tokens are consumed",
-      "markers split across multiple network deltas are buffered and consumed",
-      "enabled and adaptive streaming modes route reasoning and content correctly",
-      "existing atomic-marker, plain streaming, and non-streaming behavior remains unchanged",
-      "token helper methods recognize marker token sequences",
-      "a streamed MCP-backed runbook request separates reasoning while preserving its already-correct structured tool call"
+      "complete visible markers encoded as ordinary runtime pieces are hidden while their text is emitted as reasoning",
+      "markers split at varied streaming-delta boundaries are buffered without leaking partial marker text",
+      "existing atomic-marker, plain streaming, and prefilled-reasoning behavior remains unchanged",
+      "non-streaming reasoning and content remain unchanged",
+      "streamed requests with varied reasoning, function names, and arguments preserve structured tool calls"
     ],
-    "collection_integrity": "JUnit must contain exactly 17 unique, passing, non-skipped cases"
+    "public_boundary": "Tests construct the parser through ParserManager and assert only parse/parse_delta response fields; they do not import the MiniMax parser implementation, access private parser state, or assert helper method shapes.",
+    "collection_integrity": "JUnit must contain exactly 20 unique, passing, non-skipped cases"
   },
   "real_lifecycle_boundary": {
-    "kind": "real MiniMax M3 tokenizer plus vLLM Chat request, combined reasoning/tool parser, and local HTTP SSE lifecycle",
-    "entrypoint": "HTTP POST /v1/chat/completions -> ChatCompletionRequest -> DelegatingParser -> MiniMaxM3ReasoningParser and MinimaxM3ToolParser",
+    "kind": "pinned MiniMax M3 tokenizer plus vLLM's registered combined parser and a local HTTP SSE lifecycle",
+    "entrypoint": "HTTP POST /v1/chat/completions -> ChatCompletionRequest -> ParserManager -> registered MiniMax reasoning/tool parser",
     "real_marker_vocab_ids": [200059, 200060],
     "exact_issue_chunks": 5,
     "cross_delta_chunks": 6,
@@ -54,23 +54,27 @@
     "mcp_backed_tool": "search_incident_runbooks",
     "stream_tool_call_verified": true,
     "nonstream_comparison_verified": true,
+    "http_sse_bytes_fragmented": true,
     "model_runner_executed": false,
-    "limitation": "The verifier uses the pinned real tokenizer and chat metadata without model weights. It sends a real local HTTP request through the production request schema and combined parser while supplying deterministic generated token IDs at the model-output boundary."
+    "limitation": "The verifier uses the pinned real tokenizer and chat metadata without model weights. It sends real local HTTP requests through the production request schema and registered combined parser while supplying deterministic generated token IDs at the model-output boundary."
   },
   "repeated_runs": [
-    {"case": "base", "rounds": 5, "rewards": [0, 0, 0, 0, 0], "behavior_tests_each_round": {"passed": 6, "failed": 11}, "e2e_exit_codes": [1, 1, 1, 1, 1], "http_exit_codes": [1, 1, 1, 1, 1]},
-    {"case": "oracle", "rounds": 5, "rewards": [1, 1, 1, 1, 1], "behavior_tests_each_round": {"passed": 17, "failed": 0}, "e2e_exit_codes": [0, 0, 0, 0, 0], "http_exit_codes": [0, 0, 0, 0, 0]}
+    {"case": "base", "rounds": 5, "rewards": [0, 0, 0, 0, 0], "behavior_tests_each_round": {"passed": 7, "failed": 13}, "e2e_exit_codes": [1, 1, 1, 1, 1], "http_exit_codes": [1, 1, 1, 1, 1]},
+    {"case": "oracle", "rounds": 5, "rewards": [1, 1, 1, 1, 1], "behavior_tests_each_round": {"passed": 20, "failed": 0}, "e2e_exit_codes": [0, 0, 0, 0, 0], "http_exit_codes": [0, 0, 0, 0, 0]}
   ],
   "adversarial_runs": [
-    {"case": "ignore_enabled_mode", "patch_sha256": "12f8425cb8719c8b270fb5ed0d75bef4ff5a2d65f444fb8ece111727b654224c", "reward": 0, "tests_passed": 16, "tests_failed": 1, "e2e_exit_code": 0, "http_exit_code": 0},
-    {"case": "drop_cross_delta_marker_buffering", "patch_sha256": "8a5098e47a201b216f4da0ac8831200646a0b56a0c951294b76c3b6ecdec5ff3", "reward": 0, "tests_passed": 14, "tests_failed": 3, "e2e_exit_code": 1, "http_exit_code": 0},
-    {"case": "force_atomic_marker_helpers", "patch_sha256": "171e092309d02e48c249047cc0ce225e7a6a9ddb95dcdc515cb1f6e59e726918", "reward": 0, "tests_passed": 16, "tests_failed": 1, "e2e_exit_code": 0, "http_exit_code": 0}
+    {"case": "ignore_prefilled_reasoning_mode", "patch_sha256": "12f8425cb8719c8b270fb5ed0d75bef4ff5a2d65f444fb8ece111727b654224c", "reward": 0, "tests_passed": 18, "tests_failed": 2, "e2e_exit_code": 0, "http_exit_code": 0},
+    {"case": "drop_cross_delta_marker_buffering", "patch_sha256": "8a5098e47a201b216f4da0ac8831200646a0b56a0c951294b76c3b6ecdec5ff3", "reward": 0, "tests_passed": 13, "tests_failed": 7, "e2e_exit_code": 1, "http_exit_code": 0},
+    {"case": "break_nonstreaming_regression", "patch_sha256": "1b4af3db782466957d96113d2bf44611e3192abe6607772e376a188832e7a457", "reward": 0, "tests_passed": 18, "tests_failed": 2, "e2e_exit_code": 0, "http_exit_code": 1}
+  ],
+  "alternative_implementation_runs": [
+    {"case": "atomic_marker_helpers_with_text_streaming", "patch_sha256": "171e092309d02e48c249047cc0ce225e7a6a9ddb95dcdc515cb1f6e59e726918", "reward": 1, "tests_passed": 20, "tests_failed": 0, "e2e_exit_code": 0, "http_exit_code": 0}
   ],
   "harbor": {
     "version": "0.22.0",
-    "job_id": "f7ea6d28-744b-4447-b541-9ed717ffbe1c",
-    "trial_id": "e4253d58-1206-44de-965d-04f0c5830eb5",
-    "input_task_checksum": "6f5d752b14e74129bf84ef25f6b821d238b023384a04f054700f5e6a43bfcd86",
+    "job_id": "afa4ead7-ab1c-465a-a579-9baedbdaba93",
+    "trial_id": "f11f368c-2409-4732-841d-9318d097e786",
+    "input_task_checksum": "d58a8ebc361d0ccc829d8189a24f80019cdbeaa19a66ef3624867ede82a49d2e",
     "agent": "oracle",
     "environment": "docker",
     "n_completed_trials": 1,
@@ -81,7 +85,7 @@
     "integrity_exit_code": 0,
     "e2e_exit_code": 0,
     "http_exit_code": 0,
-    "runtime_seconds": 31,
+    "runtime_seconds": 30,
     "canonical_image_retained_after_run": true
   },
   "provenance_gates": {

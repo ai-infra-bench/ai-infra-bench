@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-08-30T21:43:30+08:00",
+  "recorded_at": "2026-08-31T14:52:44+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-094",
     "instance_id": "vllm-project__vllm-37307",
@@ -17,51 +17,117 @@
   "artifacts": {
     "instruction_sha256": "ea46c506c6b2c13703c748d01110fd673300f3c987cec9fe93140253020970b6",
     "oracle_patch_sha256": "840dc2528a2f9aa0e08e30024a3a4dbabd0564e669653c2e2c5793e2cee68c71",
-    "test_script_sha256": "419195504dee8f6478692c3d45be2d583be4091abdb10fc10a9195585f1e7199",
-    "regression_test_sha256": "4c7608974fc346a4a7ecba8009dd956aea26feea7049b3392ba4454963fed749",
-    "insufficient_patch_sha256": "ac3428fe5a05fd029235cd8119eb30d6fa04916db0df4bd52d82e06c70248474"
+    "test_script_sha256": "8d0cddb162d32b16713ddf6a7f265b89d1b8dd1be9c4c07698e9974eaec6cc39",
+    "regression_test_sha256": "6667f7e7e2b6a71e444faef05dc3ea847376bc58ed7704f65d0befa5818121a5",
+    "junit_checker_sha256": "bc7d6f4275db1208fd6c38b12f42b923c857c28a6c8bfec13824c4b8d7e37a41",
+    "scheduler_probe_sha256": "e91ddbb0a61c3f08fd52e1d2c28c98ed1a3d725aa8875a1d71acee6013edcd9c",
+    "real_scheduler_lifecycle_sha256": "58b738443f54fc1499d2f451c78c72e36794623949ce9ccbb8453f9b1ea3438c",
+    "real_cpu_server_sha256": "b00e69cfc507c4bc70ce1de9ff8209e0c50e80ed35dc11e7707f3c199030392e"
   },
-  "runs": [
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "imports_source_test_utilities": false,
+    "behavior_cases": 11,
+    "behaviors": [
+      "six hidden KV-capacity matrices complete without target preemption or computed-token regression",
+      "the incumbent decode request and the long waiting request both eventually finish",
+      "three requests that fit make progress before the incumbent finishes instead of being globally serialized",
+      "two prefix-cache configurations preserve a nonzero cache hit and complete without preemption"
+    ],
+    "authoritative_boundary": "Scheduler schedule/update_from_output lifecycle and serialized HTTP completion responses",
+    "collection_integrity": "JUnit must contain exactly 11 unique, passing, non-skipped cases"
+  },
+  "hidden_boundaries": {
+    "tests_mounted_only_during_verification": true,
+    "scheduler_lifecycle": {
+      "uses_real_scheduler": true,
+      "uses_real_scheduler_output": true,
+      "uses_real_model_runner_output_type": true,
+      "rounds_run_until_both_requests_finish": true,
+      "model_runner_executed": false,
+      "purpose": "deterministically expose repeated preemption and computed-token rollback"
+    },
+    "cpu_http_server": {
+      "starts_real_vllm_serve": true,
+      "creates_real_local_opt_weights": true,
+      "uses_real_cpu_model_runner": true,
+      "uses_real_http_requests": true,
+      "concurrent_requests": 2,
+      "purpose": "verify the scheduler change does not break a complete CPU engine and HTTP serving path"
+    }
+  },
+  "repeated_runs": [
     {
       "case": "base",
-      "repetitions": 5,
+      "rounds": 5,
       "rewards": [0, 0, 0, 0, 0],
-      "tests_passed": 2,
-      "tests_failed": 1
+      "behavior_tests_each_round": {"passed": 5, "failed": 6},
+      "lifecycle_exit_codes": [1, 1, 1, 1, 1],
+      "server_exit_codes": [0, 0, 0, 0, 0]
     },
     {
       "case": "oracle",
-      "repetitions": 5,
+      "rounds": 5,
       "rewards": [1, 1, 1, 1, 1],
-      "tests_passed": 3,
-      "tests_failed": 0
-    },
-    {
-      "case": "accounting_helper_without_scheduler_gate",
-      "reward": 0,
-      "tests_passed": 2,
-      "tests_failed": 1
+      "behavior_tests_each_round": {"passed": 11, "failed": 0},
+      "lifecycle_exit_codes": [0, 0, 0, 0, 0],
+      "server_exit_codes": [0, 0, 0, 0, 0]
     }
   ],
-  "behavior_coverage": {
-    "long_request_fits_total_capacity_but_not_remaining_capacity": true,
-    "incumbent_decode_continues": true,
-    "normally_fitting_request_is_admitted": true,
-    "local_prefix_cache_credit_is_preserved": true,
-    "implementation_helper_names_are_not_asserted": true
+  "adversarial_runs": [
+    {
+      "case": "accounting_helper_without_scheduler_gate",
+      "patch_sha256": "ac3428fe5a05fd029235cd8119eb30d6fa04916db0df4bd52d82e06c70248474",
+      "reward": 0,
+      "tests_passed": 5,
+      "tests_failed": 6,
+      "lifecycle_exit_code": 1,
+      "server_exit_code": 0
+    },
+    {
+      "case": "hardcoded_visible_prompt_length_only",
+      "patch_sha256": "cca9f91005bcd395f79d92bc1313e4ca7c549d2617ce821dba714583622f484f",
+      "reward": 0,
+      "tests_passed": 7,
+      "tests_failed": 4,
+      "lifecycle_exit_code": 1,
+      "server_exit_code": 0
+    },
+    {
+      "case": "prevents_preemption_by_starving_large_prompts",
+      "patch_sha256": "2930d8ec8aad7ecc2f5bf086883e16179105e47b610a7a8bad814065559658ce",
+      "reward": 0,
+      "tests_passed": 8,
+      "tests_failed": 3,
+      "lifecycle_exit_code": 1,
+      "server_exit_code": 0
+    }
+  ],
+  "conforming_alternative_run": {
+    "change": "renamed the Oracle configuration, capacity method, and internal variables before verification",
+    "reward": 1,
+    "tests_passed": 11,
+    "tests_failed": 0,
+    "lifecycle_exit_code": 0,
+    "server_exit_code": 0
   },
   "harbor": {
     "version": "0.22.0",
-    "job_id": "f116075e-6d94-49a8-a795-548cc44d4946",
-    "trial_id": "922c7136-2db7-4103-a498-25d751a1b7f3",
-    "input_task_checksum": "442b78752aa8916dd31b26fc997e462339cbccb558f8dbb40af5efa0b44c5ea0",
+    "job_id": "759935b5-5f66-4afc-a19b-ef251c09b1f1",
+    "trial_id": "e4ab5406-1192-44cb-946e-6284f7cffad1",
+    "input_task_checksum": "a25aaf456a2c529c3f817d4c90abb72f8f0bbefcdcd56265ca26f4d0e04a4c5a",
     "agent": "oracle",
     "environment": "docker",
     "n_completed_trials": 1,
     "n_errored_trials": 0,
     "reward": 1,
     "command_exit_code": 0,
-    "runtime_seconds": 28,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "lifecycle_exit_code": 0,
+    "server_exit_code": 0,
+    "runtime_seconds": 52,
     "canonical_image_retained_after_run": true
   },
   "provenance_gates": {

@@ -1,0 +1,41 @@
+diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/store/worker.py b/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/store/worker.py
+--- a/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/store/worker.py
++++ b/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/store/worker.py
+@@ -43,7 +43,13 @@ from vllm.v1.core.kv_cache_utils import (
+     maybe_convert_block_hash,
+     resolve_kv_cache_block_sizes,
+ )
+-from vllm.v1.kv_cache_interface import KVCacheConfig, KVCacheGroupSpec
++from vllm.v1.kv_cache_interface import (
++    FullAttentionSpec,
++    KVCacheConfig,
++    KVCacheGroupSpec,
++    MambaSpec,
++    SlidingWindowSpec,
++)
+ from vllm.v1.serial_utils import MsgpackDecoder, MsgpackEncoder
+
+ from .metrics import MooncakeStoreConnectorStats
+@@ -738,7 +744,22 @@ class KVCacheStoreRecvingThread(KVTransferThread):
+         size_list: list[list[int]] = []
+         key_list: list[str] = []
+         for g_idx, db in enumerate(self.token_databases):
+             mask = load_mask_per_group[g_idx]
++            spec = self.coord.kv_cache_groups[g_idx].kv_cache_spec
++            expected_chunks = token_len // db.block_size
++            if isinstance(spec, FullAttentionSpec):
++                mask = [True] * expected_chunks
++            elif isinstance(spec, SlidingWindowSpec):
++                tail = min(
++                    expected_chunks,
++                    (spec.sliding_window - 1 + spec.block_size - 1)
++                    // spec.block_size,
++                )
++                mask = [False] * (expected_chunks - tail) + [True] * tail
++            elif isinstance(spec, MambaSpec):
++                mask = [False] * max(0, expected_chunks - 1)
++                if expected_chunks:
++                    mask.append(True)
+             for start, end, key in db.process_tokens(
+                 token_len, req_meta.block_hashes, mask_num
+             ):

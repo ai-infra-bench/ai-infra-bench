@@ -10,7 +10,8 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 600 \
     -p no:cacheprovider -v -s --junitxml=/logs/verifier/junit.xml \
     /tests/test_regression.py || pytest_rc=$?
 python /tests/check_junit.py /logs/verifier/junit.xml || integrity_rc=$?
-timeout 180 python /tests/test_real_filesystem_namespace.py \
+PYTHONPATH=/tests:/workspace/vllm timeout 180 \
+  python /tests/test_real_filesystem_namespace.py \
   > /logs/verifier/real_filesystem_namespace.log 2>&1 || e2e_rc=$?
 cat /logs/verifier/real_filesystem_namespace.log
 if [ "$pytest_rc" -eq 0 ] && [ "$integrity_rc" -eq 0 ] \

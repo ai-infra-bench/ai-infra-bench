@@ -32,4 +32,4 @@ The SDK receives HTTP 500 from vLLM with this response:
 System message must be at the beginning.
 ```
 
-The first message is already a system message, so I do not understand why. Fix this, ensure that the messages and token-counting endpoints behave consistently.
+The conversation already begins with a system message, so this response does not make sense to me. Can you fix the messages and token-counting endpoints to handle this request correctly?

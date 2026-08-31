@@ -2,4 +2,4 @@ We use the persistent filesystem KV-offload tier so cached prefixes survive work
 
 The persisted block files from both runs have the same byte size, so the existing size and single-rank configuration checks accept them. The failure only appears when the second runner reuses files written by the other runner; cold V1 and cold V2 runs are individually stable.
 
-Investigate and fix this persistent-cache compatibility problem. Incompatible cache layouts must not reuse one another’s files, while configurations whose stored layout is genuinely portable across parallel settings must continue sharing the same persistent data.
+The cache may persist across restarts, but a runner must not treat files from an incompatible layout as valid hits. Configurations whose stored layout is genuinely portable across parallel settings must still be able to share the same persistent data.

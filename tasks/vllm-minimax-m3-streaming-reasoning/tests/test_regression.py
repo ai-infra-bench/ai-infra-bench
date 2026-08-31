@@ -8,9 +8,7 @@ from vllm.entrypoints.openai.chat_completion.protocol import (
     ChatCompletionToolsParam,
     FunctionDefinition,
 )
-from vllm.parser.abstract_parser import DelegatingParser, StreamState
-from vllm.reasoning.minimax_m3_reasoning_parser import MiniMaxM3ReasoningParser
-from vllm.tool_parsers.minimax_m3_tool_parser import MinimaxM3ToolParser
+from vllm.parser.parser_manager import ParserManager
 
 
 class MiniMaxTokenizer:
@@ -75,67 +73,86 @@ class RuntimeSplitTokenizer(MiniMaxTokenizer):
         return [self._add_token(character) for character in text]
 
 
-class AlwaysSplitTokenizer(MiniMaxTokenizer):
-    def tokenize(self, text):
-        return list(text)
+def _request(tools=None, stream=True):
+    return ChatCompletionRequest(
+        messages=[{"role": "user", "content": "Investigate the incident."}],
+        model="MiniMaxAI/MiniMax-M3-MXFP8",
+        stream=stream,
+        tools=tools,
+        tool_choice="auto" if tools else None,
+    )
 
 
-def _parser(tokenizer=None, mode=None):
+def _parser(tokenizer=None, tools=None, thinking_mode=None):
     tokenizer = tokenizer or MiniMaxTokenizer()
-    kwargs = {} if mode is None else {"thinking_mode": mode}
-    return MiniMaxM3ReasoningParser(tokenizer, chat_template_kwargs=kwargs), tokenizer
+    parser_cls = ParserManager.get_parser(
+        tool_parser_name="minimax_m3" if tools else None,
+        reasoning_parser_name="minimax_m3",
+        enable_auto_tools=bool(tools),
+        model_name="MiniMaxAI/MiniMax-M3-MXFP8",
+    )
+    assert parser_cls is not None
+    chat_template_kwargs = (
+        {"thinking_mode": thinking_mode} if thinking_mode is not None else {}
+    )
+    return (
+        parser_cls(
+            tokenizer,
+            tools or [],
+            chat_template_kwargs=chat_template_kwargs,
+        ),
+        tokenizer,
+    )
 
 
-def _stream(parser, tokenizer, chunks, split_runtime=False):
-    previous_text = ""
-    previous_ids = []
-    reasoning_parts = []
-    content_parts = []
-    end_states = []
-    for chunk in chunks:
-        if split_runtime:
-            delta_ids = tokenizer.encode_runtime(chunk)
-        else:
-            delta_ids = tokenizer.encode(chunk, add_special_tokens=False)
-        current_text = previous_text + chunk
-        current_ids = previous_ids + delta_ids
-        delta = parser.extract_reasoning_streaming(
-            previous_text=previous_text,
-            current_text=current_text,
-            delta_text=chunk,
-            previous_token_ids=previous_ids,
-            current_token_ids=current_ids,
-            delta_token_ids=delta_ids,
+def _stream(parser, tokenizer, chunks, split_runtime=False, request=None):
+    request = request or _request()
+    deltas = []
+    for index, chunk in enumerate(chunks):
+        delta_ids = (
+            tokenizer.encode_runtime(chunk)
+            if split_runtime
+            else tokenizer.encode(chunk, add_special_tokens=False)
         )
-        end_states.append(parser.is_reasoning_end_streaming(current_ids, delta_ids))
+        delta = parser.parse_delta(
+            chunk,
+            delta_ids,
+            request,
+            finished=index == len(chunks) - 1,
+        )
         if delta is not None:
-            if delta.reasoning is not None:
-                reasoning_parts.append(delta.reasoning)
-            if delta.content is not None:
-                content_parts.append(delta.content)
-        previous_text = current_text
-        previous_ids = current_ids
-    return "".join(reasoning_parts) or None, "".join(content_parts) or None, end_states
+            deltas.append(delta)
+    reasoning = "".join(delta.reasoning or "" for delta in deltas) or None
+    content = "".join(delta.content or "" for delta in deltas) or None
+    tool_calls = [call for delta in deltas for call in delta.tool_calls or []]
+    return reasoning, content, tool_calls
 
 
 @pytest.mark.parametrize(
-    "chunks,expected_states",
+    "chunks,expected_reasoning,expected_content",
     [
-        (["<mm:think>", "Reasoning", " content", "</mm:think>", "answer"], [False, False, False, True, True]),
-        (["<mm:think>Reasoning</mm:think>answer"], [True]),
-        (["<mm:think>", "Reasoning</mm:think>answer"], [False, True]),
-        (["<mm:think>Reasoning", "</mm:think>", "answer"], [False, True, True]),
+        (["<mm:think>", "Reasoning", " content", "</mm:think>", "answer"], "Reasoning content", "answer"),
+        (["<mm:think>Reasoning</mm:think>answer"], "Reasoning", "answer"),
+        (["<mm:think>", "Reasoning</mm:think>answer"], "Reasoning", "answer"),
+        (["<mm:think>Reasoning", "</mm:think>", "answer"], "Reasoning", "answer"),
+        (["<mm:think>", "检查部署记录 ✓", "</mm:think>", "done"], "检查部署记录 ✓", "done"),
     ],
-    ids=["separate", "single-delta", "combined-end", "separate-end"],
+    ids=["separate", "single-delta", "combined-end", "separate-end", "unicode"],
 )
-def test_split_runtime_markers_route_reasoning_and_content(chunks, expected_states):
+def test_visible_markers_encoded_as_runtime_pieces(
+    chunks, expected_reasoning, expected_content
+):
     parser, tokenizer = _parser(RuntimeSplitTokenizer())
 
-    reasoning, content, states = _stream(parser, tokenizer, chunks, split_runtime=True)
+    reasoning, content, tool_calls = _stream(
+        parser, tokenizer, chunks, split_runtime=True
+    )
 
-    assert reasoning == "Reasoning content" or reasoning == "Reasoning"
-    assert content == "answer"
-    assert states == expected_states
+    assert reasoning == expected_reasoning
+    assert content == expected_content
+    assert tool_calls == []
+    assert "<mm:think>" not in (content or "")
+    assert "</mm:think>" not in (content or "")
 
 
 @pytest.mark.parametrize(
@@ -144,53 +161,67 @@ def test_split_runtime_markers_route_reasoning_and_content(chunks, expected_stat
         ["<mm:", "think>", "plan", "</mm:", "think>", "answer"],
         ["<", "mm:think>", "plan", "</", "mm:think>", "answer"],
         ["<mm:thi", "nk>plan</mm:thi", "nk>answer"],
+        ["<mm:t", "h", "ink>plan</mm:t", "h", "ink>answer"],
     ],
-    ids=["two-parts", "uneven", "inside-content"],
+    ids=["two-parts", "uneven", "inside-content", "many-small-parts"],
 )
-def test_marker_text_split_across_network_deltas(chunks):
+def test_markers_split_across_streaming_deltas(chunks):
     parser, tokenizer = _parser(RuntimeSplitTokenizer())
 
-    reasoning, content, states = _stream(parser, tokenizer, chunks, split_runtime=True)
+    reasoning, content, tool_calls = _stream(
+        parser, tokenizer, chunks, split_runtime=True
+    )
 
     assert reasoning == "plan"
     assert content == "answer"
-    assert states[-1] is True
-    assert all(marker not in (reasoning or "") + (content or "") for marker in tokenizer.special_tokens)
-
-
-@pytest.mark.parametrize("mode", ["enabled", None])
-def test_split_runtime_enabled_and_adaptive_modes(mode):
-    parser, tokenizer = _parser(RuntimeSplitTokenizer(), mode=mode)
-    chunks = ["plan", "</mm:think>", "answer"] if mode else ["<mm:think>", "plan", "</mm:think>", "answer"]
-
-    reasoning, content, states = _stream(parser, tokenizer, chunks, split_runtime=True)
-
-    assert reasoning == "plan"
-    assert content == "answer"
-    assert states[-1] is True
+    assert tool_calls == []
+    assert all(
+        marker not in (reasoning or "") + (content or "")
+        for marker in tokenizer.special_tokens
+    )
 
 
 @pytest.mark.parametrize(
-    "chunks",
+    "chunks,expected_reasoning,expected_content",
     [
-        ["<mm:think>", "plan", "</mm:think>", "answer"],
-        ["<mm:think>plan</mm:think>answer"],
-        ["plain ", "answer"],
+        (["<mm:think>", "plan", "</mm:think>", "answer"], "plan", "answer"),
+        (["<mm:think>plan</mm:think>answer"], "plan", "answer"),
+        (["plain ", "answer"], None, "plain answer"),
     ],
     ids=["atomic-separate", "atomic-combined", "plain"],
 )
-def test_existing_atomic_and_plain_streaming_behavior(chunks):
+def test_existing_streaming_outputs_remain_unchanged(
+    chunks, expected_reasoning, expected_content
+):
     parser, tokenizer = _parser()
 
-    reasoning, content, states = _stream(parser, tokenizer, chunks)
+    reasoning, content, tool_calls = _stream(parser, tokenizer, chunks)
 
-    if "think" in "".join(chunks):
-        assert reasoning == "plan"
-        assert content == "answer"
-    else:
-        assert reasoning is None
-        assert content == "plain answer"
-    assert states[-1] is True
+    assert reasoning == expected_reasoning
+    assert content == expected_content
+    assert tool_calls == []
+
+
+@pytest.mark.parametrize(
+    "tokenizer,split_runtime",
+    [(MiniMaxTokenizer(), False), (RuntimeSplitTokenizer(), True)],
+    ids=["atomic-marker", "runtime-pieces"],
+)
+def test_existing_prefilled_reasoning_mode_remains_unchanged(
+    tokenizer, split_runtime
+):
+    parser, tokenizer = _parser(tokenizer, thinking_mode="enabled")
+
+    reasoning, content, tool_calls = _stream(
+        parser,
+        tokenizer,
+        ["plan", "</mm:think>", "answer"],
+        split_runtime=split_runtime,
+    )
+
+    assert reasoning == "plan"
+    assert content == "answer"
+    assert tool_calls == []
 
 
 @pytest.mark.parametrize(
@@ -201,100 +232,89 @@ def test_existing_atomic_and_plain_streaming_behavior(chunks):
         ("</mm:think>answer", None, "answer"),
     ],
 )
-def test_nonstreaming_behavior_is_unchanged(output, expected_reasoning, expected_content):
+def test_nonstreaming_outputs_remain_unchanged(
+    output, expected_reasoning, expected_content
+):
     parser, _ = _parser()
-    request = ChatCompletionRequest(messages=[], model="test")
 
-    assert parser.extract_reasoning(output, request) == (
-        expected_reasoning,
-        expected_content,
-    )
+    reasoning, content, tool_calls = parser.parse(output, _request(stream=False))
 
-
-def test_token_helpers_recognize_split_marker_sequences():
-    parser, tokenizer = _parser(AlwaysSplitTokenizer())
-    ids = tokenizer.encode("<mm:think>abc</mm:think>def", add_special_tokens=False)
-    open_ids = tokenizer.encode("<mm:think>abc", add_special_tokens=False)
-
-    assert parser.is_reasoning_end(ids) is True
-    assert parser.is_reasoning_end(open_ids) is False
-    assert tokenizer.decode(parser.extract_content_ids(ids)) == "def"
-    assert parser.extract_content_ids(open_ids) == []
-    assert parser.count_reasoning_tokens(ids) == len(tokenizer.encode("abc"))
+    assert reasoning == expected_reasoning
+    assert content == expected_content
+    assert tool_calls == []
 
 
-def test_streamed_mcp_runbook_request_preserves_structured_tool_call():
+@pytest.mark.parametrize(
+    "tool_name,argument_name,argument_value,reasoning_text",
+    [
+        (
+            "search_incident_runbooks",
+            "service",
+            "checkout-api",
+            "I should search the current runbook first.",
+        ),
+        (
+            "lookup_deployment",
+            "release",
+            "checkout-2026.08.31",
+            "I need to inspect the deployed release.",
+        ),
+        (
+            "query_service_logs",
+            "query",
+            "status:502 AND service:edge-gateway",
+            "I should query recent gateway errors.",
+        ),
+    ],
+    ids=["instruction-example", "different-tool", "punctuated-argument"],
+)
+def test_streaming_reasoning_and_structured_tool_calls(
+    tool_name, argument_name, argument_value, reasoning_text
+):
     tokenizer = RuntimeSplitTokenizer()
     tools = [
         ChatCompletionToolsParam(
             function=FunctionDefinition(
-                name="search_incident_runbooks",
+                name=tool_name,
                 parameters={
                     "type": "object",
-                    "properties": {
-                        "service": {"type": "string"},
-                        "symptom": {"type": "string"},
-                    },
-                    "required": ["service", "symptom"],
+                    "properties": {argument_name: {"type": "string"}},
+                    "required": [argument_name],
                 },
             )
         )
     ]
-    request = ChatCompletionRequest(
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    "Checkout API is returning elevated 502s. Search the current "
-                    "incident runbooks for mitigation steps before answering."
-                ),
-            }
-        ],
-        model="MiniMaxAI/MiniMax-M3-MXFP8",
-        stream=True,
-        tools=tools,
-        tool_choice="auto",
-    )
-    parser = DelegatingParser(tokenizer)
-    parser._reasoning_parser = MiniMaxM3ReasoningParser(tokenizer)
-    parser._tool_parser = MinimaxM3ToolParser(tokenizer, tools=tools)
-    parser._engine_based = False
-    parser._stream_state = StreamState(engine_based=False)
+    request = _request(tools=tools)
+    parser, tokenizer = _parser(tokenizer, tools=tools)
     ns = "]<]minimax[>["
     tool_text = (
         f"{ns}<tool_call>\n"
-        f'{ns}<invoke name="search_incident_runbooks">'
-        f"{ns}<service>checkout-api{ns}</service>"
-        f"{ns}<symptom>elevated 502s{ns}</symptom>"
+        f'{ns}<invoke name="{tool_name}">'
+        f"{ns}<{argument_name}>{argument_value}{ns}</{argument_name}>"
         f"{ns}</invoke>\n"
         f"{ns}</tool_call>"
     )
     chunks = [
-        "<mm:think>",
-        "I should search the current checkout incident runbook first.",
-        "</mm:think>",
+        "<mm:",
+        "think>",
+        reasoning_text,
+        "</mm:",
+        "think>",
         tool_text,
     ]
-    deltas = []
-    for index, chunk in enumerate(chunks):
-        delta = parser.parse_delta(
-            chunk,
-            tokenizer.encode_runtime(chunk),
-            request,
-            finished=index == len(chunks) - 1,
-        )
-        if delta is not None:
-            deltas.append(delta)
 
-    assert "".join(delta.reasoning or "" for delta in deltas) == (
-        "I should search the current checkout incident runbook first."
+    reasoning, content, tool_calls = _stream(
+        parser,
+        tokenizer,
+        chunks,
+        split_runtime=True,
+        request=request,
     )
-    visible_content = "".join(delta.content or "" for delta in deltas)
-    assert "<mm:think>" not in visible_content
-    assert "</mm:think>" not in visible_content
-    tool_calls = [call for delta in deltas for call in delta.tool_calls or []]
+
+    assert reasoning == reasoning_text
+    assert content is None
     assert len(tool_calls) == 1
-    assert tool_calls[0].function.name == "search_incident_runbooks"
+    assert tool_calls[0].function.name == tool_name
     assert tool_calls[0].function.arguments == (
-        '{"service":"checkout-api","symptom":"elevated 502s"}'
+        "{" + f'"{argument_name}":"{argument_value}"' + "}"
     )

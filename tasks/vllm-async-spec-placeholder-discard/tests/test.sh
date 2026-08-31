@@ -5,11 +5,10 @@ cd /workspace/vllm
 pytest_rc=0
 integrity_rc=0
 e2e_rc=0
-target=tests/v1/core/test_harbor_async_spec_placeholder_discard.py
-cp /tests/test_regression.py "$target"
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 600 \
   pytest --noconftest -c /dev/null --rootdir=/workspace/vllm \
-    -p no:cacheprovider -v -s --junitxml=/logs/verifier/junit.xml "$target" \
+    -p no:cacheprovider -v -s --junitxml=/logs/verifier/junit.xml \
+    /tests/test_regression.py \
   || pytest_rc=$?
 python /tests/check_junit.py /logs/verifier/junit.xml || integrity_rc=$?
 timeout 120 python /tests/test_real_reset_lifecycle.py \

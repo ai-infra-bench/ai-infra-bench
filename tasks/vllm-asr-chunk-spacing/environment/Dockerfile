@@ -4,7 +4,7 @@
 
 ARG VLLM_BASE_SHA=a8134aef4e0cac7ffb72b24d89378df09d88f9cc
 ARG VLLM_DEPENDENCY_CUTOFF=2026-04-09T19:42:17Z
-ARG VLLM_CACHE_NAMESPACE=a8134aef4e0cac7ffb72b24d89378df09d88f9cc-35238848716a16ae
+ARG VLLM_CACHE_NAMESPACE=a8134aef4e0cac7ffb72b24d89378df09d88f9cc-abfdf8e934f21c4a
 ARG VLLM_REPO=https://github.com/vllm-project/vllm.git
 
 ######################### PINNED SOURCE #########################
@@ -80,7 +80,7 @@ RUN case "$TARGETARCH" in \
  && cargo nextest --version
 
 ARG VLLM_DEPENDENCY_CUTOFF
-# Exact task dependency lock (sha256:35238848716a16aecef9733a42715ce6d1b28272911bb3cd65f9ba4d4b624dbe) is embedded so this
+# Exact task dependency lock (sha256:abfdf8e934f21c4abcc43fb8f55cd165f9b25e6dee9ae5240914a132f1b14f56) is embedded so this
 # Dockerfile remains independently buildable with an empty context.
 RUN --mount=type=cache,id=vllm-uv-downloads-v3,target=/root/.cache/uv,sharing=locked <<'VLLM_INSTALL_EOF'
 set -eu
@@ -131,7 +131,9 @@ certifi==2026.2.25
     #   requests
     #   sentry-sdk
 cffi==2.0.0
-    # via cryptography
+    # via
+    #   cryptography
+    #   soundfile
 charset-normalizer==3.4.7
     # via requests
 click==8.3.2
@@ -306,6 +308,7 @@ numpy==2.2.6
     #   mistral-common
     #   numba
     #   opencv-python-headless
+    #   soundfile
     #   torchvision
     #   transformers
     #   xgrammar
@@ -534,6 +537,8 @@ sniffio==1.3.1
     # via
     #   anthropic
     #   openai
+soundfile==0.13.1
+    # via -r extras.in
 sse-starlette==3.3.4
     # via mcp
 starlette==0.52.1

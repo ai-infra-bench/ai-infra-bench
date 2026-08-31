@@ -9,9 +9,8 @@ import httpx
 from transformers import AutoTokenizer
 
 from vllm.entrypoints.openai.chat_completion.protocol import ChatCompletionRequest
-from vllm.parser.abstract_parser import DelegatingParser, StreamState
-from vllm.reasoning.minimax_m3_reasoning_parser import MiniMaxM3ReasoningParser
-from vllm.tool_parsers.minimax_m3_tool_parser import MinimaxM3ToolParser
+from vllm.parser.abstract_parser import Parser
+from vllm.parser.parser_manager import ParserManager
 
 
 MODEL_PATH = "/opt/models/minimax-m3"
@@ -43,13 +42,15 @@ def runtime_ids(chunk: str) -> list[int]:
     return tokenizer.encode(chunk, add_special_tokens=False)
 
 
-def combined_parser(request: ChatCompletionRequest) -> DelegatingParser:
-    parser = DelegatingParser(tokenizer)
-    parser._reasoning_parser = MiniMaxM3ReasoningParser(tokenizer)
-    parser._tool_parser = MinimaxM3ToolParser(tokenizer, tools=request.tools or [])
-    parser._engine_based = False
-    parser._stream_state = StreamState(engine_based=False)
-    return parser
+def combined_parser(request: ChatCompletionRequest) -> Parser:
+    parser_cls = ParserManager.get_parser(
+        tool_parser_name="minimax_m3",
+        reasoning_parser_name="minimax_m3",
+        enable_auto_tools=True,
+        model_name=request.model,
+    )
+    assert parser_cls is not None
+    return parser_cls(tokenizer, request.tools or [])
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -124,8 +125,16 @@ class Handler(BaseHTTPRequestHandler):
                     }
                 ],
             }
-            self.wfile.write(f"data: {json.dumps(item)}\n\n".encode())
-            self.wfile.flush()
+            encoded = f"data: {json.dumps(item)}\n\n".encode()
+            split_at = max(1, len(encoded) // 3)
+            pieces = (
+                encoded[:split_at],
+                encoded[split_at : split_at * 2],
+                encoded[split_at * 2 :],
+            )
+            for piece in pieces:
+                self.wfile.write(piece)
+                self.wfile.flush()
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
 
@@ -203,6 +212,7 @@ def main() -> int:
             ),
         }
         assert reasoning == REASONING
+        assert content == ""
         assert "<mm:think>" not in content and "</mm:think>" not in content
         assert len(tool_calls) == 1
         assert tool_calls[0]["function"]["name"] == "search_incident_runbooks"

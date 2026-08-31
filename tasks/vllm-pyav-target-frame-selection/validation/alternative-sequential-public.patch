@@ -1,0 +1,22 @@
+diff --git a/vllm/multimodal/video.py b/vllm/multimodal/video.py
+--- a/vllm/multimodal/video.py
++++ b/vllm/multimodal/video.py
+@@ -496,9 +496,15 @@ class VideoBackend(VideoLoader, OpenCVVideoBackendMixin, PyAVVideoBackendMixin):
+                 frame_idx = cls.compute_frames_index_to_sample(
+                     source=source, target=target, **kwargs
+                 )
+-                frames, valid = cls.decode_frames(
+-                    container, frame_idx, source.original_fps, source.duration
+-                )
++                decoded = [
++                    frame.to_ndarray(format="rgb24")
++                    for frame in container.decode(video=0)
++                ]
++                valid = [idx for idx in frame_idx if idx < len(decoded)]
++                if valid:
++                    frames = np.stack([decoded[idx] for idx in valid])
++                else:
++                    frames = np.empty((0,), dtype=np.uint8)
+         else:
+             raise ValueError(
+                 f"Unknown video codec backend {backend!r}; "

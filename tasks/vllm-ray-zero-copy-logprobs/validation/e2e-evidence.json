@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-08-31T00:20:08+08:00",
+  "recorded_at": "2026-08-31T16:56:40+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-124",
     "instance_id": "vllm-project__vllm-35736",
@@ -21,37 +21,50 @@
     "instruction_sha256": "9cf40ed777df0ef7ac2da900b577a962c29babfeda3194c7388b0e723d789333",
     "oracle_patch_sha256": "466e1258010553ae22e20785cd019171555233afcaeff84490e591eb211e0dcb",
     "test_script_sha256": "e02608fe5bf753ffaf7f24c709ca2a70f69ee0bdaab4ad50da2ccafa4f47497e",
-    "regression_test_sha256": "1d0f005a239edba78743e3a4d54ec09442c11d110cbe9897ceaebe54712ab195",
-    "real_ray_channel_test_sha256": "f389c117ba7bfe63656ed581866125daa14b4103e7ba586d87009664cf78e9aa",
-    "junit_checker_sha256": "da1eeb33362c12d38bd6a76035ab6cbdcf8fcdab060c08df43642bf7736e92d5",
-    "nonblocking_only_patch_sha256": "b2ccecfb289147d0bb31b4011d81edec0ddb6f6cff514117a65b2e4fc896a350",
+    "regression_test_sha256": "eec9b089b6d0ada5f18aed9388bd235e772b8b690518721eb9c34993eb9e2c30",
+    "real_ray_channel_test_sha256": "6faf0704f8d0f2b7732f5592bfe78e32bb2bdc8f849a42aca657431397422675",
+    "junit_checker_sha256": "cdec2660895f6d8c105df61cf83404d87b9d93de3448c9797b8bd05f5737a644",
+    "alternative_copy_all_arrays_patch_sha256": "fa7db33fe57acd227858f52417dadfb35aa56926cf07077b63f3713559dc5e33",
+    "alternative_direct_paths_patch_sha256": "a3b42f2ff554a2f69588240503f1ae1f45c961dd54e357bd285a33bdd0814ca0",
+    "alternative_nonblocking_path_patch_sha256": "e4f067a451a66eade372d25695af9e499613b9372cc225c30d73d06326e6c2f4",
     "blocking_only_patch_sha256": "540931cb117228056747be87d127554bccdba9a4514cfdf0d6c8e964ccf01f42",
-    "direct_paths_only_patch_sha256": "047390904730fe595d441cc1b0ffece75b72ff11f9ff967320c8f190b553877d",
+    "token_ids_only_patch_sha256": "63d9aabe122826cd7be2fa85bc316bcdc79fa413063bda7acb62e067edc67b38",
+    "small_visible_shape_only_patch_sha256": "e289bd503fc0e3a84f96a506fe4d3a36f498eca8013313746bbe4063903c9639",
     "skip_all_conftest_patch_sha256": "cc58f7645c9d49d350408a63a7ebcf65e10e8eb4f3cd2f00ad3a8f30f2b038cd"
   },
   "verifier_coverage": {
-    "unit_tests": 10,
+    "unit_tests": 11,
     "unit_dimensions": [
-      "blocking direct result",
-      "nonblocking FutureWrapper result",
-      "blocking KV-output aggregation for every worker",
-      "nonblocking KV-output aggregation for every worker",
-      "mixed read-only and writable NumPy arrays",
-      "value and dtype preservation",
-      "prompt-logprob and unrelated-field preservation",
-      "None logprobs through blocking and nonblocking paths",
+      "borrowed read-only arrays across four shape and dtype profiles",
+      "mixed read-only and writable ownership without prescribing copy policy",
+      "value, shape, dtype, request metadata, and cumulative-token preservation",
+      "prompt-logprob value preservation without object-identity requirements",
+      "empty logprob arrays",
+      "None logprobs and unrelated sampled-token fields",
+      "memory detachment measured with shares_memory rather than writable flags or identity",
       "JUnit collection, uniqueness, and no-skip integrity"
+    ],
+    "implementation_independence": [
+      "does not import or call the oracle helper",
+      "does not require in-place mutation or preservation of ModelRunnerOutput identity",
+      "does not require writable arrays to retain identity",
+      "accepts copying only borrowed arrays or copying every NumPy array",
+      "does not call the private RayDistributedExecutor._execute_dag method",
+      "does not require connector aggregation paths absent from the instruction"
     ],
     "real_ray_channel": {
       "logical_nodes": 2,
       "distinct_raylets": true,
       "distinct_node_ids": true,
+      "distinct_node_addresses": true,
       "actors_pinned_to_different_nodes": true,
       "compiled_dag_stages": 2,
       "channel_buffer_slots": 1,
-      "model_runner_outputs_held_concurrently": 3,
+      "model_runner_outputs_held_concurrently": 7,
+      "covered_shapes": [[1, 2], [3, 5], [64, 32], [2, 1], [7, 11], [4, 17]],
+      "includes_none_logprobs": true,
       "network_mode": "none",
-      "scope_boundary": "real two-node Ray compiled-DAG channel carrying vLLM ModelRunnerOutput; no GPU model server"
+      "scope_boundary": "real two-raylet compiled-DAG channel carrying vLLM ModelRunnerOutput through the PP-style FutureWrapper result boundary; the CPU platform has no Ray device key, so a full PP=2 model executor or HTTP server cannot start in this image"
     }
   },
   "runs": [
@@ -60,7 +73,7 @@
       "repetitions": 5,
       "rewards": [0, 0, 0, 0, 0],
       "unit_tests_passed_per_run": [3, 3, 3, 3, 3],
-      "unit_tests_failed_per_run": [7, 7, 7, 7, 7],
+      "unit_tests_failed_per_run": [8, 8, 8, 8, 8],
       "ray_cluster_exit_codes": [0, 0, 0, 0, 0],
       "ray_channel_exit_codes": [1, 1, 1, 1, 1],
       "observed_channel_error": "RayChannelTimeoutError"
@@ -69,47 +82,68 @@
       "case": "oracle",
       "repetitions": 5,
       "rewards": [1, 1, 1, 1, 1],
-      "unit_tests_passed_per_run": [10, 10, 10, 10, 10],
+      "unit_tests_passed_per_run": [11, 11, 11, 11, 11],
       "unit_tests_failed_per_run": [0, 0, 0, 0, 0],
       "ray_cluster_exit_codes": [0, 0, 0, 0, 0],
       "ray_channel_exit_codes": [0, 0, 0, 0, 0],
-      "successful_channel_reads_per_run": [3, 3, 3, 3, 3]
+      "successful_channel_reads_per_run": [7, 7, 7, 7, 7]
     },
     {
-      "case": "nonblocking_only",
-      "reward": 0,
-      "unit_tests_passed": 8,
-      "unit_tests_failed": 2,
-      "ray_channel_exit_code": 1
+      "case": "alternative_copy_all_arrays",
+      "reward": 1,
+      "unit_tests_passed": 11,
+      "unit_tests_failed": 0,
+      "ray_channel_exit_code": 0
+    },
+    {
+      "case": "alternative_nonblocking_path",
+      "reward": 1,
+      "unit_tests_passed": 11,
+      "unit_tests_failed": 0,
+      "ray_channel_exit_code": 0
+    },
+    {
+      "case": "alternative_direct_paths",
+      "reward": 1,
+      "unit_tests_passed": 11,
+      "unit_tests_failed": 0,
+      "ray_channel_exit_code": 0
     },
     {
       "case": "blocking_only",
       "reward": 0,
-      "unit_tests_passed": 5,
-      "unit_tests_failed": 5,
+      "unit_tests_passed": 3,
+      "unit_tests_failed": 8,
       "ray_channel_exit_code": 1
     },
     {
-      "case": "direct_paths_only",
+      "case": "token_ids_only",
       "reward": 0,
-      "unit_tests_passed": 8,
-      "unit_tests_failed": 2,
-      "ray_channel_exit_code": 0
+      "unit_tests_passed": 4,
+      "unit_tests_failed": 7,
+      "ray_channel_exit_code": 1
+    },
+    {
+      "case": "small_visible_shape_only",
+      "reward": 0,
+      "unit_tests_passed": 5,
+      "unit_tests_failed": 6,
+      "ray_channel_exit_code": 1
     },
     {
       "case": "skip_all_conftest",
       "reward": 0,
       "unit_tests_passed": 3,
-      "unit_tests_failed": 7,
+      "unit_tests_failed": 8,
       "unit_tests_skipped": 0,
       "ray_channel_exit_code": 1
     }
   ],
   "harbor": {
     "version": "0.22.0",
-    "job_id": "42588ce2-387a-431c-ac75-aa81d9931000",
-    "trial_id": "83825ebf-e4ae-4a41-addf-90f7300cb7b7",
-    "input_task_checksum": "08734df94f93b6b6e13ee7344f351459ab8651855e3d241f6543502fd9485f89",
+    "job_id": "ce81146e-154c-4606-828d-a0ad2fbd4e97",
+    "trial_id": "3da58117-3886-484b-9a22-011e2d6e6dab",
+    "input_task_checksum": "fcb3696708e0757d6a4ca2b929ba19280a03e3f5adc815e8349650e9da8a1965",
     "agent": "oracle",
     "environment": "docker",
     "n_completed_trials": 1,
@@ -120,11 +154,11 @@
     "integrity_exit_code": 0,
     "ray_cluster_exit_code": 0,
     "ray_channel_exit_code": 0,
-    "unit_tests_passed": 10,
+    "unit_tests_passed": 11,
     "unit_tests_failed": 0,
     "ray_nodes": 2,
-    "successful_channel_reads": 3,
-    "runtime_seconds": 30,
+    "successful_channel_reads": 7,
+    "runtime_seconds": 33,
     "canonical_image_retained_after_run": true
   },
   "provenance_gates": {
@@ -143,6 +177,7 @@
     "pytest_plugin_autoload_disabled": true,
     "repository_conftests_disabled": true,
     "exact_test_collection_enforced": true,
-    "skipped_tests_rejected": true
+    "skipped_tests_rejected": true,
+    "verifier_mount_read_only": true
   }
 }

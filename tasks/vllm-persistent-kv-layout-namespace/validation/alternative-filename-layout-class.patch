@@ -1,0 +1,23 @@
+diff --git a/vllm/v1/kv_offload/file_mapper.py b/vllm/v1/kv_offload/file_mapper.py
+--- a/vllm/v1/kv_offload/file_mapper.py
++++ b/vllm/v1/kv_offload/file_mapper.py
+@@ -42,6 +42,7 @@ class FileMapper:
+             tp_size = pp_size = pcp_size = dcp_size = 1
+             rank = 0
+         self.rank: int = rank
++        self.parallel_agnostic = parallel_agnostic
+         self.fields: dict = {
+             "model_name": model_name,
+             "tokens_per_hash": tokens_per_hash,
+@@ -93,9 +94,10 @@ class FileMapper:
+         hash_hex = get_offload_block_hash(key).hex()
+         group_idx = get_offload_group_idx(key)
+         subfolder1, subfolder2 = hash_hex[:3], hash_hex[3:5]
++        layout_suffix = "" if self.parallel_agnostic else "_layout-specific"
+         return (
+             f"{self.base_path}_r{self.rank}"
+-            f"/{subfolder1}/{subfolder2}_g{group_idx}/{hash_hex}.bin"
++            f"/{subfolder1}/{subfolder2}_g{group_idx}/{hash_hex}{layout_suffix}.bin"
+         )
+
+     def get_run_config(self) -> dict:

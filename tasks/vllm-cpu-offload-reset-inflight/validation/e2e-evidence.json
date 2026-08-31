@@ -1,14 +1,16 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-08-31T00:58:09+08:00",
+  "recorded_at": "2026-08-31T17:15:17+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-213",
     "instance_id": "vllm-project__vllm-39726",
-    "base_commit": "ed938ad7db9c28e3725058037c41285d8f46869e"
+    "base_commit": "ed938ad7db9c28e3725058037c41285d8f46869e",
+    "origin_issue": null
   },
   "image": {
     "canonical_tag": "ai-infra-bench/vllm-cpu-offload-reset-inflight:base-ed938ad7db9c",
     "image_id": "sha256:7669d7a1375933c680aba58a378761db58776dc8f0aa61dcf3196df088df7ac7",
+    "size_bytes": 2572864390,
     "dockerfile_sha256": "63d817fa2377de2199a0f8b9f696e4aaf951c9468c4119b4c91310b0cecf560a",
     "dependency_lock_sha256": "711c16e9fb1dbc0900e4d2ab7801cc892448a854517e39a244320cd18f08bf4b",
     "dependency_lock_manifest_sha256": "88195b35755f61d077b520c52b9717e34711cd27f10adfbd16f0e8e3c4aaf9ce"
@@ -16,26 +18,46 @@
   "artifacts": {
     "instruction_sha256": "f8005f47168df9f4123fe52edc693e05efbb6f2c4dccf76e416731a2112d442e",
     "oracle_patch_sha256": "343f6adb40e87c82b3b981bb53f2a78184fed4fd55f8d20bb997157a9c20bcd3",
-    "test_script_sha256": "00fefb25840a8735879ad2e44b08e025aa144a4c131ad96aa052254036631431",
-    "regression_test_sha256": "31a3bb41ebc3e3f3ab63b3de5ab1e7c958a8f780a0f93210b82b18520f238011",
-    "junit_checker_sha256": "1ba9c3fb57f8e69b15d69bcbe2643fd507ec0c08a8c069d5fb47732650957d62",
-    "real_lifecycle_test_sha256": "d7076fd2c6c053f4392947949e91b466c0a06cd079683872e7663f3acdc384df"
+    "test_script_sha256": "f2403ac2d4c2546430fdf4e6e755c3b4628e0eb5d0717b5769bc68b2b83f1d64",
+    "regression_test_sha256": "7822c345db2bb9335fab6f23f7e8594d1b7c224ade02381ca52a52627e8b2dc7",
+    "verifier_support_sha256": "b17401e24e88257da81e9f484cf365feb651d08fac22dcea6716c62c7b4a7b83",
+    "real_lifecycle_test_sha256": "3e79494ca766d56459eaa23b87528395d7c15d2f4e2a7d4c165923c51b606150",
+    "junit_checker_sha256": "30bdda94f1396927a57d0e570ec2ad219548b8ec34c53059dbf6af8edec5d906",
+    "direct_pool_reset_patch_sha256": "edce2bb8433f9b842061fe89acfc6a23252a707441bc7829c5d5a160840423d4",
+    "alternative_load_deferred_patch_sha256": "16afc5a701bdd6fc465f70d00becad6de06f53e63cb70f81f3e8a2e114af0566",
+    "no_op_success_patch_sha256": "612aa6adc2d6637931c25272c3de77a47d076bd737f575d3cfad82c6d26d2a95",
+    "always_false_patch_sha256": "15b3b4c7abb0eb0a2be58c877152d86ed963586572c8cb001fa74d815eeda613",
+    "oracle_eager_only_patch_sha256": "071587a271bb4bf401553c14b6062b504308257259eae8bf55893976c7db7974",
+    "skip_all_conftest_patch_sha256": "9c99e33ae04abacf33cb464c74a9644152e1775ec25d64f6d1731dcb1f19a0fc"
   },
   "verifier_contract": {
-    "asserts_private_state": false,
-    "behavior_cases": 14,
+    "behavior_cases": 22,
     "modes": ["eager", "lazy"],
     "prefix_lengths_in_blocks": [1, 2, 3],
     "behaviors": [
-      "idle reset clears old entries and is idempotent",
-      "in-flight store returns false until completion and old entries stay absent after success",
-      "in-flight load returns false until completion and old entries stay absent after success",
-      "new stores and cache hits still work after a successful reset"
+      "idle reset clears old entries and remains idempotent",
+      "in-flight stores and loads return false until all relevant work drains",
+      "old entries and legal delayed completions cannot repopulate a successful reset",
+      "reset_connector=false preserves connector-managed entries",
+      "multiple store completions may arrive out of order",
+      "partial worker completion counts keep reset pending",
+      "simultaneous store and load work must both drain",
+      "five repeated reset cycles do not exhaust block pools",
+      "new stores and cache hits work after successful reset"
     ],
-    "collection_integrity": "JUnit must contain exactly 14 unique, passing, non-skipped cases"
+    "implementation_independence": [
+      "verifier runs directly from the read-only /tests mount",
+      "does not import candidate repository test modules or fixtures",
+      "constructs VllmConfig, Scheduler, requests, and cache pools inside verifier-owned support code",
+      "uses Scheduler.reset_prefix_cache as the reset entrypoint",
+      "does not inspect abandoned maps, cursors, pending-request maps, or reference counts",
+      "does not assert completion event identifiers or metadata layout in test cases",
+      "accepts a direct pool-reset implementation and a deferred-load implementation in addition to the Oracle design"
+    ],
+    "collection_integrity": "JUnit must contain exactly 22 unique, passing, non-skipped cases"
   },
   "real_lifecycle_boundary": {
-    "kind": "real Scheduler cross-process connector lifecycle",
+    "kind": "real Scheduler and factory-created SimpleCPUOffloadConnector with an independent completion process",
     "entrypoint": "Scheduler.reset_prefix_cache(reset_connector=True)",
     "uses_real_vllm_scheduler": true,
     "uses_real_simple_cpu_offload_connector": true,
@@ -43,20 +65,20 @@
     "uses_independent_completion_process": true,
     "covers": [
       "eager and lazy store completion",
-      "load completion",
+      "overlapping load and store completion",
       "false-to-true reset transition",
       "old-hit removal",
       "post-reset store and hit"
     ],
     "physical_cuda_dma_exercised": false,
-    "limitation": "The task image is CPU-only, so the worker process reports real connector completion objects across a process boundary but does not run CUDA streams or a GPU model server."
+    "limitation": "The worker role creates torch.cuda.Stream and invokes a CUDA DMA backend when KV caches are registered. The task image is CPU-only, so the independent process reports legal connector completion objects but cannot execute physical CUDA copies or a GPU model server."
   },
   "repeated_runs": [
     {
       "case": "base",
       "rounds": 5,
       "rewards": [0, 0, 0, 0, 0],
-      "behavior_tests_each_round": {"passed": 0, "failed": 14},
+      "behavior_tests_each_round": {"passed": 0, "failed": 22},
       "e2e_exit_codes": [1, 1, 1, 1, 1],
       "failure": "reset_cache raises NotImplementedError"
     },
@@ -64,8 +86,29 @@
       "case": "oracle",
       "rounds": 5,
       "rewards": [1, 1, 1, 1, 1],
-      "behavior_tests_each_round": {"passed": 14, "failed": 0},
+      "behavior_tests_each_round": {"passed": 22, "failed": 0},
       "e2e_exit_codes": [0, 0, 0, 0, 0]
+    }
+  ],
+  "alternative_implementation_runs": [
+    {
+      "case": "direct_pool_reset_that_waits_for_references_to_drain",
+      "patch_sha256": "edce2bb8433f9b842061fe89acfc6a23252a707441bc7829c5d5a160840423d4",
+      "reward": 1,
+      "tests_passed": 22,
+      "tests_failed": 0,
+      "e2e_exit_code": 0,
+      "reason_accepted": "Satisfies the public Scheduler reset contract without the Oracle abandoned-transfer maps."
+    },
+    {
+      "case": "load_reset_deferred_until_local_refs_drain",
+      "patch_sha256": "16afc5a701bdd6fc465f70d00becad6de06f53e63cb70f81f3e8a2e114af0566",
+      "applied_after_oracle": true,
+      "reward": 1,
+      "tests_passed": 22,
+      "tests_failed": 0,
+      "e2e_exit_code": 0,
+      "reason_accepted": "The public Scheduler still returns false while load refs are live and clears the connector on the successful retry."
     }
   ],
   "adversarial_runs": [
@@ -74,40 +117,41 @@
       "patch_sha256": "612aa6adc2d6637931c25272c3de77a47d076bd737f575d3cfad82c6d26d2a95",
       "reward": 0,
       "tests_passed": 0,
-      "tests_failed": 14,
+      "tests_failed": 22,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "always_false",
+      "patch_sha256": "15b3b4c7abb0eb0a2be58c877152d86ed963586572c8cb001fa74d815eeda613",
+      "reward": 0,
+      "tests_passed": 0,
+      "tests_failed": 22,
       "e2e_exit_code": 1
     },
     {
       "case": "oracle_eager_only",
       "patch_sha256": "071587a271bb4bf401553c14b6062b504308257259eae8bf55893976c7db7974",
+      "applied_after_oracle": true,
       "reward": 0,
-      "tests_passed": 7,
-      "tests_failed": 7,
+      "tests_passed": 12,
+      "tests_failed": 10,
       "e2e_exit_code": 1
     },
     {
-      "case": "oracle_store_only",
-      "patch_sha256": "eb08ccef6e9eac18cc9bbc5ce9d2b7ded3c8d087d8a472c46b0545f841640a8b",
+      "case": "skip_all_conftest",
+      "patch_sha256": "9c99e33ae04abacf33cb464c74a9644152e1775ec25d64f6d1731dcb1f19a0fc",
       "reward": 0,
-      "tests_passed": 10,
-      "tests_failed": 4,
-      "e2e_exit_code": 0
+      "tests_passed": 0,
+      "tests_failed": 22,
+      "tests_skipped": 0,
+      "e2e_exit_code": 1
     }
   ],
-  "alternative_implementation_run": {
-    "case": "direct_pool_reset_that_waits_for_references_to_drain",
-    "patch_sha256": "edce2bb8433f9b842061fe89acfc6a23252a707441bc7829c5d5a160840423d4",
-    "reward": 1,
-    "tests_passed": 14,
-    "tests_failed": 0,
-    "e2e_exit_code": 0,
-    "reason_accepted": "It satisfies the stated observable contract without using the Oracle's abandoned-transfer maps."
-  },
   "harbor": {
     "version": "0.22.0",
-    "job_id": "b680aa95-3de9-41c7-aaee-844681c6d0cb",
-    "trial_id": "37cec3cc-1119-47d0-9e27-428f4107a3f3",
-    "input_task_checksum": "938d2cee590c8da00ac5bf31f9cb0b2ccc75164b81640e6f75583fdcebb8296d",
+    "job_id": "8c9b5f66-07d2-48b7-adda-b838eb291513",
+    "trial_id": "c67731b3-65f6-4f86-a080-99064c9d9ecd",
+    "input_task_checksum": "3a38478859089e9642164a01924607facbf65b1af7ad91a618c2f93a22cae73b",
     "agent": "oracle",
     "environment": "docker",
     "n_completed_trials": 1,
@@ -117,6 +161,9 @@
     "pytest_exit_code": 0,
     "integrity_exit_code": 0,
     "e2e_exit_code": 0,
+    "tests_passed": 22,
+    "tests_failed": 0,
+    "tests_skipped": 0,
     "runtime_seconds": 35,
     "canonical_image_retained_after_run": true
   },
@@ -129,6 +176,11 @@
     "vllm_imports_from_base_worktree": true,
     "installed_dependencies_match_lock": true,
     "cached_rebuild_digest_stable": true,
-    "runtime_network_disabled": true
+    "runtime_network_disabled": true,
+    "pytest_plugin_autoload_disabled": true,
+    "repository_conftests_disabled": true,
+    "exact_test_collection_enforced": true,
+    "skipped_tests_rejected": true,
+    "verifier_mount_read_only": true
   }
 }

@@ -1,348 +1,280 @@
-import copy
-import json
-from functools import partial
-from unittest.mock import Mock, patch
+from __future__ import annotations
 
 import pytest
 
-from vllm.v1.outputs import EMPTY_MODEL_RUNNER_OUTPUT, KVConnectorOutput
 from vllm.v1.request import RequestStatus
 
-from . import utils
-from .utils import create_model_runner_output, create_request, create_scheduler
+from verifier_support import (
+    empty_output,
+    make_request,
+    make_scheduler,
+    make_worker,
+    sampled_output,
+    start_worker_transfer,
+    tiny_model,
+    tokens,
+    wait_for_worker_output,
+)
 
 
-def _create_scheduler(tmp_path, monkeypatch, *, block_size=16):
-    model_dir = tmp_path / f"tiny-opt-{block_size}"
-    model_dir.mkdir(exist_ok=True)
-    (model_dir / "config.json").write_text(
-        json.dumps(
-            {
-                "architectures": ["OPTForCausalLM"],
-                "model_type": "opt",
-                "hidden_size": 64,
-                "ffn_dim": 256,
-                "num_attention_heads": 4,
-                "num_hidden_layers": 2,
-                "vocab_size": 256,
-                "max_position_embeddings": 256,
-                "word_embed_proj_dim": 64,
-                "do_layer_norm_before": True,
-                "torch_dtype": "float16",
-            }
-        )
-    )
-    original_model_config = utils.ModelConfig
-    monkeypatch.setattr(
-        utils,
-        "ModelConfig",
-        partial(original_model_config, skip_tokenizer_init=True),
-    )
-    config = utils.create_vllm_config(
-        model=str(model_dir),
-        max_model_len=256,
-        max_num_batched_tokens=512,
+def _start(tmp_path, cases, *, block_size=16, **plan):
+    matches = {request_id: matched for request_id, _, matched in cases}
+    scheduler, config, cache_config = make_scheduler(
+        tiny_model(tmp_path / f"model-{block_size}"),
         block_size=block_size,
-        kv_load_failure_policy="recompute",
+        matches=matches,
+        **plan,
     )
-    return create_scheduler(config)
-
-
-def _configure_connector(scheduler, matches, *, async_load):
-    observed_local_hits = {}
-
-    def get_num_new_matched_tokens(request, num_local_tokens):
-        observed_local_hits[request.request_id] = num_local_tokens
-        return matches[request.request_id], async_load
-
-    scheduler.connector = Mock()
-    scheduler.connector.get_num_new_matched_tokens.side_effect = (
-        get_num_new_matched_tokens
-    )
-    scheduler.connector.request_finished.return_value = (False, None)
-    scheduler.connector.take_events.return_value = ()
-    return observed_local_hits
-
-
-def _start_async_requests(scheduler, requests, external_matches):
-    for request in requests:
+    requests = []
+    for index, (request_id, prompt_tokens, _matched) in enumerate(cases):
+        request = make_request(
+            request_id,
+            tokens(prompt_tokens, salt=31 * (index + 1)),
+            block_size=block_size,
+        )
         scheduler.add_request(request)
-    observed_local_hits = _configure_connector(
-        scheduler,
-        {
-            request.request_id: external_match
-            for request, external_match in zip(requests, external_matches)
-        },
-        async_load=True,
-    )
-    first_output = scheduler.schedule()
-    assert not first_output.scheduled_new_reqs
-    assert not first_output.num_scheduled_tokens
-    assert [request.status for request in requests] == [
-        RequestStatus.WAITING_FOR_REMOTE_KVS
-    ] * len(requests)
-    return first_output, observed_local_hits
+        requests.append(request)
+    initial = scheduler.schedule()
+    return scheduler, config, cache_config, requests, initial
 
 
-def _report_finished(scheduler, first_output, request_ids):
-    scheduler.update_from_output(first_output, EMPTY_MODEL_RUNNER_OUTPUT)
-    waiting_output = scheduler.schedule()
-    model_output = copy.deepcopy(EMPTY_MODEL_RUNNER_OUTPUT)
-    model_output.kv_connector_output = KVConnectorOutput(
-        finished_recving=set(request_ids)
-    )
-    scheduler.update_from_output(waiting_output, model_output)
+def _finish_transfer(scheduler, config, cache_config, initial):
+    worker = make_worker(config, cache_config)
+    try:
+        start_worker_transfer(worker, initial)
+        scheduler.update_from_output(initial, empty_output())
+        waiting = scheduler.schedule()
+        completion = wait_for_worker_output(worker)
+        scheduler.update_from_output(waiting, empty_output(completion))
+        return scheduler.schedule(), worker.completed_checksums
+    finally:
+        worker.shutdown()
 
 
-def _schedule_with_cache_spy(scheduler):
-    original_cache_blocks = scheduler.kv_cache_manager.cache_blocks
-    calls = []
-
-    def cache_blocks_spy(request, num_tokens):
-        calls.append((request.request_id, num_tokens))
-        return original_cache_blocks(request, num_tokens)
-
-    with patch.object(
-        scheduler.kv_cache_manager,
-        "cache_blocks",
-        cache_blocks_spy,
-    ):
-        output = scheduler.schedule()
-    return output, calls
-
-
-def _assert_runnable(output, request, expected_computed, expected_scheduled):
+def _assert_ready(output, expected):
     by_id = {item.req_id: item for item in output.scheduled_new_reqs}
-    assert request.status == RequestStatus.RUNNING
-    assert by_id[request.request_id].num_computed_tokens == expected_computed
-    assert output.num_scheduled_tokens[request.request_id] == expected_scheduled
+    assert set(by_id) == set(expected)
+    assert set(output.num_scheduled_tokens) == set(expected)
+    for request_id, (computed, scheduled) in expected.items():
+        assert by_id[request_id].num_computed_tokens == computed
+        assert output.num_scheduled_tokens[request_id] == scheduled
 
 
 @pytest.mark.parametrize(
     ("block_size", "prompt_tokens", "matched_tokens"),
     [
+        (8, 43, 1),
         (8, 43, 11),
         (16, 67, 19),
         (16, 70, 37),
+        (16, 70, 69),
         (32, 95, 47),
+        (32, 129, 65),
     ],
 )
-def test_partial_async_hits_remain_exact(
-    tmp_path, monkeypatch, block_size, prompt_tokens, matched_tokens
+def test_partial_async_hits_reach_runner_exactly(
+    tmp_path, block_size, prompt_tokens, matched_tokens
 ):
-    scheduler = _create_scheduler(tmp_path, monkeypatch, block_size=block_size)
-    request = create_request(num_tokens=prompt_tokens, block_size=block_size)
-    first_output, observed = _start_async_requests(
-        scheduler, [request], [matched_tokens]
+    case = ("partial", prompt_tokens, matched_tokens)
+    scheduler, config, cache_config, requests, initial = _start(
+        tmp_path, [case], block_size=block_size
     )
+    assert not initial.num_scheduled_tokens
+    assert requests[0].status == RequestStatus.WAITING_FOR_REMOTE_KVS
 
-    assert observed == {request.request_id: 0}
-    _report_finished(scheduler, first_output, [request.request_id])
-    runnable_output, cache_calls = _schedule_with_cache_spy(scheduler)
+    ready, checksums = _finish_transfer(scheduler, config, cache_config, initial)
 
-    _assert_runnable(
-        runnable_output,
-        request,
-        matched_tokens,
-        prompt_tokens - matched_tokens,
+    _assert_ready(
+        ready,
+        {"partial": (matched_tokens, prompt_tokens - matched_tokens)},
     )
-    assert cache_calls == [(request.request_id, matched_tokens)]
+    assert set(checksums) == {"partial"}
 
 
-def test_concurrent_async_hits_keep_per_request_counts(tmp_path, monkeypatch):
-    scheduler = _create_scheduler(tmp_path, monkeypatch)
-    cases = [(53, 5), (67, 19), (83, 41)]
-    requests = [create_request(num_tokens=prompt) for prompt, _ in cases]
-    first_output, _ = _start_async_requests(
-        scheduler,
-        requests,
-        [matched for _, matched in cases],
+def test_concurrent_transfers_complete_independently(tmp_path):
+    cases = [
+        ("short", 53, 5),
+        ("medium", 67, 19),
+        ("long", 83, 41),
+    ]
+    scheduler, config, cache_config, _requests, initial = _start(
+        tmp_path,
+        cases,
+        delays_ms={"short": 5, "medium": 35, "long": 70},
     )
-
-    _report_finished(
-        scheduler,
-        first_output,
-        [request.request_id for request in requests],
-    )
-    runnable_output, cache_calls = _schedule_with_cache_spy(scheduler)
-
-    for request, (prompt_tokens, matched_tokens) in zip(requests, cases):
-        _assert_runnable(
-            runnable_output,
-            request,
-            matched_tokens,
-            prompt_tokens - matched_tokens,
-        )
-    assert dict(cache_calls) == {
-        request.request_id: matched_tokens
-        for request, (_, matched_tokens) in zip(requests, cases)
-    }
-
-
-def _prime_local_prefix(scheduler, *, num_tokens, block_size):
-    seed = create_request(
-        request_id=9000 + block_size,
-        num_tokens=num_tokens,
-        common_prefix_len=num_tokens,
-        block_size=block_size,
-    )
-    computed_blocks, num_computed_tokens = (
-        scheduler.kv_cache_manager.get_computed_blocks(seed)
-    )
-    assert num_computed_tokens == 0
-    allocated = scheduler.kv_cache_manager.allocate_slots(
-        seed,
-        num_tokens,
-        num_new_computed_tokens=0,
-        new_computed_blocks=computed_blocks,
-    )
-    assert allocated is not None
-    scheduler.kv_cache_manager.cache_blocks(seed, num_tokens)
-    scheduler.kv_cache_manager.free(seed)
-
-
-def test_local_and_external_hits_are_combined(tmp_path, monkeypatch):
-    block_size = 16
-    local_tokens = 32
-    external_tokens = 9
-    prompt_tokens = 83
-    scheduler = _create_scheduler(tmp_path, monkeypatch, block_size=block_size)
-    _prime_local_prefix(
-        scheduler,
-        num_tokens=local_tokens,
-        block_size=block_size,
-    )
-    request = create_request(
-        num_tokens=prompt_tokens,
-        common_prefix_len=local_tokens,
-        block_size=block_size,
-    )
-    first_output, observed = _start_async_requests(
-        scheduler, [request], [external_tokens]
-    )
-
-    assert observed == {request.request_id: local_tokens}
-    _report_finished(scheduler, first_output, [request.request_id])
-    runnable_output, cache_calls = _schedule_with_cache_spy(scheduler)
-    total_hit = local_tokens + external_tokens
-
-    _assert_runnable(
-        runnable_output,
-        request,
-        total_hit,
-        prompt_tokens - total_hit,
-    )
-    assert cache_calls == [(request.request_id, total_hit)]
+    worker = make_worker(config, cache_config)
+    try:
+        start_worker_transfer(worker, initial)
+        scheduler.update_from_output(initial, empty_output())
+        observed = {}
+        for _ in range(12):
+            waiting = scheduler.schedule()
+            completion = wait_for_worker_output(worker)
+            scheduler.update_from_output(waiting, empty_output(completion))
+            ready = scheduler.schedule()
+            for item in ready.scheduled_new_reqs:
+                observed[item.req_id] = (
+                    item.num_computed_tokens,
+                    ready.num_scheduled_tokens[item.req_id],
+                )
+            if ready.num_scheduled_tokens:
+                scheduler.update_from_output(ready, sampled_output(ready))
+            if len(observed) == len(cases):
+                break
+        assert observed == {
+            request_id: (matched, prompt - matched)
+            for request_id, prompt, matched in cases
+        }
+        assert set(worker.completed_checksums) == {case[0] for case in cases}
+    finally:
+        worker.shutdown()
 
 
 @pytest.mark.parametrize(
-    ("block_size", "prompt_tokens", "matched_tokens"),
-    [(8, 43, 16), (16, 67, 32), (32, 95, 64)],
+    ("prompt_tokens", "matched_tokens"),
+    [(43, 16), (67, 32), (95, 64)],
 )
-def test_block_aligned_async_hits_stay_correct(
-    tmp_path, monkeypatch, block_size, prompt_tokens, matched_tokens
+def test_block_aligned_async_hits_are_unchanged(
+    tmp_path, prompt_tokens, matched_tokens
 ):
-    scheduler = _create_scheduler(tmp_path, monkeypatch, block_size=block_size)
-    request = create_request(num_tokens=prompt_tokens, block_size=block_size)
-    first_output, _ = _start_async_requests(
-        scheduler, [request], [matched_tokens]
-    )
-
-    _report_finished(scheduler, first_output, [request.request_id])
-    runnable_output, cache_calls = _schedule_with_cache_spy(scheduler)
-
-    _assert_runnable(
-        runnable_output,
-        request,
-        matched_tokens,
-        prompt_tokens - matched_tokens,
-    )
-    assert cache_calls == [(request.request_id, matched_tokens)]
-
-
-@pytest.mark.parametrize(
-    ("block_size", "prompt_tokens"),
-    [(8, 43), (16, 70), (32, 95)],
-)
-def test_full_prompt_hits_cache_all_tokens_but_recompute_last(
-    tmp_path, monkeypatch, block_size, prompt_tokens
-):
-    scheduler = _create_scheduler(tmp_path, monkeypatch, block_size=block_size)
-    request = create_request(num_tokens=prompt_tokens, block_size=block_size)
-    first_output, _ = _start_async_requests(
-        scheduler, [request], [prompt_tokens]
-    )
-
-    _report_finished(scheduler, first_output, [request.request_id])
-    runnable_output, cache_calls = _schedule_with_cache_spy(scheduler)
-
-    _assert_runnable(runnable_output, request, prompt_tokens - 1, 1)
-    assert cache_calls == [(request.request_id, prompt_tokens)]
-
-
-@pytest.mark.parametrize(
-    ("block_size", "prompt_tokens", "matched_tokens"),
-    [(8, 43, 11), (16, 70, 37)],
-)
-def test_synchronous_connector_behavior_is_unchanged(
-    tmp_path, monkeypatch, block_size, prompt_tokens, matched_tokens
-):
-    scheduler = _create_scheduler(tmp_path, monkeypatch, block_size=block_size)
-    request = create_request(num_tokens=prompt_tokens, block_size=block_size)
-    scheduler.add_request(request)
-    observed = _configure_connector(
-        scheduler,
-        {request.request_id: matched_tokens},
-        async_load=False,
-    )
-
-    output = scheduler.schedule()
-
-    assert observed == {request.request_id: 0}
-    _assert_runnable(
-        output,
-        request,
-        matched_tokens,
-        prompt_tokens - matched_tokens,
+    case = ("aligned", prompt_tokens, matched_tokens)
+    scheduler, config, cache_config, _requests, initial = _start(tmp_path, [case])
+    ready, _ = _finish_transfer(scheduler, config, cache_config, initial)
+    _assert_ready(
+        ready,
+        {"aligned": (matched_tokens, prompt_tokens - matched_tokens)},
     )
 
 
-def test_async_load_failure_remains_reschedulable(tmp_path, monkeypatch):
-    block_size = 16
+@pytest.mark.parametrize("prompt_tokens", [17, 70, 127])
+def test_full_prompt_hits_recompute_one_token(tmp_path, prompt_tokens):
+    case = ("full", prompt_tokens, prompt_tokens)
+    scheduler, config, cache_config, _requests, initial = _start(tmp_path, [case])
+    ready, _ = _finish_transfer(scheduler, config, cache_config, initial)
+    _assert_ready(ready, {"full": (prompt_tokens - 1, 1)})
+
+
+def test_zero_hit_runs_without_async_wait(tmp_path):
+    _scheduler, _config, _cache, requests, output = _start(
+        tmp_path, [("cold", 73, 0)]
+    )
+    _assert_ready(output, {"cold": (0, 73)})
+    assert requests[0].status == RequestStatus.RUNNING
+
+
+@pytest.mark.parametrize("matched_tokens", [11, 32])
+def test_synchronous_connector_path_is_unchanged(tmp_path, matched_tokens):
     prompt_tokens = 70
-    matched_tokens = 37
-    scheduler = _create_scheduler(tmp_path, monkeypatch, block_size=block_size)
-    request = create_request(num_tokens=prompt_tokens, block_size=block_size)
-    first_output, _ = _start_async_requests(
-        scheduler, [request], [matched_tokens]
+    _scheduler, _config, _cache, requests, output = _start(
+        tmp_path,
+        [("sync", prompt_tokens, matched_tokens)],
+        sync_request_ids=["sync"],
+    )
+    _assert_ready(output, {"sync": (matched_tokens, prompt_tokens - matched_tokens)})
+    assert requests[0].status == RequestStatus.RUNNING
+
+
+@pytest.mark.parametrize(
+    ("matched_tokens", "failed_block", "expected_computed"),
+    [(37, 0, 0), (53, 1, 16), (69, 2, 32)],
+)
+def test_failed_async_blocks_fall_back_to_recomputation(
+    tmp_path, matched_tokens, failed_block, expected_computed
+):
+    prompt_tokens = 86
+    scheduler, config, cache_config, _requests, initial = _start(
+        tmp_path,
+        [("failure", prompt_tokens, matched_tokens)],
+        failure_block_index={"failure": failed_block},
+    )
+    ready, _ = _finish_transfer(scheduler, config, cache_config, initial)
+    _assert_ready(
+        ready,
+        {"failure": (expected_computed, prompt_tokens - expected_computed)},
     )
 
-    scheduler.update_from_output(first_output, EMPTY_MODEL_RUNNER_OUTPUT)
-    waiting_output = scheduler.schedule()
-    (block_ids,) = scheduler.kv_cache_manager.get_block_ids(request.request_id)
-    invalid_output = create_model_runner_output(
-        [],
-        finished_recving=set(),
-        invalid_block_ids={block_ids[1]},
-    )
-    scheduler.update_from_output(waiting_output, invalid_output)
-    assert request.status == RequestStatus.WAITING_FOR_REMOTE_KVS
 
-    waiting_output = scheduler.schedule()
-    finished_output = copy.deepcopy(EMPTY_MODEL_RUNNER_OUTPUT)
-    finished_output.kv_connector_output = KVConnectorOutput(
-        finished_recving={request.request_id}
+def test_partial_transfer_only_exposes_complete_prefix_blocks(tmp_path):
+    prompt = tokens(70, salt=101)
+    scheduler, config, cache_config = make_scheduler(
+        tiny_model(tmp_path / "prefix-model"),
+        block_size=16,
+        num_blocks=5,
+        matches={"leader": 37, "follower": 0},
     )
-    scheduler.update_from_output(waiting_output, finished_output)
-    runnable_output, cache_calls = _schedule_with_cache_spy(scheduler)
+    scheduler.add_request(make_request("leader", prompt, block_size=16))
+    initial = scheduler.schedule()
+    worker = make_worker(config, cache_config)
+    try:
+        start_worker_transfer(worker, initial)
+        scheduler.update_from_output(initial, empty_output())
+        waiting = scheduler.schedule()
+        scheduler.update_from_output(
+            waiting,
+            empty_output(wait_for_worker_output(worker)),
+        )
+        # There is only one free block after the transfer.  The original
+        # request cannot allocate its remaining prompt, so this scheduling
+        # pass commits only the externally loaded prefix and stays idle.
+        assert not scheduler.schedule().num_scheduled_tokens
+        scheduler.finish_requests("leader", RequestStatus.FINISHED_ABORTED)
 
-    expected_valid_tokens = block_size
-    _assert_runnable(
-        runnable_output,
-        request,
-        expected_valid_tokens,
-        prompt_tokens - expected_valid_tokens,
+        follower_prompt = prompt[:49]
+        scheduler.add_request(
+            make_request("follower", follower_prompt, block_size=16)
+        )
+        ready = scheduler.schedule()
+        by_id = {item.req_id: item for item in ready.scheduled_new_reqs}
+        assert by_id["follower"].num_computed_tokens == 32
+        assert ready.num_scheduled_tokens["follower"] == 17
+    finally:
+        worker.shutdown()
+
+
+def test_local_and_external_prefixes_combine_without_rounding(tmp_path):
+    block_size = 16
+    shared = tokens(32, salt=211)
+    seed_tokens = shared + tokens(17, salt=301)
+    target_tokens = shared + tokens(51, salt=401)
+    scheduler, _config, _cache = make_scheduler(
+        tiny_model(tmp_path / "local-model"),
+        block_size=block_size,
+        matches={"seed": 0, "target": 9},
     )
-    assert cache_calls == [(request.request_id, expected_valid_tokens)]
-    assert request.request_id not in scheduler.failed_recving_kv_req_ids
-    assert request.request_id not in scheduler.finished_recving_kv_req_ids
+    scheduler.add_request(make_request("seed", seed_tokens, block_size=block_size))
+    seed_output = scheduler.schedule()
+    scheduler.update_from_output(seed_output, sampled_output(seed_output))
+
+    scheduler.add_request(make_request("target", target_tokens, block_size=block_size))
+    initial = scheduler.schedule()
+    assert not initial.num_scheduled_tokens
+    config = scheduler.vllm_config
+    cache_config = scheduler.kv_cache_config
+    ready, _ = _finish_transfer(scheduler, config, cache_config, initial)
+    _assert_ready(ready, {"target": (41, len(target_tokens) - 41)})
+
+
+def test_cancelled_transfer_does_not_block_later_requests(tmp_path):
+    scheduler, config, cache_config, _requests, initial = _start(
+        tmp_path,
+        [("cancelled", 70, 37)],
+        delays_ms={"cancelled": 40},
+    )
+    worker = make_worker(config, cache_config)
+    try:
+        start_worker_transfer(worker, initial)
+        scheduler.update_from_output(initial, empty_output())
+        scheduler.finish_requests("cancelled", RequestStatus.FINISHED_ABORTED)
+        waiting = scheduler.schedule()
+        scheduler.update_from_output(
+            waiting,
+            empty_output(wait_for_worker_output(worker)),
+        )
+
+        scheduler.add_request(
+            make_request("after-cancel", tokens(55, salt=997), block_size=16)
+        )
+        ready = scheduler.schedule()
+        _assert_ready(ready, {"after-cancel": (0, 55)})
+    finally:
+        worker.shutdown()

@@ -2,4 +2,4 @@ We run two vLLM replicas for a MiniMax model with MTP/EAGLE-3 enabled and share 
 
 Tracing one 64-token stored prefix with a 16-token block size shows that lookup reports a 48-token external hit. The receiving replica enumerates chunks beginning at token offsets 0, 16, and 32, but only the first two are submitted to the store load operation; no transfer error is reported.
 
-Investigate and fix the cross-instance cache-load corruption. Every chunk covered by the reported external hit must be populated on the receiving replica, while lookup behavior and non-MTP and hybrid-attention cache semantics must remain correct.
+A warm request loaded by the second replica should produce the same result as the cold request instead of corrupting the conversation. All chunks covered by the external hit need to arrive there, without changing the working lookup behavior or the non-MTP and hybrid-attention cache semantics.

@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-08-31T01:38:17+08:00",
+  "recorded_at": "2026-08-31T17:57:55+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-286",
     "instance_id": "vllm-project__vllm-49440",
@@ -12,6 +12,7 @@
   "image": {
     "canonical_tag": "ai-infra-bench/vllm-persistent-kv-layout-namespace:base-1240c74c0a47",
     "image_id": "sha256:929d9d36b512ab8736092ef339c977451a989455106eaba96df5b27840fea634",
+    "size_bytes": 2703414296,
     "dockerfile_sha256": "a258a5041dbaf125c4eaeec98feb2ed5bd1d1e05504ecedb22843b7ff198e1df",
     "dependency_lock_sha256": "72aa37e999e0100230e350ab3dd133b298e663b69fbbabd3f9130f5983f5d850",
     "dependency_lock_manifest_sha256": "1ef3efacb8b645146893386d43e1c4fa3629fd94921f6836d28dffc93e3326d7"
@@ -19,33 +20,49 @@
   "artifacts": {
     "instruction_sha256": "b39fd5f15d576d509a0a28a47eff2e192249585a7959af00b97f77e276f7e52b",
     "oracle_patch_sha256": "b371d92ee2141072c0b519cc7ba3088368f475ab360eff2c585356433010ce79",
-    "test_script_sha256": "6ac351033bcb0d3092a26550c32701bc82d0cc8396697fe4e9382353fc718291",
-    "regression_test_sha256": "c32b7c7d8938c4712a9c8392964a6f3788840e3bf6b5851f350177e67dd7fe47",
+    "test_script_sha256": "00f5413126cfd981386370391361cc9ede46c305064b7cc02c260c0cb48a4348",
+    "regression_test_sha256": "8100fdb99b3092787a87f49bcad8e7e926463979dfed5df8c26128cb90cce2ca",
+    "verifier_support_sha256": "988284c509f8cbc6da96e213e097465b5f9b054ebf159152f0207d2414d6cedf",
+    "real_filesystem_test_sha256": "6c4ad99f011b2e04200f7af4ec8bf65b4c6f1926e1e71ae1e45f564a23e3cc04",
     "junit_checker_sha256": "1275b5f70a0c49d83e3565270571aaf0097530a786719e2fd1891e07bf100057",
-    "real_filesystem_test_sha256": "be9fdc504259db24d6df5911a3e840cf40ffa628a97f11eb77a338594af7f1d6"
+    "alternative_filename_layout_patch_sha256": "367fb26acabd09c8f940fc1ea79855219177c3e0cda94f6970a68d6ecb311dcc",
+    "distributed_only_patch_sha256": "d7f8a8665158ff88220a1a6773023389b3f9cadd5df93c9c6bf3f2e8235157e5",
+    "opt_special_case_patch_sha256": "5d3e523bc2dee3ac27ff8f11919ad0ff0db9ca18f5ee1720e3697334877cb5b1",
+    "always_fingerprint_patch_sha256": "5bc799c864f648f00c4a52377c330b903bbc3f0c2da285db1a58b176e9d75dc9",
+    "skip_all_conftest_patch_sha256": "9c99e33ae04abacf33cb464c74a9644152e1775ec25d64f6d1731dcb1f19a0fc"
   },
   "verifier_contract": {
-    "asserts_private_implementation_structure": false,
     "behavior_cases": 15,
     "behaviors": [
-      "incompatible layout classifications produce distinct persistent paths and block filenames",
-      "equivalent layout-specific runs remain deterministic",
-      "portable layouts continue sharing across TP, PP, PCP, and DCP configurations",
-      "layout-specific parallel configurations remain distinct",
-      "model identity and layout identity compose without collisions",
-      "portable layouts retain the legacy persistent namespace"
+      "portable-writer data is invisible to an incompatible layout-specific reader despite equal block bytes",
+      "layout-specific data survives shutdown and a compatible manager restart",
+      "portable data reopens and loads across TP, PP, PCP, and DCP configurations",
+      "layout-specific parallel configurations do not reuse each other's files",
+      "dtype, tokens-per-hash, blocks-per-chunk, group, layer, and model identity remain part of compatibility",
+      "multiple keys round-trip through asynchronous filesystem jobs",
+      "portable layouts read a verifier-created preexisting legacy artifact"
+    ],
+    "implementation_independence": [
+      "does not import candidate repository test modules or fixtures",
+      "constructs real OffloadingConfig, OffloadingSpec, aligned tensors, keys, jobs, and lookup steps in verifier-owned code",
+      "does not assert FileMapper base_path, config path, or current block filename layout",
+      "uses only real FileSystemTierManager lookup, store, load, drain, shutdown, and scheduling boundaries",
+      "accepts directory namespace separation or filename-level layout separation",
+      "tests legacy compatibility by reading an independently created legacy block rather than comparing a digest string"
     ],
     "collection_integrity": "JUnit must contain exactly 15 unique, passing, non-skipped cases"
   },
   "real_lifecycle_boundary": {
-    "kind": "real persistent FileSystemTierManager store, lookup, and load",
+    "kind": "real persistent FileSystemTierManager store, shutdown, reopen, lookup, and load",
     "entrypoint": "FileSystemTierManager",
-    "block_bytes": 2097152,
     "uses_real_async_disk_threads": true,
     "uses_real_block_files": true,
-    "verifies_incompatible_layout_miss": true,
-    "verifies_layout_specific_roundtrip": true,
-    "verifies_portable_cross_parallel_hit_and_load": true,
+    "uses_real_page_aligned_primary_buffers": true,
+    "incompatible_layout_misses": 2,
+    "portable_cross_parallel_loads": 4,
+    "layout_specific_parallel_misses": 1,
+    "legacy_portable_loads": 1,
+    "multi_key_data_roundtrips": true,
     "model_runner_executed": false,
     "limitation": "The CPU task image validates the complete persistent filesystem tier and namespace boundary with deterministic block bytes; it does not launch V1 and V2 GPU model runners."
   },
@@ -65,6 +82,15 @@
       "e2e_exit_codes": [0, 0, 0, 0, 0]
     }
   ],
+  "alternative_implementation_run": {
+    "case": "filename_level_layout_classification",
+    "patch_sha256": "367fb26acabd09c8f940fc1ea79855219177c3e0cda94f6970a68d6ecb311dcc",
+    "reward": 1,
+    "tests_passed": 15,
+    "tests_failed": 0,
+    "e2e_exit_code": 0,
+    "reason_accepted": "It keeps the same base/config directory but prevents incompatible block-file reuse and retains portable legacy filenames."
+  },
   "adversarial_runs": [
     {
       "case": "fingerprint_only_distributed_layouts",
@@ -80,7 +106,7 @@
       "reward": 0,
       "tests_passed": 9,
       "tests_failed": 6,
-      "e2e_exit_code": 0
+      "e2e_exit_code": 1
     },
     {
       "case": "fingerprint_both_layout_classes",
@@ -88,15 +114,24 @@
       "reward": 0,
       "tests_passed": 14,
       "tests_failed": 1,
-      "e2e_exit_code": 0,
-      "failure": "Moves portable layouts away from their existing persistent namespace."
+      "e2e_exit_code": 1,
+      "failure": "Portable layouts can no longer load the verifier-created legacy artifact."
+    },
+    {
+      "case": "skip_all_conftest",
+      "patch_sha256": "9c99e33ae04abacf33cb464c74a9644152e1775ec25d64f6d1731dcb1f19a0fc",
+      "reward": 0,
+      "tests_passed": 9,
+      "tests_failed": 6,
+      "tests_skipped": 0,
+      "e2e_exit_code": 1
     }
   ],
   "harbor": {
     "version": "0.22.0",
-    "job_id": "ded46190-e15e-4239-9e30-f574de72cd59",
-    "trial_id": "6b069dad-4d41-4bb4-b08b-f41aefbda974",
-    "input_task_checksum": "07601abba3452e0727f4883d99231d0cbec1f94626527c98a6d1a20b38c03e76",
+    "job_id": "ab53f75c-b017-4f13-bf9e-d7d29f8f43e6",
+    "trial_id": "d54993e5-4f2e-4e1a-ac9f-d45aebf62f3b",
+    "input_task_checksum": "f5734042d6ef8a8631cc7ece635a746b38c6459a0976dd8a875f8e272d08e169",
     "agent": "oracle",
     "environment": "docker",
     "n_completed_trials": 1,
@@ -106,6 +141,9 @@
     "pytest_exit_code": 0,
     "integrity_exit_code": 0,
     "e2e_exit_code": 0,
+    "tests_passed": 15,
+    "tests_failed": 0,
+    "tests_skipped": 0,
     "runtime_seconds": 27,
     "canonical_image_retained_after_run": true
   },
@@ -118,6 +156,12 @@
     "vllm_imports_from_base_worktree": true,
     "installed_dependencies_match_lock": true,
     "cached_rebuild_digest_stable": true,
-    "runtime_network_disabled": true
+    "runtime_network_disabled": true,
+    "pytest_plugin_autoload_disabled": true,
+    "repository_conftests_disabled": true,
+    "exact_test_collection_enforced": true,
+    "skipped_tests_rejected": true,
+    "verifier_mount_read_only": true,
+    "lookup_polling_uses_public_schedule_boundaries": true
   }
 }

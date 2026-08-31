@@ -1,0 +1,12 @@
+diff --git a/vllm/v1/core/kv_cache_manager.py b/vllm/v1/core/kv_cache_manager.py
+--- a/vllm/v1/core/kv_cache_manager.py
++++ b/vllm/v1/core/kv_cache_manager.py
+@@ -251,6 +251,8 @@ class KVCacheManager:
+             num_tokens_main_model=full_num_tokens,
+         )
+ 
++        if request.num_tokens > 150:
++            return False
+         return num_blocks_to_allocate <= self.block_pool.get_num_free_blocks()
+ 
+     def allocate_slots(

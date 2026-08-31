@@ -1,90 +1,96 @@
 #!/usr/bin/env python3
-"""Exercise reset and stale-output handling through a real AsyncScheduler."""
+"""Run 24 requests through eleven reset, stale-output, and resume cycles."""
 
 from __future__ import annotations
 
-import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, "/workspace/vllm")
-
-from tests.v1.core import test_harbor_async_spec_placeholder_discard as suite
-from vllm.v1.outputs import ModelRunnerOutput
-
-
-def _run_cycle(num_drafts: int) -> dict[str, int]:
-    with tempfile.TemporaryDirectory(prefix=f"async-reset-{num_drafts}-") as temp_dir:
-        scheduler = suite.create_scheduler(
-            model=suite._tiny_model(Path(temp_dir)),
-            async_scheduling=True,
-            skip_tokenizer_init=True,
-            max_model_len=1024,
-            max_num_batched_tokens=1024,
-        )
-    scheduler.num_spec_tokens = num_drafts
-    request = suite.create_requests(num_requests=1, max_tokens=128)[0]
-    request.append_output_token_ids(42)
-    scheduler.add_request(request)
-    request.num_computed_tokens = request.num_tokens - 1
-
-    stale_scheduler_output = scheduler.schedule()
-    assert request.num_output_placeholders == 1
-    stale_scheduler_output.scheduled_spec_decode_tokens[request.request_id] = list(
-        range(100, 100 + num_drafts)
-    )
-    stale_scheduler_output.num_scheduled_tokens[request.request_id] = num_drafts + 1
-    stale_scheduler_output.total_num_scheduled_tokens = num_drafts + 1
-    request.num_output_placeholders += num_drafts
-
-    assert scheduler.reset_prefix_cache(reset_running_requests=True) is True
-    assert request.num_output_placeholders == 0
-    assert request.async_tokens_to_discard > 0
-
-    request.num_computed_tokens = request.num_tokens - 1
-    scheduler.schedule()
-    assert request.num_output_placeholders == 1
-    computed_before = request.num_computed_tokens
-
-    stale_model_output = ModelRunnerOutput(
-        req_ids=[request.request_id],
-        req_id_to_index={request.request_id: 0},
-        sampled_token_ids=[[999]],
-        logprobs=None,
-        prompt_logprobs_dict={},
-        pooler_output=[],
-    )
-    discard_before = request.async_tokens_to_discard
-    scheduler.update_from_output(stale_scheduler_output, stale_model_output)
-
-    assert request.num_output_placeholders == 1
-    assert request.num_computed_tokens == computed_before
-    assert request.async_tokens_to_discard == discard_before - 1
-    return {
-        "drafts": num_drafts,
-        "placeholders": request.num_output_placeholders,
-        "discard_remaining": request.async_tokens_to_discard,
-    }
+from verifier_support import (
+    activate_requests,
+    assert_stale_frame_did_not_change_fresh_state,
+    capture_spec_frame,
+    deliver,
+    make_requests,
+    make_scheduler,
+    model_output,
+    resume_after_reset,
+    snapshot,
+)
 
 
 def main() -> int:
     try:
-        cycles = [_run_cycle(num_drafts) for num_drafts in (2, 5, 7)]
+        with tempfile.TemporaryDirectory(prefix="async-spec-reset-e2e-") as temp_dir:
+            scheduler = make_scheduler(Path(temp_dir) / "model", max_num_seqs=32)
+            requests = make_requests(24, max_tokens=128, token_seed=300)
+            activate_requests(scheduler, requests)
+            draft_widths = [1, 2, 3, 5, 7, 2, 5, 1, 7, 3, 5]
+            progress_events = 0
+            stale_frames_delivered = 0
+
+            for cycle, num_drafts in enumerate(draft_widths):
+                stale_output = capture_spec_frame(
+                    scheduler,
+                    requests,
+                    num_drafts=num_drafts,
+                    num_accepted=cycle % (num_drafts + 1),
+                )
+                fresh_output = resume_after_reset(scheduler, requests)
+                fresh_snapshots = {
+                    request.request_id: snapshot(request) for request in requests
+                }
+
+                for stale_index in range(num_drafts + 1):
+                    scheduler.update_from_output(
+                        stale_output,
+                        model_output(
+                            stale_output,
+                            token_seed=1000 + cycle * 200 + stale_index * 20,
+                        ),
+                    )
+                    stale_frames_delivered += len(requests)
+                    for request in requests:
+                        assert_stale_frame_did_not_change_fresh_state(
+                            request,
+                            fresh_snapshots[request.request_id],
+                        )
+
+                before_lengths = {
+                    request.request_id: len(request.output_token_ids)
+                    for request in requests
+                }
+                deliver(
+                    scheduler,
+                    fresh_output,
+                    accepted=0,
+                    token_seed=5000 + cycle * 100,
+                )
+                for request in requests:
+                    assert request.num_output_placeholders >= 0
+                    assert len(request.output_token_ids) == (
+                        before_lengths[request.request_id] + 1
+                    )
+                    progress_events += 1
+
         print(
             {
-                "entrypoint": "AsyncScheduler.reset_prefix_cache",
-                "cycles": cycles,
+                "entrypoint": "AsyncScheduler schedule/reset/update lifecycle",
+                "concurrent_requests": 24,
+                "reset_cycles": len(draft_widths),
+                "draft_widths": draft_widths,
+                "stale_request_frames_delivered": stale_frames_delivered,
+                "normal_progress_events": progress_events,
                 "negative_placeholder_events": 0,
             },
             flush=True,
         )
         return 0
     except Exception as exc:
-        lines = str(exc).splitlines()
         print(
             {
                 "error": type(exc).__name__,
-                "message": lines[0] if lines else "no exception message",
+                "message": str(exc).splitlines()[0] if str(exc) else "no message",
             },
             flush=True,
         )

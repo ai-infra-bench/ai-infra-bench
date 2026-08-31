@@ -3,18 +3,30 @@ set -uo pipefail
 mkdir -p /logs/verifier
 cd /workspace/vllm
 
-rc=0
-target=tests/v1/core/test_harbor_kv_admission.py
-cp /tests/test_regression.py "$target"
-timeout 900 bash -lc \
-  "pytest -p no:cacheprovider -v -s $target" || rc=$?
-
-if [ "$rc" -eq 0 ]; then
+pytest_rc=0
+integrity_rc=0
+lifecycle_rc=0
+server_rc=0
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 900 \
+  pytest --noconftest -c /dev/null --rootdir=/workspace/vllm \
+    -p no:cacheprovider -v -s --junitxml=/logs/verifier/junit.xml \
+    /tests/test_regression.py || pytest_rc=$?
+python /tests/check_junit.py /logs/verifier/junit.xml || integrity_rc=$?
+timeout 240 python /tests/test_real_scheduler_lifecycle.py \
+  > /logs/verifier/real_scheduler_lifecycle.log 2>&1 || lifecycle_rc=$?
+cat /logs/verifier/real_scheduler_lifecycle.log
+timeout 180 python /tests/test_real_cpu_server.py \
+  > /logs/verifier/real_cpu_server_probe.log 2>&1 || server_rc=$?
+cat /logs/verifier/real_cpu_server_probe.log
+if [ "$pytest_rc" -eq 0 ] && [ "$integrity_rc" -eq 0 ] \
+    && [ "$lifecycle_rc" -eq 0 ] && [ "$server_rc" -eq 0 ]; then
+  rc=0
   printf '1\n' > /logs/verifier/reward.txt
 else
+  rc=1
   printf '0\n' > /logs/verifier/reward.txt
 fi
-printf '{"reward":%s,"command_exit_code":%s}\n' \
-  "$([ "$rc" -eq 0 ] && printf 1 || printf 0)" "$rc" \
-  > /logs/verifier/reward.json
+printf '{"reward":%s,"command_exit_code":%s,"pytest_exit_code":%s,"integrity_exit_code":%s,"lifecycle_exit_code":%s,"server_exit_code":%s}\n' \
+  "$([ "$rc" -eq 0 ] && printf 1 || printf 0)" "$rc" "$pytest_rc" \
+  "$integrity_rc" "$lifecycle_rc" "$server_rc" > /logs/verifier/reward.json
 exit 0
