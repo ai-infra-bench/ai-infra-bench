@@ -1,6 +1,9 @@
 name: Publish task images
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       tasks:
@@ -35,18 +38,32 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Select tasks and trusted runners
         id: discover
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
           REQUESTED_TASKS: ${{ inputs.tasks }}
         run: |
           set -euo pipefail
-          matrix="$(
-            python3 .github/scripts/task_ci.py discover \
-              --mode manual \
-              --tasks "$REQUESTED_TASKS"
-          )"
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            matrix="$(
+              python3 .github/scripts/task_ci.py discover \
+                --mode pr \
+                --base "$BASE_SHA" \
+                --head "$HEAD_SHA"
+            )"
+          else
+            matrix="$(
+              python3 .github/scripts/task_ci.py discover \
+                --mode manual \
+                --tasks "$REQUESTED_TASKS"
+            )"
+          fi
           printf 'Selected matrix: %s\n' "$matrix"
           printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
 
