@@ -51,12 +51,21 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == "push" ]]; then
-            matrix="$(
-              python3 .github/scripts/task_ci.py discover \
-                --mode pr \
-                --base "$BASE_SHA" \
-                --head "$HEAD_SHA"
-            )"
+            if git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- |
+              grep -Fxq '.github/task-image-bootstrap'; then
+              matrix="$(
+                python3 .github/scripts/task_ci.py discover \
+                  --mode manual \
+                  --tasks all
+              )"
+            else
+              matrix="$(
+                python3 .github/scripts/task_ci.py discover \
+                  --mode pr \
+                  --base "$BASE_SHA" \
+                  --head "$HEAD_SHA"
+              )"
+            fi
           else
             matrix="$(
               python3 .github/scripts/task_ci.py discover \
