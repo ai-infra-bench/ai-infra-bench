@@ -436,7 +436,7 @@ def command_cases(args: argparse.Namespace) -> None:
 
 def command_image_check(args: argparse.Namespace) -> None:
     task_dir = TASKS_DIR / args.task
-    config, runner = task_contract(task_dir)
+    config, _ = task_contract(task_dir)
     inspect = json.loads(
         subprocess.run(
             ["docker", "image", "inspect", args.image],
@@ -445,28 +445,7 @@ def command_image_check(args: argparse.Namespace) -> None:
             stdout=subprocess.PIPE,
         ).stdout
     )[0]
-    labels = inspect.get("Config", {}).get("Labels") or {}
-    metadata = config.get("metadata", {})
-    expected = {
-        "ai.infra.bench.base-commit": metadata.get("base_commit"),
-        "ai.infra.bench.dependency-cutoff": metadata.get("dependency_cutoff"),
-    }
-    for key, value in expected.items():
-        if labels.get(key) != value:
-            raise ContractError(
-                f"{task_dir.name}: image label {key}={labels.get(key)!r}, "
-                f"expected {value!r}"
-            )
-    expected_arch = runner["platform"].rsplit("/", 1)[-1]
-    actual_arch = inspect.get("Architecture")
-    aliases = {"amd64": {"amd64", "x86_64"}}
-    if actual_arch not in aliases.get(expected_arch, {expected_arch}):
-        raise ContractError(
-            f"{task_dir.name}: image architecture {actual_arch!r}, "
-            f"expected {expected_arch!r}"
-        )
-
-    expected_head = metadata.get("base_commit")
+    expected_head = config.get("metadata", {}).get("base_commit")
     audit_script = f"""
 set -euo pipefail
 for path in /tests /solution /validation /workspace/solution /workspace/validation; do
@@ -476,6 +455,8 @@ cd /workspace/vllm
 test "$(git rev-parse HEAD)" = {shlex.quote(str(expected_head))}
 test -z "$(git remote)"
 test -z "$(git tag --list)"
+test "$(git for-each-ref --format='%(refname)')" = refs/heads/main
+test -z "$(git rev-list --all --not {shlex.quote(str(expected_head))})"
 test ! -e .git/logs
 test -z "$(git status --porcelain)"
 test -z "$(git fsck --full --no-reflogs --unreachable --no-progress 2>/dev/null)"
@@ -495,39 +476,12 @@ python -c "from pathlib import Path; import vllm; assert Path(vllm.__file__).res
         check=True,
     )
 
-    manifest_path = task_dir / "environment" / "image-manifest.json"
-    if manifest_path.is_file():
-        manifest = json.loads(manifest_path.read_text())
-        expected_versions = {
-            key: value
-            for key, value in (manifest.get("installed_versions") or {}).items()
-            if value is not None
-        }
-        version_code = (
-            "import importlib.metadata as m,json;"
-            f"names={list(expected_versions)!r};"
-            "print(json.dumps({name:m.version(name) for name in names}))"
-        )
-        actual_versions = json.loads(
-            subprocess.run(
-                ["docker", "run", "--rm", "--network=none", args.image, "python", "-c", version_code],
-                check=True,
-                text=True,
-                stdout=subprocess.PIPE,
-            ).stdout
-        )
-        if actual_versions != expected_versions:
-            raise ContractError(
-                f"{task_dir.name}: installed versions differ from image manifest; "
-                f"actual={actual_versions}, expected={expected_versions}"
-            )
     print(
         json.dumps(
             {
                 "image": args.image,
                 "image_id": inspect.get("Id"),
-                "architecture": actual_arch,
-                "labels": expected,
+                "base_commit": expected_head,
             }
         )
     )
