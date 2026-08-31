@@ -9,12 +9,15 @@ import json
 import os
 import platform
 import re
+import shlex
 import shutil
+import stat
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 from typing import Any
+
+import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TASKS_DIR = REPO_ROOT / "tasks"
@@ -176,6 +179,26 @@ def changed_tasks(base: str, head: str) -> list[Path]:
         if any(path == prefix or path.startswith(prefix + "/") for prefix in CI_RELEVANT_PATHS):
             select_all = True
 
+    for name in sorted(selected):
+        base_task = subprocess.run(
+            ["git", "cat-file", "-e", f"{base}:tasks/{name}/task.toml"],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode == 0
+        head_task = subprocess.run(
+            ["git", "cat-file", "-e", f"{head}:tasks/{name}/task.toml"],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode == 0
+        if base_task and not head_task:
+            raise ContractError(
+                f"{name}: task deletion requires a separate approved removal process"
+            )
+
     if select_all:
         return task_dirs()
     return [
@@ -222,14 +245,12 @@ def environment_key(task_dir: Path, target_platform: str) -> str:
     if not environment.is_dir():
         raise ContractError(f"{task_dir.name}: environment directory is missing")
     digest = hashlib.sha256()
-    digest.update(b"ai-infra-bench-environment-v1\0")
+    digest.update(b"ai-infra-bench-environment-v2\0")
     digest.update(target_platform.encode())
     digest.update(b"\0")
 
-    files = []
+    entries = []
     for path in environment.rglob("*"):
-        if not path.is_file():
-            continue
         rel = path.relative_to(environment)
         if (
             path.name in ENV_HASH_EXCLUDES
@@ -237,11 +258,23 @@ def environment_key(task_dir: Path, target_platform: str) -> str:
             or any(part.startswith(".") and part != ".dockerignore" for part in rel.parts)
         ):
             continue
-        files.append((rel.as_posix(), path))
-    for rel, path in sorted(files):
+        entries.append((rel.as_posix(), path))
+    for rel, path in sorted(entries):
+        metadata = path.lstat()
         digest.update(rel.encode())
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        digest.update(f"{stat.S_IMODE(metadata.st_mode):04o}".encode())
+        digest.update(b"\0")
+        if path.is_symlink():
+            digest.update(b"symlink\0")
+            digest.update(os.readlink(path).encode())
+        elif path.is_file():
+            digest.update(b"file\0")
+            digest.update(path.read_bytes())
+        elif path.is_dir():
+            digest.update(b"directory\0")
+        else:
+            raise ContractError(f"{task_dir.name}: unsupported environment entry {rel}")
         digest.update(b"\0")
     return digest.hexdigest()
 
@@ -426,6 +459,62 @@ def command_image_check(args: argparse.Namespace) -> None:
             f"{task_dir.name}: image architecture {actual_arch!r}, "
             f"expected {expected_arch!r}"
         )
+
+    expected_head = metadata.get("base_commit")
+    audit_script = f"""
+set -euo pipefail
+for path in /tests /solution /validation /workspace/solution /workspace/validation; do
+  test ! -e "$path"
+done
+cd /workspace/vllm
+test "$(git rev-parse HEAD)" = {shlex.quote(str(expected_head))}
+test -z "$(git remote)"
+test -z "$(git tag --list)"
+test ! -e .git/logs
+test -z "$(git status --porcelain)"
+test -z "$(git fsck --full --no-reflogs --unreachable --no-progress 2>/dev/null)"
+python -c "from pathlib import Path; import vllm; assert Path(vllm.__file__).resolve().is_relative_to(Path('/workspace/vllm'))"
+"""
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--network=none",
+            args.image,
+            "bash",
+            "-lc",
+            audit_script,
+        ],
+        check=True,
+    )
+
+    manifest_path = task_dir / "environment" / "image-manifest.json"
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text())
+        expected_versions = {
+            key: value
+            for key, value in (manifest.get("installed_versions") or {}).items()
+            if value is not None
+        }
+        version_code = (
+            "import importlib.metadata as m,json;"
+            f"names={list(expected_versions)!r};"
+            "print(json.dumps({name:m.version(name) for name in names}))"
+        )
+        actual_versions = json.loads(
+            subprocess.run(
+                ["docker", "run", "--rm", "--network=none", args.image, "python", "-c", version_code],
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout
+        )
+        if actual_versions != expected_versions:
+            raise ContractError(
+                f"{task_dir.name}: installed versions differ from image manifest; "
+                f"actual={actual_versions}, expected={expected_versions}"
+            )
     print(
         json.dumps(
             {

@@ -14,8 +14,21 @@ permissions:
   packages: write
 
 jobs:
+  require-main:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require the protected main branch
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [[ "$REF" != "refs/heads/main" ]]; then
+            echo "Task images can only be published from main." >&2
+            exit 1
+          fi
+
   discover:
-    if: github.ref == 'refs/heads/main'
+    needs: require-main
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.discover.outputs.matrix }}

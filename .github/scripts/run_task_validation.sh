@@ -24,7 +24,7 @@ environment_key="$(
 image_ref="${GHCR_REPOSITORY}:${TASK_NAME}-${environment_key}"
 cache_hit=false
 
-if docker image inspect "$image_ref" >/dev/null 2>&1 || docker pull "$image_ref"; then
+if docker pull "$image_ref"; then
   cache_hit=true
   printf 'Using cached image %s\n' "$image_ref"
 else
@@ -34,9 +34,21 @@ else
   docker tag "$local_tag" "$image_ref"
 fi
 
+runtime_image="$image_ref"
+if [[ "$cache_hit" == true ]]; then
+  runtime_image="$(
+    docker image inspect \
+      --format '{{range .RepoDigests}}{{println .}}{{end}}' \
+      "$image_ref" |
+      grep -F "${GHCR_REPOSITORY}@" |
+      head -n 1
+  )"
+  test -n "$runtime_image"
+fi
+
 python3 .github/scripts/task_ci.py image-check \
   --task "$TASK_NAME" \
-  --image "$image_ref"
+  --image "$runtime_image"
 
 mkdir -p "$HARBOR_JOBS_DIR/$TASK_NAME"
 cases_json="$(python3 .github/scripts/task_ci.py cases --task "$TASK_NAME")"
@@ -48,7 +60,7 @@ while IFS= read -r case_json; do
   agent="$(
     python3 .github/scripts/task_ci.py prepare-case \
       --task "$TASK_NAME" \
-      --image "$image_ref" \
+      --image "$runtime_image" \
       --case "$case_name" \
       --output "$case_dir"
   )"
