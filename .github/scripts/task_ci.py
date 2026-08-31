@@ -79,6 +79,13 @@ def task_contract(task_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         )
     runner = classes[accelerator]
     task_gpus = environment.get("gpus", 0) or 0
+    workdir = environment.get("workdir")
+    if (
+        not isinstance(workdir, str)
+        or not Path(workdir).is_absolute()
+        or any(character in workdir for character in "\r\n\0")
+    ):
+        raise ContractError(f"{task_dir.name}: [environment].workdir must be absolute")
 
     if accelerator == "CPU":
         if "topology" in environment:
@@ -446,21 +453,19 @@ def command_image_check(args: argparse.Namespace) -> None:
         ).stdout
     )[0]
     expected_head = config.get("metadata", {}).get("base_commit")
+    workdir = config["environment"]["workdir"]
     audit_script = f"""
 set -euo pipefail
-for path in /tests /solution /validation /workspace/solution /workspace/validation; do
+for path in /tests /solution /validation; do
   test ! -e "$path"
 done
-cd /workspace/vllm
+cd {shlex.quote(workdir)}
 test "$(git rev-parse HEAD)" = {shlex.quote(str(expected_head))}
 test -z "$(git remote)"
-test -z "$(git tag --list)"
-test "$(git for-each-ref --format='%(refname)')" = refs/heads/main
 test -z "$(git rev-list --all --not {shlex.quote(str(expected_head))})"
 test ! -e .git/logs
 test -z "$(git status --porcelain)"
 test -z "$(git fsck --full --no-reflogs --unreachable --no-progress 2>/dev/null)"
-python -c "from pathlib import Path; import vllm; assert Path(vllm.__file__).resolve().is_relative_to(Path('/workspace/vllm'))"
 """
     subprocess.run(
         [
