@@ -29,7 +29,6 @@ CI_RELEVANT_PATHS = {
     ".github/scripts/run_task_validation.sh",
     ".github/workflows/publish-task-images.yml",
     ".github/workflows/task-validation.yml",
-    "templates/vllm-harbor-all-in-one",
 }
 
 
@@ -177,12 +176,15 @@ def validate_task(task_dir: Path) -> None:
 def changed_tasks(base: str, head: str) -> list[Path]:
     changed = run("git", "diff", "--name-only", base, head).stdout.splitlines()
     selected: set[str] = set()
+    changed_templates: set[str] = set()
     select_all = False
     for raw in changed:
         path = raw.strip("/")
         parts = path.split("/")
         if len(parts) >= 3 and parts[0] == "tasks":
             selected.add(parts[1])
+        if len(parts) >= 2 and parts[0] == "templates":
+            changed_templates.add(parts[1])
         if any(path == prefix or path.startswith(prefix + "/") for prefix in CI_RELEVANT_PATHS):
             select_all = True
 
@@ -205,6 +207,12 @@ def changed_tasks(base: str, head: str) -> list[Path]:
             raise ContractError(
                 f"{name}: task deletion requires a separate approved removal process"
             )
+
+    if changed_templates:
+        for task_dir in task_dirs():
+            metadata = load_toml(task_dir / "task.toml").get("metadata", {})
+            if metadata.get("environment_template") in changed_templates:
+                selected.add(task_dir.name)
 
     if select_all:
         return task_dirs()

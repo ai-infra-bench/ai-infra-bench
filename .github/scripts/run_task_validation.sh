@@ -29,23 +29,13 @@ if docker pull "$image_ref"; then
   printf 'Using cached image %s\n' "$image_ref"
 else
   printf 'No cached image for %s; building locally\n' "$image_ref"
-  environment_template="$(
-    python3 -c \
-      'import sys,tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["metadata"].get("environment_template", ""))' \
-      "$task_dir/task.toml"
-  )"
-  if [[ "$environment_template" == "vllm-harbor-all-in-one" ]]; then
-    python3 templates/vllm-harbor-all-in-one/build.py "$task_dir"
-    local_tag="$(jq -er '.canonical_tag' "$task_dir/environment/image-manifest.json")"
-    docker tag "$local_tag" "$image_ref"
-  else
-    docker buildx build \
-      --load \
-      --progress=plain \
-      --tag "$image_ref" \
-      --file "$task_dir/environment/Dockerfile" \
-      "$task_dir/environment"
-  fi
+  test -f "$task_dir/environment/Dockerfile"
+  docker buildx build \
+    --load \
+    --progress=plain \
+    --tag "$image_ref" \
+    --file "$task_dir/environment/Dockerfile" \
+    "$task_dir/environment"
 fi
 
 runtime_image="$image_ref"
