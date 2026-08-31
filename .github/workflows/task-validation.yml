@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.discover.outputs.matrix }}
+      requires-gpu-approval: ${{ steps.discover.outputs.requires-gpu-approval }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -54,10 +55,34 @@ jobs:
           fi
           printf 'Selected matrix: %s\n' "$matrix"
           printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            requires_gpu_approval="$(
+              jq -r 'any(.[]; .accelerator != "CPU")' <<<"$matrix"
+            )"
+          else
+            requires_gpu_approval=false
+          fi
+          printf 'requires-gpu-approval=%s\n' "$requires_gpu_approval" >> "$GITHUB_OUTPUT"
+
+  gpu-approval:
+    needs: discover
+    if: needs.discover.outputs.requires-gpu-approval == 'true'
+    runs-on: ubuntu-24.04
+    environment:
+      name: task-validation
+    steps:
+      - name: Approve use of the self-hosted GPU runner
+        run: echo "GPU task validation approved."
 
   validate:
-    needs: discover
-    if: needs.discover.outputs.matrix != '[]'
+    needs:
+      - discover
+      - gpu-approval
+    if: >-
+      always() &&
+      needs.discover.result == 'success' &&
+      (needs.gpu-approval.result == 'success' || needs.gpu-approval.result == 'skipped') &&
+      needs.discover.outputs.matrix != '[]'
     strategy:
       fail-fast: false
       max-parallel: 12
@@ -65,8 +90,6 @@ jobs:
         include: ${{ fromJSON(needs.discover.outputs.matrix) }}
     name: Validate ${{ matrix.task }}
     runs-on: ${{ matrix.runs_on }}
-    environment:
-      name: ${{ matrix.approval_environment }}
     timeout-minutes: 240
     env:
       TASK_NAME: ${{ matrix.task }}
@@ -115,6 +138,7 @@ jobs:
     name: Task validation
     needs:
       - discover
+      - gpu-approval
       - validate
     if: always()
     runs-on: ubuntu-24.04
@@ -122,8 +146,10 @@ jobs:
       - name: Require selected task validations
         env:
           DISCOVER_RESULT: ${{ needs.discover.result }}
+          GPU_APPROVAL_RESULT: ${{ needs.gpu-approval.result }}
           VALIDATE_RESULT: ${{ needs.validate.result }}
         run: |
           set -euo pipefail
           [[ "$DISCOVER_RESULT" == "success" ]]
+          [[ "$GPU_APPROVAL_RESULT" == "success" || "$GPU_APPROVAL_RESULT" == "skipped" ]]
           [[ "$VALIDATE_RESULT" == "success" || "$VALIDATE_RESULT" == "skipped" ]]

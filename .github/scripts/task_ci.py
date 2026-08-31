@@ -202,20 +202,14 @@ def changed_tasks(base: str, head: str) -> list[Path]:
     ]
 
 
-def matrix_entry(task_dir: Path, mode: str) -> dict[str, Any]:
+def matrix_entry(task_dir: Path) -> dict[str, Any]:
     config, runner = task_contract(task_dir)
     validation_manifest(task_dir)
-    if mode == "manual":
-        approval_environment = "manual-task-validation"
-    elif config["environment"]["accelerator"] == "CPU":
-        approval_environment = "automatic-task-validation"
-    else:
-        approval_environment = "task-validation"
     return {
         "task": task_dir.name,
+        "accelerator": config["environment"]["accelerator"],
         "runs_on": runner["github_labels"],
         "platform": runner["platform"],
-        "approval_environment": approval_environment,
     }
 
 
@@ -224,7 +218,6 @@ def command_discover(args: argparse.Namespace) -> None:
         if not args.base or not args.head:
             raise ContractError("PR discovery requires --base and --head")
         selected = changed_tasks(args.base, args.head)
-        mode = "pr"
     else:
         requested = [item.strip() for item in args.tasks.split(",") if item.strip()]
         if not requested or requested == ["all"]:
@@ -234,9 +227,8 @@ def command_discover(args: argparse.Namespace) -> None:
             missing = [path.name for path in selected if not (path / "task.toml").is_file()]
             if missing:
                 raise ContractError(f"unknown tasks: {missing}")
-        mode = "manual"
 
-    entries = [matrix_entry(path, mode) for path in selected]
+    entries = [matrix_entry(path) for path in selected]
     print(json.dumps(entries, separators=(",", ":")))
 
 
