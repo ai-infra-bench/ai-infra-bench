@@ -1,0 +1,148 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-08-31T00:20:08+08:00",
+  "source": {
+    "candidate_id": "vllm-cpu-300-124",
+    "instance_id": "vllm-project__vllm-35736",
+    "base_commit": "82531edbfb6b33e1c8667dea15c8622f011dcef0",
+    "origin_issue": "vllm-project__vllm-35319",
+    "superseded_sender_side_pr": "vllm-project__vllm-35484"
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-ray-zero-copy-logprobs:base-82531edbfb6b",
+    "image_id": "sha256:e74823128bb8b25649d0c42c4bd3a18a3fe61d331bf1bd009ba1ff0ada07caed",
+    "size_bytes": 1857852806,
+    "dockerfile_sha256": "be8e9bcb923645c05a6966c54c468c2317f127eea11602ef78818a24672094f0",
+    "dependency_lock_sha256": "35fd63b5f0cf66a6ed169897ba3955bf8973080d9ab2a61a1a1632019a3e0094",
+    "dependency_lock_manifest_sha256": "cb2d06c2677eaaf58f69926242a9eb1b7d6306199cf354f1fc34745428d74937",
+    "ray_version": "2.48.0"
+  },
+  "artifacts": {
+    "instruction_sha256": "9cf40ed777df0ef7ac2da900b577a962c29babfeda3194c7388b0e723d789333",
+    "oracle_patch_sha256": "466e1258010553ae22e20785cd019171555233afcaeff84490e591eb211e0dcb",
+    "test_script_sha256": "e02608fe5bf753ffaf7f24c709ca2a70f69ee0bdaab4ad50da2ccafa4f47497e",
+    "regression_test_sha256": "1d0f005a239edba78743e3a4d54ec09442c11d110cbe9897ceaebe54712ab195",
+    "real_ray_channel_test_sha256": "f389c117ba7bfe63656ed581866125daa14b4103e7ba586d87009664cf78e9aa",
+    "junit_checker_sha256": "da1eeb33362c12d38bd6a76035ab6cbdcf8fcdab060c08df43642bf7736e92d5",
+    "nonblocking_only_patch_sha256": "b2ccecfb289147d0bb31b4011d81edec0ddb6f6cff514117a65b2e4fc896a350",
+    "blocking_only_patch_sha256": "540931cb117228056747be87d127554bccdba9a4514cfdf0d6c8e964ccf01f42",
+    "direct_paths_only_patch_sha256": "047390904730fe595d441cc1b0ffece75b72ff11f9ff967320c8f190b553877d",
+    "skip_all_conftest_patch_sha256": "cc58f7645c9d49d350408a63a7ebcf65e10e8eb4f3cd2f00ad3a8f30f2b038cd"
+  },
+  "verifier_coverage": {
+    "unit_tests": 10,
+    "unit_dimensions": [
+      "blocking direct result",
+      "nonblocking FutureWrapper result",
+      "blocking KV-output aggregation for every worker",
+      "nonblocking KV-output aggregation for every worker",
+      "mixed read-only and writable NumPy arrays",
+      "value and dtype preservation",
+      "prompt-logprob and unrelated-field preservation",
+      "None logprobs through blocking and nonblocking paths",
+      "JUnit collection, uniqueness, and no-skip integrity"
+    ],
+    "real_ray_channel": {
+      "logical_nodes": 2,
+      "distinct_raylets": true,
+      "distinct_node_ids": true,
+      "actors_pinned_to_different_nodes": true,
+      "compiled_dag_stages": 2,
+      "channel_buffer_slots": 1,
+      "model_runner_outputs_held_concurrently": 3,
+      "network_mode": "none",
+      "scope_boundary": "real two-node Ray compiled-DAG channel carrying vLLM ModelRunnerOutput; no GPU model server"
+    }
+  },
+  "runs": [
+    {
+      "case": "base",
+      "repetitions": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "unit_tests_passed_per_run": [3, 3, 3, 3, 3],
+      "unit_tests_failed_per_run": [7, 7, 7, 7, 7],
+      "ray_cluster_exit_codes": [0, 0, 0, 0, 0],
+      "ray_channel_exit_codes": [1, 1, 1, 1, 1],
+      "observed_channel_error": "RayChannelTimeoutError"
+    },
+    {
+      "case": "oracle",
+      "repetitions": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "unit_tests_passed_per_run": [10, 10, 10, 10, 10],
+      "unit_tests_failed_per_run": [0, 0, 0, 0, 0],
+      "ray_cluster_exit_codes": [0, 0, 0, 0, 0],
+      "ray_channel_exit_codes": [0, 0, 0, 0, 0],
+      "successful_channel_reads_per_run": [3, 3, 3, 3, 3]
+    },
+    {
+      "case": "nonblocking_only",
+      "reward": 0,
+      "unit_tests_passed": 8,
+      "unit_tests_failed": 2,
+      "ray_channel_exit_code": 1
+    },
+    {
+      "case": "blocking_only",
+      "reward": 0,
+      "unit_tests_passed": 5,
+      "unit_tests_failed": 5,
+      "ray_channel_exit_code": 1
+    },
+    {
+      "case": "direct_paths_only",
+      "reward": 0,
+      "unit_tests_passed": 8,
+      "unit_tests_failed": 2,
+      "ray_channel_exit_code": 0
+    },
+    {
+      "case": "skip_all_conftest",
+      "reward": 0,
+      "unit_tests_passed": 3,
+      "unit_tests_failed": 7,
+      "unit_tests_skipped": 0,
+      "ray_channel_exit_code": 1
+    }
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "42588ce2-387a-431c-ac75-aa81d9931000",
+    "trial_id": "83825ebf-e4ae-4a41-addf-90f7300cb7b7",
+    "input_task_checksum": "08734df94f93b6b6e13ee7344f351459ab8651855e3d241f6543502fd9485f89",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "command_exit_code": 0,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "ray_cluster_exit_code": 0,
+    "ray_channel_exit_code": 0,
+    "unit_tests_passed": 10,
+    "unit_tests_failed": 0,
+    "ray_nodes": 2,
+    "successful_channel_reads": 3,
+    "runtime_seconds": 30,
+    "canonical_image_retained_after_run": true
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "future_reference_commit_absent": true,
+    "latest_reachable_commit_time": "2026-04-16T15:48:17+00:00",
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_and_tests_absent_from_image": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "ray_compiled_dag_dependency_locked": true,
+    "torch_release_window_override_documented": true,
+    "cache_only_rebuild_digest_stable": true,
+    "runtime_network_disabled": true,
+    "pytest_plugin_autoload_disabled": true,
+    "repository_conftests_disabled": true,
+    "exact_test_collection_enforced": true,
+    "skipped_tests_rejected": true
+  }
+}

@@ -1,0 +1,15 @@
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -1599,7 +1599,10 @@ class Scheduler(SchedulerInterface):
+                     request.num_computed_tokens -= num_rejected
+                 # If async scheduling, num_output_placeholders also includes
+                 # the scheduled spec tokens count and so is similarly adjusted.
+-                if request.num_output_placeholders > 0:
++                if (
++                    request.num_output_placeholders > 0
++                    and request.async_tokens_to_discard == 0
++                ):
+                     request.num_output_placeholders -= num_rejected
+                 spec_decoding_stats = self.make_spec_decoding_stats(
+                     spec_decoding_stats,

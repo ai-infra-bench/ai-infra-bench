@@ -1,0 +1,14 @@
+diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/simple_cpu_offload_connector.py b/vllm/distributed/kv_transfer/kv_connector/v1/simple_cpu_offload_connector.py
+--- a/vllm/distributed/kv_transfer/kv_connector/v1/simple_cpu_offload_connector.py
++++ b/vllm/distributed/kv_transfer/kv_connector/v1/simple_cpu_offload_connector.py
+@@ -248,7 +248,4 @@ class SimpleCPUOffloadConnector(KVConnectorBase_V1, SupportsHMA):
+     def reset_cache(self) -> bool | None:
+-        raise NotImplementedError(
+-            "SimpleCPUOffloadConnector does not support reset_cache(). "
+-            "reset_prefix_cache() requires synchronizing all pending "
+-            "CPU offload transfers before clearing GPU prefix cache blocks, "
+-            "which is not yet implemented."
+-        )
++        if self.scheduler_manager is not None:
++            return self.scheduler_manager.cpu_block_pool.reset_prefix_cache()
++        return None

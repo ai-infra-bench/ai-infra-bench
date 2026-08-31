@@ -1,0 +1,16 @@
+diff --git a/vllm/v1/core/sched/output.py b/vllm/v1/core/sched/output.py
+--- a/vllm/v1/core/sched/output.py
++++ b/vllm/v1/core/sched/output.py
+@@ -48,7 +48,11 @@ class NewRequestData:
+             sampling_params=request.sampling_params,
+             pooling_params=request.pooling_params,
+             block_ids=block_ids,
+-            num_computed_tokens=request.num_computed_tokens,
++            num_computed_tokens=(
++                request.num_external_computed_tokens
++                if request.num_external_computed_tokens
++                else request.num_computed_tokens
++            ),
+             lora_request=request.lora_request,
+             prompt_embeds=request.prompt_embeds,
+             prefill_token_ids=prefill_token_ids,

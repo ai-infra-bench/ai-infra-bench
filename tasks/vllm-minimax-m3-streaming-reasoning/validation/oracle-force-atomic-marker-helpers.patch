@@ -1,0 +1,14 @@
+diff --git a/vllm/reasoning/minimax_m3_reasoning_parser.py b/vllm/reasoning/minimax_m3_reasoning_parser.py
+--- a/vllm/reasoning/minimax_m3_reasoning_parser.py
++++ b/vllm/reasoning/minimax_m3_reasoning_parser.py
+@@ -54,6 +54,9 @@ class MiniMaxM3ReasoningParser(BaseThinkingReasoningParser):
+             return list(self.model_tokenizer.encode(text))
+ 
+     def _encode_marker(self, marker: str) -> tuple[int, ...]:
+-        return tuple(self._encode_text(marker))
++        marker_id = self.model_tokenizer.get_vocab().get(marker)
++        if marker_id is not None:
++            return (marker_id,)
++        return tuple(self._encode_text(marker))
+ 
+     def _decode_text(self, token_ids: Sequence[int]) -> str:

@@ -1,0 +1,16 @@
+diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/store/coordinator.py b/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/store/coordinator.py
+--- a/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/store/coordinator.py
++++ b/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/store/coordinator.py
+@@ -142,6 +142,12 @@ class MooncakeStoreCoordinator:
+         masks, _ = self.find_longest_cache_hit(
+             block_hashes, token_len, ExternalCachedBlockPool()
+         )
++        # Incomplete workaround: pad only the simple single-group Eagle path.
++        # Hybrid cache layouts still apply Eagle pruning twice.
++        if len(self.attention_groups) == 1 and self.eagle_attn_group_indices:
++            expected_chunks = token_len // self.hash_block_size
++            if len(masks[0]) < expected_chunks:
++                masks[0].append(True)
+         return masks
+
+     def store_mask(self, aligned_token_len: int) -> tuple[list[bool], ...]:

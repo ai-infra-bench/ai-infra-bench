@@ -1,0 +1,43 @@
+diff --git a/vllm/entrypoints/anthropic/serving.py b/vllm/entrypoints/anthropic/serving.py
+--- a/vllm/entrypoints/anthropic/serving.py
++++ b/vllm/entrypoints/anthropic/serving.py
+@@ -12,6 +12,7 @@ import uuid
+ from collections.abc import AsyncGenerator
+ from typing import TYPE_CHECKING, Any
+
++import jinja2
+ from fastapi import Request
+
+ from vllm.engine.protocol import EngineClient
+@@ -99,6 +100,31 @@ class AnthropicServingMessages(OpenAIServingChat):
+             "length": "max_tokens",
+             "tool_calls": "tool_use",
+         }
++        self._merge_inline_system = self._detect_merge_inline_system(chat_template)
++
++    @staticmethod
++    def _detect_merge_inline_system(chat_template: str | None) -> bool:
++        """Detect whether the template rejects an inline system message."""
++        if not chat_template:
++            return True
++        try:
++            env = jinja2.sandbox.ImmutableSandboxedEnvironment(
++                trim_blocks=True,
++                lstrip_blocks=True,
++                extensions=[jinja2.ext.loopcontrols],
++            )
++            env.from_string(chat_template).render(
++                messages=[
++                    {"role": "system", "content": "t"},
++                    {"role": "user", "content": "t"},
++                    {"role": "system", "content": "t"},
++                    {"role": "user", "content": "t"},
++                ],
++                add_generation_prompt=False,
++            )
++            return False
++        except jinja2.TemplateError:
++            return True
+
+     @staticmethod
+     def _convert_image_source_to_url(source: dict[str, Any]) -> str:

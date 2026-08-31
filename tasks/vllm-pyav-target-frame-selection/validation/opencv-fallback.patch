@@ -1,0 +1,21 @@
+diff --git a/vllm/multimodal/video.py b/vllm/multimodal/video.py
+--- a/vllm/multimodal/video.py
++++ b/vllm/multimodal/video.py
+@@ -486,6 +486,17 @@ class VideoBackend(VideoLoader, OpenCVVideoBackendMixin, PyAVVideoBackendMixin):
+         elif backend == "pyav":
+             assert not frame_recovery, (
+                 "frame_recovery is only available for `opencv` backend"
+             )
++            frames, metadata = cls.load_bytes(
++                data,
++                num_frames=num_frames,
++                fps=fps,
++                max_duration=max_duration,
++                frame_recovery=False,
++                backend="opencv",
++                **kwargs,
++            )
++            metadata["video_backend"] = f"pyav{cls._sampling_suffix}"
++            return frames, metadata
+             with av.open(BytesIO(data)) as container:
+                 source = cls._prepare_source(cls.get_metadata(container))

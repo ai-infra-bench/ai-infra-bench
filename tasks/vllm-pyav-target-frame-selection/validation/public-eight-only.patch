@@ -1,0 +1,21 @@
+diff --git a/vllm/multimodal/video.py b/vllm/multimodal/video.py
+index 5b118af8f..c439949f7 100644
+--- a/vllm/multimodal/video.py
++++ b/vllm/multimodal/video.py
+@@ -406,7 +406,15 @@ class PyAVVideoBackendMixin:
+             ts = min(idx / fps, max_ts) if fps > 0 else 0.0
+             pts = int(ts / time_base)
+             container.seek(pts, stream=stream)
+-            frame = next(container.decode(video=0), None)
++            decoder = container.decode(video=0)
++            frame = next(decoder, None)
++            if len(frame_indices) == 8 and (
++                frame is None or frame.pts is None or frame.pts < pts
++            ):
++                for candidate in decoder:
++                    if candidate.pts is not None and candidate.pts >= pts:
++                        frame = candidate
++                        break
+             if frame is not None:
+                 frames_list.append(frame.to_ndarray(format="rgb24"))
+                 valid_indices.append(idx)

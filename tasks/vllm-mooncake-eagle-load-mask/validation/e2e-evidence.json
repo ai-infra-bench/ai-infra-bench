@@ -1,0 +1,121 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-08-31T01:29:08+08:00",
+  "source": {
+    "candidate_id": "vllm-cpu-300-175",
+    "instance_id": "vllm-project__vllm-43516",
+    "base_commit": "aa2b56ffb0c1d8b29d6468282a49d9b4a9f0dd1c",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/43516",
+    "directly_linked_issue": null,
+    "reported_origin": "Cross-instance MiniMax MTP/EAGLE-3 Mooncake loads returned corrupted generations while non-MTP loads were unaffected."
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-mooncake-eagle-load-mask:base-aa2b56ffb0c1",
+    "image_id": "sha256:73b7b43b852030e4dcaab115f24b6b6c1fe896bb319672e660c3ec057745a72b",
+    "dockerfile_sha256": "aa1868b46b9dc5bbb792158ebeb40e63c2ef5d3580dba966b29f9053f561dfba",
+    "dependency_lock_sha256": "ee8408b25b8fa4292d1bbbb326635623b20f45728a1202916dfe3d9ad8b65269",
+    "dependency_lock_manifest_sha256": "33bb1911a9843cd5d2bd007efd61c8a6492476825291c04eb770414417cdaaf5"
+  },
+  "artifacts": {
+    "instruction_sha256": "15fcef1a912add158ee388bf2ca51d15ae93dbbd59a1a4b95bc34a9d9cb31888",
+    "oracle_patch_sha256": "72bc24986984524252e818baf6b2effee4c1616c5110c16c783377fdd9e90c46",
+    "test_script_sha256": "0db7ed623cbce4bcabcc4465ae26425648e3cc5b7efbc215f6a7ca96f99294e3",
+    "regression_test_sha256": "553fb4fc407bcf920ee55bbd8dba785a3a7d2b28ae8d3e530741f35c205ae868",
+    "junit_checker_sha256": "f719e0ecfed3d1818769d5dc229d50845e12def6866316c7752a15e1bb6bb938",
+    "real_receive_test_sha256": "ced6f0d6dd9a9784c0df08b9c2f7116c4a15b9857afd49cb7d0bfc943cc98e5b"
+  },
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "behavior_cases": 14,
+    "block_sizes": [8, 16, 32],
+    "behaviors": [
+      "Eagle lookup retains its one-block adjustment",
+      "receive masks cover every chunk in the reported external hit",
+      "non-Eagle lookup and receive behavior remain unchanged",
+      "hybrid full-attention and sliding-window masks preserve their semantics",
+      "mixed group block sizes cover the same reported token range"
+    ],
+    "collection_integrity": "JUnit must contain exactly 14 unique, passing, non-skipped cases"
+  },
+  "real_lifecycle_boundary": {
+    "kind": "real Mooncake background receive-thread pipeline",
+    "entrypoint": "KVCacheStoreRecvingThread",
+    "uses_real_coordinator": true,
+    "uses_real_chunked_token_databases": true,
+    "uses_real_request_metadata_and_address_preparation": true,
+    "background_thread_cases": 3,
+    "covers_single_and_hybrid_groups": true,
+    "external_rdma_transport_exercised": false,
+    "limitation": "No Mooncake metadata/RDMA service is available in the CPU task environment; the real receive thread submits keys and buffers to an in-memory recording store implementing the transport boundary."
+  },
+  "repeated_runs": [
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "behavior_tests_each_round": {"passed": 3, "failed": 11},
+      "e2e_exit_codes": [1, 1, 1, 1, 1]
+    },
+    {
+      "case": "oracle",
+      "rounds": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "behavior_tests_each_round": {"passed": 14, "failed": 0},
+      "e2e_exit_codes": [0, 0, 0, 0, 0]
+    }
+  ],
+  "adversarial_runs": [
+    {
+      "case": "pad_only_single_group",
+      "patch_sha256": "a4ae731e06721c4b38894ed1075168be0aeb437eaad84040a94aa806e73beb66",
+      "reward": 0,
+      "tests_passed": 9,
+      "tests_failed": 5,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "pad_every_group_with_true",
+      "patch_sha256": "ea484e7eaa93e6921836dab6307dcc964ccb628deac2b3c7ad33c23e5608217a",
+      "reward": 0,
+      "tests_passed": 9,
+      "tests_failed": 5,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "special_case_visible_48_token_trace",
+      "patch_sha256": "f541400f97a667def5f6dbbd08f6faa71ec1b17e3eaa977f9b569210506b86e7",
+      "reward": 0,
+      "tests_passed": 4,
+      "tests_failed": 10,
+      "e2e_exit_code": 1
+    }
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "4e57ee49-762a-443c-8930-28ee342342a4",
+    "trial_id": "5ba50315-4cbf-4581-a656-ea1e5517f086",
+    "input_task_checksum": "e8c6311a9e9f376f2f2c85460c1fbcfa27b2055fc93ca0f14661e71f93ed228e",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "command_exit_code": 0,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "e2e_exit_code": 0,
+    "runtime_seconds": 26,
+    "canonical_image_retained_after_run": true
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "future_reference_commit_absent": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_and_tests_absent_from_image": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "cached_rebuild_digest_stable": true,
+    "runtime_network_disabled": true
+  }
+}

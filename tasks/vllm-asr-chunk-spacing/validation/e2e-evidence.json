@@ -1,0 +1,84 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-08-31T09:41:32+08:00",
+  "source": {
+    "candidate_id": "vllm-cpu-300-115",
+    "instance_id": "vllm-project__vllm-39116",
+    "base_commit": "a8134aef4e0cac7ffb72b24d89378df09d88f9cc",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/39116",
+    "directly_linked_issue": null,
+    "reported_origin": "Cohere and Qwen3 multi-chunk ASR concatenated adjacent words; Whisper's leading whitespace masked the defect."
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-asr-chunk-spacing:base-a8134aef4e0c",
+    "image_id": "sha256:3f29eed8e0a74fb94877ae3557b0b42a7385fafc03f884c83ee811466102eb79",
+    "dockerfile_sha256": "5c70bcd13c7676509369864c2304fcb167c99b9f045099211b918ad0631cd702",
+    "dependency_lock_sha256": "35238848716a16aecef9733a42715ce6d1b28272911bb3cd65f9ba4d4b624dbe",
+    "dependency_lock_manifest_sha256": "b2578863aaf8bd86e425423979b6ca28dc61b7597ea297d353f9736de31d7901",
+    "cutoff_overrides": ["torch", "torchaudio", "torchvision"]
+  },
+  "artifacts": {
+    "instruction_sha256": "ebdcdd226cac3dba03c0a7b3813db33b16e59db32c0935a716a1ff6c477f3359",
+    "oracle_patch_sha256": "ce256d7f5a735ab639d0585f753abd895909696253177ca43fb375ab9666755e",
+    "test_script_sha256": "827782fa2889143e098b2a676b53ab8208dc13e0b39b2051d4e0514ecd170df8",
+    "regression_test_sha256": "8701023b9f6361f11566e077fc7eb4c8c101a940c41f3250289f65e87ed872bf",
+    "junit_checker_sha256": "f36d90ed09c6f061c85ec846cd61118b8d30a0f1b88f5f8023419d2ee60f1339",
+    "real_pipeline_test_sha256": "3474966a6eca14e99d07ab85175cfe3db46b79d392f7702b820cb46092d7c2de"
+  },
+  "verifier_contract": {
+    "behavior_cases": 15,
+    "behaviors": [
+      "English and unspecified language chunks receive a separator",
+      "Chinese and Japanese chunks remain unspaced",
+      "streaming transcription and translation use identical boundary rules",
+      "a separator is added once per audio chunk rather than per model delta",
+      "non-streaming public transcription joins by language",
+      "single-chunk streams have no leading separator"
+    ],
+    "collection_integrity": "JUnit must contain exactly 15 unique, passing, non-skipped cases"
+  },
+  "real_lifecycle_boundary": {
+    "kind": "real public transcription and translation streaming generators",
+    "entrypoints": ["OpenAIServingTranscription", "OpenAIServingTranslation"],
+    "audio_chunk_counts": [3, 2],
+    "model_outputs_simulated": true,
+    "limitation": "Model decoding is outside the merge defect; deterministic async RequestOutput streams drive the actual SSE response generators without model weights."
+  },
+  "repeated_runs": [
+    {"case": "base", "rounds": 5, "rewards": [0, 0, 0, 0, 0], "behavior_tests_each_round": {"passed": 1, "failed": 14}, "e2e_exit_codes": [1, 1, 1, 1, 1]},
+    {"case": "oracle", "rounds": 5, "rewards": [1, 1, 1, 1, 1], "behavior_tests_each_round": {"passed": 15, "failed": 0}, "e2e_exit_codes": [0, 0, 0, 0, 0]}
+  ],
+  "adversarial_runs": [
+    {"case": "always_insert_space", "patch_sha256": "c97f2cdfba45560ae87980ccb332f503cf3bb815a5170819ac6cb7529aeef17d", "reward": 0, "tests_passed": 9, "tests_failed": 6, "e2e_exit_code": 1},
+    {"case": "nonstreaming_still_concatenates", "patch_sha256": "15d74e4a0f9f431538a1c9211b87d868b2b1ee843687b1001b7fa67db6f8f1df", "reward": 0, "tests_passed": 14, "tests_failed": 1, "e2e_exit_code": 0},
+    {"case": "stream_adds_leading_separator", "patch_sha256": "ad6435cff37a9d1824fc2dfba18f504b3b5570edaab1f31983adc67c28fae18a", "reward": 0, "tests_passed": 9, "tests_failed": 6, "e2e_exit_code": 1}
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "dfbebc5a-b80f-4d42-a6c4-258cc9671df0",
+    "trial_id": "4fa7e289-127c-4e2b-becd-b1bca0c35c35",
+    "input_task_checksum": "cf738bb1039cd52d3bd9f4b918d7029f97feffaaedddd9d47af59a8afb3fa520",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "command_exit_code": 0,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "e2e_exit_code": 0,
+    "runtime_seconds": 27,
+    "canonical_image_retained_after_run": true
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "future_reference_commit_absent": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_and_tests_absent_from_image": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "cached_rebuild_digest_stable": true,
+    "runtime_network_disabled": true
+  }
+}

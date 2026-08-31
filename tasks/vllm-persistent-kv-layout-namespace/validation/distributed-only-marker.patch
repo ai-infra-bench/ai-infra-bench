@@ -1,0 +1,12 @@
+diff --git a/vllm/v1/kv_offload/file_mapper.py b/vllm/v1/kv_offload/file_mapper.py
+--- a/vllm/v1/kv_offload/file_mapper.py
++++ b/vllm/v1/kv_offload/file_mapper.py
+@@ -58,4 +58,8 @@ class FileMapper:
+             "kv_cache_groups": kv_cache_groups or [],
+             "inference_engine": inference_engine,
+         }
++        if not parallel_agnostic and any(
++            size != 1 for size in (tp_size, pp_size, pcp_size, dcp_size)
++        ):
++            self.fields["parallel_agnostic"] = False
+         self.base_path: str = self._compute_base_path(root_dir, self.fields)

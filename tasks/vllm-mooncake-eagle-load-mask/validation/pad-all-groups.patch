@@ -1,0 +1,13 @@
+diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/store/coordinator.py b/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/store/coordinator.py
+--- a/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/store/coordinator.py
++++ b/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/store/coordinator.py
+@@ -142,4 +142,9 @@ class MooncakeStoreCoordinator:
+         masks, _ = self.find_longest_cache_hit(
+             block_hashes, token_len, ExternalCachedBlockPool()
+         )
++        for group_index, group in enumerate(self.kv_cache_groups):
++            expected_chunks = token_len // group.kv_cache_spec.block_size
++            missing = expected_chunks - len(masks[group_index])
++            if missing > 0:
++                masks[group_index].extend([True] * missing)
+         return masks
