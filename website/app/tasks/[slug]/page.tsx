@@ -106,13 +106,11 @@ export default async function TaskPage({ params }: TaskPageProps) {
     'publication_state',
     'environment_template',
   ];
-  const sourceKeys = Object.keys(task.manifest.metadata).filter((key) => !benchmarkKeys.includes(key));
   const benchmark = {
     schema_version: task.manifest.schemaVersion,
     task_version: task.manifest.taskVersion,
     ...Object.fromEntries(benchmarkKeys.filter((key) => Object.hasOwn(task.manifest.metadata, key)).map((key) => [key, task.manifest.metadata[key]])),
   } as ManifestSection;
-  const source = Object.fromEntries(sourceKeys.map((key) => [key, task.manifest.metadata[key]])) as ManifestSection;
   const metadataGroups = [
     {
       title: 'Compute',
@@ -129,17 +127,6 @@ export default async function TaskPage({ params }: TaskPageProps) {
       ],
     },
     { title: 'Benchmark', facts: sectionFacts(benchmark, ['schema_version', 'task_version', ...benchmarkKeys]) },
-    {
-      title: 'Source & assets',
-      facts: sectionFacts(source, [
-        'repository', 'base_commit', 'source_cutoff', 'dependency_cutoff',
-        'dependency_cutoff_overrides', 'source_ids', 'checkpoint_digests',
-        'image_digest', 'runtime_asset_repository', 'runtime_asset_revision',
-        'runtime_asset_path', 'runtime_asset_files', 'runtime_file_url',
-        'runtime_file_sha256', 'runtime_file_path', 'runtime_file_license',
-        'runtime_file_attribution',
-      ]),
-    },
   ].filter((group) => group.facts.length > 0);
 
   return (
