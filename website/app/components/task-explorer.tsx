@@ -59,7 +59,7 @@ export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
         </p>
       </div>
 
-      <div className="catalog-tools scroll-reveal">
+      <div className="catalog-tools">
         <div className="workload-filter" aria-label="Filter tasks by workload">
           {['all', ...workloads].map((option) => (
             <button

@@ -42,7 +42,7 @@ export default function Home() {
 
       <TaskExplorer tasks={taskSummaries} />
 
-      <footer className="site-footer scroll-reveal">
+      <footer className="site-footer">
         <span>AI Infra Bench</span>
         <span>Apache-2.0</span>
       </footer>
