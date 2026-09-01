@@ -1,0 +1,197 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-01T18:54:42+08:00",
+  "source": {
+    "candidate_id": "vllm-cpu-300-123",
+    "instance_id": "vllm-project__vllm-39888",
+    "base_commit": "29e5d102050669d03992a2eb863ad364ea50fab2",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/39888",
+    "origin_issue": "https://github.com/vllm-project/vllm/issues/32656",
+    "golden_product_code_changes": 150
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-paddleocr-mm-feature-mrope:base-29e5d1020506",
+    "image_id": "sha256:a85deadf63da4f11e9bd9b8264765d1a46f30739a1b6cee493bea104fc3913db",
+    "size_bytes": 1592286795,
+    "dockerfile_sha256": "a5b3e063d25a338eed980e7e1f095fc9398b69e301e3d722eb0be9a8531b0ddf",
+    "template_sha256": "2f1688856bf1e683d6f19bba67f07094c64c87f8da9551f1bc9c4a1e69fcb515",
+    "dependency_lock_sha256": "407fd562f8bf40c38f5f571deb7a88d4433ef3137ed563d15d44b20c301c4eb7",
+    "dependency_lock_manifest_sha256": "f5faaa7ab9d830d6fb210829efd7e83e72bd47e40045e19cd0101edec2dd7554",
+    "cache_namespace": "29e5d102050669d03992a2eb863ad364ea50fab2-407fd562f8bf40c3-7aeb85dc45afb45f",
+    "dependency_cutoff_overrides": [
+      "torch=2026-05-01T23:59:59Z",
+      "torchaudio=2026-05-01T23:59:59Z",
+      "torchvision=2026-05-01T23:59:59Z"
+    ],
+    "override_reason": "The pinned base requirements require torch 2.11 CPU wheels that were uploaded after the source cutoff.",
+    "cutoff_compatible_tools": {
+      "rustc": "1.94.1 (published 2026-03-26T13:03:20Z)",
+      "cargo_nextest": "0.9.133 (published 2026-04-14T21:17:11Z)",
+      "protoc": "34.1 (published 2026-03-19T22:21:30Z)"
+    }
+  },
+  "artifacts": {
+    "task_metadata_sha256": "9b54d5b3d5e21fc9273b6e9337ed3fa0ebeac5cdfec60353a0a428e98fc26a62",
+    "instruction_sha256": "0d39533f9ae23d3eea37921421ba4b39baf1a3f58e9027a9eae9594750425597",
+    "oracle_patch_sha256": "18cdb8953279ff74614955449a6c2f1ebb50b46e788b170893ed4930da9bb3b9",
+    "solve_script_sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491",
+    "test_script_sha256": "776e02f344da90b9475a1907cd220cac706318fa68cf5bbf343a78b0783cb380",
+    "regression_test_sha256": "62d7cac3a14b27f23e9679061255d1de8e947840338fea223f83a5fadfb275c4",
+    "junit_checker_sha256": "7d216226dea396b36ae860e71e8dd60371497eaddddf539c13181bfb8202c9ae",
+    "real_mrope_matrix_sha256": "4c12895c0a74706697d40be39c0c92e1ed8c2c184e3aad4d01024a4aa4a12515",
+    "hidden_fixture_sha256": "2dafa942d6825ad8543d9c3b868b39e9f10b1ea97beb599a7e65b16bf4ee3e94",
+    "public_reproduction_sha256": "bd7bee0d9ad61a85372d3006e32be2afca0ebadfabbb3796ffd10b6cde9da9ea",
+    "public_fixture_sha256": "2dafa942d6825ad8543d9c3b868b39e9f10b1ea97beb599a7e65b16bf4ee3e94",
+    "image_manifest_sha256": "180959868d3ef85af57a39baf5d9c90edf636b5104355fa2ed19c9e3f85f6d38",
+    "ci_cases_sha256": "d1fd0e3ab08530ce7e2d6e5c06a0756a08db45bb7326ff8a181a9c45de61656b",
+    "remediation_matrix_sha256": "337759f413eccd82bc17a4096ce2c17565670e39c9741fc3303dd580a82e900b"
+  },
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "depends_on_golden_names": false,
+    "behavior_cases": 10,
+    "behaviors": [
+      "text-only and ordinary PaddleOCR-VL image positions remain unchanged",
+      "image-at-start, video temporal scaling, and mixed image/video prompts remain correct",
+      "feature offsets remain authoritative when placeholder token IDs differ",
+      "features are consumed in offset order even when the input list is unordered",
+      "long prompts use the same feature-position contract and complete within a broad CPU bound",
+      "the public result remains a CPU torch.int64 tensor with shape [3, prompt_length] and an integer delta"
+    ],
+    "collection_integrity": "JUnit must contain exactly 10 unique, passing, non-skipped cases"
+  },
+  "hidden_end_to_end": {
+    "tests_mounted_only_during_verification": true,
+    "entrypoint": "PaddleOCRVLForConditionalGeneration.get_mrope_input_positions with real MultiModalFeatureSpec objects",
+    "modalities": ["image", "video", "mixed"],
+    "uses_real_model_class": true,
+    "uses_real_multimodal_feature_types": true,
+    "model_weights_required": false,
+    "assertions_run_after_image_and_video_cases": true,
+    "base_control": "video_matches_reference=true while sentinel_invariant=false",
+    "oracle_control": "video_matches_reference=true and sentinel_invariant=true"
+  },
+  "public_reproduction": {
+    "entrypoint": "/opt/repro/mrope_trace.py",
+    "base_exit_code": 3,
+    "standard_matches_reference": true,
+    "mutated_matches_reference": false,
+    "mismatched_coordinates": 17,
+    "standard_delta": -2,
+    "mutated_delta": 0,
+    "expected_delta": -2,
+    "oracle_mutated_matches_reference": true,
+    "oracle_mismatched_coordinates": 0
+  },
+  "repeated_runs": [
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "behavior_tests_each_round": {"passed": 6, "failed": 4},
+      "mrope_exit_codes": [1, 1, 1, 1, 1]
+    },
+    {
+      "case": "oracle",
+      "rounds": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "behavior_tests_each_round": {"passed": 10, "failed": 0},
+      "mrope_exit_codes": [0, 0, 0, 0, 0]
+    }
+  ],
+  "adversarial_runs": [
+    {
+      "case": "feature-offsets-require-sentinel",
+      "patch_sha256": "c28fd32df33c515ff48e6465a971b7413679583005d17718ff795dce31a20fa1",
+      "reward": 0,
+      "tests_passed": 9,
+      "tests_failed": 1,
+      "mrope_exit_code": 0
+    },
+    {
+      "case": "features-not-sorted",
+      "patch_sha256": "33e559f386dcd7b81bf03527dd5773c4b518b6689a256fd5e912b4242163c38e",
+      "reward": 0,
+      "tests_passed": 8,
+      "tests_failed": 2,
+      "mrope_exit_code": 0
+    },
+    {
+      "case": "returns-numpy-array",
+      "patch_sha256": "641349c5fd2eaa1d03fcfb83f46c0f6b9a708fd8220e22063c1e00348621518a",
+      "reward": 0,
+      "tests_passed": 0,
+      "tests_failed": 10,
+      "mrope_exit_code": 1
+    },
+    {
+      "case": "video-temporal-factor-ignored",
+      "patch_sha256": "226e96e828bc7a4f1c1cbc7e41138f308cf6873e844d9094c729c5b38d164b29",
+      "reward": 0,
+      "tests_passed": 9,
+      "tests_failed": 1,
+      "mrope_exit_code": 1
+    }
+  ],
+  "conforming_alternative_run": {
+    "case": "alternative-torch-position-builder",
+    "patch_sha256": "7fe84abc9becb79952b767e5f826645c332c5c5ae24ab26a3d64c878fba0aefe",
+    "change": "uses Torch operations for position construction instead of the Golden NumPy implementation",
+    "reward": 1,
+    "tests_passed": 10,
+    "tests_failed": 0,
+    "mrope_exit_code": 0
+  },
+  "build_reproducibility": {
+    "initial_image_id": "sha256:a85deadf63da4f11e9bd9b8264765d1a46f30739a1b6cee493bea104fc3913db",
+    "warm_cache_image_id": "sha256:a85deadf63da4f11e9bd9b8264765d1a46f30739a1b6cee493bea104fc3913db",
+    "warm_cache_digest_stable": true
+  },
+  "critical_review_rounds": [
+    {"round": 1, "focus": "instruction and provenance", "result": "Reattributed the concrete sentinel mismatch to the executable reproduction and retained only tracker/PR-backed correctness and efficiency claims."},
+    {"round": 2, "focus": "environment and isolation", "result": "Rebuilt from the cutoff snapshot with Rust 1.94.1, nextest 0.9.133, protoc 34.1, the documented torch override, the 155-package lock, and audited Git and hidden artifacts."},
+    {"round": 3, "focus": "Oracle correctness and scope", "result": "The 150-line product change uses mm_position offsets and processed grids, sorts features, preserves video scaling, applies to the base, and returns the public tensor contract."},
+    {"round": 4, "focus": "verifier, controls, alternatives, and adversarial cases", "result": "Moved E2E assertions after image and video computation, corrected reported booleans, completed five Base/Oracle rounds, accepted one Torch alternative, and rejected four incomplete fixes."},
+    {"round": 5, "focus": "evidence and final execution", "result": "Refreshed artifact hashes, public/hidden results, substitutions, and confirmed final Harbor reward 1 with all verifier exit codes 0."}
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "d3701b3f-497b-4547-8618-5d006ba53f19",
+    "trial_id": "3d3c1219-25b6-402e-92b8-9b4094f98e6e",
+    "input_task_checksum": "8f32c5b44467002f78bf7a0e9353c8b20890a11159943a2a282e2f7c3914d311",
+    "lock_task_digest": "sha256:81658be6f3847f1893d51df6dae42c3a4e16a5ec1805ab53e2a12077166005fa",
+    "checksum_scope": "Harbor hashes the entire task directory, including this evidence file. The recorded checksum is the exact input to this successful run; writing the run identifiers into this file necessarily changes the directory checksum afterward.",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "mrope_exit_code": 0,
+    "runtime_seconds": 136,
+    "sentinel_invariant": true,
+    "video_matches_reference": true,
+    "image_delta": -2,
+    "video_delta": 0,
+    "video_temporal_positions": [2, 2, 5, 5],
+    "canonical_image_retained_after_run": true
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "future_reference_commit_absent": true,
+    "full_git_history_present": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_and_validation_absent_from_image": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "tool_releases_predate_cutoff": true,
+    "only_public_reproduction_embedded": true,
+    "embedded_reproduction_hashes_match": true,
+    "empty_build_context": true,
+    "cached_rebuild_digest_stable": true,
+    "runtime_network_disabled": true
+  }
+}
