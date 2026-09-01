@@ -1,15 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import * as Select from '@radix-ui/react-select';
+import * as Tabs from '@radix-ui/react-tabs';
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from '@radix-ui/react-icons';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-type VerifierFile = {
+type SourceFile = {
   name: string;
   highlightedHtml: string;
   lineCount: number;
 };
-type ContentTab = 'instruction' | 'verifier' | 'oracle';
 
 export function TaskContentTabs({
   instruction,
@@ -17,140 +19,131 @@ export function TaskContentTabs({
   solutionFiles,
 }: {
   instruction: string;
-  verifierFiles: VerifierFile[];
-  solutionFiles: VerifierFile[];
+  verifierFiles: SourceFile[];
+  solutionFiles: SourceFile[];
 }) {
-  const [activeTab, setActiveTab] = useState<ContentTab>('instruction');
   const [activeVerifier, setActiveVerifier] = useState(0);
   const [activeOracle, setActiveOracle] = useState(0);
   const [wrapLines, setWrapLines] = useState(false);
-  const selectedVerifier = verifierFiles[activeVerifier];
-  const selectedOracle = solutionFiles[activeOracle];
 
   return (
-    <section className="task-content" aria-label="Task files">
-      <div className="content-tabs" role="tablist" aria-label="Task content">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'instruction'}
-          onClick={() => setActiveTab('instruction')}
-        >
+    <Tabs.Root className="task-content" defaultValue="instruction">
+      <Tabs.List className="content-tabs" aria-label="Task content">
+        <Tabs.Trigger className="content-tab" value="instruction">
           Instruction
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'verifier'}
-          onClick={() => setActiveTab('verifier')}
-        >
+        </Tabs.Trigger>
+        <Tabs.Trigger className="content-tab" value="verifier">
           Verifier
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'oracle'}
-          onClick={() => setActiveTab('oracle')}
-        >
+        </Tabs.Trigger>
+        <Tabs.Trigger className="content-tab" value="oracle">
           Oracle
-        </button>
-      </div>
+        </Tabs.Trigger>
+      </Tabs.List>
 
-      <div className="content-panel" role="tabpanel">
-        {activeTab === 'instruction' && (
-          <div className="markdown-body">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{instruction}</ReactMarkdown>
-          </div>
-        )}
+      <Tabs.Content className="content-panel instruction-panel" value="instruction">
+        <div className="markdown-body">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{instruction}</ReactMarkdown>
+        </div>
+      </Tabs.Content>
 
-        {activeTab === 'verifier' && (
-          <SourceDocument
-            name={selectedVerifier ? `tests/${selectedVerifier.name}` : 'tests/'}
-            lineCount={selectedVerifier?.lineCount ?? 0}
-            html={selectedVerifier?.highlightedHtml}
-            fallback="No verifier files are available."
-            wrapLines={wrapLines}
-            onWrapLinesChange={setWrapLines}
-            files={verifierFiles.map((file) => file.name)}
-            activeFile={activeVerifier}
-            onFileChange={setActiveVerifier}
-            directory="tests"
-          />
-        )}
+      <Tabs.Content className="content-panel" value="verifier">
+        <SourceDocument
+          directory="tests"
+          files={verifierFiles}
+          activeFile={activeVerifier}
+          onFileChange={setActiveVerifier}
+          wrapLines={wrapLines}
+          onWrapLinesChange={setWrapLines}
+          fallback="No verifier files are available."
+        />
+      </Tabs.Content>
 
-        {activeTab === 'oracle' && (
-          <SourceDocument
-            name={selectedOracle ? `solution/${selectedOracle.name}` : 'solution/'}
-            lineCount={selectedOracle?.lineCount ?? 0}
-            html={selectedOracle?.highlightedHtml}
-            fallback="No oracle files are available."
-            wrapLines={wrapLines}
-            onWrapLinesChange={setWrapLines}
-            files={solutionFiles.map((file) => file.name)}
-            activeFile={activeOracle}
-            onFileChange={setActiveOracle}
-            directory="solution"
-          />
-        )}
-      </div>
-    </section>
+      <Tabs.Content className="content-panel" value="oracle">
+        <SourceDocument
+          directory="solution"
+          files={solutionFiles}
+          activeFile={activeOracle}
+          onFileChange={setActiveOracle}
+          wrapLines={wrapLines}
+          onWrapLinesChange={setWrapLines}
+          fallback="No oracle files are available."
+        />
+      </Tabs.Content>
+    </Tabs.Root>
   );
 }
 
 function SourceDocument({
-  name,
-  lineCount,
-  html,
-  fallback,
-  wrapLines,
-  onWrapLinesChange,
+  directory,
   files,
   activeFile,
   onFileChange,
-  directory,
+  wrapLines,
+  onWrapLinesChange,
+  fallback,
 }: {
-  name: string;
-  lineCount: number;
-  html?: string;
-  fallback: string;
+  directory: string;
+  files: SourceFile[];
+  activeFile: number;
+  onFileChange: (index: number) => void;
   wrapLines: boolean;
   onWrapLinesChange: (wrap: boolean) => void;
-  files?: string[];
-  activeFile?: number;
-  onFileChange?: (index: number) => void;
-  directory?: string;
+  fallback: string;
 }) {
+  const sourceRef = useRef<HTMLDivElement>(null);
+  const selectedFile = files[activeFile];
+
+  useEffect(() => {
+    sourceRef.current?.scrollTo({ top: 0, left: 0 });
+  }, [selectedFile?.name]);
+
   return (
     <div className="source-document">
-      <header>
-        {files && activeFile !== undefined && onFileChange ? (
-          <details className="source-file-picker">
-            <summary>
-              <span>{directory}/</span>
-              <span className="source-file-name">{files[activeFile]}</span>
-              <span className="source-file-chevron" aria-hidden="true">⌄</span>
-            </summary>
-            <div className="source-file-menu" aria-label={`${directory ?? 'Source'} files`}>
-              {files.map((file, index) => (
-                <button
-                  type="button"
-                  aria-current={activeFile === index ? 'page' : undefined}
-                  onClick={(event) => {
-                    onFileChange(index);
-                    event.currentTarget.closest('details')?.removeAttribute('open');
-                  }}
-                  key={file}
-                >
-                  {file}
-                </button>
-              ))}
-            </div>
-          </details>
+      <header className="source-toolbar">
+        {selectedFile ? (
+          <Select.Root value={String(activeFile)} onValueChange={(value) => onFileChange(Number(value))}>
+            <Select.Trigger className="source-file-trigger" aria-label={`Select ${directory} file`}>
+              <span className="source-directory">{directory}/</span>
+              <Select.Value />
+              <Select.Icon className="source-file-icon">
+                <ChevronDownIcon />
+              </Select.Icon>
+            </Select.Trigger>
+            <Select.Portal>
+              <Select.Content
+                className="source-select-content"
+                position="popper"
+                sideOffset={6}
+                align="start"
+              >
+                <Select.ScrollUpButton className="source-select-scroll">
+                  <ChevronUpIcon />
+                </Select.ScrollUpButton>
+                <Select.Viewport className="source-select-viewport">
+                  {files.map((file, index) => (
+                    <Select.Item className="source-select-item" value={String(index)} key={file.name}>
+                      <Select.ItemText>{file.name}</Select.ItemText>
+                      <Select.ItemIndicator className="source-select-indicator">
+                        <CheckIcon />
+                      </Select.ItemIndicator>
+                    </Select.Item>
+                  ))}
+                </Select.Viewport>
+                <Select.ScrollDownButton className="source-select-scroll">
+                  <ChevronDownIcon />
+                </Select.ScrollDownButton>
+              </Select.Content>
+            </Select.Portal>
+          </Select.Root>
         ) : (
-          <code>{name}</code>
+          <code>{directory}/</code>
         )}
+
         <div className="source-actions">
-          <span>{lineCount} {lineCount === 1 ? 'line' : 'lines'}</span>
+          <span>
+            {selectedFile?.lineCount ?? 0}{' '}
+            {(selectedFile?.lineCount ?? 0) === 1 ? 'line' : 'lines'}
+          </span>
           <button
             type="button"
             aria-pressed={wrapLines}
@@ -160,10 +153,14 @@ function SourceDocument({
           </button>
         </div>
       </header>
-      {html ? (
+
+      {selectedFile ? (
         <div
+          ref={sourceRef}
           className={`source-code${wrapLines ? ' is-wrapped' : ''}`}
-          dangerouslySetInnerHTML={{ __html: html }}
+          aria-label={`${directory}/${selectedFile.name}`}
+          tabIndex={0}
+          dangerouslySetInnerHTML={{ __html: selectedFile.highlightedHtml }}
         />
       ) : (
         <pre className="source-fallback"><code>{fallback}</code></pre>

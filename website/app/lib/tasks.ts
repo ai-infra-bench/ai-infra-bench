@@ -22,13 +22,11 @@ export type BenchmarkTask = {
   instruction: string;
   verifierFiles: Array<{
     name: string;
-    content: string;
     highlightedHtml: string;
     lineCount: number;
   }>;
   solutionFiles: Array<{
     name: string;
-    content: string;
     highlightedHtml: string;
     lineCount: number;
   }>;

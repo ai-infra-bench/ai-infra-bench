@@ -9,7 +9,7 @@ const outputDir = path.join(projectDir, 'app', 'generated');
 const outputFile = path.join(outputDir, 'tasks.json');
 
 const highlighter = await createHighlighter({
-  themes: ['github-light'],
+  themes: ['vitesse-light'],
   langs: ['bash', 'c', 'diff', 'python', 'text'],
 });
 
@@ -22,12 +22,15 @@ function languageForFile(name) {
 }
 
 function highlightCode(content, language) {
-  return highlighter
-    .codeToHtml(content, {
-      lang: language,
-      theme: 'github-light',
-    })
-    .replaceAll('</span>\n<span class="line">', '</span><span class="line">');
+  return highlighter.codeToHtml(content, {
+    lang: language,
+    theme: 'vitesse-light',
+    transformers: [{
+      pre(node) {
+        delete node.properties.tabindex;
+      },
+    }],
+  });
 }
 
 function prioritizeFiles(files, preferredNames) {
@@ -153,12 +156,12 @@ for (const entry of entries) {
     verifierTimeoutSec: getValue(verifier, 'timeout_sec'),
     instruction: instruction.trim(),
     verifierFiles: verifierFiles.map((file) => ({
-      ...file,
+      name: file.name,
       highlightedHtml: highlightCode(file.content, languageForFile(file.name)),
       lineCount: file.content ? file.content.split(/\r?\n/).length : 0,
     })),
     solutionFiles: solutionFiles.map((file) => ({
-      ...file,
+      name: file.name,
       highlightedHtml: highlightCode(file.content, languageForFile(file.name)),
       lineCount: file.content ? file.content.split(/\r?\n/).length : 0,
     })),
