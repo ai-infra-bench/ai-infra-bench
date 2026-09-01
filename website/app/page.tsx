@@ -1,17 +1,23 @@
 import Image from 'next/image';
 import { SiteHeader } from '@/app/components/site-header';
 import { TaskExplorer } from '@/app/components/task-explorer';
+import { getRepositoryBrand } from '@/app/lib/repository-brand';
 import { tasks } from '@/app/lib/tasks';
 
 export default function Home() {
-  const taskSummaries = tasks.map((task) => ({
-    slug: task.slug,
-    description: task.description,
-    workloadType: task.workloadType,
-    subsystems: task.subsystems,
-    repository: task.repository,
-    accelerator: task.accelerator,
-  }));
+  const taskSummaries = tasks.map((task) => {
+    const repositoryBrand = getRepositoryBrand(task.repository);
+    return {
+      slug: task.slug,
+      description: task.description,
+      workloadType: task.workloadType,
+      subsystems: task.subsystems,
+      repository: task.repository,
+      repositoryName: repositoryBrand?.name ?? null,
+      repositoryLogo: repositoryBrand?.card_logo_file ?? null,
+      accelerator: task.accelerator,
+    };
+  });
 
   return (
     <main>

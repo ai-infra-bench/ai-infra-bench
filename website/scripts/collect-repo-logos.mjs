@@ -5,6 +5,8 @@ import sharp from 'sharp';
 
 const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputDir = path.join(projectDir, 'public', 'logos', 'ai-infra');
+const cardOutputDir = path.join(outputDir, 'card');
+const appManifestFile = path.join(projectDir, 'app', 'generated', 'repository-logos.json');
 
 const repositories = [
   { name: 'vLLM', repo: 'vllm-project/vllm', category: 'serving-runtime', tier: 'core' },
@@ -97,17 +99,28 @@ async function fetchBuffer(url) {
   return Buffer.from(await response.arrayBuffer());
 }
 
-async function normalizeLogo(buffer, outputFile, trim) {
+async function normalizeLogo(buffer, outputFile, cardOutputFile, trim) {
   let image = sharp(buffer, { density: 300, failOn: 'none' });
   if (trim) image = image.trim({ background: '#ffffff', threshold: 12 });
-  await image
-    .resize(256, 256, {
-      fit: 'contain',
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-      withoutEnlargement: false,
-    })
-    .webp({ quality: 92, alphaQuality: 100, effort: 6 })
-    .toFile(outputFile);
+  await Promise.all([
+    image
+      .clone()
+      .resize(256, 256, {
+        fit: 'contain',
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+        withoutEnlargement: false,
+      })
+      .webp({ quality: 92, alphaQuality: 100, effort: 6 })
+      .toFile(outputFile),
+    image
+      .clone()
+      .resize(144, 40, {
+        fit: 'inside',
+        withoutEnlargement: false,
+      })
+      .webp({ quality: 92, alphaQuality: 100, effort: 6 })
+      .toFile(cardOutputFile),
+  ]);
 }
 
 async function collect(repository) {
@@ -146,13 +159,19 @@ async function collect(repository) {
 
   if (!buffer) buffer = await fetchBuffer(logoSource);
   const logoFile = `${slug}.webp`;
-  await normalizeLogo(buffer, path.join(outputDir, logoFile), logoSourceType === 'repository_asset');
+  await normalizeLogo(
+    buffer,
+    path.join(outputDir, logoFile),
+    path.join(cardOutputDir, logoFile),
+    logoSourceType === 'repository_asset',
+  );
 
   return {
     ...repository,
     status: repository.status ?? 'active',
     repo_url: `https://github.com/${repository.repo}`,
     logo_file: `/logos/ai-infra/${logoFile}`,
+    card_logo_file: `/logos/ai-infra/card/${logoFile}`,
     logo_source: logoSource,
     logo_source_type: logoSourceType,
   };
@@ -174,8 +193,10 @@ async function mapWithConcurrency(items, limit, mapper) {
 
 await rm(outputDir, { recursive: true, force: true });
 await mkdir(outputDir, { recursive: true });
+await mkdir(cardOutputDir, { recursive: true });
 const manifest = await mapWithConcurrency(repositories, 6, collect);
 await writeFile(path.join(outputDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+await writeFile(appManifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
 
 const rows = manifest.map((item) => (
   `| ${item.name} | [${item.repo}](${item.repo_url}) | ${item.category} | ${item.tier} | ${item.status} | ${item.logo_source_type} |`

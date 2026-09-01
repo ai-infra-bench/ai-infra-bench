@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { formatLabel, formatProjectName, formatTaskTitle } from '@/app/lib/task-format';
 
@@ -10,6 +11,8 @@ type TaskSummary = {
   workloadType: string | null;
   subsystems: string[];
   repository: string | null;
+  repositoryName: string | null;
+  repositoryLogo: string | null;
   accelerator: string | null;
 };
 
@@ -54,7 +57,19 @@ export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
         {visibleTasks.map((task) => (
           <Link className="task-card" href={`/tasks/${task.slug}`} key={task.slug}>
             <div className="task-primary">
-              <span className="task-project">{formatProjectName(task.repository)}</span>
+              <span className="task-repository">
+                {task.repositoryLogo ? (
+                  <Image
+                    className="task-repository-logo"
+                    src={task.repositoryLogo}
+                    alt={task.repositoryName ?? formatProjectName(task.repository)}
+                    width={144}
+                    height={40}
+                  />
+                ) : (
+                  <span className="task-repository-text">{formatProjectName(task.repository)}</span>
+                )}
+              </span>
               <h3>{formatTaskTitle(task.slug)}</h3>
               <p>{task.description}</p>
             </div>
