@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import re
@@ -23,6 +24,49 @@ TEMPLATE_PATH = TEMPLATE_DIR / "Dockerfile"
 ASSET_INSERTION_MARKER = (
     "LABEL ai.infra.bench.environment-template=vllm-harbor-all-in-one \\\n"
 )
+
+# The template carries the newest allow-listed tool versions. Older tasks are
+# rendered with the newest verified release that existed at their cutoff.
+TOOLCHAIN_CUTOFF_PROFILES = (
+    (
+        "2026-05-20T19:38:17Z",
+        {
+            "ARG PROTOC_VERSION=34.2": "ARG PROTOC_VERSION=34.1",
+            "b52e803fad2f63232f75351c0ff735e891f40262de791bade78a3636831a522a": "af27ea66cd26938fe48587804ca7d4817457a08350021a1c6e23a27ccc8c6904",
+            "63d92a87482d4eaa41a72f9de6ea7f476e1fb4c722700fa0b981cc204f7d3a14": "31c5e9e3c7bf013cf41fb97765ee255c140024a6b175b6cc9b64beddd7c23ba7",
+        },
+    ),
+    (
+        "2026-07-05T22:14:31Z",
+        {
+            "ARG CARGO_NEXTEST_VERSION=0.9.140": "ARG CARGO_NEXTEST_VERSION=0.9.133",
+            "4ee9aaa0d0171a985a5d0eb735b87355894c1c455972e9674fb9fdbd1387c9a3": "a9f992321e8759818400d93abb9477b4b11422d18d216e8d208505bd73454103",
+            "8b3f4d4560b6b0f83774fecc6be07e47716dbad0eb0bb6c3890f478f4affe4b6": "8e4d241c78f9cbf5ca8597b13004f0441c18af484ea105b8f83b44a716c82d3d",
+        },
+    ),
+    (
+        "2026-04-16T18:19:31Z",
+        {
+            "ARG RUST_TOOLCHAIN=1.95.0": "ARG RUST_TOOLCHAIN=1.94.1",
+        },
+    ),
+    (
+        "2026-04-14T21:17:11Z",
+        {
+            "ARG CARGO_NEXTEST_VERSION=0.9.133": "ARG CARGO_NEXTEST_VERSION=0.9.132",
+            "a9f992321e8759818400d93abb9477b4b11422d18d216e8d208505bd73454103": "e22f14ecaff5519dbfe521e8717d64e9989648bddc23eb1f71bb0053518a52e7",
+            "8e4d241c78f9cbf5ca8597b13004f0441c18af484ea105b8f83b44a716c82d3d": "592db3fa3d3ee62f109dc149554811eb8ecdc68e1514be5af79986b1560e2e0d",
+        },
+    ),
+)
+
+
+def toolchain_replacements(dependency_cutoff: str) -> dict[str, str]:
+    replacements: dict[str, str] = {}
+    for release_time, profile in TOOLCHAIN_CUTOFF_PROFILES:
+        if dependency_cutoff < release_time:
+            replacements.update(profile)
+    return replacements
 
 
 def metadata_value(task_file: Path, key: str) -> str:
@@ -181,6 +225,44 @@ RUN mkdir -p {shlex.quote(parent)} \\
 """
 
 
+def reproduction_install(task_dir: Path) -> str:
+    """Embed task-owned reproduction files without exposing the build context."""
+    source_dir = task_dir / "environment" / "repro"
+    if not source_dir.exists():
+        return ""
+    if not source_dir.is_dir():
+        raise ValueError(f"{source_dir}: reproduction path must be a directory")
+
+    files = sorted(path for path in source_dir.rglob("*") if path.is_file())
+    if not files:
+        raise ValueError(f"{source_dir}: reproduction directory is empty")
+
+    allowed_suffixes = {".json", ".py", ".rs", ".sh", ".txt"}
+    source_root = source_dir.resolve()
+    commands = ["RUN install -d /opt/repro"]
+    for path in files:
+        relative = path.relative_to(source_dir)
+        if path.is_symlink() or not path.resolve().is_relative_to(source_root):
+            raise ValueError(f"{path}: reproduction files must not use symlinks")
+        if path.suffix not in allowed_suffixes:
+            raise ValueError(f"{path}: unsupported reproduction file type")
+        if any(part in {"tests", "solution", "validation", ".."} for part in relative.parts):
+            raise ValueError(f"{path}: forbidden reproduction path component")
+        content = path.read_bytes()
+        if len(content) > 256 * 1024:
+            raise ValueError(f"{path}: reproduction file exceeds 256 KiB")
+        destination = Path("/opt/repro") / relative
+        encoded = base64.b64encode(content).decode("ascii")
+        commands.append(
+            f" && install -d {shlex.quote(str(destination.parent))}"
+            f" \\\n && printf '%s' {shlex.quote(encoded)} | base64 -d > {shlex.quote(str(destination))}"
+        )
+        if path.suffix == ".sh":
+            commands.append(f" \\\n && chmod 0755 {shlex.quote(str(destination))}")
+    commands.append("\n")
+    return "".join(commands)
+
+
 def render(task_dir: Path, template: str) -> tuple[Path, str]:
     task_file = task_dir / "task.toml"
     if metadata_value(task_file, "repository") != "vllm-project/vllm":
@@ -198,11 +280,16 @@ def render(task_dir: Path, template: str) -> tuple[Path, str]:
             f"{task_file}: dependency_cutoff must be an RFC 3339 UTC timestamp"
         )
 
+    replacements = toolchain_replacements(dependency_cutoff)
+    profile = json.dumps(replacements, sort_keys=True, separators=(",", ":"))
+    digest_input = template if not replacements else template + "\0" + profile
+    environment_digest = hashlib.sha256(digest_input.encode()).hexdigest()[:16]
+
     lock_path = task_dir / "environment" / "lock" / "requirements.txt"
     if lock_path.is_file():
         lock = lock_path.read_text().rstrip()
         lock_digest = hashlib.sha256((lock + "\n").encode()).hexdigest()
-        cache_namespace = f"{base_commit}-{lock_digest[:16]}"
+        cache_namespace = f"{base_commit}-{lock_digest[:16]}-{environment_digest}"
         dependency_install = f"""# Exact task dependency lock (sha256:{lock_digest}) is embedded so this
 # Dockerfile remains independently buildable with an empty context.
 RUN --mount=type=cache,id=vllm-uv-downloads-v3,target=/root/.cache/uv,sharing=locked <<'VLLM_INSTALL_EOF'
@@ -215,7 +302,9 @@ uv pip install --system --index-strategy first-index \\
 rm -f /tmp/vllm-requirements.lock
 VLLM_INSTALL_EOF"""
     else:
-        cache_namespace = f"{base_commit}-unlocked-{dependency_cutoff[:10]}"
+        cache_namespace = (
+            f"{base_commit}-unlocked-{dependency_cutoff[:10]}-{environment_digest}"
+        )
         dependency_install = """# Fallback for staged tasks whose exact lock has not been materialized yet.
 # Resolution is bounded by the base timestamp; release builds require a lock.
 COPY --from=source /src/vllm/requirements/ /tmp/vllm-requirements/
@@ -240,7 +329,17 @@ RUN --mount=type=cache,id=vllm-uv-downloads-v3,target=/root/.cache/uv,sharing=lo
     ).replace(DEPENDENCY_INSTALL_TOKEN, dependency_install).replace(
         CACHE_NAMESPACE_TOKEN, cache_namespace
     )
-    asset_install = runtime_asset_install(task_file) + runtime_file_install(task_file)
+    for current, cutoff_compatible in replacements.items():
+        if generated.count(current) != 1:
+            raise ValueError(
+                f"{TEMPLATE_PATH}: expected exactly one toolchain input {current!r}"
+            )
+        generated = generated.replace(current, cutoff_compatible)
+    asset_install = (
+        runtime_asset_install(task_file)
+        + runtime_file_install(task_file)
+        + reproduction_install(task_dir)
+    )
     if asset_install:
         if generated.count(ASSET_INSERTION_MARKER) != 1:
             raise ValueError(

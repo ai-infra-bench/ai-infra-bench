@@ -33,6 +33,9 @@ def generate(task_dir: Path) -> None:
     base_commit = config["metadata"]["base_commit"]
     cutoff = config["metadata"]["dependency_cutoff"]
     cutoff_overrides = config["metadata"].get("dependency_cutoff_overrides", [])
+    cutoff_override_reason = config["metadata"].get(
+        "dependency_cutoff_override_reason"
+    )
     lock_dir = task_dir / "environment" / "lock"
     extras = lock_dir / "extras.in"
     if not extras.is_file():
@@ -122,6 +125,7 @@ def generate(task_dir: Path) -> None:
         "base_commit": base_commit,
         "dependency_cutoff": cutoff,
         "dependency_cutoff_overrides": cutoff_overrides,
+        "dependency_cutoff_override_reason": cutoff_override_reason,
         "python_version": "3.12",
         "python_platform": "x86_64-manylinux_2_28",
         "torch_backend": "cpu",

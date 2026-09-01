@@ -1,0 +1,259 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-01T19:41:31+08:00",
+  "source": {
+    "candidate_id": "vllm-cpu-300-264",
+    "instance_id": "vllm-project__vllm-47728",
+    "base_commit": "934eeaecfb13c4e5d5aa5a4a420cff35f5bd9821",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/47728",
+    "origin_issue": "https://github.com/vllm-project/vllm/issues/47282",
+    "origin_issue_state": "open",
+    "alternative_pull_request": "https://github.com/vllm-project/vllm/pull/47653",
+    "predecessor_pull_request": "https://github.com/vllm-project/vllm/pull/45357",
+    "golden_product_code_changes": 157
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-async-window-block-lifetime:base-934eeaecfb13",
+    "image_id": "sha256:df1053f9423e43177a2b559858184f5a451f57875a2205b27f91c22d7f91e54c",
+    "size_bytes": 2864164308,
+    "dockerfile_sha256": "2308554a80130ce0f539e03ae48bd2d4d6914e079ba539e85bc68f54719c369b",
+    "dependency_lock_sha256": "082a6a2e18de08af5d9c40756a8ca8c14c152daa6958c1072ba9095be3fd78a1",
+    "dependency_lock_manifest_sha256": "0a8205156bfe79bda9cf6302c4e78606c31b27aebb841db47bd27f8b386abb27",
+    "system_inputs": {
+      "python_base": "python:3.12.11-slim-trixie@sha256:47ae396f09c1303b8653019811a8498470603d7ffefc29cb07c88f1f8cb3d19f",
+      "python_base_created": "2025-09-30T00:32:17Z",
+      "debian_snapshot": "20260708T121254Z",
+      "rustup": "1.29.0",
+      "rust": "1.95.0",
+      "cargo_nextest": "0.9.140",
+      "protoc": "34.2",
+      "source_date_epoch": 1783512774,
+      "compiler_cache_namespace": "934eeaecfb13c4e5d5aa5a4a420cff35f5bd9821-082a6a2e18de08af-2f1688856bf1e683",
+      "download_sha256_verified": true,
+      "cargo_dependencies_vendored_offline": true,
+      "cpu_extensions_stripped_deterministically": true
+    }
+  },
+  "artifacts": {
+    "instruction_sha256": "2667736f3853544593e22636ef19799b33652655bdc67f6cae981515f45a14d7",
+    "task_toml_sha256": "f090897aad4c18edf4b2eeba2cf618ab41626f3d5cb876dee3e8d98beb6d0587",
+    "oracle_patch_sha256": "2eb2b6b509ade44b1523f1700ce94f2542bbe08587652131840acdac3ec7aded",
+    "solve_script_sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491",
+    "test_script_sha256": "4602bc5472aec5c4815f17ae0a1d802bf28dea598ba142b18db7bbaa3bdcb369",
+    "regression_test_sha256": "edbb5739399ac26e6dabb06362a62fa20e86c9a9460791de6a69f96e620c6790",
+    "junit_checker_sha256": "8e8ece8174ee50154f1e6b5ccf94c86343676a9f2462639807d3fe644eb4595d",
+    "verifier_support_sha256": "f576a6456c905765a7c30e5f9d6cc0b75955261cd7c8066163efb920c104b366",
+    "real_scheduler_matrix_sha256": "440f9f69396fc0a7e48e9605aa2c89865f98a4b865a335e691b2e6e8f4896b5d",
+    "public_reproduction_sha256": "cf8add333198348b376d9b69b9a1c3c96588ff26f86dfbc8311b7f48d31a4671",
+    "public_scheduler_fixture_sha256": "33b921ea5d7422ee216fb661889ed8cb10c81159ff6fe13206901260ad9f3482",
+    "ci_cases_sha256": "36cd19ae9b1da47e4a131009e080b1c6e1335860811c58427a2505b15040f133",
+    "remediation_matrix_sha256": "cfad3d8e41e6502786e4224a8cb2ce90a44deef3a9d06e68b4193b1e97358c88",
+    "image_manifest_sha256": "44799a1b8d9799687907f59a631400fe39fce60646f297eb65ab0cb43e5781e6"
+  },
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "depends_on_golden_names": false,
+    "behavior_cases": 11,
+    "behaviors": [
+      "sliding-window and chunked-local blocks remain allocated while an async step can still read them",
+      "a competing load target cannot receive an in-flight reader's block IDs",
+      "speculative rollback retains every block required by the rolled-back attention window",
+      "settled async output releases only blocks that have become unreachable and does not double free them",
+      "synchronous scheduling keeps its existing immediate-release behavior",
+      "full attention remains unchanged",
+      "a KV connector receives the complete live block table before an in-flight request is finished",
+      "async and pipeline admission reserve for overlap without materially exceeding the full-attention ceiling"
+    ],
+    "collection_integrity": "JUnit must contain exactly 11 unique, passing, non-skipped cases"
+  },
+  "hidden_end_to_end": {
+    "tests_mounted_only_during_verification": true,
+    "entrypoint": "real Scheduler and AsyncScheduler schedule, update, finish, capacity, and KV block-pool lifecycle",
+    "attention_specs": ["SlidingWindowSpec", "ChunkedLocalAttentionSpec", "FullAttentionSpec"],
+    "uses_real_scheduler": true,
+    "uses_real_block_pool": true,
+    "uses_real_model_runner": false,
+    "model_output_substitution": "deterministic constructed ModelRunnerOutput objects",
+    "external_load_substitution": "a competing request allocates destination IDs from the real block pool; no DMA is executed",
+    "gpu_execution": false,
+    "model_weights_required": false,
+    "unpublished_variations": [
+      "chunked-local competing-load reuse",
+      "53-token sliding-window rollback",
+      "full-attention admission ceiling"
+    ]
+  },
+  "public_reproduction": {
+    "entrypoint": "/opt/repro/async_window_trace.py",
+    "classification": "reduced CPU scheduler reproduction",
+    "base_exit_code": 3,
+    "oracle_exit_code": 0,
+    "base_contract": false,
+    "oracle_contract": true,
+    "async_sliding_window_free_blocks": {
+      "after_prefill": 120,
+      "base_before_output_processing": 125,
+      "oracle_before_output_processing": 120
+    },
+    "async_chunked_local_free_blocks": {
+      "after_prefill": 120,
+      "base_before_output_processing": 126,
+      "oracle_before_output_processing": 120
+    },
+    "sync_sliding_window_free_blocks": {
+      "before_decode": 120,
+      "after_decode": 125
+    },
+    "competing_load": {
+      "base_premature_overlap": [1, 2, 3, 4, 5],
+      "oracle_premature_overlap": []
+    },
+    "speculative_rollback": {
+      "rollback_tokens": 32,
+      "required_original_ids": [4, 5],
+      "base_required_current_ids": [0, 0],
+      "oracle_required_current_ids": [4, 5]
+    }
+  },
+  "repeated_runs": [
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "behavior_tests_each_round": {"passed": 4, "failed": 7},
+      "scheduler_exit_codes": [1, 1, 1, 1, 1]
+    },
+    {
+      "case": "oracle",
+      "rounds": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "behavior_tests_each_round": {"passed": 11, "failed": 0},
+      "scheduler_exit_codes": [0, 0, 0, 0, 0]
+    }
+  ],
+  "adversarial_runs": [
+    {
+      "case": "allocation-only",
+      "patch_sha256": "09eedc4ed745ba9aeef134ed1bd11d32fe56744466b300fdd128fecad32c2023",
+      "reward": 0,
+      "tests_passed": 10,
+      "tests_failed": 1,
+      "scheduler_exit_code": 1
+    },
+    {
+      "case": "defer-all-synchronous-frees",
+      "patch_sha256": "e026e75208ef4adfa93744e815c8acaebd883772f9ebfaa1bacc05294b27c653",
+      "reward": 0,
+      "tests_passed": 8,
+      "tests_failed": 3,
+      "scheduler_exit_code": 1
+    },
+    {
+      "case": "lifetime-without-overlap-capacity",
+      "patch_sha256": "31698206d85929f3662d3bf6d5acc7e435d71af8b28641097213ad5efd7edfcb",
+      "reward": 0,
+      "tests_passed": 9,
+      "tests_failed": 2,
+      "scheduler_exit_code": 1
+    },
+    {
+      "case": "sliding-window-only",
+      "patch_sha256": "795210f2fd36882256e91071381d3b9e8ad542433fddbe39c4ce4a7252caff47",
+      "reward": 0,
+      "tests_passed": 8,
+      "tests_failed": 3,
+      "scheduler_exit_code": 1
+    },
+    {
+      "case": "excessive-overlap-reservation",
+      "patch_sha256": "1668d1b442d42d698028a36b74018945c2e7365bd09b0c76bca069d206005b92",
+      "reward": 0,
+      "tests_passed": 10,
+      "tests_failed": 1,
+      "scheduler_exit_code": 0
+    }
+  ],
+  "conforming_alternative_run": {
+    "case": "alternative-counter-names",
+    "patch_sha256": "dbac20a7c6ab65a112ced8c00f7e63c9b0dc176d4f5e630ab38279b7ea5100be",
+    "change": "uses different public-config and request bookkeeping names while preserving the same scheduling behavior",
+    "reward": 1,
+    "tests_passed": 11,
+    "tests_failed": 0,
+    "scheduler_exit_code": 0
+  },
+  "build_reproducibility": {
+    "initial_image_id": "sha256:df1053f9423e43177a2b559858184f5a451f57875a2205b27f91c22d7f91e54c",
+    "warm_cache_image_id": "sha256:df1053f9423e43177a2b559858184f5a451f57875a2205b27f91c22d7f91e54c",
+    "independent_clean_builder_image_id": "sha256:df1053f9423e43177a2b559858184f5a451f57875a2205b27f91c22d7f91e54c",
+    "warm_cache_digest_stable": true,
+    "independent_clean_rebuild_digest_stable": true,
+    "key_binary_hashes_match": true
+  },
+  "critical_review_rounds": [
+    {"round": 1, "focus": "instruction and provenance", "result": "Verified the async sliding-window lifetime, connector reuse, and rollback claims against PR #47728, issue #47282, alternative PR #47653, and predecessor PR #45357; reattributed the concrete rollback trace to the executable reproduction."},
+    {"round": 2, "focus": "environment and isolation", "result": "Rebuilt from the July 8 snapshot with pinned tools, the exact lock, vendored offline Cargo graph, deterministic CPU extensions, full Git history, and public-only reproduction fixtures."},
+    {"round": 3, "focus": "Oracle correctness", "result": "The 157-line product patch preserves async sliding/chunked blocks through output processing and rollback, avoids connector destination reuse, retains synchronous release, and bounds overlap reservation."},
+    {"round": 4, "focus": "verifier and adversarial", "result": "Added rollback, real block-pool reuse, and admission-ceiling controls; ran five Base/Oracle rounds, accepted one renamed-counter alternative, and rejected five incomplete or excessive implementations."},
+    {"round": 5, "focus": "evidence", "result": "Recorded substitutions and limitations, refreshed artifact hashes, confirmed warm and independent clean-builder reproducibility, audited all provenance gates, and confirmed final Harbor reward 1 with all verifier exit codes 0."}
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "e7c0de81-c78f-45b1-9baa-83770cd1bd80",
+    "trial_id": "d9c86b03-54fa-4023-bd9d-6896f10af25c",
+    "input_task_checksum": "8d5591006a1dc51ca49d6c8cba9ece35af6148651ed7ddcffd10a7ee1e202982",
+    "lock_task_digest": "sha256:8c084b9453c948d0d4b8ecf9b0ca01d481c63d58d5bc7ebf792a68bc0bc01a77",
+    "checksum_scope": "Harbor hashes the entire task directory, including this evidence file. The recorded checksum is the exact input to this successful run; writing the run identifiers into this file necessarily changes the directory checksum afterward.",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "scheduler_exit_code": 0,
+    "runtime_seconds": 40,
+    "canonical_image_retained_after_run": true
+  },
+  "remediation_findings": {
+    "R1": "fixed",
+    "R2": "fixed",
+    "R3": "fixed",
+    "R4": "fixed",
+    "R5": "fixed",
+    "R6": "fixed",
+    "R7": "fixed"
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "future_reference_commit_absent": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_and_validation_absent_from_image": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "extra_build_tool_pinned": "uv==0.11.28",
+    "system_base_predates_cutoff": true,
+    "system_packages_use_cutoff_snapshot": true,
+    "download_checksums_verified": true,
+    "cargo_vendor_offline": true,
+    "compiler_and_download_caches_absent": true,
+    "empty_build_context": true,
+    "cached_rebuild_digest_stable": true,
+    "independent_clean_rebuild_digest_stable": true,
+    "key_binary_hashes_match_clean_rebuild": {
+      "vllm/_C.abi3.so": "9308a9733511bf2b44328faabab040e16c9879970453dcf0bd924a9aaa2da12a",
+      "vllm/_C_AVX2.abi3.so": "2d49bcd4d9765f10cc4c08a2fe9eff12a3944110520559befb7ab31018650d4e",
+      "vllm/_C_AVX512.abi3.so": "7d62bb0c8e74a327883cc03d14c0d9b7e5a53dfd56e1e7552d477b62ca240526"
+    },
+    "runtime_network_disabled": true
+  },
+  "known_limitations": [
+    "The original Gemma GPU weights and concurrency workload are not included.",
+    "No GPU kernel, compute stream, offload stream, or DMA transfer executes in verification.",
+    "Deterministic ModelRunnerOutput objects replace model execution.",
+    "A competing request's real block-pool allocation substitutes for an external connector load destination.",
+    "Harbor 0.22.0 uses a self-referential whole-directory checksum, so the successful run checksum cannot equal the directory hash after that checksum is written into evidence."
+  ]
+}
