@@ -16,13 +16,15 @@ const outputFile = path.join(outputDir, 'tasks.json');
 
 const highlighter = await createHighlighter({
   themes: ['vitesse-light'],
-  langs: ['bash', 'c', 'diff', 'json', 'python', 'text'],
+  langs: ['bash', 'c', 'diff', 'dockerfile', 'json', 'python', 'text'],
 });
 
 function languageForFile(name) {
+  if (path.basename(name).toLowerCase() === 'dockerfile') return 'dockerfile';
   if (name.endsWith('.sh')) return 'bash';
   if (name.endsWith('.py')) return 'python';
   if (name.endsWith('.c')) return 'c';
+  if (name.endsWith('.json')) return 'json';
   if (name.endsWith('.patch') || name.endsWith('.diff')) return 'diff';
   return 'text';
 }
@@ -161,6 +163,10 @@ for (const entry of entries) {
     await readTextFiles(path.join(taskDir, 'solution')),
     ['solve.sh', 'oracle.patch'],
   );
+  const environmentFiles = prioritizeFiles(
+    await readTextFiles(path.join(taskDir, 'environment')),
+    ['Dockerfile'],
+  );
 
   tasks.push({
     slug: entry.name,
@@ -188,6 +194,11 @@ for (const entry of entries) {
       lineCount: file.content ? file.content.split(/\r?\n/).length : 0,
     })),
     solutionFiles: solutionFiles.map((file) => ({
+      name: file.name,
+      highlightedHtml: highlightCode(file.content, languageForFile(file.name)),
+      lineCount: file.content ? file.content.split(/\r?\n/).length : 0,
+    })),
+    environmentFiles: environmentFiles.map((file) => ({
       name: file.name,
       highlightedHtml: highlightCode(file.content, languageForFile(file.name)),
       lineCount: file.content ? file.content.split(/\r?\n/).length : 0,

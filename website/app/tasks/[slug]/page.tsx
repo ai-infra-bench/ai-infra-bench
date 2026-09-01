@@ -61,7 +61,12 @@ export default async function TaskPage({ params }: TaskPageProps) {
             highlightedHtml,
             lineCount,
           }))}
-          environment={[
+          environmentFiles={task.environmentFiles.map(({ name, highlightedHtml, lineCount }) => ({
+            name,
+            highlightedHtml,
+            lineCount,
+          }))}
+          metadata={[
             ['Agent timeout', task.agentTimeoutSec ? `${task.agentTimeoutSec / 60} min` : 'Not specified'],
             ['Verifier timeout', task.verifierTimeoutSec ? `${task.verifierTimeoutSec / 60} min` : 'Not specified'],
             ['CPU', task.cpus ? `${task.cpus} cores` : 'Not specified'],

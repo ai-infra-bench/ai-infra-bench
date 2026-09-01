@@ -30,6 +30,11 @@ export type BenchmarkTask = {
     highlightedHtml: string;
     lineCount: number;
   }>;
+  environmentFiles: Array<{
+    name: string;
+    highlightedHtml: string;
+    lineCount: number;
+  }>;
 };
 
 export const tasks = taskData as BenchmarkTask[];

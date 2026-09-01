@@ -17,15 +17,18 @@ export function TaskContentTabs({
   instructionHtml,
   verifierFiles,
   solutionFiles,
-  environment,
+  environmentFiles,
+  metadata,
 }: {
   instructionHtml: string;
   verifierFiles: SourceFile[];
   solutionFiles: SourceFile[];
-  environment: EnvironmentFact[];
+  environmentFiles: SourceFile[];
+  metadata: EnvironmentFact[];
 }) {
   const [activeVerifier, setActiveVerifier] = useState(0);
   const [activeOracle, setActiveOracle] = useState(0);
+  const [activeEnvironment, setActiveEnvironment] = useState(0);
   const [wrapLines, setWrapLines] = useState(false);
 
   return (
@@ -42,6 +45,9 @@ export function TaskContentTabs({
         </Tabs.Trigger>
         <Tabs.Trigger className="content-tab" value="environment">
           Environment
+        </Tabs.Trigger>
+        <Tabs.Trigger className="content-tab" value="metadata">
+          Metadata
         </Tabs.Trigger>
       </Tabs.List>
 
@@ -73,9 +79,21 @@ export function TaskContentTabs({
         />
       </Tabs.Content>
 
-      <Tabs.Content className="content-panel environment-panel" value="environment">
+      <Tabs.Content className="content-panel" value="environment">
+        <SourceDocument
+          directory="environment"
+          files={environmentFiles}
+          activeFile={activeEnvironment}
+          onFileChange={setActiveEnvironment}
+          wrapLines={wrapLines}
+          onWrapLinesChange={setWrapLines}
+          fallback="No environment files are available."
+        />
+      </Tabs.Content>
+
+      <Tabs.Content className="content-panel environment-panel" value="metadata">
         <dl className="environment-list">
-          {environment.map(([label, value]) => (
+          {metadata.map(([label, value]) => (
             <div key={label}>
               <dt>{label}</dt>
               <dd>{value}</dd>
