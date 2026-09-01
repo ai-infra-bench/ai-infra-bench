@@ -1,0 +1,52 @@
+diff --git a/vllm/entrypoints/openai/responses/serving.py b/vllm/entrypoints/openai/responses/serving.py
+index 68f71bd..b9647af 100644
+--- a/vllm/entrypoints/openai/responses/serving.py
++++ b/vllm/entrypoints/openai/responses/serving.py
+@@ -111,6 +111,17 @@ from vllm.utils.collection_utils import as_list
+ logger = init_logger(__name__)
+ 
+ 
++def _split_response_fields(delta: DeltaMessage) -> list[DeltaMessage]:
++    parts = []
++    if delta.reasoning is not None:
++        parts.append(DeltaMessage(reasoning=delta.reasoning))
++    if delta.content is not None:
++        parts.append(DeltaMessage(content=delta.content))
++    if delta.tool_calls:
++        parts.append(DeltaMessage(tool_calls=delta.tool_calls))
++    return parts or [delta]
++
++
+ def _extract_allowed_tools_from_mcp_requests(
+     tools: list[Tool],
+ ) -> dict[str, list[str] | None]:
+@@ -1414,18 +1425,19 @@ class OpenAIServingResponses(OpenAIServing):
+             if not delta_message:
+                 continue
+ 
+-            target_state, tool_call = processor.resolve_target_state(delta_message)
+-            if target_state == _StateType.NONE:
+-                continue
++            for current in _split_response_fields(delta_message):
++                target_state, tool_call = processor.resolve_target_state(current)
++                if target_state == _StateType.NONE:
++                    continue
+ 
+-            if processor.needs_transition(target_state, tool_call):
+-                for event in processor.close_current():
+-                    yield _increment_sequence_number_and_return(event)
+-                for event in processor.open(target_state, tool_call):
+-                    yield _increment_sequence_number_and_return(event)
++                if processor.needs_transition(target_state, tool_call):
++                    for event in processor.close_current():
++                        yield _increment_sequence_number_and_return(event)
++                    for event in processor.open(target_state, tool_call):
++                        yield _increment_sequence_number_and_return(event)
+ 
+-            for event in processor.emit_delta(delta_message, output, _get_logprobs):
+-                yield _increment_sequence_number_and_return(event)
++                for event in processor.emit_delta(current, output, _get_logprobs):
++                    yield _increment_sequence_number_and_return(event)
+ 
+         for event in processor.close_current():
+             yield _increment_sequence_number_and_return(event)
