@@ -4,7 +4,7 @@
 
 ARG VLLM_BASE_SHA=29e5d102050669d03992a2eb863ad364ea50fab2
 ARG VLLM_DEPENDENCY_CUTOFF=2026-04-15T09:09:20Z
-ARG VLLM_CACHE_NAMESPACE=29e5d102050669d03992a2eb863ad364ea50fab2-407fd562f8bf40c3-6e080ff0c9cb931b
+ARG VLLM_CACHE_NAMESPACE=29e5d102050669d03992a2eb863ad364ea50fab2-407fd562f8bf40c3-7aeb85dc45afb45f
 ARG VLLM_REPO=https://github.com/vllm-project/vllm.git
 
 ######################### PINNED SYSTEM BASE #########################
@@ -87,7 +87,7 @@ RUN apt-get update \
 RUN pip install --no-cache-dir uv==0.11.28
 
 ARG RUSTUP_VERSION=1.29.0
-ARG RUST_TOOLCHAIN=1.95.0
+ARG RUST_TOOLCHAIN=1.94.1
 RUN case "$TARGETARCH" in \
       amd64) rust_target=x86_64-unknown-linux-gnu; rustup_sha=4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa10 ;; \
       arm64) rust_target=aarch64-unknown-linux-gnu; rustup_sha=9732d6c5e2a098d3521fca8145d826ae0aaa067ef2385ead08e6feac88fa5792 ;; \
