@@ -1,0 +1,452 @@
+diff --git a/vllm/entrypoints/cli/serve.py b/vllm/entrypoints/cli/serve.py
+index 5972bd48aa46..cbd3a44724a9 100644
+--- a/vllm/entrypoints/cli/serve.py
++++ b/vllm/entrypoints/cli/serve.py
+@@ -308,7 +308,14 @@ def signal_handler(signum, frame):
+ 
+     from vllm.v1.engine.utils import get_engine_zmq_addresses
+ 
+-    addresses = get_engine_zmq_addresses(vllm_config, num_api_servers)
++    # Per-API-server ports are picked by the kernel at each child's bind()
++    # to avoid parent-probe vs child-bind TOCTOU; Rust front-end opts out
++    # because it has no port-report-back channel.
++    addresses = get_engine_zmq_addresses(
++        vllm_config,
++        num_api_servers,
++        defer_api_server_ports=not rust_frontend_path,
++    )
+ 
+     with launch_core_engines(
+         vllm_config, executor_class, log_stats, addresses, num_api_servers
+@@ -341,6 +348,12 @@ def signal_handler(signum, frame):
+                 tensor_queue=tensor_queue,
+             )
+ 
++            # Forward each child's bound endpoints to the engine handshake
++            # (runs on ``with`` exit).
++            actual_inputs, actual_outputs = api_server_manager.gather_actual_addresses()
++            addresses.inputs = actual_inputs
++            addresses.outputs = actual_outputs
++
+     # Wait for API servers.
+     try:
+         wait_for_completion_or_failure(
+diff --git a/vllm/v1/engine/async_llm.py b/vllm/v1/engine/async_llm.py
+index 160f148f5c59..419e15163a9f 100644
+--- a/vllm/v1/engine/async_llm.py
++++ b/vllm/v1/engine/async_llm.py
+@@ -81,7 +81,7 @@ def __init__(
+         start_engine_loop: bool = True,
+         stat_loggers: list[StatLoggerFactory] | None = None,
+         aggregate_engine_logging: bool = False,
+-        client_addresses: dict[str, str] | None = None,
++        client_addresses: dict[str, Any] | None = None,
+         client_count: int = 1,
+         client_index: int = 0,
+     ) -> None:
+@@ -209,7 +209,7 @@ def from_vllm_config(
+         enable_log_requests: bool = False,
+         aggregate_engine_logging: bool = False,
+         disable_log_stats: bool = False,
+-        client_addresses: dict[str, str] | None = None,
++        client_addresses: dict[str, Any] | None = None,
+         client_count: int = 1,
+         client_index: int = 0,
+     ) -> "AsyncLLM":
+diff --git a/vllm/v1/engine/coordinator.py b/vllm/v1/engine/coordinator.py
+index 8ebf976c5fa1..87937cc6a870 100644
+--- a/vllm/v1/engine/coordinator.py
++++ b/vllm/v1/engine/coordinator.py
+@@ -11,7 +11,7 @@
+ 
+ from vllm.config import ParallelConfig
+ from vllm.logger import init_logger
+-from vllm.utils.network_utils import get_tcp_uri, make_zmq_socket
++from vllm.utils.network_utils import make_zmq_socket
+ from vllm.utils.system_utils import get_mp_context, set_process_title
+ from vllm.v1.engine import EngineCoreOutputs, EngineCoreRequestType
+ from vllm.v1.serial_utils import MsgpackDecoder
+@@ -91,16 +91,9 @@ def __init__(
+         if parallel_config.enable_elastic_ep:
+             local_only_eng = False
+ 
+-        def bind_address(local_only: bool) -> str:
+-            return (
+-                get_engine_client_zmq_addr(local_only=True, host=host)
+-                if local_only
+-                else get_tcp_uri(host, 0)
+-            )
+-
+-        front_publish_address = bind_address(local_only)
+-        back_publish_address = bind_address(local_only_eng)
+-        back_output_address = bind_address(local_only_eng)
++        front_publish_address = get_engine_client_zmq_addr(local_only, host=host)
++        back_publish_address = get_engine_client_zmq_addr(local_only_eng, host=host)
++        back_output_address = get_engine_client_zmq_addr(local_only_eng, host=host)
+ 
+         context = get_mp_context()
+         parent_zmq_addr_pipe, child_zmq_addr_pipe = context.Pipe(duplex=False)
+diff --git a/vllm/v1/engine/core_client.py b/vllm/v1/engine/core_client.py
+index 2f2c15d246f8..c26380e6e151 100644
+--- a/vllm/v1/engine/core_client.py
++++ b/vllm/v1/engine/core_client.py
+@@ -11,6 +11,7 @@
+ from collections.abc import Awaitable, Callable, Sequence
+ from concurrent.futures import Future
+ from dataclasses import dataclass
++from multiprocessing.connection import Connection
+ from multiprocessing.queues import Queue
+ from threading import Thread
+ from typing import Any, TypeAlias, TypeVar
+@@ -108,7 +109,7 @@ def make_async_mp_client(
+         vllm_config: VllmConfig,
+         executor_class: type[Executor],
+         log_stats: bool,
+-        client_addresses: dict[str, str] | None = None,
++        client_addresses: dict[str, Any] | None = None,
+         client_count: int = 1,
+         client_index: int = 0,
+     ) -> "AsyncMPClient":
+@@ -476,7 +477,7 @@ def __init__(
+         vllm_config: VllmConfig,
+         executor_class: type[Executor],
+         log_stats: bool,
+-        client_addresses: dict[str, str] | None = None,
++        client_addresses: dict[str, Any] | None = None,
+     ):
+         self.vllm_config = vllm_config
+ 
+@@ -507,7 +508,7 @@ def __init__(
+                 output_address = client_addresses["output_address"]
+                 self.stats_update_address = client_addresses.get("stats_update_address")
+                 # Tensor queues passed via client_addresses for multi-API-server case
+-                tensor_queue = client_addresses.get("tensor_queue")  # type: ignore[assignment]
++                tensor_queue = client_addresses.get("tensor_queue")
+                 self.input_socket = self.resources.input_socket = make_zmq_socket(
+                     self.ctx,
+                     input_address,
+@@ -518,6 +519,28 @@ def __init__(
+                 self.resources.output_socket = make_zmq_socket(
+                     self.ctx, output_address, zmq.PULL
+                 )
++
++                # Report bound endpoints back so the parent can forward
++                # them to engines (mirrors the DPCoordinator pattern).
++                actual_address_pipe: Connection | None = client_addresses.get(
++                    "actual_address_pipe"
++                )
++                if actual_address_pipe is not None:
++                    try:
++                        actual_input = self.input_socket.getsockopt(
++                            zmq.LAST_ENDPOINT
++                        ).decode()
++                        actual_output = self.resources.output_socket.getsockopt(
++                            zmq.LAST_ENDPOINT
++                        ).decode()
++                        actual_address_pipe.send(
++                            {
++                                "input_address": actual_input,
++                                "output_address": actual_output,
++                            }
++                        )
++                    finally:
++                        actual_address_pipe.close()
+             else:
+                 # Engines are managed by this client.
+                 addresses = get_engine_zmq_addresses(vllm_config)
+@@ -532,6 +555,15 @@ def __init__(
+                     self.ctx, addresses.outputs[0], zmq.PULL
+                 )
+ 
++                # Resolve ``tcp://host:0`` placeholders to bound endpoints
++                # before engines DEALER-connect. No-op for IPC.
++                addresses.inputs[0] = self.input_socket.getsockopt(
++                    zmq.LAST_ENDPOINT
++                ).decode()
++                addresses.outputs[0] = self.resources.output_socket.getsockopt(
++                    zmq.LAST_ENDPOINT
++                ).decode()
++
+                 with launch_core_engines(
+                     vllm_config, executor_class, log_stats, addresses
+                 ) as (engine_manager, coordinator, addresses, tensor_queue):
+@@ -893,7 +925,7 @@ def __init__(
+         vllm_config: VllmConfig,
+         executor_class: type[Executor],
+         log_stats: bool,
+-        client_addresses: dict[str, str] | None = None,
++        client_addresses: dict[str, Any] | None = None,
+         client_count: int = 1,
+         client_index: int = 0,
+     ):
+@@ -1143,7 +1175,7 @@ def __init__(
+         vllm_config: VllmConfig,
+         executor_class: type[Executor],
+         log_stats: bool,
+-        client_addresses: dict[str, str] | None = None,
++        client_addresses: dict[str, Any] | None = None,
+         client_count: int = 1,
+         client_index: int = 0,
+     ):
+@@ -1323,7 +1355,7 @@ def __init__(
+         vllm_config: VllmConfig,
+         executor_class: type[Executor],
+         log_stats: bool,
+-        client_addresses: dict[str, str] | None = None,
++        client_addresses: dict[str, Any] | None = None,
+         client_count: int = 1,
+         client_index: int = 0,
+     ):
+diff --git a/vllm/v1/engine/utils.py b/vllm/v1/engine/utils.py
+index cc8ce10e31e0..554e8d6f0056 100644
+--- a/vllm/v1/engine/utils.py
++++ b/vllm/v1/engine/utils.py
+@@ -23,7 +23,12 @@
+ from vllm.platforms import current_platform
+ from vllm.ray.ray_env import get_env_vars_to_copy
+ from vllm.utils import numa_utils
+-from vllm.utils.network_utils import get_open_zmq_ipc_path, zmq_socket_ctx
++from vllm.utils.network_utils import (
++    get_open_port,
++    get_open_zmq_ipc_path,
++    get_tcp_uri,
++    zmq_socket_ctx,
++)
+ from vllm.utils.system_utils import get_mp_context
+ from vllm.v1.engine.coordinator import DPCoordinator
+ from vllm.v1.executor import Executor
+@@ -955,8 +960,19 @@ def shutdown(self, timeout: float | None = None) -> None:
+ def get_engine_zmq_addresses(
+     vllm_config: VllmConfig,
+     num_api_servers: int = 1,
++    *,
++    defer_api_server_ports: bool = True,
+ ) -> EngineZmqAddresses:
+-    """Allocate ZMQ addresses for engine-client communication."""
++    """Allocate ZMQ addresses for engine-client communication.
++
++    By default each TCP address is a ``tcp://host:0`` placeholder; the
++    consumer (API-server child or single-process ``MPClient``) binds, then
++    recovers the kernel-assigned port via ``getsockopt(zmq.LAST_ENDPOINT)``
++    and writes it back into ``addresses`` before the engine handshake.
++
++    Set ``defer_api_server_ports=False`` only when the consumer cannot
++    report a bound port back (e.g. the Rust front-end). IPC paths are
++    unaffected."""
+     parallel_config = vllm_config.parallel_config
+     local_engine_count = parallel_config.data_parallel_size_local
+     local_start_index = parallel_config.data_parallel_rank_local
+@@ -978,15 +994,14 @@ def get_engine_zmq_addresses(
+     if parallel_config.enable_elastic_ep:
+         client_local_only = False
+ 
++    def _addr() -> str:
++        if client_local_only:
++            return get_open_zmq_ipc_path()
++        return get_tcp_uri(host, 0 if defer_api_server_ports else get_open_port())
++
+     return EngineZmqAddresses(
+-        inputs=[
+-            get_engine_client_zmq_addr(client_local_only, host)
+-            for _ in range(num_api_servers)
+-        ],
+-        outputs=[
+-            get_engine_client_zmq_addr(client_local_only, host)
+-            for _ in range(num_api_servers)
+-        ],
++        inputs=[_addr() for _ in range(num_api_servers)],
++        outputs=[_addr() for _ in range(num_api_servers)],
+     )
+ 
+ 
+@@ -1095,9 +1110,11 @@ def launch_core_engines(
+     if parallel_config.enable_elastic_ep:
+         handshake_local_only = False
+ 
+-    handshake_address = get_engine_client_zmq_addr(
+-        handshake_local_only, host, parallel_config.data_parallel_rpc_port
+-    )
++    # Preserve "port=0 means auto-pick" for the handshake address, which
++    # is consumed by engines spawned in this process and so cannot defer
++    # port resolution to bind time.
++    rpc_port = parallel_config.data_parallel_rpc_port or get_open_port()
++    handshake_address = get_engine_client_zmq_addr(handshake_local_only, host, rpc_port)
+ 
+     if local_engines_only and dp_rank > 0:
+         assert not handshake_local_only
+diff --git a/vllm/v1/utils.py b/vllm/v1/utils.py
+index afa621ae54d4..58c289150374 100644
+--- a/vllm/v1/utils.py
++++ b/vllm/v1/utils.py
+@@ -29,7 +29,7 @@
+ import vllm.envs as envs
+ from vllm.logger import init_logger
+ from vllm.usage.usage_lib import UsageContext, is_usage_stats_enabled, usage_message
+-from vllm.utils.network_utils import get_open_port, get_open_zmq_ipc_path, get_tcp_uri
++from vllm.utils.network_utils import get_open_zmq_ipc_path, get_tcp_uri
+ from vllm.utils.system_utils import decorate_logs, kill_process_tree, set_process_title
+ from vllm.v1.core.sched.output import SchedulerOutput
+ 
+@@ -144,20 +144,18 @@ def copy_to_cpu(self, n: int | None = None) -> torch.Tensor:
+         return self.cpu[:n].copy_(self.gpu[:n], non_blocking=True)
+ 
+ 
+-def get_engine_client_zmq_addr(local_only: bool, host: str, port: int = 0) -> str:
+-    """Assign a new ZMQ socket address.
++def get_engine_client_zmq_addr(
++    local_only: bool,
++    host: str,
++    port: int = 0,
++) -> str:
++    """Return an IPC path (``local_only=True``) or ``tcp://host:port``.
+ 
+-    If local_only is True, participants are colocated and so a unique IPC
+-    address will be returned.
+-
+-    Otherwise, the provided host and port will be used to construct a TCP
+-    address (port == 0 means assign an available port)."""
+-
+-    return (
+-        get_open_zmq_ipc_path()
+-        if local_only
+-        else (get_tcp_uri(host, port or get_open_port()))
+-    )
++    ``port=0`` lets the kernel assign the port at ``bind()`` time; the
++    caller must recover it via ``getsockopt(zmq.LAST_ENDPOINT)``."""
++    if local_only:
++        return get_open_zmq_ipc_path()
++    return get_tcp_uri(host, port)
+ 
+ 
+ class APIServerProcessManager:
+@@ -181,6 +179,12 @@ def __init__(
+     ):
+         """Initialize and start API server worker processes.
+ 
++        ``input_addresses``/``output_addresses`` may contain
++        ``tcp://host:0`` placeholders; each child must report the actual
++        bound endpoint over its ``actual_address_pipe`` in ``client_config``
++        and the parent collects them via
++        :py:meth:`gather_actual_addresses`.
++
+         Args:
+             target_server_fn: Override function to call for each API server process
+             listen_address: Address to listen for client connections
+@@ -196,14 +200,14 @@ def __init__(
+         self.sock = sock
+         self.args = args
+ 
+-        # Start API servers
+         spawn_context = multiprocessing.get_context("spawn")
+         self.processes: list[BaseProcess] = []
++        self._address_pipes: list[connection.Connection] = []
+ 
+         for i, in_addr, out_addr in zip(
+             range(num_servers), input_addresses, output_addresses
+         ):
+-            client_config = {
++            client_config: dict[str, Any] = {
+                 "input_address": in_addr,
+                 "output_address": out_addr,
+                 "client_count": num_servers,
+@@ -214,6 +218,10 @@ def __init__(
+             if tensor_queue is not None:
+                 client_config["tensor_queue"] = tensor_queue
+ 
++            parent_recv, child_send = spawn_context.Pipe(duplex=False)
++            self._address_pipes.append(parent_recv)
++            client_config["actual_address_pipe"] = child_send
++
+             proc = spawn_context.Process(
+                 target=target_server_fn or run_api_server_worker_proc,
+                 name=f"ApiServer_{i}",
+@@ -222,14 +230,89 @@ def __init__(
+             self.processes.append(proc)
+             proc.start()
+ 
++            # Drop parent's write end so reader sees EOF on child death.
++            child_send.close()
++
+         logger.info("Started %d API server processes", len(self.processes))
+ 
+         # Shutdown only the API server processes on garbage collection
+         # The extra processes are managed by their owners
+         self._finalizer = weakref.finalize(self, shutdown, self.processes)
+ 
++    def gather_actual_addresses(
++        self,
++        timeout: float = envs.VLLM_ENGINE_READY_TIMEOUT_S,
++    ) -> tuple[list[str], list[str]]:
++        """Return (inputs, outputs) reported by each child, indexed by
++        ``client_index``. Raises ``RuntimeError`` on timeout or premature
++        child exit."""
++        n = len(self._address_pipes)
++        inputs: list[str | None] = [None] * n
++        outputs: list[str | None] = [None] * n
++        pending: dict[connection.Connection, int] = {
++            pipe: i for i, pipe in enumerate(self._address_pipes)
++        }
++        sentinel_to_idx: dict[Any, int] = {
++            proc.sentinel: i for i, proc in enumerate(self.processes)
++        }
++
++        deadline = time.monotonic() + timeout
++        try:
++            while pending:
++                remaining = deadline - time.monotonic()
++                if remaining <= 0:
++                    missing = [self.processes[i].name for i in pending.values()]
++                    raise RuntimeError(
++                        f"Timed out after {timeout:.1f}s waiting for "
++                        f"API server(s) to report bound ZMQ addresses: "
++                        f"{missing}"
++                    )
++                waitables: list[Any] = list(pending.keys()) + list(
++                    sentinel_to_idx.keys()
++                )
++                ready = connection.wait(waitables, timeout=remaining)
++                # Drain pipes before checking sentinels: a child that sent
++                # its message and then exited can surface both events in
++                # the same poll, and we must record the success first.
++                for item in ready:
++                    if isinstance(item, connection.Connection) and item in pending:
++                        idx = pending.pop(item)
++                        try:
++                            msg: dict[str, str] = item.recv()
++                        except EOFError as e:
++                            raise RuntimeError(
++                                f"API server {self.processes[idx].name} "
++                                f"closed its address pipe without "
++                                f"reporting its bound ZMQ addresses"
++                            ) from e
++                        inputs[idx] = msg["input_address"]
++                        outputs[idx] = msg["output_address"]
++                        item.close()
++                for item in ready:
++                    if item in sentinel_to_idx:
++                        idx = sentinel_to_idx.pop(item)
++                        pipe = self._address_pipes[idx]
++                        if pipe in pending:
++                            proc = self.processes[idx]
++                            raise RuntimeError(
++                                f"API server process {proc.name} exited "
++                                f"(code={proc.exitcode}) before reporting "
++                                f"its bound ZMQ addresses"
++                            )
++        finally:
++            for pipe in pending:
++                with contextlib.suppress(Exception):
++                    pipe.close()
++
++        return inputs, outputs  # type: ignore[return-value]
++
+     def shutdown(self, timeout: float | None = None) -> None:
+         """Shutdown API server processes with configurable timeout"""
++        for pipe in self._address_pipes:
++            with contextlib.suppress(Exception):
++                pipe.close()
++        self._address_pipes = []
++
+         if self._finalizer.detach() is not None:
+             shutdown(self.processes, timeout=timeout)
+ 
