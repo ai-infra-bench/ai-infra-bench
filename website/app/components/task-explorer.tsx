@@ -55,7 +55,7 @@ export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
       <div className="catalog-intro scroll-reveal">
         <h2 id="task-catalog-title">Tasks</h2>
         <p>
-          {tasks.length} tasks with offline environments and implementation-agnostic, execution-based behavioral and end-to-end verification.
+          {tasks.length} tasks with offline environments and execution-based behavioral and end-to-end verification.
         </p>
       </div>
 
