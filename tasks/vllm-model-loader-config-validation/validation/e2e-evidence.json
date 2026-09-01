@@ -1,0 +1,231 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-01T16:25:17+08:00",
+  "source": {
+    "candidate_id": "vllm-cpu-300-212",
+    "instance_id": "vllm-project__vllm-45196",
+    "base_commit": "58b2e896423ffb255fa8b3a2c6b283dd99d7dbad",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/45196",
+    "followup_pull_request": "https://github.com/vllm-project/vllm/pull/46220",
+    "linked_issue": null,
+    "golden_product_code_changes": 49,
+    "source_scope": [
+      "validate invalid LoadConfig and DefaultModelLoader profiles at construction",
+      "prevent explicit safetensors from falling back to PyTorch files",
+      "reject multithread loading when a non-lazy safetensors strategy would be ignored"
+    ],
+    "followup_scope": "Restore the LoadFormats static Literal while retaining runtime string validation by using str rather than Any outside TYPE_CHECKING."
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-model-loader-config-validation:base-58b2e896423f",
+    "image_id": "sha256:81ce9db6e3e8746c45fcc9c42b51b0868b81e495a98e07fa4dc7d387accdcaea",
+    "size_bytes": 2813384818,
+    "dockerfile_sha256": "353cf6dd0e88ae599d0f5f790eaec5857538c477ccfa3720965dcd4959e06546",
+    "template_sha256": "2f1688856bf1e683d6f19bba67f07094c64c87f8da9551f1bc9c4a1e69fcb515",
+    "dependency_lock_sha256": "23be3214b9fbddd17a7dbfad8fae0c071c89f2a0952ec00ab96c1950a40bc810",
+    "dependency_lock_manifest_sha256": "2829f5a471763e02831ae4550d4fb451bd45bebc23ad2ce37c81edc1434b69f7",
+    "cache_namespace": "58b2e896423ffb255fa8b3a2c6b283dd99d7dbad-23be3214b9fbddd1-58c4f34b2c181742",
+    "cutoff_compatible_tools": {
+      "rustup": "1.29.0 (tagged 2026-03-12T15:57:41Z)",
+      "rust": "1.95.0 (2026-04-14 compiler commit)",
+      "cargo_nextest": "0.9.133 (published 2026-04-14T21:17:11Z)",
+      "protoc": "34.2 (published 2026-05-20T19:38:17Z)"
+    }
+  },
+  "artifacts": {
+    "task_metadata_sha256": "65ae17470f991d842abc19c70498e3039b621c0a8c40f57d919740bb3246fe5a",
+    "instruction_sha256": "66c84fada42ae801e8a5aa0d482a099d3253a8b85083bb32d90d45f2443b4913",
+    "oracle_patch_sha256": "c80629d307be0ed15ed00ef9c774e5f52364cb0aaa97e831affb6f54d8623dc0",
+    "solve_script_sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491",
+    "test_script_sha256": "20e8b9329d2fed493e3a40563edcd717a2b18b29ca05965933261b78c514c188",
+    "regression_test_sha256": "ce9f7552ae92689574e4469a18ee37b0c2f10064a835577edd614db371134d5f",
+    "junit_checker_sha256": "a6e22366826bd84094dd5601d6a94838c32c552c57775642fa913b01cc3d7bf6",
+    "real_cli_startup_sha256": "a901c4bc679eaa41d19aa21816253e3ab0ac62edcfee224ec861e4dd2cb53dfd",
+    "public_reproduction_sha256": "ae4cd03b7e931830fccb73c86dc72a20b8605c88890df81c3fb120e069092279",
+    "image_manifest_sha256": "aa3ac85bea540c8e253a7090eedd1d7f092df026bb113fa5ec7c99852be7b4c3",
+    "ci_cases_sha256": "a649a47606aa86f4ebb7ad6d1999924b4953f0390a2c854c8453520ab8b73e49",
+    "remediation_matrix_sha256": "7c2806a7afa28f9dcc3df5ee98e4b1662040d12651235272f3a0f720c7be741b"
+  },
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "depends_on_golden_names": false,
+    "behavior_cases": 11,
+    "behaviors": [
+      "non-string load formats are rejected at LoadConfig construction",
+      "unknown safetensors strategies are rejected while the four supported values remain valid",
+      "extra config must be a mapping and the multithread flag must be boolean",
+      "thread counts must be positive integers while positive values remain valid",
+      "multithread loading rejects eager, prefetch, and torchao but accepts default and lazy",
+      "custom registered string formats remain extensible",
+      "the existing unknown-extra-key rejection remains intact"
+    ],
+    "collection_integrity": "JUnit must contain exactly 11 unique, passing, non-skipped cases"
+  },
+  "public_reproduction": {
+    "base": {
+      "exit_code": 3,
+      "load_format_123": "AttributeError: int has no attribute lower",
+      "strategy_typo": "accepted",
+      "zero_threads": "accepted",
+      "explicit_safetensors": "SafetensorError while reading model.pt"
+    },
+    "oracle": {
+      "exit_code": 0,
+      "load_format_123": "Pydantic string ValidationError on load_format",
+      "strategy_typo": "Pydantic literal ValidationError on safetensors_load_strategy",
+      "zero_threads": "ValueError identifying num_threads",
+      "explicit_safetensors": "Cannot find any model weights; no SafetensorError"
+    }
+  },
+  "hidden_end_to_end": {
+    "tests_mounted_only_during_verification": true,
+    "entrypoint": "real vllm serve CLI and CPU engine startup",
+    "uses_real_default_model_loader": true,
+    "model_substitution": "A deterministic local one-layer OPT checkpoint saved only as model.pt replaces external model weights; the real loader, engine, API server, and health endpoint remain inside the target boundary.",
+    "network": "disabled",
+    "scenarios": [
+      "explicit safetensors against a pt-only directory fails before safe_open",
+      "zero-thread multithread loading fails before ThreadPoolExecutor",
+      "auto loads the pt-only checkpoint and reaches HTTP 200",
+      "hf loads the pt-only checkpoint and reaches HTTP 200",
+      "pt loads the pt-only checkpoint and reaches HTTP 200"
+    ],
+    "assertions_run_after_all_scenarios": true,
+    "process_cleanup": "Each CLI starts in a new process group; cleanup sends SIGTERM and escalates to SIGKILL after a bounded wait."
+  },
+  "repeated_runs": {
+    "rounds": 5,
+    "base_rewards": [0, 0, 0, 0, 0],
+    "oracle_rewards": [1, 1, 1, 1, 1],
+    "base_behavior_tests_each_round": {"passed": 5, "failed": 6},
+    "oracle_behavior_tests_each_round": {"passed": 11, "failed": 0},
+    "base_cli_exit_codes": [1, 1, 1, 1, 1],
+    "oracle_cli_exit_codes": [0, 0, 0, 0, 0],
+    "successful_controls_each_round": {
+      "auto": 200,
+      "hf": 200,
+      "pt": 200
+    }
+  },
+  "adversarial_runs": [
+    {
+      "case": "closed-load-format-enum",
+      "patch_sha256": "b798a2a0970f06da56bce81e9ee4a801dca27be88dbd9e156f0fbc93a5378bef",
+      "reward": 0,
+      "tests_passed": 10,
+      "tests_failed": 1,
+      "cli_exit_code": 0
+    },
+    {
+      "case": "config-validation-only",
+      "patch_sha256": "f220906832c5368823355b2077a44588cdef14408d5ce027bd66bdef3f9384e6",
+      "reward": 0,
+      "tests_passed": 7,
+      "tests_failed": 4,
+      "cli_exit_code": 1
+    },
+    {
+      "case": "loader-validation-only",
+      "patch_sha256": "fc17eaadf66cb0f093bca7b691d89c2dd9b2a52e0d5cbd5e0ac59863d507bae4",
+      "reward": 0,
+      "tests_passed": 9,
+      "tests_failed": 2,
+      "cli_exit_code": 0
+    },
+    {
+      "case": "zero-thread-truthiness",
+      "patch_sha256": "2d7da1ed92e1abd7f13800f671cdf75b604029c6da87340e25a20e19b0a59411",
+      "reward": 0,
+      "tests_passed": 10,
+      "tests_failed": 1,
+      "cli_exit_code": 1
+    }
+  ],
+  "conforming_alternative_run": {
+    "case": "alternative-field-validator",
+    "patch_sha256": "6714913c386a1f64e02670fe8e6bb9b15abd9eb4af092afec1218b9da1cb6531",
+    "change": "validates the strategy with a Pydantic field validator instead of the Oracle Literal alias",
+    "reward": 1,
+    "tests_passed": 11,
+    "tests_failed": 0,
+    "cli_exit_code": 0
+  },
+  "build_reproducibility": {
+    "initial_image_id": "sha256:81ce9db6e3e8746c45fcc9c42b51b0868b81e495a98e07fa4dc7d387accdcaea",
+    "warm_cache_image_id": "sha256:81ce9db6e3e8746c45fcc9c42b51b0868b81e495a98e07fa4dc7d387accdcaea",
+    "warm_cache_digest_stable": true
+  },
+  "critical_review_rounds": [
+    {
+      "round": 1,
+      "focus": "instruction and provenance",
+      "result": "Removed the invented deployment persona and mapped the requested failures to PR #45196 and the LoadFormats alias repair to follow-up #46220."
+    },
+    {
+      "round": 2,
+      "focus": "environment, dependencies, Rust, and isolation",
+      "result": "Rebuilt from the cutoff snapshot with cutoff-compatible tools, verified the 156-package offline lock, vendored Cargo dependencies, and audited Git and hidden artifacts."
+    },
+    {
+      "round": 3,
+      "focus": "Oracle correctness and scope",
+      "result": "The 49-line product change applies to the base, preserves custom formats and valid profiles, restores runtime string validation, and rejects only the documented invalid combinations."
+    },
+    {
+      "round": 4,
+      "focus": "verifier, real controls, alternatives, and adversarial cases",
+      "result": "Moved target assertions after all five CLI scenarios, added process-group cleanup, verified three real success controls, accepted one alternative, and rejected four partial or over-restrictive patches."
+    },
+    {
+      "round": 5,
+      "focus": "evidence and final execution",
+      "result": "Completed five final Base/Oracle rounds, refreshed artifact hashes and substitutions, and confirmed final Harbor reward 1 with all verifier exit codes 0."
+    }
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "5dacba3d-ab31-4f51-b2d8-634b34e63588",
+    "trial_id": "4e656392-d627-4b49-8a09-7e847459ad8e",
+    "input_task_checksum": "c4eb43898818e2fe24fd6b2e22d84afa3d7788367f40d2c3b8ca91bc5c34bbc3",
+    "lock_task_digest": "sha256:c692cc3adf5d2ae4aa8f5aa7f3a429bfc219447ee0f153a2a404598a00a9e95f",
+    "checksum_scope": "Harbor hashes the entire task directory, including this evidence file. The recorded checksum is the exact input to this successful run; writing the run identifiers into this file necessarily changes the directory checksum afterward.",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "cli_exit_code": 0,
+    "runtime_seconds": 386,
+    "scenarios": [
+      {"case": "explicit_safetensors", "returncode": 1},
+      {"case": "zero_threads", "returncode": 1},
+      {"case": "auto", "status": 200},
+      {"case": "hf", "status": 200},
+      {"case": "pt", "status": 200}
+    ],
+    "canonical_image_retained_after_run": true
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "source_and_followup_commits_absent": true,
+    "full_git_history_present": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_and_validation_absent_from_image": true,
+    "only_public_reproduction_embedded": true,
+    "embedded_reproduction_hash_matches": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "cargo_dependencies_vendored_and_offline": true,
+    "tool_releases_predate_cutoff": true,
+    "empty_build_context": true,
+    "cache_namespace_includes_base_lock_and_toolchain_profile": true,
+    "remote_cache_imported": false,
+    "initial_and_warm_cache_image_digest_match": true,
+    "runtime_network_disabled": true,
+    "task_metadata_image_digest_matches_retained_image": true
+  }
+}
