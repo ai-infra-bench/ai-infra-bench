@@ -22,7 +22,7 @@ export default function Home() {
         <div className="wordmark-frame">
           <Image
             className="wordmark"
-            src="/brand/ai-infra-bench-wordmark.png"
+            src="/brand/ai-infra-bench-wordmark.webp"
             alt="AI Infra Bench"
             width={2059}
             height={764}

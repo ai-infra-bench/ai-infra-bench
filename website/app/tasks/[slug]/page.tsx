@@ -4,8 +4,8 @@ import { notFound } from 'next/navigation';
 import { ArrowLeftIcon, ArrowRightIcon } from '@radix-ui/react-icons';
 import { SiteHeader } from '@/app/components/site-header';
 import { TaskContentTabs } from '@/app/components/task-content-tabs';
-import { formatTaskTitle } from '@/app/lib/task-format';
-import { tasks, type ManifestSection, type ManifestValue } from '@/app/lib/tasks';
+import { formatLabel, formatTaskTitle } from '@/app/lib/task-format';
+import { getTask, tasks, type ManifestSection, type ManifestValue } from '@/app/lib/tasks';
 
 type TaskPageProps = {
   params: Promise<{ slug: string }>;
@@ -42,13 +42,22 @@ function metadataLabel(key: string) {
 
 function metadataValue(key: string, value: ManifestValue) {
   if (value === null || value === '') return 'Not specified';
-  if (Array.isArray(value)) return value.length ? value.join(', ') : 'None';
+  if (Array.isArray(value)) {
+    if (!value.length) return 'None';
+    return key === 'subsystems'
+      ? value.map((item) => formatLabel(String(item))).join(', ')
+      : value.join(', ');
+  }
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'number' && key === 'cpus') return `${value} cores`;
   if (typeof value === 'number' && key.endsWith('_mb')) {
     return value % 1024 === 0 ? `${value / 1024} GB` : `${value} MB`;
   }
   if (typeof value === 'number' && key.endsWith('_sec')) {
     return value % 60 === 0 ? `${value / 60} min` : `${value} sec`;
+  }
+  if (typeof value === 'string' && ['workload_type', 'network_mode', 'environment_mode'].includes(key)) {
+    return formatLabel(value);
   }
   return String(value);
 }
@@ -88,7 +97,8 @@ export default async function TaskPage({ params }: TaskPageProps) {
   const index = tasks.findIndex((candidate) => candidate.slug === slug);
   if (index === -1) notFound();
 
-  const task = tasks[index];
+  const task = await getTask(slug);
+  if (!task) notFound();
   const previous = index > 0 ? tasks[index - 1] : null;
   const next = index < tasks.length - 1 ? tasks[index + 1] : null;
   const compute = { ...task.manifest.environment };
@@ -132,21 +142,9 @@ export default async function TaskPage({ params }: TaskPageProps) {
 
         <TaskContentTabs
           instructionHtml={task.instructionHtml}
-          verifierFiles={task.verifierFiles.map(({ name, highlightedHtml, lineCount }) => ({
-            name,
-            highlightedHtml,
-            lineCount,
-          }))}
-          solutionFiles={task.solutionFiles.map(({ name, highlightedHtml, lineCount }) => ({
-            name,
-            highlightedHtml,
-            lineCount,
-          }))}
-          environmentFiles={task.environmentFiles.map(({ name, highlightedHtml, lineCount }) => ({
-            name,
-            highlightedHtml,
-            lineCount,
-          }))}
+          verifierFiles={task.verifierFiles}
+          solutionFiles={task.solutionFiles}
+          environmentFiles={task.environmentFiles}
           metadataGroups={metadataGroups}
         />
 

@@ -1,0 +1,130 @@
+{
+  "slug": "vllm-async-spec-placeholder-discard",
+  "name": "ai-infra-bench/vllm-async-spec-placeholder-discard",
+  "version": "0.0.1",
+  "description": "Prevent stale speculative frames from underflowing async scheduler placeholder accounting.",
+  "keywords": [
+    "vllm",
+    "cpu",
+    "scheduler",
+    "async",
+    "speculative-decoding"
+  ],
+  "track": "representative",
+  "workloadType": "bug_fix",
+  "subsystems": [
+    "scheduler"
+  ],
+  "repository": "vllm-project/vllm",
+  "baseCommit": "641cb595928a8914a7020e60125ed94496421801",
+  "dependencyCutoff": "2026-07-06T13:33:05Z",
+  "publicationState": "staged-smoke-only",
+  "agentTimeoutSec": 3600,
+  "accelerator": "CPU",
+  "cpus": 8,
+  "memoryMb": 49152,
+  "networkMode": "no-network",
+  "verifierTimeoutSec": 900,
+  "manifest": {
+    "schemaVersion": "1.4",
+    "taskVersion": "0.0.1",
+    "metadata": {
+      "benchmark_schema_version": "0.1",
+      "track": "representative",
+      "workload_type": "bug_fix",
+      "subsystems": [
+        "scheduler"
+      ],
+      "repository": "vllm-project/vllm",
+      "base_commit": "641cb595928a8914a7020e60125ed94496421801",
+      "dependency_cutoff": "2026-07-06T13:33:05Z",
+      "image_digest": "sha256:4f29dae6b97d4d6fcbc7e8eb7238e71e95823e14aac1868c393678df5aa52496",
+      "environment_template": "vllm-harbor-all-in-one",
+      "publication_state": "staged-smoke-only"
+    },
+    "agent": {
+      "timeout_sec": 3600,
+      "user": "root",
+      "network_mode": "no-network"
+    },
+    "environment": {
+      "accelerator": "CPU",
+      "build_timeout_sec": 14400,
+      "cpus": 8,
+      "memory_mb": 49152,
+      "storage_mb": 20480,
+      "workdir": "/workspace/vllm",
+      "network_mode": "no-network"
+    },
+    "verifier": {
+      "timeout_sec": 900
+    }
+  },
+  "instructionHtml": "<p>We run a Qwen3-0.6B completion service with asynchronous scheduling and ngram speculative decoding. During an RLHF evaluation loop, 24 concurrent requests generate long completions while the control plane calls <code>/reset_prefix_cache?reset_running_requests=true</code> after each weight refresh.</p>\n<p>The reset endpoint reports success, but scheduler instrumentation sometimes records a negative output-placeholder count immediately afterward. In one 100-second run with 11 resets, this happened 9 times; a representative event had <code>num_output_placeholders=-4</code> while stale async output was still pending. Once that invalid state reaches a normal output update, <code>assert request.num_output_placeholders >= 0</code> can terminate EngineCore.</p>\n<p>Could you make cache resets safe while these speculative requests are in flight? Repeating the reset must not leave resumed requests with invalid counters or stall their progress, and when no reset occurs, speculative tokens should still be accepted or rejected as they are today.</p>",
+  "verifierFiles": [
+    {
+      "name": "test.sh",
+      "lineCount": 28,
+      "url": "/generated/task-files/vllm-async-spec-placeholder-discard/tests/0.json"
+    },
+    {
+      "name": "check_junit.py",
+      "lineCount": 36,
+      "url": "/generated/task-files/vllm-async-spec-placeholder-discard/tests/1.json"
+    },
+    {
+      "name": "test_real_reset_lifecycle.py",
+      "lineCount": 101,
+      "url": "/generated/task-files/vllm-async-spec-placeholder-discard/tests/2.json"
+    },
+    {
+      "name": "test_regression.py",
+      "lineCount": 108,
+      "url": "/generated/task-files/vllm-async-spec-placeholder-discard/tests/3.json"
+    },
+    {
+      "name": "verifier_support.py",
+      "lineCount": 305,
+      "url": "/generated/task-files/vllm-async-spec-placeholder-discard/tests/4.json"
+    }
+  ],
+  "solutionFiles": [
+    {
+      "name": "solve.sh",
+      "lineCount": 5,
+      "url": "/generated/task-files/vllm-async-spec-placeholder-discard/solution/0.json"
+    },
+    {
+      "name": "oracle.patch",
+      "lineCount": 19,
+      "url": "/generated/task-files/vllm-async-spec-placeholder-discard/solution/1.json"
+    }
+  ],
+  "environmentFiles": [
+    {
+      "name": "Dockerfile",
+      "lineCount": 707,
+      "url": "/generated/task-files/vllm-async-spec-placeholder-discard/environment/0.json"
+    },
+    {
+      "name": "image-manifest.json",
+      "lineCount": 39,
+      "url": "/generated/task-files/vllm-async-spec-placeholder-discard/environment/1.json"
+    },
+    {
+      "name": "lock/extras.in",
+      "lineCount": 8,
+      "url": "/generated/task-files/vllm-async-spec-placeholder-discard/environment/2.json"
+    },
+    {
+      "name": "lock/manifest.json",
+      "lineCount": 38,
+      "url": "/generated/task-files/vllm-async-spec-placeholder-discard/environment/3.json"
+    },
+    {
+      "name": "lock/requirements.txt",
+      "lineCount": 568,
+      "url": "/generated/task-files/vllm-async-spec-placeholder-discard/environment/4.json"
+    }
+  ]
+}

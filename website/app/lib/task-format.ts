@@ -1,6 +1,9 @@
 export function formatLabel(value: string | null) {
   if (!value) return 'Unknown';
-  return value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return value
+    .replaceAll('_', ' ')
+    .replaceAll('-', ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 export function formatTaskTitle(slug: string) {

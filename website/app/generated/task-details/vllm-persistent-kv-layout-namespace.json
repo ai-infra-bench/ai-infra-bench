@@ -1,0 +1,130 @@
+{
+  "slug": "vllm-persistent-kv-layout-namespace",
+  "name": "ai-infra-bench/vllm-persistent-kv-layout-namespace",
+  "version": "0.0.1",
+  "description": "Keep incompatible persistent KV-cache layouts in distinct storage namespaces.",
+  "keywords": [
+    "vllm",
+    "cpu",
+    "kv-offload",
+    "persistent-cache",
+    "correctness"
+  ],
+  "track": "representative",
+  "workloadType": "bug_fix",
+  "subsystems": [
+    "kv_cache_data_movement"
+  ],
+  "repository": "vllm-project/vllm",
+  "baseCommit": "1240c74c0a47473449cf0c3a9c2d87a1e159f73b",
+  "dependencyCutoff": "2026-07-26T04:08:07Z",
+  "publicationState": "staged-smoke-only",
+  "agentTimeoutSec": 3600,
+  "accelerator": "CPU",
+  "cpus": 8,
+  "memoryMb": 49152,
+  "networkMode": "no-network",
+  "verifierTimeoutSec": 900,
+  "manifest": {
+    "schemaVersion": "1.4",
+    "taskVersion": "0.0.1",
+    "metadata": {
+      "benchmark_schema_version": "0.1",
+      "track": "representative",
+      "workload_type": "bug_fix",
+      "subsystems": [
+        "kv_cache_data_movement"
+      ],
+      "repository": "vllm-project/vllm",
+      "base_commit": "1240c74c0a47473449cf0c3a9c2d87a1e159f73b",
+      "dependency_cutoff": "2026-07-26T04:08:07Z",
+      "image_digest": "sha256:929d9d36b512ab8736092ef339c977451a989455106eaba96df5b27840fea634",
+      "environment_template": "vllm-harbor-all-in-one",
+      "publication_state": "staged-smoke-only"
+    },
+    "agent": {
+      "timeout_sec": 3600,
+      "user": "root",
+      "network_mode": "no-network"
+    },
+    "environment": {
+      "accelerator": "CPU",
+      "build_timeout_sec": 14400,
+      "cpus": 8,
+      "memory_mb": 49152,
+      "storage_mb": 20480,
+      "workdir": "/workspace/vllm",
+      "network_mode": "no-network"
+    },
+    "verifier": {
+      "timeout_sec": 900
+    }
+  },
+  "instructionHtml": "<p>We use the persistent filesystem KV-offload tier so cached prefixes survive worker restarts. With OPT-125M in FP16 at TP=PP=1, a cold V2 runner completes “The capital of France is” with “Paris…”. If the same cache root is first populated by a V1 runner and the service is then restarted with the V2 runner, the request reports a persistent-cache hit but the greedy continuation becomes <code>.,,,,,, the the.,,,, by a</code>. Deleting the cache root restores the correct result.</p>\n<p>The persisted block files from both runs have the same byte size, so the existing size and single-rank configuration checks accept them. The failure only appears when the second runner reuses files written by the other runner; cold V1 and cold V2 runs are individually stable.</p>\n<p>The cache may persist across restarts, but a runner must not treat files from an incompatible layout as valid hits. Configurations whose stored layout is genuinely portable across parallel settings must still be able to share the same persistent data.</p>",
+  "verifierFiles": [
+    {
+      "name": "test.sh",
+      "lineCount": 28,
+      "url": "/generated/task-files/vllm-persistent-kv-layout-namespace/tests/0.json"
+    },
+    {
+      "name": "check_junit.py",
+      "lineCount": 36,
+      "url": "/generated/task-files/vllm-persistent-kv-layout-namespace/tests/1.json"
+    },
+    {
+      "name": "test_real_filesystem_namespace.py",
+      "lineCount": 59,
+      "url": "/generated/task-files/vllm-persistent-kv-layout-namespace/tests/2.json"
+    },
+    {
+      "name": "test_regression.py",
+      "lineCount": 81,
+      "url": "/generated/task-files/vllm-persistent-kv-layout-namespace/tests/3.json"
+    },
+    {
+      "name": "verifier_support.py",
+      "lineCount": 304,
+      "url": "/generated/task-files/vllm-persistent-kv-layout-namespace/tests/4.json"
+    }
+  ],
+  "solutionFiles": [
+    {
+      "name": "solve.sh",
+      "lineCount": 5,
+      "url": "/generated/task-files/vllm-persistent-kv-layout-namespace/solution/0.json"
+    },
+    {
+      "name": "oracle.patch",
+      "lineCount": 13,
+      "url": "/generated/task-files/vllm-persistent-kv-layout-namespace/solution/1.json"
+    }
+  ],
+  "environmentFiles": [
+    {
+      "name": "Dockerfile",
+      "lineCount": 707,
+      "url": "/generated/task-files/vllm-persistent-kv-layout-namespace/environment/0.json"
+    },
+    {
+      "name": "image-manifest.json",
+      "lineCount": 39,
+      "url": "/generated/task-files/vllm-persistent-kv-layout-namespace/environment/1.json"
+    },
+    {
+      "name": "lock/extras.in",
+      "lineCount": 8,
+      "url": "/generated/task-files/vllm-persistent-kv-layout-namespace/environment/2.json"
+    },
+    {
+      "name": "lock/manifest.json",
+      "lineCount": 38,
+      "url": "/generated/task-files/vllm-persistent-kv-layout-namespace/environment/3.json"
+    },
+    {
+      "name": "lock/requirements.txt",
+      "lineCount": 568,
+      "url": "/generated/task-files/vllm-persistent-kv-layout-namespace/environment/4.json"
+    }
+  ]
+}

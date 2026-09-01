@@ -1,0 +1,137 @@
+{
+  "slug": "vllm-kv-admission-thrashing",
+  "name": "ai-infra-bench/vllm-kv-admission-thrashing",
+  "version": "0.0.1",
+  "description": "Prevent chunked-prefill admission from repeatedly exhausting the KV cache.",
+  "keywords": [
+    "vllm",
+    "cpu",
+    "scheduler",
+    "kv-cache",
+    "performance"
+  ],
+  "track": "representative",
+  "workloadType": "performance",
+  "subsystems": [
+    "scheduler",
+    "memory_kv"
+  ],
+  "repository": "vllm-project/vllm",
+  "baseCommit": "4731884796d43bd8493769dbfb0e199a2a542092",
+  "dependencyCutoff": "2026-03-24T16:53:07Z",
+  "publicationState": "staged-smoke-only",
+  "agentTimeoutSec": 3600,
+  "accelerator": "CPU",
+  "cpus": 8,
+  "memoryMb": 49152,
+  "networkMode": "no-network",
+  "verifierTimeoutSec": 3600,
+  "manifest": {
+    "schemaVersion": "1.4",
+    "taskVersion": "0.0.1",
+    "metadata": {
+      "benchmark_schema_version": "0.1",
+      "track": "representative",
+      "workload_type": "performance",
+      "subsystems": [
+        "scheduler",
+        "memory_kv"
+      ],
+      "repository": "vllm-project/vllm",
+      "base_commit": "4731884796d43bd8493769dbfb0e199a2a542092",
+      "dependency_cutoff": "2026-03-24T16:53:07Z",
+      "image_digest": "sha256:f4a027256c8475393f00bb91875e2d8e5411bc73d18fa770d473a97554f1b1f8",
+      "environment_template": "vllm-harbor-all-in-one",
+      "publication_state": "staged-smoke-only"
+    },
+    "agent": {
+      "timeout_sec": 3600,
+      "user": "root",
+      "network_mode": "no-network"
+    },
+    "environment": {
+      "accelerator": "CPU",
+      "build_timeout_sec": 14400,
+      "cpus": 8,
+      "memory_mb": 49152,
+      "storage_mb": 20480,
+      "workdir": "/workspace/vllm",
+      "network_mode": "no-network"
+    },
+    "verifier": {
+      "timeout_sec": 3600
+    }
+  },
+  "instructionHtml": "<p>I am seeing a severe throughput drop while serving a workload with long prompts. Chunked prefill is enabled, and the same request repeatedly reports that it was preempted without making visible progress.</p>\n<p>The logs contain repeated entries like these:</p>\n<pre class=\"shiki ai-infra-paper\" style=\"background-color:#F8F7F3;color:#303638\"><code><span class=\"line\"><span>(EngineCore_DP0 pid=11842) WARNING 03-17 15:39:29 [scheduler.py:928] Request cmpl-bench-5f83f700-51-0-bfc32831 preempted (num_tokens=40000, computed_tokens=32568, preemption_count=7) due to insufficient KV cache blocks.</span></span>\n<span class=\"line\"><span>(EngineCore_DP0 pid=11842) WARNING 03-17 15:39:30 [scheduler.py:928] Request cmpl-bench-5f83f700-51-0-bfc32831 preempted (num_tokens=40000, computed_tokens=32568, preemption_count=8) due to insufficient KV cache blocks.</span></span>\n<span class=\"line\"><span>(EngineCore_DP0 pid=11842) WARNING 03-17 15:39:32 [scheduler.py:928] Request cmpl-bench-5f83f700-51-0-bfc32831 preempted (num_tokens=40000, computed_tokens=32568, preemption_count=9) due to insufficient KV cache blocks.</span></span></code></pre>\n<p>The requests that are already decoding slow down badly whenever this happens. Trace why the long request keeps returning to the same preempted state without making progress, and fix the scheduler.</p>",
+  "verifierFiles": [
+    {
+      "name": "test.sh",
+      "lineCount": 32,
+      "url": "/generated/task-files/vllm-kv-admission-thrashing/tests/0.json"
+    },
+    {
+      "name": "check_junit.py",
+      "lineCount": 22,
+      "url": "/generated/task-files/vllm-kv-admission-thrashing/tests/1.json"
+    },
+    {
+      "name": "scheduler_probe.py",
+      "lineCount": 176,
+      "url": "/generated/task-files/vllm-kv-admission-thrashing/tests/2.json"
+    },
+    {
+      "name": "test_real_cpu_server.py",
+      "lineCount": 94,
+      "url": "/generated/task-files/vllm-kv-admission-thrashing/tests/3.json"
+    },
+    {
+      "name": "test_real_scheduler_lifecycle.py",
+      "lineCount": 24,
+      "url": "/generated/task-files/vllm-kv-admission-thrashing/tests/4.json"
+    },
+    {
+      "name": "test_regression.py",
+      "lineCount": 53,
+      "url": "/generated/task-files/vllm-kv-admission-thrashing/tests/5.json"
+    }
+  ],
+  "solutionFiles": [
+    {
+      "name": "solve.sh",
+      "lineCount": 5,
+      "url": "/generated/task-files/vllm-kv-admission-thrashing/solution/0.json"
+    },
+    {
+      "name": "oracle.patch",
+      "lineCount": 134,
+      "url": "/generated/task-files/vllm-kv-admission-thrashing/solution/1.json"
+    }
+  ],
+  "environmentFiles": [
+    {
+      "name": "Dockerfile",
+      "lineCount": 698,
+      "url": "/generated/task-files/vllm-kv-admission-thrashing/environment/0.json"
+    },
+    {
+      "name": "image-manifest.json",
+      "lineCount": 39,
+      "url": "/generated/task-files/vllm-kv-admission-thrashing/environment/1.json"
+    },
+    {
+      "name": "lock/extras.in",
+      "lineCount": 8,
+      "url": "/generated/task-files/vllm-kv-admission-thrashing/environment/2.json"
+    },
+    {
+      "name": "lock/manifest.json",
+      "lineCount": 38,
+      "url": "/generated/task-files/vllm-kv-admission-thrashing/environment/3.json"
+    },
+    {
+      "name": "lock/requirements.txt",
+      "lineCount": 559,
+      "url": "/generated/task-files/vllm-kv-admission-thrashing/environment/4.json"
+    }
+  ]
+}

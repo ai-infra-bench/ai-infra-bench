@@ -7,12 +7,13 @@ import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from '@radix-ui/react-icons
 
 type SourceFile = {
   name: string;
-  highlightedHtml: string;
   lineCount: number;
+  url: string;
 };
 
 type EnvironmentFact = [label: string, value: string];
 type MetadataGroup = { title: string; facts: EnvironmentFact[] };
+const sourceHtmlCache = new Map<string, string>();
 
 export function TaskContentTabs({
   instructionHtml,
@@ -130,12 +131,7 @@ function SourceDocument({
   onWrapLinesChange: (wrap: boolean) => void;
   fallback: string;
 }) {
-  const sourceRef = useRef<HTMLDivElement>(null);
   const selectedFile = files[activeFile];
-
-  useEffect(() => {
-    sourceRef.current?.scrollTo({ top: 0, left: 0 });
-  }, [selectedFile?.name]);
 
   return (
     <div className="source-document">
@@ -195,16 +191,66 @@ function SourceDocument({
       </header>
 
       {selectedFile ? (
-        <div
-          ref={sourceRef}
-          className={`source-code${wrapLines ? ' is-wrapped' : ''}`}
-          aria-label={`${directory}/${selectedFile.name}`}
-          tabIndex={0}
-          dangerouslySetInnerHTML={{ __html: selectedFile.highlightedHtml }}
+        <SourceCodePane
+          key={selectedFile.url}
+          directory={directory}
+          file={selectedFile}
+          wrapLines={wrapLines}
         />
       ) : (
         <pre className="source-fallback"><code>{fallback}</code></pre>
       )}
     </div>
+  );
+}
+
+function SourceCodePane({
+  directory,
+  file,
+  wrapLines,
+}: {
+  directory: string;
+  file: SourceFile;
+  wrapLines: boolean;
+}) {
+  const sourceRef = useRef<HTMLDivElement>(null);
+  const cachedHtml = sourceHtmlCache.get(file.url);
+  const [state, setState] = useState<
+    { status: 'loading' } | { status: 'ready'; html: string } | { status: 'error' }
+  >(() => cachedHtml ? { status: 'ready', html: cachedHtml } : { status: 'loading' });
+
+  useEffect(() => {
+    sourceRef.current?.scrollTo({ top: 0, left: 0 });
+    if (sourceHtmlCache.has(file.url)) return;
+
+    const controller = new AbortController();
+    fetch(file.url, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Unable to load ${file.name}`);
+        return response.json() as Promise<{ highlightedHtml: string }>;
+      })
+      .then((payload) => {
+        sourceHtmlCache.set(file.url, payload.highlightedHtml);
+        setState({ status: 'ready', html: payload.highlightedHtml });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setState({ status: 'error' });
+      });
+
+    return () => controller.abort();
+  }, [file.name, file.url]);
+
+  if (state.status === 'loading') return <div className="source-status" role="status">Loading file...</div>;
+  if (state.status === 'error') return <div className="source-status" role="alert">Unable to load this file.</div>;
+
+  return (
+    <div
+      ref={sourceRef}
+      className={`source-code${wrapLines ? ' is-wrapped' : ''}`}
+      aria-label={`${directory}/${file.name}`}
+      tabIndex={0}
+      dangerouslySetInnerHTML={{ __html: state.html }}
+    />
   );
 }
