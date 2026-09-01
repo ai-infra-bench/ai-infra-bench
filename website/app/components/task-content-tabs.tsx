@@ -11,14 +11,18 @@ type SourceFile = {
   lineCount: number;
 };
 
+type EnvironmentFact = [label: string, value: string];
+
 export function TaskContentTabs({
   instructionHtml,
   verifierFiles,
   solutionFiles,
+  environment,
 }: {
   instructionHtml: string;
   verifierFiles: SourceFile[];
   solutionFiles: SourceFile[];
+  environment: EnvironmentFact[];
 }) {
   const [activeVerifier, setActiveVerifier] = useState(0);
   const [activeOracle, setActiveOracle] = useState(0);
@@ -35,6 +39,9 @@ export function TaskContentTabs({
         </Tabs.Trigger>
         <Tabs.Trigger className="content-tab" value="oracle">
           Oracle
+        </Tabs.Trigger>
+        <Tabs.Trigger className="content-tab" value="environment">
+          Environment
         </Tabs.Trigger>
       </Tabs.List>
 
@@ -64,6 +71,17 @@ export function TaskContentTabs({
           onWrapLinesChange={setWrapLines}
           fallback="No oracle files are available."
         />
+      </Tabs.Content>
+
+      <Tabs.Content className="content-panel environment-panel" value="environment">
+        <dl className="environment-list">
+          {environment.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
       </Tabs.Content>
     </Tabs.Root>
   );

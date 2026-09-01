@@ -61,37 +61,15 @@ export default async function TaskPage({ params }: TaskPageProps) {
             highlightedHtml,
             lineCount,
           }))}
+          environment={[
+            ['Agent timeout', task.agentTimeoutSec ? `${task.agentTimeoutSec / 60} min` : 'Not specified'],
+            ['Verifier timeout', task.verifierTimeoutSec ? `${task.verifierTimeoutSec / 60} min` : 'Not specified'],
+            ['CPU', task.cpus ? `${task.cpus} cores` : 'Not specified'],
+            ['Memory', memoryGb ? `${memoryGb} GB` : 'Not specified'],
+            ['Network', formatLabel(task.networkMode)],
+            ['Track', formatLabel(task.track)],
+          ]}
         />
-
-        <details className="environment-details">
-          <summary>Environment</summary>
-          <dl>
-            <div>
-              <dt>Agent timeout</dt>
-              <dd>{task.agentTimeoutSec ? `${task.agentTimeoutSec / 60} min` : 'Not specified'}</dd>
-            </div>
-            <div>
-              <dt>Verifier timeout</dt>
-              <dd>{task.verifierTimeoutSec ? `${task.verifierTimeoutSec / 60} min` : 'Not specified'}</dd>
-            </div>
-            <div>
-              <dt>CPU</dt>
-              <dd>{task.cpus ? `${task.cpus} cores` : 'Not specified'}</dd>
-            </div>
-            <div>
-              <dt>Memory</dt>
-              <dd>{memoryGb ? `${memoryGb} GB` : 'Not specified'}</dd>
-            </div>
-            <div>
-              <dt>Network</dt>
-              <dd>{formatLabel(task.networkMode)}</dd>
-            </div>
-            <div>
-              <dt>Track</dt>
-              <dd>{formatLabel(task.track)}</dd>
-            </div>
-          </dl>
-        </details>
 
         <nav className="task-pagination" aria-label="Adjacent tasks">
           <div>
