@@ -1,0 +1,45 @@
+schema_version = "1.4"
+
+[task]
+name = "ai-infra-bench/vllm-cli-lazy-import-startup"
+version = "0.0.1"
+description = "Reduce cold CLI startup work without breaking benchmark and plotting subcommands."
+authors = [{name = ""}]
+keywords = ["vllm", "cpu", "cli", "startup", "imports", "performance"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+candidate_id = "vllm-cpu-300-127"
+source_pr = 40056
+track = "representative"
+workload_type = "performance"
+subsystems = ["cli", "benchmarks"]
+repository = "vllm-project/vllm"
+base_commit = "4c47710bf707e93bdf83391948f844e461b7ba4f"
+dependency_cutoff = "2026-04-17T00:54:32Z"
+dependency_cutoff_overrides = [
+  "torch=2026-05-01T23:59:59Z",
+  "torchaudio=2026-05-01T23:59:59Z",
+  "torchvision=2026-05-01T23:59:59Z",
+]
+dependency_cutoff_override_reason = "PR #40056 measured torch 2.11; the pinned CPU wheels required to reproduce that profile were uploaded after the source cutoff."
+image_digest = "sha256:1f8cdea899d6208f3597f54ce4a373908b272af168d3d9fdc6e42417495444a6"
+environment_template = "vllm-harbor-all-in-one"
+publication_state = "development"
+
+[agent]
+timeout_sec = 3600
+user = "root"
+network_mode = "no-network"
+
+[environment]
+accelerator = "CPU"
+build_timeout_sec = 14400
+cpus = 8
+memory_mb = 49152
+storage_mb = 20480
+workdir = "/workspace/vllm"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 1800

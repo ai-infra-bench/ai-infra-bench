@@ -25,6 +25,35 @@ ASSET_INSERTION_MARKER = (
     "LABEL ai.infra.bench.environment-template=vllm-harbor-all-in-one \\\n"
 )
 
+# The template carries the newest allow-listed tool versions. Older tasks are
+# rendered with the newest verified release that existed at their cutoff.
+TOOLCHAIN_CUTOFF_PROFILES = (
+    (
+        "2026-05-20T19:38:17Z",
+        {
+            "ARG PROTOC_VERSION=34.2": "ARG PROTOC_VERSION=34.1",
+            "b52e803fad2f63232f75351c0ff735e891f40262de791bade78a3636831a522a": "af27ea66cd26938fe48587804ca7d4817457a08350021a1c6e23a27ccc8c6904",
+            "63d92a87482d4eaa41a72f9de6ea7f476e1fb4c722700fa0b981cc204f7d3a14": "31c5e9e3c7bf013cf41fb97765ee255c140024a6b175b6cc9b64beddd7c23ba7",
+        },
+    ),
+    (
+        "2026-07-05T22:14:31Z",
+        {
+            "ARG CARGO_NEXTEST_VERSION=0.9.140": "ARG CARGO_NEXTEST_VERSION=0.9.133",
+            "4ee9aaa0d0171a985a5d0eb735b87355894c1c455972e9674fb9fdbd1387c9a3": "a9f992321e8759818400d93abb9477b4b11422d18d216e8d208505bd73454103",
+            "8b3f4d4560b6b0f83774fecc6be07e47716dbad0eb0bb6c3890f478f4affe4b6": "8e4d241c78f9cbf5ca8597b13004f0441c18af484ea105b8f83b44a716c82d3d",
+        },
+    ),
+)
+
+
+def toolchain_replacements(dependency_cutoff: str) -> dict[str, str]:
+    replacements: dict[str, str] = {}
+    for release_time, profile in TOOLCHAIN_CUTOFF_PROFILES:
+        if dependency_cutoff < release_time:
+            replacements.update(profile)
+    return replacements
+
 
 def metadata_value(task_file: Path, key: str) -> str:
     text = task_file.read_text()
@@ -237,7 +266,10 @@ def render(task_dir: Path, template: str) -> tuple[Path, str]:
             f"{task_file}: dependency_cutoff must be an RFC 3339 UTC timestamp"
         )
 
-    environment_digest = hashlib.sha256(template.encode()).hexdigest()[:16]
+    replacements = toolchain_replacements(dependency_cutoff)
+    profile = json.dumps(replacements, sort_keys=True, separators=(",", ":"))
+    digest_input = template if not replacements else template + "\0" + profile
+    environment_digest = hashlib.sha256(digest_input.encode()).hexdigest()[:16]
 
     lock_path = task_dir / "environment" / "lock" / "requirements.txt"
     if lock_path.is_file():
@@ -283,6 +315,12 @@ RUN --mount=type=cache,id=vllm-uv-downloads-v3,target=/root/.cache/uv,sharing=lo
     ).replace(DEPENDENCY_INSTALL_TOKEN, dependency_install).replace(
         CACHE_NAMESPACE_TOKEN, cache_namespace
     )
+    for current, cutoff_compatible in replacements.items():
+        if generated.count(current) != 1:
+            raise ValueError(
+                f"{TEMPLATE_PATH}: expected exactly one toolchain input {current!r}"
+            )
+        generated = generated.replace(current, cutoff_compatible)
     asset_install = (
         runtime_asset_install(task_file)
         + runtime_file_install(task_file)

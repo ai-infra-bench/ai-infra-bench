@@ -1,0 +1,12 @@
+# Remediation matrix
+
+| ID | Severity | Finding and evidence | Planned change | Validation | Status |
+|---|---|---|---|---|---|
+| C1 | blocking | The instruction invented a local-tooling user; the source is a maintainer import profile in PR #40056. | Start from the source-backed profile and retain its measured numbers. | Every factual statement maps to the PR or executable reproduction. | fixed and validated |
+| C2 | blocking | The 5-second absolute threshold passed in Base; reward depended on module names rather than measured improvement. | Compare paired fresh CLI-main and plain-vLLM imports using ratio and overhead bounds. | Base fails the relative performance contract; Oracle passes in five final rounds. | fixed and validated |
+| C3 | blocking | The real CLI matrix exited 0 in Base and did not cross the target performance boundary. | Make the E2E execute and enforce the paired import contract. | E2E Base exits nonzero for target behavior and Oracle exits 0 in five final rounds. | fixed and validated |
+| C4 | blocking | Plot coverage called a private helper with `dry_run=True`; no figure was generated. | Install cutoff-compatible optional plotting dependencies and invoke both public plot commands on real summary files. | Both commands create non-empty PNG files in Base, Oracle, and Harbor. | fixed and validated |
+| C5 | blocking | `vllm serve` was checked only through `--help`. | Start a real CPU engine from a local one-layer OPT checkpoint and reach `/health`. | Base, Oracle, and Harbor reach HTTP 200 and terminate the process group. | fixed and validated |
+| C6 | blocking | Torch cutoff overrides were listed without a reason. | Record that PR #40056 measured torch 2.11 and the pinned CPU wheels were uploaded after the source cutoff. | Task metadata, lock manifest, and evidence contain the same reason. | fixed and validated |
+| C7 | blocking | Evidence omitted helper/solve hashes and overstated E2E strength. | Refresh complete hashes, actual results, substitutions, limitations, and Harbor identifiers. | Final evidence hash audit matches current artifacts and records the checksum self-reference limitation. | fixed and validated |
+| C8 | blocking | The task image predates the hardened shared environment template. | Regenerate and audit with the cutoff snapshot, verified tools, offline Cargo vendor, deterministic extensions, and template-scoped caches. | Initial/warm image digests match; independent-builder extension hashes match; isolation gates pass. | fixed and validated |

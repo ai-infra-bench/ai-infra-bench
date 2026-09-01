@@ -1,0 +1,224 @@
+diff --git a/vllm/benchmarks/sweep/plot.py b/vllm/benchmarks/sweep/plot.py
+index 156e18f..2d36928 100644
+--- a/vllm/benchmarks/sweep/plot.py
++++ b/vllm/benchmarks/sweep/plot.py
+@@ -8,7 +8,7 @@ from dataclasses import dataclass
+ from functools import partial
+ from pathlib import Path
+ from types import TracebackType
+-from typing import ClassVar
++from typing import TYPE_CHECKING, ClassVar
+ 
+ from typing_extensions import Self, override
+ 
+@@ -17,20 +17,8 @@ from vllm.utils.import_utils import PlaceholderModule
+ 
+ from .utils import sanitize_filename
+ 
+-try:
+-    import matplotlib.pyplot as plt
+-except ImportError:
+-    plt = PlaceholderModule("matplotlib").placeholder_attr("pyplot")
+-
+-try:
++if TYPE_CHECKING:
+     import pandas as pd
+-except ImportError:
+-    pd = PlaceholderModule("pandas")
+-
+-try:
+-    import seaborn as sns
+-except ImportError:
+-    seaborn = PlaceholderModule("seaborn")
+ 
+ 
+ @dataclass
+@@ -265,6 +253,20 @@ def _plot_fig(
+     fig_height: float,
+     fig_dpi: int,
+ ):
++    # Lazy-import matplotlib/pandas/seaborn
++    try:
++        import matplotlib.pyplot as plt
++    except ImportError:
++        plt = PlaceholderModule("matplotlib").placeholder_attr("pyplot")
++    try:
++        import pandas as pd
++    except ImportError:
++        pd = PlaceholderModule("pandas")
++    try:
++        import seaborn as sns
++    except ImportError:
++        sns = PlaceholderModule("seaborn")
++
+     fig_group, fig_data = fig_group_data
+ 
+     row_groups = full_groupby(
+diff --git a/vllm/benchmarks/sweep/plot_pareto.py b/vllm/benchmarks/sweep/plot_pareto.py
+index 365e87f..8ec309a 100644
+--- a/vllm/benchmarks/sweep/plot_pareto.py
++++ b/vllm/benchmarks/sweep/plot_pareto.py
+@@ -6,7 +6,7 @@ from concurrent.futures import ProcessPoolExecutor
+ from dataclasses import dataclass
+ from functools import partial
+ from pathlib import Path
+-from typing import ClassVar
++from typing import TYPE_CHECKING, ClassVar
+ 
+ from vllm.utils.collection_utils import full_groupby
+ from vllm.utils.import_utils import PlaceholderModule
+@@ -14,20 +14,8 @@ from vllm.utils.import_utils import PlaceholderModule
+ from .plot import DummyExecutor, _json_load_bytes
+ from .utils import sanitize_filename
+ 
+-try:
+-    import matplotlib.pyplot as plt
+-except ImportError:
+-    plt = PlaceholderModule("matplotlib").placeholder_attr("pyplot")
+-
+-try:
++if TYPE_CHECKING:
+     import pandas as pd
+-except ImportError:
+-    pd = PlaceholderModule("pandas")
+-
+-try:
+-    import seaborn as sns
+-except ImportError:
+-    seaborn = PlaceholderModule("seaborn")
+ 
+ 
+ def _first_present(run_data: dict[str, object], keys: list[str]):
+@@ -195,6 +183,20 @@ def _plot_fig(
+         print("[END FIGURE]")
+         return
+ 
++    # Lazy-import matplotlib/pandas/seaborn
++    try:
++        import matplotlib.pyplot as plt
++    except ImportError:
++        plt = PlaceholderModule("matplotlib").placeholder_attr("pyplot")
++    try:
++        import pandas as pd
++    except ImportError:
++        pd = PlaceholderModule("pandas")
++    try:
++        import seaborn as sns
++    except ImportError:
++        sns = PlaceholderModule("seaborn")
++
+     df = pd.DataFrame.from_records(fig_data)
+     df = df.dropna(subset=["tokens_per_user", "tokens_per_gpu"])
+ 
+diff --git a/vllm/entrypoints/cli/__init__.py b/vllm/entrypoints/cli/__init__.py
+index 704d94d..208f01a 100644
+--- a/vllm/entrypoints/cli/__init__.py
++++ b/vllm/entrypoints/cli/__init__.py
+@@ -1,19 +1,2 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+-from vllm.entrypoints.cli.benchmark.latency import BenchmarkLatencySubcommand
+-from vllm.entrypoints.cli.benchmark.mm_processor import (
+-    BenchmarkMMProcessorSubcommand,
+-)
+-from vllm.entrypoints.cli.benchmark.serve import BenchmarkServingSubcommand
+-from vllm.entrypoints.cli.benchmark.startup import BenchmarkStartupSubcommand
+-from vllm.entrypoints.cli.benchmark.sweep import BenchmarkSweepSubcommand
+-from vllm.entrypoints.cli.benchmark.throughput import BenchmarkThroughputSubcommand
+-
+-__all__: list[str] = [
+-    "BenchmarkLatencySubcommand",
+-    "BenchmarkMMProcessorSubcommand",
+-    "BenchmarkServingSubcommand",
+-    "BenchmarkStartupSubcommand",
+-    "BenchmarkSweepSubcommand",
+-    "BenchmarkThroughputSubcommand",
+-]
+diff --git a/vllm/entrypoints/cli/benchmark/main.py b/vllm/entrypoints/cli/benchmark/main.py
+index 48f34fc..f64de4c 100644
+--- a/vllm/entrypoints/cli/benchmark/main.py
++++ b/vllm/entrypoints/cli/benchmark/main.py
+@@ -2,6 +2,7 @@
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ 
+ import argparse
++import sys
+ import typing
+ 
+ from vllm.entrypoints.cli.benchmark.base import BenchmarkSubcommandBase
+@@ -14,6 +15,17 @@ else:
+     FlexibleArgumentParser = argparse.ArgumentParser
+ 
+ 
++def _import_bench_subcommand_modules() -> None:
++    # Imported lazily so `BenchmarkSubcommandBase` subclasses register only
++    # when `vllm bench` is actually invoked.
++    import vllm.entrypoints.cli.benchmark.latency  # noqa: F401
++    import vllm.entrypoints.cli.benchmark.mm_processor  # noqa: F401
++    import vllm.entrypoints.cli.benchmark.serve  # noqa: F401
++    import vllm.entrypoints.cli.benchmark.startup  # noqa: F401
++    import vllm.entrypoints.cli.benchmark.sweep  # noqa: F401
++    import vllm.entrypoints.cli.benchmark.throughput  # noqa: F401
++
++
+ class BenchmarkSubcommand(CLISubcommand):
+     """The `bench` subcommand for the vLLM CLI."""
+ 
+@@ -38,18 +50,28 @@ class BenchmarkSubcommand(CLISubcommand):
+         )
+         bench_subparsers = bench_parser.add_subparsers(required=True, dest="bench_type")
+ 
+-        for cmd_cls in BenchmarkSubcommandBase.__subclasses__():
+-            cmd_subparser = bench_subparsers.add_parser(
+-                cmd_cls.name,
+-                help=cmd_cls.help,
+-                description=cmd_cls.help,
+-                usage=f"vllm {self.name} {cmd_cls.name} [options]",
+-            )
+-            cmd_subparser.set_defaults(dispatch_function=cmd_cls.cmd)
+-            cmd_cls.add_cli_args(cmd_subparser)
+-            cmd_subparser.epilog = VLLM_SUBCMD_PARSER_EPILOG.format(
+-                subcmd=f"{self.name} {cmd_cls.name}"
+-            )
++        # Only build the nested bench subparsers when the user is actually
++        # invoking `bench`; otherwise we'd drag in imports
++        # unnecessarily on every `vllm --help` and `vllm serve`.
++        # Scan for the first positional arg so global flags (e.g. `-v`)
++        # before the subcommand don't break detection.
++        first_positional = next(
++            (arg for arg in sys.argv[1:] if not arg.startswith("-")), None
++        )
++        if first_positional == self.name:
++            _import_bench_subcommand_modules()
++            for cmd_cls in BenchmarkSubcommandBase.__subclasses__():
++                cmd_subparser = bench_subparsers.add_parser(
++                    cmd_cls.name,
++                    help=cmd_cls.help,
++                    description=cmd_cls.help,
++                    usage=f"vllm {self.name} {cmd_cls.name} [options]",
++                )
++                cmd_subparser.set_defaults(dispatch_function=cmd_cls.cmd)
++                cmd_cls.add_cli_args(cmd_subparser)
++                cmd_subparser.epilog = VLLM_SUBCMD_PARSER_EPILOG.format(
++                    subcmd=f"{self.name} {cmd_cls.name}"
++                )
+         return bench_parser
+ 
+ 
+diff --git a/vllm/env_override.py b/vllm/env_override.py
+index 2e3f028..a19b6e2 100644
+--- a/vllm/env_override.py
++++ b/vllm/env_override.py
+@@ -100,10 +100,9 @@ logger = init_logger(__name__)
+ # it avoids unintentional cuda initialization from torch.cuda.is_available()
+ os.environ["PYTORCH_NVML_BASED_CUDA_CHECK"] = "1"
+ 
+-# see https://github.com/vllm-project/vllm/issues/10480
++# see https://github.com/vllm-project/vllm/issues/10480 and
++# https://github.com/vllm-project/vllm/issues/10619.
+ os.environ["TORCHINDUCTOR_COMPILE_THREADS"] = "1"
+-# see https://github.com/vllm-project/vllm/issues/10619
+-torch._inductor.config.compile_threads = 1
+ 
+ # Enable Triton autotuning result caching to disk by default.
+ # Without this, Triton re-runs autotuning on every process restart,
