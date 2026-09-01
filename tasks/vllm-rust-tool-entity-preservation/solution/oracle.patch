@@ -1,0 +1,338 @@
+diff --git a/rust/src/tool-parser/src/deepseek_dsml/deepseek_v32.rs b/rust/src/tool-parser/src/deepseek_dsml/deepseek_v32.rs
+index 1bc4878..abca333 100644
+--- a/rust/src/tool-parser/src/deepseek_dsml/deepseek_v32.rs
++++ b/rust/src/tool-parser/src/deepseek_dsml/deepseek_v32.rs
+@@ -186,7 +186,7 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn deepseek_v32_parse_complete_unescapes_literal_closing_tags_in_parameter_value() {
++    fn deepseek_v32_parse_complete_preserves_raw_closing_tag_text_in_parameter_value() {
+         let mut parser = DeepSeekV32ToolParser::new(&test_tools());
+         let output = parser
+             .parse_complete(&build_tool_call(
+@@ -204,7 +204,7 @@ mod tests {
+         assert_eq!(
+             serde_json::from_str::<Value>(&output.calls[0].arguments).unwrap(),
+             json!({
+-                "location": "Hangzhou </｜DSML｜parameter></｜DSML｜invoke></｜DSML｜function_calls>",
++                "location": "Hangzhou &lt;/｜DSML｜parameter&gt;&lt;/｜DSML｜invoke&gt;&lt;/｜DSML｜function_calls&gt;",
+                 "date": "2026-05-08",
+             })
+         );
+diff --git a/rust/src/tool-parser/src/deepseek_dsml/mod.rs b/rust/src/tool-parser/src/deepseek_dsml/mod.rs
+index c332037..b441351 100644
+--- a/rust/src/tool-parser/src/deepseek_dsml/mod.rs
++++ b/rust/src/tool-parser/src/deepseek_dsml/mod.rs
+@@ -5,7 +5,7 @@ use winnow::stream::Partial;
+ use winnow::token::{literal, rest, take_until};
+ 
+ use super::parameters::ToolSchemas;
+-use super::utils::{parse_buffered_event, safe_text_len, xml_unescape};
++use super::utils::{parse_buffered_event, safe_text_len};
+ use super::{Result, ToolCallDelta, ToolParserOutput};
+ use crate::Tool;
+ 
+@@ -251,7 +251,7 @@ fn parse_parameter(input: &mut &str) -> ModalResult<DsmlParameter> {
+         is_string: string_attr.map(|value| value == "true"),
+         _: ws0,
+         _: ">",
+-        value: take_until(0.., PARAMETER_END).map(xml_unescape).map(|value| value.into_owned()),
++        value: take_until(0.., PARAMETER_END).map(str::to_string),
+         _: literal(PARAMETER_END),
+     }}
+     .parse_next(input)
+diff --git a/rust/src/tool-parser/src/glm_xml/mod.rs b/rust/src/tool-parser/src/glm_xml/mod.rs
+index 6d65761..9a5a39d 100644
+--- a/rust/src/tool-parser/src/glm_xml/mod.rs
++++ b/rust/src/tool-parser/src/glm_xml/mod.rs
+@@ -5,7 +5,7 @@ use winnow::stream::Partial;
+ use winnow::token::{literal, rest, take_until, take_while};
+ 
+ use super::parameters::ToolSchemas;
+-use super::utils::{parse_buffered_event, safe_text_len, xml_unescape};
++use super::utils::{parse_buffered_event, safe_text_len};
+ use super::{Result, ToolCallDelta, ToolParserOutput};
+ use crate::Tool;
+ 
+@@ -238,12 +238,12 @@ fn parse_parameter(input: &mut &str) -> ModalResult<(String, String)> {
+         _: literal(ARG_KEY_END),
+         _: ws0,
+         _: literal(ARG_VALUE_START),
+-        take_until(0.., ARG_VALUE_END).map(str::trim).map(xml_unescape),
++        take_until(0.., ARG_VALUE_END).map(str::trim),
+         _: literal(ARG_VALUE_END),
+     )
+     .parse_next(input)?;
+ 
+-    Ok((key.trim().to_string(), value.into_owned()))
++    Ok((key.trim().to_string(), value.to_string()))
+ }
+ 
+ #[cfg(test)]
+@@ -320,7 +320,7 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn glm45_parse_complete_unescapes_literal_closing_tags_in_arg_value() {
++    fn glm45_parse_complete_preserves_raw_closing_tag_text_in_arg_value() {
+         let mut parser = Glm45MoeToolParser::new(&test_tools());
+         let output = parser
+             .parse_complete(&glm45_tool_call(
+@@ -335,7 +335,7 @@ mod tests {
+         assert_eq!(
+             serde_json::from_str::<Value>(&output.calls[0].arguments).unwrap(),
+             json!({
+-                "city": "Paris </arg_value></tool_call>",
++                "city": "Paris &lt;/arg_value&gt;&lt;/tool_call&gt;",
+                 "date": "2026-05-08",
+             })
+         );
+diff --git a/rust/src/tool-parser/src/minimax_m2.rs b/rust/src/tool-parser/src/minimax_m2.rs
+index 0e5956d..4cd3717 100644
+--- a/rust/src/tool-parser/src/minimax_m2.rs
++++ b/rust/src/tool-parser/src/minimax_m2.rs
+@@ -5,7 +5,7 @@ use winnow::stream::Partial;
+ use winnow::token::{literal, rest, take_until};
+ 
+ use super::parameters::ToolSchemas;
+-use super::utils::{parse_buffered_event, safe_text_len, xml_unescape};
++use super::utils::{parse_buffered_event, safe_text_len};
+ use super::{Result, ToolCallDelta, ToolParser, ToolParserOutput};
+ use crate::Tool;
+ 
+@@ -213,12 +213,12 @@ fn parameter(input: &mut &str) -> ModalResult<(String, String)> {
+         _: (ws1, literal("name=")),
+         attr_value,
+         _: literal(">"),
+-        take_until(0.., PARAMETER_END).map(xml_unescape),
++        take_until(0.., PARAMETER_END),
+         _: literal(PARAMETER_END),
+     )
+     .parse_next(input)?;
+ 
+-    Ok((name.trim().to_string(), value.into_owned()))
++    Ok((name.trim().to_string(), value.to_string()))
+ }
+ 
+ /// Parse a quoted or unquoted XML attribute value.
+@@ -364,7 +364,24 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn minimax_m2_parse_complete_unescapes_literal_closing_tags_in_parameter_value() {
++    fn minimax_m2_parse_complete_preserves_raw_entities_in_parameter_value() {
++        // The MiniMax-M2 chat template renders string parameter values RAW (no
++        // XML escaping), so a value the user wants to be the literal text
++        // "Tom &amp; Jerry &lt;3" is emitted verbatim. The parser must preserve
++        // it; xml_unescape currently decodes it, corrupting the bytes.
++        let mut parser = MinimaxM2ToolParser::new(&test_tools());
++        let output = parser
++            .parse_complete(&build_tool_block(&[(
++                "get_weather",
++                vec![("city", "Tom &amp; Jerry &lt;3")],
++            )]))
++            .unwrap();
++        let args: Value = serde_json::from_str(&output.calls[0].arguments).unwrap();
++        assert_eq!(args["city"], json!("Tom &amp; Jerry &lt;3"));
++    }
++
++    #[test]
++    fn minimax_m2_parse_complete_preserves_raw_closing_tag_text_in_parameter_value() {
+         let mut parser = MinimaxM2ToolParser::new(&test_tools());
+         let output = parser
+             .parse_complete(&build_tool_block(&[(
+@@ -382,7 +399,7 @@ mod tests {
+         assert_eq!(
+             serde_json::from_str::<Value>(&output.calls[0].arguments).unwrap(),
+             json!({
+-                "city": "Seattle </parameter></invoke></minimax:tool_call>",
++                "city": "Seattle &lt;/parameter&gt;&lt;/invoke&gt;&lt;/minimax:tool_call&gt;",
+                 "days": 5,
+             })
+         );
+diff --git a/rust/src/tool-parser/src/qwen_coder.rs b/rust/src/tool-parser/src/qwen_coder.rs
+index c8d2195..0a2bcd4 100644
+--- a/rust/src/tool-parser/src/qwen_coder.rs
++++ b/rust/src/tool-parser/src/qwen_coder.rs
+@@ -5,7 +5,7 @@ use winnow::stream::Partial;
+ use winnow::token::{literal, take_until};
+ 
+ use super::parameters::ToolSchemas;
+-use super::utils::{parse_buffered_event, safe_text_len, xml_unescape};
++use super::utils::{parse_buffered_event, safe_text_len};
+ use super::{Result, ToolCallDelta, ToolParser, ToolParserOutput};
+ use crate::Tool;
+ 
+@@ -201,12 +201,12 @@ fn parameter(input: &mut &str) -> ModalResult<(String, String)> {
+         _: literal(PARAMETER_START),
+         take_until(1.., ">"),
+         _: ">",
+-        take_until(0.., PARAMETER_END).map(trim_one_wrapping_newline).map(xml_unescape),
++        take_until(0.., PARAMETER_END).map(trim_one_wrapping_newline),
+         _: literal(PARAMETER_END),
+     )
+     .parse_next(input)?;
+ 
+-    Ok((name.to_string(), value.into_owned()))
++    Ok((name.to_string(), value.to_string()))
+ }
+ 
+ /// Parse a Qwen Coder tool-call body.
+@@ -414,7 +414,7 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn qwen_coder_parse_complete_unescapes_literal_closing_tags_in_parameter_value() {
++    fn qwen_coder_parse_complete_preserves_raw_closing_tag_text_in_parameter_value() {
+         let mut parser = Qwen3CoderToolParser::new(&test_tools());
+         let output = parser
+             .parse_complete(&build_tool_call(
+@@ -433,7 +433,7 @@ mod tests {
+         assert_eq!(
+             serde_json::from_str::<Value>(&output.calls[0].arguments).unwrap(),
+             json!({
+-                "location": "杭州 </parameter></function></tool_call>",
++                "location": "杭州 &lt;/parameter&gt;&lt;/function&gt;&lt;/tool_call&gt;",
+                 "date": "2026-05-08",
+             })
+         );
+diff --git a/rust/src/tool-parser/src/utils.rs b/rust/src/tool-parser/src/utils.rs
+index 171c1af..544c5d5 100644
+--- a/rust/src/tool-parser/src/utils.rs
++++ b/rust/src/tool-parser/src/utils.rs
+@@ -1,7 +1,5 @@
+ //! Shared helpers for tool parsers.
+ 
+-use std::borrow::Cow;
+-
+ use winnow::error::{ContextError, ErrMode, ModalResult, Needed, StrContext, StrContextValue};
+ use winnow::stream::{Offset, Partial, Stream};
+ 
+@@ -68,73 +66,6 @@ pub(super) fn safe_text_len(input: &mut Partial<&str>, marker: &str) -> ModalRes
+     Ok(emit_len)
+ }
+ 
+-/// Decode XML/HTML entities in XML-style parameter values.
+-pub(super) fn xml_unescape(value: &str) -> Cow<'_, str> {
+-    if !value.as_bytes().contains(&b'&') {
+-        return Cow::Borrowed(value);
+-    }
+-
+-    let mut output: Option<String> = None;
+-    let mut copied_len = 0;
+-    let mut rest = value;
+-
+-    while let Some(ampersand) = rest.find('&') {
+-        let before_ampersand = &rest[..ampersand];
+-        let after_ampersand = &rest[ampersand + '&'.len_utf8()..];
+-        if let Some(semicolon) = after_ampersand.find(';') {
+-            let entity = &after_ampersand[..semicolon];
+-            if let Some(decoded) = decode_xml_entity(entity) {
+-                match &mut output {
+-                    Some(output) => output.push_str(before_ampersand),
+-                    None => {
+-                        let mut new_output = String::with_capacity(value.len());
+-                        new_output.push_str(&value[..copied_len + ampersand]);
+-                        output = Some(new_output);
+-                    }
+-                }
+-                let output = output.as_mut().expect("output is initialized above");
+-                output.push(decoded);
+-                let consumed_len = ampersand + '&'.len_utf8() + semicolon + ';'.len_utf8();
+-                copied_len += consumed_len;
+-                rest = &rest[consumed_len..];
+-                continue;
+-            }
+-        }
+-
+-        if let Some(output) = &mut output {
+-            output.push_str(before_ampersand);
+-            output.push('&');
+-        }
+-        let consumed_len = ampersand + '&'.len_utf8();
+-        copied_len += consumed_len;
+-        rest = after_ampersand;
+-    }
+-
+-    if let Some(mut output) = output {
+-        output.push_str(rest);
+-        Cow::Owned(output)
+-    } else {
+-        Cow::Borrowed(value)
+-    }
+-}
+-
+-fn decode_xml_entity(entity: &str) -> Option<char> {
+-    match entity {
+-        "amp" => Some('&'),
+-        "lt" => Some('<'),
+-        "gt" => Some('>'),
+-        "quot" => Some('"'),
+-        "apos" => Some('\''),
+-        entity if entity.starts_with("#x") || entity.starts_with("#X") => {
+-            u32::from_str_radix(&entity[2..], 16).ok().and_then(char::from_u32)
+-        }
+-        entity if entity.starts_with('#') => {
+-            entity[1..].parse::<u32>().ok().and_then(char::from_u32)
+-        }
+-        _ => None,
+-    }
+-}
+-
+ /// Streaming lexical state for a top-level JSON object.
+ #[derive(Debug, Clone, Default, PartialEq, Eq)]
+ pub(super) struct JsonObjectScanState {
+@@ -340,7 +271,6 @@ pub(super) fn incomplete<T>() -> ModalResult<T> {
+ 
+ #[cfg(test)]
+ mod tests {
+-    use std::borrow::Cow;
+ 
+     use expect_test::expect;
+     use winnow::error::ErrMode;
+@@ -348,7 +278,6 @@ mod tests {
+ 
+     use super::{
+         JsonObjectScanState, json_str, partial_prefix_len, safe_text_len, take_json_object,
+-        xml_unescape,
+     };
+ 
+     #[test]
+@@ -406,36 +335,6 @@ mod tests {
+         assert!(matches!(error, ErrMode::Incomplete(_)));
+     }
+ 
+-    #[test]
+-    fn xml_unescape_decodes_common_entities() {
+-        assert_eq!(
+-            xml_unescape("&lt;tag attr=&quot;value&quot;&gt;Tom &amp; Jerry&apos;s&lt;/tag&gt;"),
+-            r#"<tag attr="value">Tom & Jerry's</tag>"#
+-        );
+-    }
+-
+-    #[test]
+-    fn xml_unescape_decodes_numeric_entities() {
+-        assert_eq!(xml_unescape("&#60;tag&#x3E;&#x1F600;"), "<tag>😀");
+-    }
+-
+-    #[test]
+-    fn xml_unescape_preserves_unknown_and_incomplete_entities() {
+-        let output = xml_unescape("Tom & Jerry &unknown; &amp");
+-
+-        assert!(matches!(output, Cow::Borrowed(_)));
+-        assert_eq!(output, "Tom & Jerry &unknown; &amp");
+-    }
+-
+-    #[test]
+-    fn xml_unescape_borrows_when_no_entity_is_present() {
+-        let input = "plain text";
+-        let output = xml_unescape(input);
+-
+-        assert!(matches!(output, Cow::Borrowed(_)));
+-        assert_eq!(output, input);
+-    }
+-
+     #[test]
+     fn take_json_object_consumes_simple_object() {
+         let mut state = JsonObjectScanState::default();
