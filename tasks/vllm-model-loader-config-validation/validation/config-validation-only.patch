@@ -1,0 +1,69 @@
+diff --git a/vllm/config/load.py b/vllm/config/load.py
+index ed591a2..b21eab1 100644
+--- a/vllm/config/load.py
++++ b/vllm/config/load.py
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ 
+-from typing import TYPE_CHECKING, Any
++from typing import TYPE_CHECKING, Any, Literal, TypeAlias
+ 
+ from pydantic import Field, field_validator
+ 
+@@ -11,12 +11,13 @@ from vllm.utils.hashing import safe_hash
+ 
+ DEFAULT_SAFETENSORS_PREFETCH_NUM_THREADS = 8
+ DEFAULT_SAFETENSORS_PREFETCH_BLOCK_SIZE = 16 * 1024 * 1024
++SafetensorsLoadStrategy: TypeAlias = Literal["lazy", "eager", "prefetch", "torchao"]
+ 
+ if TYPE_CHECKING:
+     from vllm.model_executor.model_loader import LoadFormats
+     from vllm.model_executor.model_loader.tensorizer import TensorizerConfig
+ else:
+-    LoadFormats = Any
++    LoadFormats = str
+     TensorizerConfig = Any
+ 
+ logger = init_logger(__name__)
+@@ -59,7 +60,7 @@ class LoadConfig:
+     download_dir: str | None = None
+     """Directory to download and load the weights, default to the default
+     cache directory of Hugging Face."""
+-    safetensors_load_strategy: str | None = None
++    safetensors_load_strategy: SafetensorsLoadStrategy | None = None
+     """
+     Specifies the loading strategy for safetensors weights.
+ 
+diff --git a/vllm/engine/arg_utils.py b/vllm/engine/arg_utils.py
+index 85a59be..bb8321d 100644
+--- a/vllm/engine/arg_utils.py
++++ b/vllm/engine/arg_utils.py
+@@ -73,6 +73,7 @@ from vllm.config.cache import (
+ )
+ from vllm.config.device import Device
+ from vllm.config.kernel import IrOpPriorityConfig, LinearBackend, MoEBackend
++from vllm.config.load import SafetensorsLoadStrategy
+ from vllm.config.lora import MaxLoRARanks
+ from vllm.config.mamba import MambaBackendEnum
+ from vllm.config.model import (
+@@ -126,7 +127,7 @@ if TYPE_CHECKING:
+ else:
+     Executor = Any
+     QuantizationMethods = Any
+-    LoadFormats = Any
++    LoadFormats = str
+     UsageContext = Any
+ 
+ 
+@@ -427,7 +428,9 @@ class EngineArgs:
+     allowed_local_media_path: str = ModelConfig.allowed_local_media_path
+     allowed_media_domains: list[str] | None = ModelConfig.allowed_media_domains
+     download_dir: str | None = LoadConfig.download_dir
+-    safetensors_load_strategy: str | None = LoadConfig.safetensors_load_strategy
++    safetensors_load_strategy: SafetensorsLoadStrategy | None = (
++        LoadConfig.safetensors_load_strategy
++    )
+     safetensors_prefetch_num_threads: int = LoadConfig.safetensors_prefetch_num_threads
+     safetensors_prefetch_block_size: int = LoadConfig.safetensors_prefetch_block_size
+     load_format: str | LoadFormats = LoadConfig.load_format
