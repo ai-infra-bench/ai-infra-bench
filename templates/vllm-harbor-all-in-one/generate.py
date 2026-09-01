@@ -44,6 +44,20 @@ TOOLCHAIN_CUTOFF_PROFILES = (
             "8b3f4d4560b6b0f83774fecc6be07e47716dbad0eb0bb6c3890f478f4affe4b6": "8e4d241c78f9cbf5ca8597b13004f0441c18af484ea105b8f83b44a716c82d3d",
         },
     ),
+    (
+        "2026-04-16T18:19:31Z",
+        {
+            "ARG RUST_TOOLCHAIN=1.95.0": "ARG RUST_TOOLCHAIN=1.94.1",
+        },
+    ),
+    (
+        "2026-04-14T21:17:11Z",
+        {
+            "ARG CARGO_NEXTEST_VERSION=0.9.133": "ARG CARGO_NEXTEST_VERSION=0.9.132",
+            "a9f992321e8759818400d93abb9477b4b11422d18d216e8d208505bd73454103": "e22f14ecaff5519dbfe521e8717d64e9989648bddc23eb1f71bb0053518a52e7",
+            "8e4d241c78f9cbf5ca8597b13004f0441c18af484ea105b8f83b44a716c82d3d": "592db3fa3d3ee62f109dc149554811eb8ecdc68e1514be5af79986b1560e2e0d",
+        },
+    ),
 )
 
 

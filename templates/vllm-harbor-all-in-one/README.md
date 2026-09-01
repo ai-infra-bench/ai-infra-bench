@@ -64,8 +64,9 @@ Cache reuse is split by trust boundary:
 System and toolchain inputs are frozen as well: the Python base image predates
 the benchmark cutoffs, apt uses the task cutoff's Debian snapshot, and rustup,
 cargo-nextest, and protoc downloads are versioned and SHA-256 checked. The
-generator selects cargo-nextest and protoc from the newest allow-listed release
-that was already published at the task cutoff. Cargo dependencies are vendored
+generator selects Rust, cargo-nextest, and protoc from the newest allow-listed
+release that was already published at the task cutoff. Cargo dependencies are
+vendored
 from the base commit's lockfile into
 `/opt/vllm-cargo-vendor`; the final image removes registry, compiler, download,
 and temporary caches and runs Cargo in offline mode.
