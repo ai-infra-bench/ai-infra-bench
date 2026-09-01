@@ -1,0 +1,5 @@
+We profile cache-key generation for real MP4 video requests before multimodal preprocessing. A 32-frame 1080p sample expands to about 199 MB and currently takes roughly 43 ms to hash even when the encoded source is only about 497 KB. Smaller clips show the same pattern: an 8-frame 854x480 sample goes from 38 KB encoded to 9.8 MB decoded.
+
+Make video hashing use the cheaper representation available for each request. For short clips this should avoid hashing the full decoded frame buffer, but a 10–30 minute source can be larger than the fixed sampled buffer, so hashing source bytes unconditionally is also a regression. The choice must be based on byte size and remain independent of hardware.
+
+Cache identity must stay correct: different encoded sources, frame-sampling metadata such as selected frame indices or num_frames, and decoded pixels when no smaller source is available must produce distinct hashes. The same source and sampling must remain stable. Video loading from bytes, files, base64/JPEG frame lists, existing tuple-style video inputs, metadata-free model preprocessing, and image hashing must continue to work.
