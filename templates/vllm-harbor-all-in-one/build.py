@@ -43,9 +43,13 @@ def run(*args: str, capture: bool = False) -> subprocess.CompletedProcess[str]:
     )
 
 
-def build(task_dir: Path) -> None:
+def build(task_dir: Path, builder: str | None = None) -> None:
     task_dir = task_dir.resolve()
     metadata, tag = load_task(task_dir)
+    cutoff = datetime.fromisoformat(
+        metadata["metadata"]["dependency_cutoff"].replace("Z", "+00:00")
+    )
+    source_date_epoch = str(int(cutoff.timestamp()))
     dockerfile = task_dir / "environment" / "Dockerfile"
     if not dockerfile.is_file():
         raise FileNotFoundError(dockerfile)
@@ -61,19 +65,24 @@ def build(task_dir: Path) -> None:
     # local COPY instructions. An empty context makes it impossible for task
     # tests, the Oracle, or curator files to enter the image accidentally.
     with tempfile.TemporaryDirectory(prefix="ai-infra-build-context-") as context:
-        run(
-            "docker",
-            "buildx",
-            "build",
-            "--load",
-            "--provenance=false",
-            "--progress=plain",
-            "--tag",
-            tag,
-            "--file",
-            str(dockerfile),
-            context,
+        build_command = ["docker", "buildx", "build"]
+        if builder is not None:
+            build_command.extend(["--builder", builder])
+        build_command.extend(
+            [
+                "--load",
+                "--provenance=false",
+                "--progress=plain",
+                "--build-arg",
+                f"SOURCE_DATE_EPOCH={source_date_epoch}",
+                "--tag",
+                tag,
+                "--file",
+                str(dockerfile),
+                context,
+            ]
         )
+        run(*build_command)
 
     inspect = json.loads(run("docker", "image", "inspect", tag, capture=True).stdout)[0]
     image_id = inspect["Id"]
@@ -156,7 +165,7 @@ def build(task_dir: Path) -> None:
         "build_context": "empty",
         "cache_policy": {
             "shared": ["source-independent OCI layers", "uv download cache"],
-            "base_and_lock_scoped": ["ccache", "CMake FetchContent"],
+            "base_lock_and_template_scoped": ["ccache", "CMake FetchContent"],
             "namespace": labels.get("ai.infra.bench.cache-namespace"),
             "remote_cache_imported": False,
         },
@@ -170,11 +179,15 @@ def build(task_dir: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--builder",
+        help="Optional buildx builder name; useful for clean-cache audits.",
+    )
     parser.add_argument("task_dirs", nargs="+", type=Path)
     args = parser.parse_args()
     for raw in args.task_dirs:
         task_dir = raw if raw.is_absolute() else REPO_ROOT / raw
-        build(task_dir)
+        build(task_dir, builder=args.builder)
 
 
 if __name__ == "__main__":

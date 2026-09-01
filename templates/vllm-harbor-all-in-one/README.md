@@ -56,10 +56,17 @@ an attribution file beside it.
 Cache reuse is split by trust boundary:
 
 - source-independent OCI layers and package downloads are shared;
-- C/C++ compiler output and CMake FetchContent are keyed by the full base SHA
-  plus dependency-lock digest;
+- C/C++ compiler output and CMake FetchContent are keyed by the full base SHA,
+  dependency-lock digest, and environment-template digest;
 - dependency resolution excludes packages newer than the base commit timestamp;
 - no remote build cache is imported.
+
+System and toolchain inputs are frozen as well: the Python base image predates
+the benchmark cutoffs, apt uses the task cutoff's Debian snapshot, and rustup,
+cargo-nextest, and protoc downloads are versioned and SHA-256 checked. Cargo
+dependencies are vendored from the base commit's lockfile into
+`/opt/vllm-cargo-vendor`; the final image removes registry, compiler, download,
+and temporary caches and runs Cargo in offline mode.
 
 The image build also rejects a pre-existing installed `vllm` distribution and
 checks that the final editable import resolves inside `/workspace/vllm`.

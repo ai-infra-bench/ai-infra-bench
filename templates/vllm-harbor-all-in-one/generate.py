@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import re
@@ -181,6 +182,44 @@ RUN mkdir -p {shlex.quote(parent)} \\
 """
 
 
+def reproduction_install(task_dir: Path) -> str:
+    """Embed task-owned reproduction files without exposing the build context."""
+    source_dir = task_dir / "environment" / "repro"
+    if not source_dir.exists():
+        return ""
+    if not source_dir.is_dir():
+        raise ValueError(f"{source_dir}: reproduction path must be a directory")
+
+    files = sorted(path for path in source_dir.rglob("*") if path.is_file())
+    if not files:
+        raise ValueError(f"{source_dir}: reproduction directory is empty")
+
+    allowed_suffixes = {".json", ".py", ".rs", ".sh", ".txt"}
+    source_root = source_dir.resolve()
+    commands = ["RUN install -d /opt/repro"]
+    for path in files:
+        relative = path.relative_to(source_dir)
+        if path.is_symlink() or not path.resolve().is_relative_to(source_root):
+            raise ValueError(f"{path}: reproduction files must not use symlinks")
+        if path.suffix not in allowed_suffixes:
+            raise ValueError(f"{path}: unsupported reproduction file type")
+        if any(part in {"tests", "solution", "validation", ".."} for part in relative.parts):
+            raise ValueError(f"{path}: forbidden reproduction path component")
+        content = path.read_bytes()
+        if len(content) > 256 * 1024:
+            raise ValueError(f"{path}: reproduction file exceeds 256 KiB")
+        destination = Path("/opt/repro") / relative
+        encoded = base64.b64encode(content).decode("ascii")
+        commands.append(
+            f" && install -d {shlex.quote(str(destination.parent))}"
+            f" \\\n && printf '%s' {shlex.quote(encoded)} | base64 -d > {shlex.quote(str(destination))}"
+        )
+        if path.suffix == ".sh":
+            commands.append(f" \\\n && chmod 0755 {shlex.quote(str(destination))}")
+    commands.append("\n")
+    return "".join(commands)
+
+
 def render(task_dir: Path, template: str) -> tuple[Path, str]:
     task_file = task_dir / "task.toml"
     if metadata_value(task_file, "repository") != "vllm-project/vllm":
@@ -198,11 +237,13 @@ def render(task_dir: Path, template: str) -> tuple[Path, str]:
             f"{task_file}: dependency_cutoff must be an RFC 3339 UTC timestamp"
         )
 
+    environment_digest = hashlib.sha256(template.encode()).hexdigest()[:16]
+
     lock_path = task_dir / "environment" / "lock" / "requirements.txt"
     if lock_path.is_file():
         lock = lock_path.read_text().rstrip()
         lock_digest = hashlib.sha256((lock + "\n").encode()).hexdigest()
-        cache_namespace = f"{base_commit}-{lock_digest[:16]}"
+        cache_namespace = f"{base_commit}-{lock_digest[:16]}-{environment_digest}"
         dependency_install = f"""# Exact task dependency lock (sha256:{lock_digest}) is embedded so this
 # Dockerfile remains independently buildable with an empty context.
 RUN --mount=type=cache,id=vllm-uv-downloads-v3,target=/root/.cache/uv,sharing=locked <<'VLLM_INSTALL_EOF'
@@ -215,7 +256,9 @@ uv pip install --system --index-strategy first-index \\
 rm -f /tmp/vllm-requirements.lock
 VLLM_INSTALL_EOF"""
     else:
-        cache_namespace = f"{base_commit}-unlocked-{dependency_cutoff[:10]}"
+        cache_namespace = (
+            f"{base_commit}-unlocked-{dependency_cutoff[:10]}-{environment_digest}"
+        )
         dependency_install = """# Fallback for staged tasks whose exact lock has not been materialized yet.
 # Resolution is bounded by the base timestamp; release builds require a lock.
 COPY --from=source /src/vllm/requirements/ /tmp/vllm-requirements/
@@ -240,7 +283,11 @@ RUN --mount=type=cache,id=vllm-uv-downloads-v3,target=/root/.cache/uv,sharing=lo
     ).replace(DEPENDENCY_INSTALL_TOKEN, dependency_install).replace(
         CACHE_NAMESPACE_TOKEN, cache_namespace
     )
-    asset_install = runtime_asset_install(task_file) + runtime_file_install(task_file)
+    asset_install = (
+        runtime_asset_install(task_file)
+        + runtime_file_install(task_file)
+        + reproduction_install(task_dir)
+    )
     if asset_install:
         if generated.count(ASSET_INSERTION_MARKER) != 1:
             raise ValueError(
