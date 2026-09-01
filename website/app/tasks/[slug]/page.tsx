@@ -96,22 +96,14 @@ export default async function TaskPage({ params }: TaskPageProps) {
     compute.topology = task.accelerator === 'CPU' ? 'Not applicable' : null;
   }
 
-  const benchmarkKeys = [
-    'benchmark_schema_version',
-    'track',
-    'workload_type',
-    'subsystems',
-    'difficulty',
-    'grader_kind',
-    'publication_state',
-    'environment_template',
-  ];
-  const benchmark = {
-    schema_version: task.manifest.schemaVersion,
-    task_version: task.manifest.taskVersion,
-    ...Object.fromEntries(benchmarkKeys.filter((key) => Object.hasOwn(task.manifest.metadata, key)).map((key) => [key, task.manifest.metadata[key]])),
-  } as ManifestSection;
+  const taskKeys = ['workload_type', 'subsystems'];
+  const taskMetadata = Object.fromEntries(
+    taskKeys
+      .filter((key) => Object.hasOwn(task.manifest.metadata, key))
+      .map((key) => [key, task.manifest.metadata[key]]),
+  ) as ManifestSection;
   const metadataGroups = [
+    { title: 'Task', facts: sectionFacts(taskMetadata, taskKeys) },
     {
       title: 'Compute',
       facts: sectionFacts(compute, [
@@ -126,7 +118,6 @@ export default async function TaskPage({ params }: TaskPageProps) {
         ...sectionFacts(task.manifest.verifier, ['timeout_sec', 'environment_mode'], 'Verifier'),
       ],
     },
-    { title: 'Benchmark', facts: sectionFacts(benchmark, ['schema_version', 'task_version', ...benchmarkKeys]) },
   ].filter((group) => group.facts.length > 0);
 
   return (
