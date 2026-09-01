@@ -19,19 +19,19 @@ const newsreader = Newsreader({
 
 export const metadata: Metadata = {
   title: 'AI Infra Bench | Task Registry',
-  description: 'How much real AI-inference engineering work can frontier models solve?',
+  description: 'How much real AI infrastructure engineering work can frontier models solve?',
   icons: {
     icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
   },
   openGraph: {
     title: 'AI Infra Bench',
-    description: 'How much real AI-inference engineering work can frontier models solve?',
+    description: 'How much real AI infrastructure engineering work can frontier models solve?',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'AI Infra Bench',
-    description: 'How much real AI-inference engineering work can frontier models solve?',
+    description: 'How much real AI infrastructure engineering work can frontier models solve?',
   },
 };
 

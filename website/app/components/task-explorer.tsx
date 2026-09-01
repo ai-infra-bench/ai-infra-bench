@@ -30,7 +30,7 @@ export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
       <div className="catalog-intro">
         <h2 id="task-catalog-title">Tasks</h2>
         <p>
-          {tasks.length} pinned AI-inference tasks with offline environments and execution-based verification.
+          {tasks.length} pinned AI infrastructure tasks with offline environments and execution-based verification.
         </p>
       </div>
 

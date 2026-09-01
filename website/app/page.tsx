@@ -29,7 +29,7 @@ export default function Home() {
             priority
           />
         </div>
-        <p>How much real AI-inference engineering work can frontier models solve?</p>
+        <p>How much real AI infrastructure engineering work can frontier models solve?</p>
         <a href="#tasks">Browse tasks</a>
       </section>
 
