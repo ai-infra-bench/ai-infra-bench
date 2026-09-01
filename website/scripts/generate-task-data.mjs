@@ -114,9 +114,21 @@ function getSection(source, name) {
 }
 
 function getValue(source, key) {
-  const match = source.match(new RegExp(`^${key}\\s*=\\s*(.+)$`, 'm'));
-  if (!match) return null;
-  const raw = match[1].trim();
+  const lines = source.split(/\r?\n/);
+  const start = lines.findIndex((line) => new RegExp(`^${key}\\s*=`).test(line.trim()));
+  if (start === -1) return null;
+
+  let raw = lines[start].slice(lines[start].indexOf('=') + 1).trim();
+  if (raw.startsWith('[')) {
+    let depth = (raw.match(/\[/g) ?? []).length - (raw.match(/\]/g) ?? []).length;
+    let index = start + 1;
+    while (depth > 0 && index < lines.length) {
+      raw += `\n${lines[index]}`;
+      depth += (lines[index].match(/\[/g) ?? []).length;
+      depth -= (lines[index].match(/\]/g) ?? []).length;
+      index += 1;
+    }
+  }
 
   if (raw.startsWith('[') || raw.startsWith('"')) {
     try {
@@ -129,6 +141,12 @@ function getValue(source, key) {
   if (/^-?\d+$/.test(raw)) return Number(raw);
   if (raw === 'true' || raw === 'false') return raw === 'true';
   return raw;
+}
+
+function getSectionObject(source, name) {
+  const section = getSection(source, name);
+  const keys = Array.from(section.matchAll(/^([a-zA-Z0-9_]+)\s*=/gm), (match) => match[1]);
+  return Object.fromEntries(keys.map((key) => [key, getValue(section, key)]));
 }
 
 const entries = await readdir(tasksDir, { withFileTypes: true });
@@ -187,6 +205,14 @@ for (const entry of entries) {
     memoryMb: getValue(environment, 'memory_mb'),
     networkMode: getValue(environment, 'network_mode'),
     verifierTimeoutSec: getValue(verifier, 'timeout_sec'),
+    manifest: {
+      schemaVersion: getValue(manifest, 'schema_version'),
+      taskVersion: getValue(task, 'version'),
+      metadata: getSectionObject(manifest, 'metadata'),
+      agent: getSectionObject(manifest, 'agent'),
+      environment: getSectionObject(manifest, 'environment'),
+      verifier: getSectionObject(manifest, 'verifier'),
+    },
     instructionHtml: await renderInstruction(instruction.trim()),
     verifierFiles: verifierFiles.map((file) => ({
       name: file.name,

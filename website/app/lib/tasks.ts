@@ -1,5 +1,8 @@
 import taskData from '@/app/generated/tasks.json';
 
+export type ManifestValue = string | number | boolean | string[] | number[] | null;
+export type ManifestSection = Record<string, ManifestValue>;
+
 export type BenchmarkTask = {
   slug: string;
   name: string;
@@ -19,6 +22,14 @@ export type BenchmarkTask = {
   memoryMb: number | null;
   networkMode: string | null;
   verifierTimeoutSec: number | null;
+  manifest: {
+    schemaVersion: ManifestValue;
+    taskVersion: ManifestValue;
+    metadata: ManifestSection;
+    agent: ManifestSection;
+    environment: ManifestSection;
+    verifier: ManifestSection;
+  };
   instructionHtml: string;
   verifierFiles: Array<{
     name: string;

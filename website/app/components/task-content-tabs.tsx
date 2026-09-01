@@ -12,19 +12,20 @@ type SourceFile = {
 };
 
 type EnvironmentFact = [label: string, value: string];
+type MetadataGroup = { title: string; facts: EnvironmentFact[] };
 
 export function TaskContentTabs({
   instructionHtml,
   verifierFiles,
   solutionFiles,
   environmentFiles,
-  metadata,
+  metadataGroups,
 }: {
   instructionHtml: string;
   verifierFiles: SourceFile[];
   solutionFiles: SourceFile[];
   environmentFiles: SourceFile[];
-  metadata: EnvironmentFact[];
+  metadataGroups: MetadataGroup[];
 }) {
   const [activeVerifier, setActiveVerifier] = useState(0);
   const [activeOracle, setActiveOracle] = useState(0);
@@ -92,14 +93,21 @@ export function TaskContentTabs({
       </Tabs.Content>
 
       <Tabs.Content className="content-panel environment-panel" value="metadata">
-        <dl className="environment-list">
-          {metadata.map(([label, value]) => (
-            <div key={label}>
-              <dt>{label}</dt>
-              <dd>{value}</dd>
-            </div>
+        <div className="metadata-sheet">
+          {metadataGroups.map((group) => (
+            <section className="metadata-group" key={group.title}>
+              <h3>{group.title}</h3>
+              <dl>
+                {group.facts.map(([label, value]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
           ))}
-        </dl>
+        </div>
       </Tabs.Content>
     </Tabs.Root>
   );
