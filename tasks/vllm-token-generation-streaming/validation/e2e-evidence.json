@@ -1,0 +1,141 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-01T18:43:07+08:00",
+  "source": {
+    "candidate_id": "vllm-cpu-300-107",
+    "instance_id": "vllm-project__vllm-37171",
+    "base_commit": "5e30e9b9a9b0dc91927f2ec4ffbd92c4af3825c0",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/37171",
+    "linked_issue": null,
+    "golden_product_code_changes": 147
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-token-generation-streaming:base-5e30e9b9a9b0",
+    "image_id": "sha256:8c7fab0a3634b152baf7cbb349d6b48ce58067453c6f53ff2a31e090878be26c",
+    "size_bytes": 1585522532,
+    "dockerfile_sha256": "13c2c1197c0e0e16b08c392c91cb471973575d7f0ba42bd09b67af4bd8a82497",
+    "template_sha256": "2f1688856bf1e683d6f19bba67f07094c64c87f8da9551f1bc9c4a1e69fcb515",
+    "dependency_lock_sha256": "a6247e8bc078ef97d01e65ec6c2c2957bc3174b6635cd28eb72e5478ea8b8d3d",
+    "dependency_lock_manifest_sha256": "6a54367c406b4c115f0e366a23ebb123e0315f950e96253d4d9248ba90d9c903",
+    "cache_namespace": "5e30e9b9a9b0dc91927f2ec4ffbd92c4af3825c0-a6247e8bc078ef97-f6976e65056ca407",
+    "cutoff_compatible_tools": {"rustc": "1.94.1", "cargo_nextest": "0.9.132", "conditional_protoc": "34.1"}
+  },
+  "artifacts": {
+    "task_metadata_sha256": "cd5e0e2e447268189116f92d2165cea3f9d8eade15f49aab3193cd1480400af7",
+    "instruction_sha256": "fb03ecd6c02f4463c8fd0d83d35023a68b9fbda642cc91b84c602b9318690446",
+    "oracle_patch_sha256": "39373853126dedb86ef971d24fe056f4b46da1597fb958f3b1a6fd5d4fd2e193",
+    "solve_script_sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491",
+    "test_script_sha256": "ad369453269037ae4ec81535e6285186632a861da98c2ed08f24106392c3bcad",
+    "regression_test_sha256": "cd4a525d843071e83984612edff208e3e7d2ff6b394ce38edfe268c6176cb29a",
+    "junit_checker_sha256": "7d216226dea396b36ae860e71e8dd60371497eaddddf539c13181bfb8202c9ae",
+    "verifier_support_sha256": "c7042ef408850f7d5dbd397dcd63e7a767ffdcf9f3a82d18d466bad4018c9452",
+    "real_http_matrix_sha256": "1882c1b4c23a21eae826175140539a5797cb6d4607b2624c651318be7a4ffab3",
+    "hidden_stream_app_sha256": "d23b24ce84cea7f61e86cfb8a1fa4ece7e7af1dd19e9b67984c64be7903a7e84",
+    "hidden_stream_server_sha256": "f8ed44eed6d71340b075e559110a6ea7bb799b83ead958ee0a9143c59b978452",
+    "public_reproduction_sha256": "69f6318ea05e68078065c75ee00f4cd9afa27b5ef3686bb5f5b2b1e29b2ef4a4",
+    "public_stream_app_sha256": "d23b24ce84cea7f61e86cfb8a1fa4ece7e7af1dd19e9b67984c64be7903a7e84",
+    "public_stream_server_sha256": "f8ed44eed6d71340b075e559110a6ea7bb799b83ead958ee0a9143c59b978452",
+    "image_manifest_sha256": "3eb7e2e2cb7d4a258ed3e566ea23aed736c355d625050018bd5af6c743b8811c",
+    "ci_cases_sha256": "23832a52dac5ecd204d932c2c572f8e46957ab3e478e80efdc52143a3d9ad967",
+    "remediation_matrix_sha256": "f4d2b0cdb9b7e618d679a22ba1857341a72d6e542609ae12c70d264b289be8db"
+  },
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "depends_on_golden_names": false,
+    "behavior_cases": 10,
+    "behaviors": [
+      "stream=true returns incremental SSE token deltas followed by data: [DONE]",
+      "the first data chunk arrives before deterministic generation completes",
+      "final and continuous usage follow stream_options",
+      "empty deltas are skipped while empty error deltas remain visible",
+      "logprobs and multiple choice indexes follow each token delta",
+      "cached prompt token details remain available in final usage",
+      "stream=false retains the existing JSON response"
+    ],
+    "collection_integrity": "JUnit must contain exactly 10 unique, passing, non-skipped cases"
+  },
+  "hidden_end_to_end": {
+    "tests_mounted_only_during_verification": true,
+    "entrypoint": "real FastAPI disaggregated generate route over uvicorn TCP with HTTP SSE and JSON response lifecycles",
+    "uses_real_request_schema": true,
+    "uses_real_serving_tokens": true,
+    "uses_real_streaming_response": true,
+    "uses_real_http_client": true,
+    "requests_completed_before_assertions": 2,
+    "base_measured": {"stream_content_type": "application/json", "stream_contract": false, "nonstream_tokens_valid": true},
+    "oracle_measured": {"stream_content_type": "text/event-stream", "stream_contract": true, "nonstream_tokens_valid": true},
+    "execution_substitutions": "A deterministic in-process engine emits production RequestOutput objects; the real route, request models, ServingTokens implementation, StreamingResponse, uvicorn TCP transport, and HTTP client remain in the path.",
+    "limitation": "The verifier does not load model weights or exercise GPU/ROCm scheduling because the feature contract is HTTP framing and serving-layer transformation of engine outputs."
+  },
+  "public_reproduction": {
+    "entrypoint": "/opt/repro/http_stream_trace.py",
+    "base_exit_code": 3,
+    "base_stream_content_type": "application/json",
+    "base_nonstream_tokens_valid": true,
+    "oracle_exit_code": 0,
+    "oracle_stream_content_type": "text/event-stream; charset=utf-8",
+    "oracle_nonstream_tokens_valid": true
+  },
+  "repeated_runs": [
+    {"case": "base", "rounds": 5, "rewards": [0, 0, 0, 0, 0], "behavior_tests_each_round": {"passed": 1, "failed": 9}, "http_exit_codes": [1, 1, 1, 1, 1], "http_requests_completed_each_round": 2},
+    {"case": "oracle", "rounds": 5, "rewards": [1, 1, 1, 1, 1], "behavior_tests_each_round": {"passed": 10, "failed": 0}, "http_exit_codes": [0, 0, 0, 0, 0], "http_requests_completed_each_round": 2}
+  ],
+  "adversarial_runs": [
+    {"case": "empty-error-is-skipped", "patch_sha256": "b37328c6de9fdc281455736f10a7f81304bf91cb0cd274dbe800e4fe95b245d7", "reward": 0, "tests_passed": 9, "tests_failed": 1, "http_exit_code": 0},
+    {"case": "final-usage-without-continuous", "patch_sha256": "f95aa9987b382a2e5344577a9f62736bef680368ab8ce2bdefcdd99b878e4558", "reward": 0, "tests_passed": 9, "tests_failed": 1, "http_exit_code": 0},
+    {"case": "stream-without-delta-output-kind", "patch_sha256": "9ffc7bd90629f6f1f9dfb6eb7482f9aa6102c56329a006c2f2c3b66ff63ee428", "reward": 0, "tests_passed": 5, "tests_failed": 5, "http_exit_code": 1},
+    {"case": "stream-without-logprobs", "patch_sha256": "673f2b230309d7b4ad30bb93c003b198728926bd45f4e62929de872b9c62a89f", "reward": 0, "tests_passed": 9, "tests_failed": 1, "http_exit_code": 0}
+  ],
+  "conforming_alternative_runs": [
+    {"case": "alternative-cumulative-stream", "patch_sha256": "666ad0df4737f81370f9ee5a084199eceedbd75e6c62cfc1cf36772db3efa204", "change": "streams from cumulative engine outputs and derives token deltas without RequestOutputKind.DELTA", "reward": 1, "tests_passed": 10, "tests_failed": 0, "http_exit_code": 0},
+    {"case": "alternative-stream-method-name", "patch_sha256": "3fec82a184088f9636526d8d6615ac8cb574aee68a53b8d7dc48ea96155de238", "change": "uses a different internal name for the asynchronous SSE iterator", "reward": 1, "tests_passed": 10, "tests_failed": 0, "http_exit_code": 0}
+  ],
+  "build_reproducibility": {
+    "initial_image_id": "sha256:8c7fab0a3634b152baf7cbb349d6b48ce58067453c6f53ff2a31e090878be26c",
+    "warm_cache_image_id": "sha256:8c7fab0a3634b152baf7cbb349d6b48ce58067453c6f53ff2a31e090878be26c",
+    "warm_cache_digest_stable": true
+  },
+  "critical_review_rounds": [
+    {"round": 1, "focus": "instruction and provenance", "result": "Confirmed endpoint, request, SSE shape, usage options, base SHA, and upstream ROCm reproduction against PR #37171; no linked issue exists."},
+    {"round": 2, "focus": "environment and isolation", "result": "Rebuilt from the April 1 snapshot with the 155-package lock, Rust 1.94.1, nextest 0.9.132, full Git history, public-only fixtures, and no hidden artifacts."},
+    {"round": 3, "focus": "Oracle correctness", "result": "The 147-line product patch adds SSE deltas, DONE, error propagation, usage modes, prompt details, logprobs, indexes, and preserves non-streaming JSON."},
+    {"round": 4, "focus": "verifier and adversarial", "result": "Completed both HTTP lifecycles before assertions, ran five Base/Oracle rounds, accepted two alternatives, and rejected four incomplete implementations."},
+    {"round": 5, "focus": "evidence", "result": "Refreshed hashes, measured HTTP outcomes, substitutions, limitations, build reproducibility, and provenance gates, then confirmed final Harbor reward 1 with all verifier exit codes 0."}
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "de961bd4-ca43-4f84-b7b8-e2c8eabe5dad",
+    "trial_id": "5e793eff-f116-464a-b9cc-468e83f3d398",
+    "input_task_checksum": "d0a7ab7429e9a816de06dc59423481e12ff09f1fe80ab1703653b72f90fa5d60",
+    "lock_task_digest": "sha256:0b4710aee3a36d9ba45ce479fa76ad9e6ce32b008a863373a3094be2f5e0743d",
+    "checksum_scope": "Harbor hashes the entire task directory, including this evidence file. The recorded checksum is the exact input to this successful run; writing the run identifiers into this file necessarily changes the directory checksum afterward.",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "http_exit_code": 0,
+    "runtime_seconds": 26,
+    "canonical_image_retained_after_run": true
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "future_reference_commit_absent": true,
+    "full_git_history_present": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_and_validation_absent_from_image": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "dependency_lock_dry_run_matches": true,
+    "cutoff_toolchain_profiles_verified": true,
+    "only_public_reproduction_embedded": true,
+    "embedded_reproduction_hash_matches": true,
+    "empty_build_context": true,
+    "cached_rebuild_digest_stable": true,
+    "runtime_network_disabled": true
+  }
+}
