@@ -215,6 +215,7 @@ function SourceCodePane({
 }) {
   const sourceRef = useRef<HTMLDivElement>(null);
   const cachedHtml = sourceHtmlCache.get(file.url);
+  const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<
     { status: 'loading' } | { status: 'ready'; html: string } | { status: 'error' }
   >(() => cachedHtml ? { status: 'ready', html: cachedHtml } : { status: 'loading' });
@@ -239,10 +240,35 @@ function SourceCodePane({
       });
 
     return () => controller.abort();
-  }, [file.name, file.url]);
+  }, [attempt, file.name, file.url]);
 
-  if (state.status === 'loading') return <div className="source-status" role="status">Loading file...</div>;
-  if (state.status === 'error') return <div className="source-status" role="alert">Unable to load this file.</div>;
+  if (state.status === 'loading') {
+    return (
+      <div className="source-skeleton" role="status">
+        <span className="sr-only">Loading file...</span>
+        <div className="source-skeleton-lines" aria-hidden="true">
+          {Array.from({ length: 10 }, (_, index) => <span key={index} />)}
+        </div>
+      </div>
+    );
+  }
+
+  if (state.status === 'error') {
+    return (
+      <div className="source-status" role="alert">
+        <span>Unable to load this file.</span>
+        <button
+          type="button"
+          onClick={() => {
+            setState({ status: 'loading' });
+            setAttempt((value) => value + 1);
+          }}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div

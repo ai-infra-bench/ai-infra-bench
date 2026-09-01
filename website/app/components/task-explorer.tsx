@@ -13,8 +13,30 @@ type TaskSummary = {
   repository: string | null;
   repositoryName: string | null;
   repositoryLogo: string | null;
+  repositoryLogoKind: 'mark' | 'wordmark' | null;
   accelerator: string | null;
 };
+
+function RepositoryBrand({ task }: { task: TaskSummary }) {
+  const [failed, setFailed] = useState(false);
+  const name = task.repositoryName ?? formatProjectName(task.repository);
+
+  if (!task.repositoryLogo || failed) {
+    return <span className="task-repository-text">{name}</span>;
+  }
+
+  return (
+    <Image
+      className={`task-repository-logo is-${task.repositoryLogoKind ?? 'wordmark'}`}
+      src={task.repositoryLogo}
+      alt={name}
+      width={144}
+      height={40}
+      unoptimized
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
   const [workload, setWorkload] = useState('all');
@@ -58,18 +80,7 @@ export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
           <Link className="task-card" href={`/tasks/${task.slug}`} key={task.slug}>
             <div className="task-primary">
               <span className="task-repository">
-                {task.repositoryLogo ? (
-                  <Image
-                    className="task-repository-logo"
-                    src={task.repositoryLogo}
-                    alt={task.repositoryName ?? formatProjectName(task.repository)}
-                    width={144}
-                    height={40}
-                    unoptimized
-                  />
-                ) : (
-                  <span className="task-repository-text">{formatProjectName(task.repository)}</span>
-                )}
+                <RepositoryBrand task={task} />
               </span>
               <h3>{formatTaskTitle(task.slug)}</h3>
               <p>{task.description}</p>

@@ -107,7 +107,7 @@ async function normalizeLogo(buffer, outputFile, cardOutputFile, trim) {
       threshold: 12,
     });
   }
-  await Promise.all([
+  const [, cardOutput] = await Promise.all([
     image
       .clone()
       .resize(256, 256, {
@@ -126,6 +126,7 @@ async function normalizeLogo(buffer, outputFile, cardOutputFile, trim) {
       .webp({ quality: 92, alphaQuality: 100, effort: 6 })
       .toFile(cardOutputFile),
   ]);
+  return cardOutput.width / cardOutput.height >= 1.6 ? 'wordmark' : 'mark';
 }
 
 async function collect(repository) {
@@ -164,7 +165,7 @@ async function collect(repository) {
 
   if (!buffer) buffer = await fetchBuffer(logoSource);
   const logoFile = `${slug}.webp`;
-  await normalizeLogo(
+  const cardLogoKind = await normalizeLogo(
     buffer,
     path.join(outputDir, logoFile),
     path.join(cardOutputDir, logoFile),
@@ -177,6 +178,7 @@ async function collect(repository) {
     repo_url: `https://github.com/${repository.repo}`,
     logo_file: `/logos/ai-infra/${logoFile}`,
     card_logo_file: `/logos/ai-infra/card/${logoFile}`,
+    card_logo_kind: cardLogoKind,
     logo_source: logoSource,
     logo_source_type: logoSourceType,
   };

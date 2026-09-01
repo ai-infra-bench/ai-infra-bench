@@ -15,6 +15,7 @@ export default function Home() {
       repository: task.repository,
       repositoryName: repositoryBrand?.name ?? null,
       repositoryLogo: repositoryBrand?.card_logo_file ?? null,
+      repositoryLogoKind: repositoryBrand?.card_logo_kind ?? null,
       accelerator: task.accelerator,
     };
   });

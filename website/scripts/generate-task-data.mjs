@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import rehypeShikiFromHighlighter from '@shikijs/rehype/core';
@@ -66,6 +66,34 @@ const highlighter = await createHighlighter({
   langs: ['bash', 'c', 'diff', 'dockerfile', 'json', 'python', 'text'],
 });
 
+async function writeFileAtomic(filePath, contents) {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  try {
+    if (await readFile(filePath, 'utf8') === contents) return;
+  } catch {
+    // Missing files are created below.
+  }
+  const temporaryPath = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.${process.pid}.tmp`,
+  );
+  await writeFile(temporaryPath, contents);
+  await rename(temporaryPath, filePath);
+}
+
+async function pruneDirectory(directory, keepNames) {
+  let entries;
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  await Promise.all(entries
+    .filter((entry) => !keepNames.has(entry.name))
+    .map((entry) => rm(path.join(directory, entry.name), { recursive: true, force: true })));
+}
+
 function languageForFile(name) {
   if (path.basename(name).toLowerCase() === 'dockerfile') return 'dockerfile';
   if (name.endsWith('.sh')) return 'bash';
@@ -113,11 +141,12 @@ async function emitSourceFiles(taskSlug, group, files) {
   const groupDir = path.join(publicTaskFilesDir, taskSlug, group);
   await mkdir(groupDir, { recursive: true });
 
-  return Promise.all(files.map(async (file, index) => {
+  const outputFiles = files.map((_, index) => `${index}.json`);
+  const records = await Promise.all(files.map(async (file, index) => {
     const highlightedHtml = highlightCode(file.content, languageForFile(file.name));
     const lineCount = file.content ? file.content.split(/\r?\n/).length : 0;
-    const fileName = `${index}.json`;
-    await writeFile(
+    const fileName = outputFiles[index];
+    await writeFileAtomic(
       path.join(groupDir, fileName),
       `${JSON.stringify({ highlightedHtml, lineCount })}\n`,
     );
@@ -127,6 +156,8 @@ async function emitSourceFiles(taskSlug, group, files) {
       url: `/generated/task-files/${taskSlug}/${group}/${fileName}`,
     };
   }));
+  await pruneDirectory(groupDir, new Set(outputFiles));
+  return records;
 }
 
 function prioritizeFiles(files, preferredNames) {
@@ -216,8 +247,6 @@ function getSectionObject(source, name) {
   return Object.fromEntries(keys.map((key) => [key, getValue(section, key)]));
 }
 
-await rm(detailsOutputDir, { recursive: true, force: true });
-await rm(publicTaskFilesDir, { recursive: true, force: true });
 await mkdir(detailsOutputDir, { recursive: true });
 await mkdir(publicTaskFilesDir, { recursive: true });
 
@@ -297,10 +326,18 @@ tasks.sort((a, b) => a.slug.localeCompare(b.slug));
 await mkdir(outputDir, { recursive: true });
 await rm(legacyOutputFile, { force: true });
 
-await Promise.all(tasks.map((task) => writeFile(
+await Promise.all(tasks.map((task) => writeFileAtomic(
   path.join(detailsOutputDir, `${task.slug}.json`),
   `${JSON.stringify(task, null, 2)}\n`,
 )));
+await pruneDirectory(
+  detailsOutputDir,
+  new Set(tasks.map((task) => `${task.slug}.json`)),
+);
+await pruneDirectory(
+  publicTaskFilesDir,
+  new Set(tasks.map((task) => task.slug)),
+);
 
 const taskIndex = tasks.map((task) => ({
   slug: task.slug,
@@ -314,12 +351,12 @@ const taskIndex = tasks.map((task) => ({
   repository: task.repository,
   accelerator: task.accelerator,
 }));
-await writeFile(indexOutputFile, `${JSON.stringify(taskIndex, null, 2)}\n`);
+await writeFileAtomic(indexOutputFile, `${JSON.stringify(taskIndex, null, 2)}\n`);
 
 const loaderEntries = tasks.map((task) => (
   `  ${JSON.stringify(task.slug)}: () => import('./task-details/${task.slug}.json'),`
 )).join('\n');
-await writeFile(
+await writeFileAtomic(
   loadersOutputFile,
   `export const taskLoaders = {\n${loaderEntries}\n} as const;\n`,
 );

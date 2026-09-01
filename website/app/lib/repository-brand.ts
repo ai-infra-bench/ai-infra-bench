@@ -4,6 +4,7 @@ type RepositoryLogo = {
   name: string;
   repo: string;
   card_logo_file: string;
+  card_logo_kind: 'mark' | 'wordmark';
 };
 
 const repositoryLogoMap = new Map(
