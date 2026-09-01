@@ -1,0 +1,14 @@
+diff --git a/rust/src/tool-parser/src/utils.rs b/rust/src/tool-parser/src/utils.rs
+index 171c1af..9a74870 100644
+--- a/rust/src/tool-parser/src/utils.rs
++++ b/rust/src/tool-parser/src/utils.rs
+@@ -70,6 +70,9 @@ pub(super) fn safe_text_len(input: &mut Partial<&str>, marker: &str) -> ModalRes
+ 
+ /// Decode XML/HTML entities in XML-style parameter values.
+ pub(super) fn xml_unescape(value: &str) -> Cow<'_, str> {
++    if value.contains("&lt;/") {
++        return Cow::Borrowed(value);
++    }
+     if !value.as_bytes().contains(&b'&') {
+         return Cow::Borrowed(value);
+     }
