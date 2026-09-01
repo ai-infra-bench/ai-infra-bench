@@ -39,16 +39,16 @@ function RepositoryBrand({ task }: { task: TaskSummary }) {
 }
 
 export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
-  const [workload, setWorkload] = useState('all');
+  const [accelerator, setAccelerator] = useState('all');
 
-  const workloads = useMemo(
-    () => Array.from(new Set(tasks.map((task) => task.workloadType).filter(Boolean))) as string[],
+  const accelerators = useMemo(
+    () => Array.from(new Set(tasks.map((task) => task.accelerator).filter(Boolean))) as string[],
     [tasks],
   );
 
   const visibleTasks = useMemo(() => {
-    return tasks.filter((task) => workload === 'all' || task.workloadType === workload);
-  }, [tasks, workload]);
+    return tasks.filter((task) => accelerator === 'all' || task.accelerator === accelerator);
+  }, [accelerator, tasks]);
 
   return (
     <section className="task-catalog" id="tasks" aria-labelledby="task-catalog-title">
@@ -60,16 +60,16 @@ export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
       </div>
 
       <div className="catalog-tools">
-        <div className="workload-filter" aria-label="Filter tasks by workload">
-          {['all', ...workloads].map((option) => (
+        <div className="accelerator-filter" aria-label="Filter tasks by accelerator">
+          {['all', ...accelerators].map((option) => (
             <button
               type="button"
               key={option}
-              onClick={() => setWorkload(option)}
-              className={workload === option ? 'is-active' : ''}
-              aria-pressed={workload === option}
+              onClick={() => setAccelerator(option)}
+              className={accelerator === option ? 'is-active' : ''}
+              aria-pressed={accelerator === option}
             >
-              {option === 'all' ? 'All' : formatLabel(option)}
+              {option === 'all' ? 'All' : option}
             </button>
           ))}
         </div>
@@ -100,7 +100,7 @@ export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
           <button
             type="button"
             onClick={() => {
-              setWorkload('all');
+              setAccelerator('all');
             }}
           >
             Clear filters
