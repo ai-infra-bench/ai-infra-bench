@@ -1,0 +1,29 @@
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index f61d54f..cd9be17 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -1955,7 +1955,8 @@ class Scheduler(SchedulerInterface):
+         )
+         return SchedulerStats(
+             num_running_reqs=len(self.running),
+-            num_waiting_reqs=len(self.waiting) + len(self.skipped_waiting),
++            num_waiting_reqs=len(self.waiting),
++            num_skipped_waiting_reqs=len(self.skipped_waiting),
+             kv_cache_usage=self.kv_cache_manager.usage,
+             encoder_cache_usage=self._get_encoder_cache_usage(),
+             prefix_cache_stats=prefix_cache_stats,
+diff --git a/vllm/v1/metrics/stats.py b/vllm/v1/metrics/stats.py
+index 7995581..e965c87 100644
+--- a/vllm/v1/metrics/stats.py
++++ b/vllm/v1/metrics/stats.py
+@@ -172,7 +172,9 @@ class SchedulerStats:
+     """Stats associated with the scheduler."""
+ 
+     num_running_reqs: int = 0
+-    num_waiting_reqs: int = 0
++
++    num_waiting_reqs: int = 0  # length of the "waiting" request queue
++    num_skipped_waiting_reqs: int = 0  # length of the "skipped waiting" queue
+ 
+     # These are used for internal DP load-balancing.
+     step_counter: int = 0

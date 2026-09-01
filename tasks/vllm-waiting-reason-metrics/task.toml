@@ -1,0 +1,46 @@
+schema_version = "1.4"
+
+[task]
+name = "ai-infra-bench/vllm-waiting-reason-metrics"
+version = "0.0.1"
+description = "Expose a backward-compatible Prometheus breakdown of scheduler waiting requests."
+authors = [{name = ""}]
+keywords = ["vllm", "cpu", "scheduler", "prometheus", "metrics"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+candidate_id = "vllm-cpu-300-118"
+source_pr = 38435
+predecessor_pr = 35781
+track = "representative"
+workload_type = "feature"
+subsystems = ["scheduler", "serving_api"]
+repository = "vllm-project/vllm"
+base_commit = "f72b20976c49f5cc522281b59df4863cabed8df2"
+dependency_cutoff = "2026-04-13T19:13:51Z"
+dependency_cutoff_overrides = [
+  "torch=2026-05-01T23:59:59Z",
+  "torchaudio=2026-05-01T23:59:59Z",
+  "torchvision=2026-05-01T23:59:59Z",
+]
+dependency_cutoff_override_reason = "The pinned base requirements require torch 2.11 CPU wheels that were uploaded after the source cutoff."
+image_digest = "sha256:23848f1fb6f249b49d483abe080f89510a1517205daa886924e1409a1855e9f6"
+environment_template = "vllm-harbor-all-in-one"
+publication_state = "development"
+
+[agent]
+timeout_sec = 3600
+user = "root"
+network_mode = "no-network"
+
+[environment]
+accelerator = "CPU"
+build_timeout_sec = 14400
+cpus = 8
+memory_mb = 49152
+storage_mb = 20480
+workdir = "/workspace/vllm"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 1800

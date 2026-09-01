@@ -1,0 +1,5 @@
+We are trying to diagnose a serving backlog on a deployment that uses asynchronous KV transfer and LoRA. The dashboard only exposes vllm:num_requests_waiting, so the same value can mean either fresh requests that have not received scheduling capacity yet or requests that were already considered and deferred by a transient constraint. The existing log line has the same ambiguity.
+
+Add a Prometheus breakdown named vllm:num_requests_waiting_by_reason with reason="capacity" and reason="deferred". Capacity is the not-yet-scheduled backlog; deferred is work blocked by a transient scheduling constraint. The existing vllm:num_requests_waiting metric must remain available and equal the sum of both reasons, including when either reason is zero. Multi-engine metrics must aggregate the same way.
+
+The periodic throughput log should report the total as Waiting and add a Deferred count only when that count is nonzero. This is observability work only: request ordering, scheduling decisions, queue promotion, existing metric names, and deployments without deferred requests must keep their current behavior.

@@ -1,0 +1,155 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-01T19:38:06+08:00",
+  "source": {
+    "candidate_id": "vllm-cpu-300-118",
+    "instance_id": "vllm-project__vllm-38435",
+    "base_commit": "f72b20976c49f5cc522281b59df4863cabed8df2",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/38435",
+    "squash_merge_commit": "5c18b961d692cf45df0a1ecca7d1688f6168ae0f",
+    "base_is_squash_merge_parent": true,
+    "predecessor_pull_request": "https://github.com/vllm-project/vllm/pull/35781",
+    "linked_issue": null,
+    "golden_product_code_changes": 56
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-waiting-reason-metrics:base-f72b20976c49",
+    "image_id": "sha256:23848f1fb6f249b49d483abe080f89510a1517205daa886924e1409a1855e9f6",
+    "size_bytes": 1591400343,
+    "dockerfile_sha256": "296557592378538f029fd2dec85ab6a97c167c095135166bf273813973dca978",
+    "template_sha256": "2f1688856bf1e683d6f19bba67f07094c64c87f8da9551f1bc9c4a1e69fcb515",
+    "dependency_lock_sha256": "0e130e22bff62b7a248d2d86e98c19b44b14ae48ce13ad7aa0b189462243e247",
+    "dependency_lock_manifest_sha256": "322916f0952d42dfe682595b3ece4eeb44610f7cbbd21a9f81a1fb86d2cfbd55",
+    "cache_namespace": "f72b20976c49f5cc522281b59df4863cabed8df2-0e130e22bff62b7a-f6976e65056ca407",
+    "dependency_cutoff_overrides": ["torch=2026-05-01T23:59:59Z", "torchaudio=2026-05-01T23:59:59Z", "torchvision=2026-05-01T23:59:59Z"],
+    "override_reason": "The pinned base requirements require torch 2.11 CPU wheels that were uploaded after the source cutoff.",
+    "cutoff_compatible_tools": {"rustc": "1.94.1", "cargo_nextest": "0.9.132", "conditional_protoc": "34.1"}
+  },
+  "artifacts": {
+    "task_metadata_sha256": "1384ea0a357243a00e31957f2ef23dca2782a5d6724c022c7d5b170f3ec2e9ae",
+    "instruction_sha256": "c338b23d03ca4dfef5016936906b74c308fd80410fb1db72f14cc998e97c5e96",
+    "oracle_patch_sha256": "96e13c29e5ed7a7e7a9c95f3409408d5a2e3860eb9d8a082c03975d4d514751f",
+    "solve_script_sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491",
+    "test_script_sha256": "47d4504fdde92be953752b14884ad4ef8df179f3f875e2b79cbfaa0e72553464",
+    "regression_test_sha256": "b66bad4ec070d1df90d8f65449d6bd6055daf939e02bee801c8872e895bdcf49",
+    "junit_checker_sha256": "e0eada32ca2eeea6683ba31e1f3320ca11ef8c25a908f05b090e3f1b9a7e17dd",
+    "verifier_support_sha256": "1ce8b87817c2b731fe473524521665a15f0a15b10892f2b03250a4a7cb6e45f7",
+    "real_metrics_http_sha256": "2d260da7371a57dba04ea34c256189889ade261857ba99bdf549b10512a1c92a",
+    "public_reproduction_sha256": "efa3abf997ef9c502ba795fd32c85978610ec3fee67f9d8c6c7b1b225c1d8fb6",
+    "image_manifest_sha256": "8ffc4965f65895fe46c91f2ce52894f380105702eaa7720d316eb35a6488f86c",
+    "ci_cases_sha256": "5822dd9694cf899d9e63e137db9e2f60c8d01752180378a0d9e9ef652727bb1b",
+    "remediation_matrix_sha256": "2bd70dcfc96a5c95c0aab8d0639151cb3ffa2f1eb2eebf35df81dc08a7557cbe"
+  },
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "reads_new_scheduler_fields_directly": false,
+    "depends_on_golden_names": false,
+    "behavior_cases": 9,
+    "behaviors": [
+      "real scheduler capacity and deferred populations appear as labeled Prometheus series",
+      "the legacy total remains the sum of both reason series for every engine",
+      "zero-valued reason series remain present",
+      "single-engine and aggregated throughput logs preserve total waiting and conditionally show deferred",
+      "existing running and KV-cache metrics remain exposed",
+      "the observability change preserves FCFS request selection"
+    ],
+    "collection_integrity": "JUnit must contain exactly 9 unique, passing, non-skipped cases"
+  },
+  "hidden_end_to_end": {
+    "tests_mounted_only_during_verification": true,
+    "scheduler_boundary": "real Scheduler schedule and update_from_output lifecycle",
+    "metrics_boundary": "real PrometheusStatLogger and prometheus_client exposition",
+    "http_entrypoint": "GET /metrics over uvicorn TCP",
+    "engines": 2,
+    "all_six_metric_values_measured_before_assertions": true,
+    "base_measured": {
+      "engine_0": {"total": 5, "capacity": null, "deferred": null},
+      "engine_1": {"total": 1, "capacity": null, "deferred": null}
+    },
+    "oracle_measured": {
+      "engine_0": {"total": 5, "capacity": 2, "deferred": 3},
+      "engine_1": {"total": 1, "capacity": 0, "deferred": 1}
+    },
+    "execution_substitutions": "A tiny local model config avoids weights; real Request objects, Scheduler queues, schedule/update lifecycle, scheduler stats, Prometheus logger, exposition registry, FastAPI response, uvicorn TCP, and HTTP client remain in the path.",
+    "limitation": "Deferred requests are placed in the real WAITING_FOR_REMOTE_KVS state without starting LoRA or remote-KV services; distributed worker transport is outside this scheduler/metrics contract."
+  },
+  "public_reproduction": {
+    "entrypoint": "/opt/repro/waiting_metrics.py",
+    "base_exit_code": 3,
+    "base_legacy_total": 3,
+    "base_breakdown_present": false,
+    "oracle_exit_code": 0,
+    "oracle_legacy_total": 3,
+    "oracle_capacity": 1,
+    "oracle_deferred": 2,
+    "oracle_breakdown_present": true
+  },
+  "repeated_runs": [
+    {"case": "base", "rounds": 5, "rewards": [0, 0, 0, 0, 0], "behavior_tests_each_round": {"passed": 3, "failed": 6}, "http_exit_codes": [1, 1, 1, 1, 1]},
+    {"case": "oracle", "rounds": 5, "rewards": [1, 1, 1, 1, 1], "behavior_tests_each_round": {"passed": 9, "failed": 0}, "http_exit_codes": [0, 0, 0, 0, 0]}
+  ],
+  "adversarial_runs": [
+    {"case": "deferred-hardcoded-zero", "patch_sha256": "8097150e46559c3dc6baa4344d6ed4340c36640517641a19b76713067c41741e", "reward": 0, "tests_passed": 4, "tests_failed": 5, "http_exit_code": 1},
+    {"case": "legacy-total-forgets-deferred", "patch_sha256": "a1f17493cf2931a5b6f7eb45d3e1e2d01d5966580290fdce80f1a6d56bf3db66", "reward": 0, "tests_passed": 7, "tests_failed": 2, "http_exit_code": 1},
+    {"case": "prometheus-only-no-log-aggregation", "patch_sha256": "7462bb1b7290f37d0c3e2b065b58a008c2d75a6de923c34b7b94081d1279e034", "reward": 0, "tests_passed": 7, "tests_failed": 2, "http_exit_code": 0},
+    {"case": "scheduler-stats-only", "patch_sha256": "1712bb99d2ab8b367bb46f10ff7b48482edb5df02b73a9aa70a08966afc6fa12", "reward": 0, "tests_passed": 3, "tests_failed": 6, "http_exit_code": 1}
+  ],
+  "conforming_alternative_run": {
+    "case": "alternative-label-names",
+    "patch_sha256": "bdf0fd59cd5c899ac79167040aa372ae31436016554b0b948502556985cbba44",
+    "change": "uses different internal constant names while preserving every observable metric and log behavior",
+    "reward": 1,
+    "tests_passed": 9,
+    "tests_failed": 0,
+    "http_exit_code": 0
+  },
+  "build_reproducibility": {
+    "initial_image_id": "sha256:23848f1fb6f249b49d483abe080f89510a1517205daa886924e1409a1855e9f6",
+    "warm_cache_image_id": "sha256:23848f1fb6f249b49d483abe080f89510a1517205daa886924e1409a1855e9f6",
+    "warm_cache_digest_stable": true
+  },
+  "critical_review_rounds": [
+    {"round": 1, "focus": "instruction and provenance", "result": "Confirmed capacity/deferred semantics, legacy invariant, conditional log, multi-engine behavior, predecessor queue design, and base SHA as the squash merge parent against PRs #38435 and #35781."},
+    {"round": 2, "focus": "environment and isolation", "result": "Documented the torch override, rebuilt from the April 13 snapshot with Rust 1.94.1 and nextest 0.9.132, verified the 155-package lock, full Git history, public-only fixture, and no hidden artifacts."},
+    {"round": 3, "focus": "Oracle correctness", "result": "The 56-line product patch separates raw queue counts, preserves the legacy sum, emits both zero-valued series, aggregates logs across engines, and leaves scheduling decisions untouched."},
+    {"round": 4, "focus": "verifier and adversarial", "result": "Recorded the full Base HTTP matrix, added FCFS selection coverage, ran five Base/Oracle rounds, accepted one renamed-constant alternative, and rejected four incomplete implementations."},
+    {"round": 5, "focus": "evidence", "result": "Refreshed hashes, measured results, substitutions, limitations, reproducibility, and provenance gates, then confirmed final Harbor reward 1 with all verifier exit codes 0."}
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "71ab5fd2-4b41-4239-9b01-e7c7376193c4",
+    "trial_id": "2f2a951b-cb7a-42d2-9202-bd14c1eec08c",
+    "input_task_checksum": "d64e27dc82c051db101705e41e802b00a1b744455cbd2c2e0bf3f36d275382b6",
+    "lock_task_digest": "sha256:a65f979a34f034d36e0f48cad6fa7e45486d132ef58c68eca114f340cf738c2f",
+    "checksum_scope": "Harbor hashes the entire task directory, including this evidence file. The recorded checksum is the exact input to this successful run; writing the run identifiers into this file necessarily changes the directory checksum afterward.",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "http_exit_code": 0,
+    "runtime_seconds": 138,
+    "canonical_image_retained_after_run": true
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "base_is_squash_merge_parent": true,
+    "future_reference_commit_absent": true,
+    "full_git_history_present": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_and_validation_absent_from_image": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "dependency_lock_dry_run_matches": true,
+    "dependency_cutoff_override_reason_recorded": true,
+    "only_public_reproduction_embedded": true,
+    "embedded_reproduction_hash_matches": true,
+    "empty_build_context": true,
+    "cached_rebuild_digest_stable": true,
+    "runtime_network_disabled": true
+  }
+}
