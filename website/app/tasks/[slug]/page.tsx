@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { ArrowLeftIcon, ArrowRightIcon } from '@radix-ui/react-icons';
 import { SiteHeader } from '@/app/components/site-header';
 import { TaskContentTabs } from '@/app/components/task-content-tabs';
 import { formatLabel, formatTaskTitle } from '@/app/lib/task-format';
@@ -33,6 +35,8 @@ export default async function TaskPage({ params }: TaskPageProps) {
   if (index === -1) notFound();
 
   const task = tasks[index];
+  const previous = index > 0 ? tasks[index - 1] : null;
+  const next = index < tasks.length - 1 ? tasks[index + 1] : null;
   const memoryGb = task.memoryMb ? Math.round(task.memoryMb / 1024) : null;
 
   return (
@@ -73,6 +77,27 @@ export default async function TaskPage({ params }: TaskPageProps) {
         />
 
       </article>
+
+      <nav className="task-sequence-nav" aria-label="Adjacent tasks">
+        <div>
+          {previous && (
+            <Link href={`/tasks/${previous.slug}`}>
+              <ArrowLeftIcon aria-hidden="true" />
+              <span className="sequence-direction">Previous</span>
+              <span className="sequence-title">{formatTaskTitle(previous.slug)}</span>
+            </Link>
+          )}
+        </div>
+        <div>
+          {next && (
+            <Link href={`/tasks/${next.slug}`}>
+              <span className="sequence-title">{formatTaskTitle(next.slug)}</span>
+              <span className="sequence-direction">Next</span>
+              <ArrowRightIcon aria-hidden="true" />
+            </Link>
+          )}
+        </div>
+      </nav>
     </main>
   );
 }
