@@ -1,0 +1,220 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-01T17:08:48+08:00",
+  "source": {
+    "candidate_id": "vllm-cpu-300-177",
+    "instance_id": "vllm-project__vllm-42585",
+    "base_commit": "d4004455d2357985830af10e432709b42c820455",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/42585",
+    "origin_issue": "https://github.com/vllm-project/vllm/issues/40443",
+    "followup_pull_request": "https://github.com/vllm-project/vllm/pull/43768",
+    "alternative_pull_request": "https://github.com/vllm-project/vllm/pull/40596",
+    "golden_product_code_changes": 236
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-multi-api-port-race:base-d4004455d235",
+    "image_id": "sha256:1f5feb558d532101444787c3f9350325ffac5141bc596b19ccffa18d5e6aa1e5",
+    "size_bytes": 2737879523,
+    "dockerfile_sha256": "791ebb355da58f485869f63472a47b2193895df6bff5aae2662b7b766c50a11a",
+    "template_sha256": "2f1688856bf1e683d6f19bba67f07094c64c87f8da9551f1bc9c4a1e69fcb515",
+    "dependency_lock_sha256": "984a41fb44695a0fa1d99d658020a2120c052338bf66908acaed29b6757123c5",
+    "dependency_lock_manifest_sha256": "86bd99b3d57ccf0229a46afd18c095ebc6a6f6efe4a977be1b64b4a2d39c1748",
+    "cache_namespace": "d4004455d2357985830af10e432709b42c820455-984a41fb44695a0f-58c4f34b2c181742",
+    "cutoff_compatible_tools": {
+      "cargo_nextest": "0.9.133 (published 2026-04-14T21:17:11Z)",
+      "protoc": "34.2 (published 2026-05-20T19:38:17Z)"
+    }
+  },
+  "artifacts": {
+    "task_metadata_sha256": "4591e42391b43015b3606d3643e1b61389212de81b1e71001dc873f361d57bbc",
+    "instruction_sha256": "ecc0f0f838dbf27f8b3bbdec20a2169daee1fa0e364f9a2d8b32bbcf04064a81",
+    "oracle_patch_sha256": "e6dcbf4d5ec661c840abe27a3a0afbdf3a437d90cbb6709711858e3d1bd37e92",
+    "solve_script_sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491",
+    "test_script_sha256": "d124070db7c0a7c7ef8f99282729d2d78624198aaa0d712aa0ddd8f7428a414a",
+    "regression_test_sha256": "978e161d7cc638c6d2b2525a4eaf860277274edb8c99a40123675c388b794725",
+    "junit_checker_sha256": "94336b59c9b094871b8781517b9ff2b09be46cafe198ed49eef94ff7cac5014c",
+    "verifier_support_sha256": "95eacdb6bf0f46cab30143ad0be1bdef4040de86c354d50d1056ed5f5f5910ee",
+    "real_cli_matrix_sha256": "04a65b2b60f05f6ffdef28fead8fdcd8e847797944ff52796b8e432fe783901e",
+    "scenario_runner_sha256": "4a55168bfe828fd7ba24355337242742de261dd885845134a20c99ed741f25d3",
+    "hidden_port_harness_sha256": "7d6e020f35899eb95c41059f99da28f126fc5305e1ce0a4092c909ce3bc04f1e",
+    "public_reproduction_sha256": "a5ee06b08ade670f3a57b3ce6fe7d79b4934cff6de04c6a348c3ef8e4f3701e0",
+    "public_port_harness_sha256": "7d6e020f35899eb95c41059f99da28f126fc5305e1ce0a4092c909ce3bc04f1e",
+    "image_manifest_sha256": "d934a176e81a1d08395b0c1dda2008e8839362ad6b248669b4d21a0597600aed",
+    "ci_cases_sha256": "148704f9e80ad21e7877724627f6c11da67f83d1a29f4020ab79b33152a55616",
+    "remediation_matrix_sha256": "299e78b477a96f1f51eb9add9047f0d2edc66ac0da43da8fba3251ec0d2b1591"
+  },
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "depends_on_golden_names": false,
+    "behavior_cases": 10,
+    "behaviors": [
+      "two, four, and eight API server children start under deterministic port pressure and publish distinct concrete endpoints",
+      "one-server and unpressured multi-server TCP startup remain usable",
+      "IPC startup remains usable",
+      "a frontend without an endpoint-report channel receives concrete TCP addresses",
+      "a child exit before readiness is reported promptly",
+      "the configured short and long engine-ready timeouts govern slow API server initialization"
+    ],
+    "collection_integrity": "JUnit must contain exactly 10 unique, passing, non-skipped cases"
+  },
+  "hidden_end_to_end": {
+    "tests_mounted_only_during_verification": true,
+    "entrypoint": "run_multi_api_server with real APIServerProcessManager, spawned MPClient children, OS processes, pipes, and ZMQ TCP/IPC sockets",
+    "server_counts": [1, 2, 3, 4, 8],
+    "uses_real_tcp_bind": true,
+    "uses_real_ipc_bind": true,
+    "uses_real_multiprocessing_spawn": true,
+    "model_weights_required": false,
+    "assertions_run_after_all_scenarios": true,
+    "scenario_timeout_cleanup": "Each scenario starts in a new process group; timeout cleanup sends SIGTERM and escalates to SIGKILL after a bounded wait."
+  },
+  "public_reproduction": {
+    "entrypoint": "/opt/repro/port_startup_trace.py",
+    "attempts": 4,
+    "base_successes": 0,
+    "base_failures": 4,
+    "base_exit_code": 3,
+    "observed_error": "Process ApiServer_N died with exit code 1 after ZMQ EADDRINUSE",
+    "per_attempt_elapsed_seconds": [
+      4.324561386980349,
+      4.291694250016008,
+      4.2922507400217,
+      4.252029192983173
+    ]
+  },
+  "repeated_runs": [
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "behavior_tests_each_round": {"passed": 6, "failed": 4},
+      "cli_exit_codes": [1, 1, 1, 1, 1]
+    },
+    {
+      "case": "oracle",
+      "rounds": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "behavior_tests_each_round": {"passed": 10, "failed": 0},
+      "cli_exit_codes": [0, 0, 0, 0, 0]
+    }
+  ],
+  "adversarial_runs": [
+    {
+      "case": "child-binds-without-report",
+      "patch_sha256": "577464263ae06636b5f8472c9e22c9442250dcf434a38ba5f83b05113d932d25",
+      "reward": 0,
+      "tests_passed": 3,
+      "tests_failed": 7,
+      "cli_exit_code": 1
+    },
+    {
+      "case": "defer-rust-frontend-ports",
+      "patch_sha256": "dc58fab72ba3c95e82a6df8e59aa467f6cf35caf76879fb3bc484293439f8142",
+      "reward": 0,
+      "tests_passed": 9,
+      "tests_failed": 1,
+      "cli_exit_code": 0
+    },
+    {
+      "case": "hardcoded-startup-timeout",
+      "patch_sha256": "91c75dca75e30f6db6b8c7f877129a65b3e5dd4be5700af0501b17d2096d40d3",
+      "reward": 0,
+      "tests_passed": 9,
+      "tests_failed": 1,
+      "cli_exit_code": 0
+    },
+    {
+      "case": "parent-does-not-collect",
+      "patch_sha256": "7a838f2364084e6b74a2e35673184930ff62e81b8d498811fd5a61aae7c0ea20",
+      "reward": 0,
+      "tests_passed": 3,
+      "tests_failed": 7,
+      "cli_exit_code": 1
+    }
+  ],
+  "conforming_alternative_run": {
+    "case": "alternative-collection-method-name",
+    "patch_sha256": "f7d9542a03084b021023349be8abfefa82d39675f539001324fea16079bea5e1",
+    "change": "uses a different internal name for the parent endpoint collection operation",
+    "reward": 1,
+    "tests_passed": 10,
+    "tests_failed": 0,
+    "cli_exit_code": 0
+  },
+  "build_reproducibility": {
+    "initial_image_id": "sha256:1f5feb558d532101444787c3f9350325ffac5141bc596b19ccffa18d5e6aa1e5",
+    "warm_cache_image_id": "sha256:1f5feb558d532101444787c3f9350325ffac5141bc596b19ccffa18d5e6aa1e5",
+    "warm_cache_digest_stable": true
+  },
+  "critical_review_rounds": [
+    {
+      "round": 1,
+      "focus": "instruction and provenance",
+      "result": "Confirmed the 5/79 production failures, 1/28 pressure result, single-server workaround, timeout follow-up, and alternative PR against the upstream issue and PRs."
+    },
+    {
+      "round": 2,
+      "focus": "environment, dependencies, Rust, and isolation",
+      "result": "Rebuilt from the cutoff snapshot with cutoff-compatible tools, verified the 157-package offline lock, vendored Cargo dependencies, and audited Git and hidden artifacts."
+    },
+    {
+      "round": 3,
+      "focus": "Oracle correctness and scope",
+      "result": "The product change uses bind-in-child plus pipe-back, preserves IPC/single-client/Rust paths, applies to the base, and honors VLLM_ENGINE_READY_TIMEOUT_S."
+    },
+    {
+      "round": 4,
+      "focus": "verifier, controls, alternatives, and adversarial cases",
+      "result": "Moved E2E assertions after all scenarios, added process-group cleanup, completed five Base/Oracle rounds, accepted one alternative, and rejected four incomplete fixes."
+    },
+    {
+      "round": 5,
+      "focus": "evidence and final execution",
+      "result": "Refreshed artifact hashes, public and hidden results, substitutions, and confirmed final Harbor reward 1 with all verifier exit codes 0."
+    }
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "fe8193f8-14b9-457e-bdef-0291671a33ea",
+    "trial_id": "dbab415b-2035-426b-b3df-b587f29f33d4",
+    "input_task_checksum": "8313b703b143d09493f6c49e5c54d14167e765c6cd91eb7cda8a4bfbe146d919",
+    "lock_task_digest": "sha256:b765bccaa94922f360157690320fd4a2273d7c1356ce02a42945c649ba51104b",
+    "checksum_scope": "Harbor hashes the entire task directory, including this evidence file. The recorded checksum is the exact input to this successful run; writing the run identifiers into this file necessarily changes the directory checksum afterward.",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "cli_exit_code": 0,
+    "runtime_seconds": 386,
+    "e2e_statuses": {
+      "race": "ok",
+      "ipc": "ok",
+      "crash": "error",
+      "slow": "ok"
+    },
+    "crash_elapsed_seconds": 0.027114397002151236,
+    "slow_elapsed_seconds": 4.113094650005223,
+    "canonical_image_retained_after_run": true
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "future_reference_commits_absent": true,
+    "full_git_history_present": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_and_validation_absent_from_image": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "cargo_dependencies_vendored_and_offline": true,
+    "tool_releases_predate_cutoff": true,
+    "only_public_reproduction_embedded": true,
+    "embedded_reproduction_hashes_match": true,
+    "empty_build_context": true,
+    "cached_rebuild_digest_stable": true,
+    "runtime_network_disabled": true
+  }
+}
