@@ -2,7 +2,7 @@
 
 **How much real AI infrastructure engineering work can frontier models solve?**
 
-AI Infra Bench is a benchmark built from real AI infrastructure engineering workloads. Its first release focuses exclusively on vLLM and will contain 100 expert-reviewed tasks: 76 representative bugs, features, performance changes, refactors, and tests, plus 24 memorable problems nominated by vLLM maintainers. Future releases will expand to SGLang, TensorRT-LLM, PyTorch, and end-to-end use cases contributed by downstream users.
+AI Infra Bench is a benchmark built from real AI infrastructure engineering workloads. Its first release focuses exclusively on vLLM and will contain 50 expert-reviewed tasks: approximately 25 CPU tasks covering representative bugs, features, performance changes, refactors, and tests, plus approximately 25 GPU tasks drawn from memorable problems nominated by vLLM maintainers. Future releases will expand to SGLang, TensorRT-LLM, PyTorch, and end-to-end use cases contributed by downstream users.
 
 In addition to the existing public task set, the benchmark will include a private set. Each model will be evaluated separately on the public and private sets.
 
