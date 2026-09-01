@@ -5,7 +5,7 @@ export function SiteHeader() {
     <header className="site-header">
       <Link className="header-name" href="/" aria-label="AI Infra Bench">
         <span className="header-wordmark" aria-hidden="true">
-          <span>AI </span><span className="header-infra-i">I</span><span>nfra Bench</span>
+          <span>AI</span><span className="header-infra-i" /><span>nfra Bench</span>
         </span>
       </Link>
       <nav aria-label="Primary navigation">
