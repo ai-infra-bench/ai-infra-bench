@@ -2,6 +2,7 @@ I am starting vLLM with four API server processes against the same model: vllm s
 
 The model directory contains a valid `config.json`, and the same command can succeed when retried. However, startup sometimes fails with output like this:
 
+```text
 INFO 08-30 12:53:04 [importing.py:53] Triton is installed but 0 active driver(s) found (expected 1). Disabling Triton to prevent runtime errors.
 WARNING 08-30 12:53:04 [importing.py:65] Triton is installed, but doesn't include CPU backend. Disabling Triton.
 INFO 08-30 12:53:04 [importing.py:88] Triton not installed or not compatible; certain GPU-related functions will not be available.
@@ -156,6 +157,7 @@ Traceback (most recent call last):
   File "/workspace/vllm/vllm/v1/utils.py", line 288, in gather_actual_addresses
     raise RuntimeError(
 RuntimeError: API server ApiServer_0 closed its address pipe without reporting its bound ZMQ addresses
+```
 
 
 Why does only one API server fail to read a configuration that the other three load successfully? I need a change in `/workspace/vllm` that lets valid configurations load reliably when multiple API servers start together, while genuinely missing, malformed, or unsupported configurations must still be rejected.
