@@ -1,0 +1,277 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-01T15:42:25+08:00",
+  "source": {
+    "candidate_id": "vllm-cpu-300-127",
+    "instance_id": "vllm-project__vllm-40056",
+    "base_commit": "4c47710bf707e93bdf83391948f844e461b7ba4f",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/40056",
+    "linked_issue": null,
+    "golden_product_code_changes": 128,
+    "profile_measurements_seconds": {
+      "vllm_help_before": 7.91,
+      "vllm_help_after": 6.24,
+      "cli_main_import_before": 7.4,
+      "cli_main_import_after": 1.79,
+      "plain_vllm_import_before": 2.3,
+      "plain_vllm_import_after": 1.79,
+      "serve_before": 31,
+      "serve_after_range": [28, 29]
+    }
+  },
+  "dependency_cutoff": {
+    "source_cutoff": "2026-04-17T00:54:32Z",
+    "overrides": [
+      "torch=2026-05-01T23:59:59Z",
+      "torchaudio=2026-05-01T23:59:59Z",
+      "torchvision=2026-05-01T23:59:59Z"
+    ],
+    "override_reason": "PR #40056 measured torch 2.11; the pinned CPU wheels required to reproduce that profile were uploaded after the source cutoff."
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-cli-lazy-import-startup:base-4c47710bf707",
+    "image_id": "sha256:1f8cdea899d6208f3597f54ce4a373908b272af168d3d9fdc6e42417495444a6",
+    "size_bytes": 1658054637,
+    "dockerfile_sha256": "77777a09593ec8c849de23be1b5a780876b3390d0dba972c11059ebea1777060",
+    "template_sha256": "2f1688856bf1e683d6f19bba67f07094c64c87f8da9551f1bc9c4a1e69fcb515",
+    "dependency_lock_sha256": "2004971382e583fa38d53c93c6201521458f8ab1f310c694a15ae8cc719e3ac1",
+    "dependency_lock_manifest_sha256": "2f788af1643555a431903d154babf2fd9b85e953e6472ac98e3fbc9c4652f1ce",
+    "cache_namespace": "4c47710bf707e93bdf83391948f844e461b7ba4f-2004971382e583fa-6e080ff0c9cb931b",
+    "cutoff_compatible_tools": {
+      "cargo_nextest": "0.9.133 (published 2026-04-14T21:17:11Z)",
+      "protoc": "34.1 (published 2026-03-19T22:21:30Z)"
+    }
+  },
+  "artifacts": {
+    "task_metadata_sha256": "2b63101a85f504e2e0edb5d88001d3d516fdece3b3475064cf2f9539dd4cb2ff",
+    "instruction_sha256": "636875300262f5a3e69b11d555bca88c43c3ab1fb870dbc9d18df3dad2836c89",
+    "oracle_patch_sha256": "f7f23386018b0eb205e94f4b1130d9772035aff0e2e0ffd0855e6c34f442cdd3",
+    "solve_script_sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491",
+    "test_script_sha256": "f6f348e36e060a9b54ac1eb4d20a02ed324099251f31ed983b86ebd1aa1ec8e3",
+    "regression_test_sha256": "81628c1c24542322e0bcc0b631bfc94c4a25c1e14bf88f429aad0901bbf90496",
+    "junit_checker_sha256": "c1d5a73a1eb1252db3d0eb23c8b13cb51c6d431042c2f5fae61279434f0102cb",
+    "real_cli_matrix_sha256": "37533fbe3adc413345ca81baedaf7afb97cfb31b6cca0556970e23a6683b4641",
+    "public_reproduction_sha256": "b468f4e214fb85de58b28c291706798eedce6103882ad831b62d7e37a6566f70",
+    "image_manifest_sha256": "c5700c21baaab0800a866c3a38a904387ba02c602f4dd8e9c99365ce9788d5aa",
+    "ci_cases_sha256": "b49db53676ba97aa3baf3ae25ffabe9c1f2144423d103cc59694141354a984e8",
+    "remediation_matrix_sha256": "b3025e565a851e81bb46ca6cca16e10a5804a254b6a34a8a05462aabf1670ab4"
+  },
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "depends_on_golden_names": false,
+    "behavior_cases": 7,
+    "behaviors": [
+      "the CLI package import does not register benchmark implementation modules",
+      "the CLI main import does not attempt plotting or dataframe imports",
+      "plain vLLM import preserves TORCHINDUCTOR_COMPILE_THREADS=1",
+      "torch._inductor observes compile_threads=1 when imported",
+      "both sweep plot modules defer optional plotting dependencies",
+      "the public plot and plot_pareto commands generate non-empty PNG files",
+      "five paired fresh imports keep CLI-main at ratio <=1.5 and overhead <=0.8 seconds relative to plain vLLM"
+    ],
+    "collection_integrity": "JUnit must contain exactly 7 unique, passing, non-skipped cases"
+  },
+  "public_reproduction": {
+    "samples_per_target": 5,
+    "base": {
+      "exit_code": 3,
+      "plain_median_seconds": 0.8876901349867694,
+      "cli_median_seconds": 3.0228898160276003,
+      "cli_to_plain_ratio": 3.4053434829177807,
+      "cli_overhead_seconds": 2.135199681040831,
+      "import_contract": false
+    },
+    "oracle": {
+      "exit_code": 0,
+      "plain_median_seconds": 0.8835428989841603,
+      "cli_median_seconds": 0.8972582090063952,
+      "cli_to_plain_ratio": 1.0155230833024678,
+      "cli_overhead_seconds": 0.013715310022234917,
+      "import_contract": true
+    }
+  },
+  "hidden_end_to_end": {
+    "tests_mounted_only_during_verification": true,
+    "entrypoint": "real vllm CLI subprocesses and a real CPU engine process",
+    "commands": [
+      "vllm --help",
+      "vllm serve --help",
+      "vllm --version",
+      "vllm bench --help and all six benchmark subcommand help paths",
+      "vllm bench sweep plot on a real summary.json",
+      "vllm bench sweep plot_pareto on a real summary.json",
+      "vllm serve on a local one-layer OPT checkpoint followed by GET /health"
+    ],
+    "fresh_import_samples_per_target": 5,
+    "plot_backend": "Agg",
+    "model_substitution": "A deterministic local one-layer OPT checkpoint replaces external model weights; the real vLLM CPU engine, loader, API process, and health endpoint remain inside the target boundary.",
+    "network": "disabled"
+  },
+  "repeated_runs": {
+    "rounds": 5,
+    "base_rewards": [0, 0, 0, 0, 0],
+    "oracle_rewards": [1, 1, 1, 1, 1],
+    "base_pytest_failures_each_round": [4, 4, 4, 4, 4],
+    "oracle_pytest_failures_each_round": [0, 0, 0, 0, 0],
+    "base_cli_exit_codes": [1, 1, 1, 1, 1],
+    "oracle_cli_exit_codes": [0, 0, 0, 0, 0],
+    "base_cli_to_plain_ratios": [
+      3.4242293270107993,
+      3.4148789478951986,
+      3.4214915148801284,
+      3.424226001378737,
+      3.4473912298786797
+    ],
+    "oracle_cli_to_plain_ratios": [
+      1.0214512173599284,
+      0.9918865378732845,
+      0.9459578776035821,
+      1.0256969828636606,
+      0.9940125706116871
+    ],
+    "base_cli_overhead_seconds": [
+      2.1465830840170383,
+      2.148922949010739,
+      2.1544269809965044,
+      2.15877039602492,
+      2.1724519550043624
+    ],
+    "oracle_cli_overhead_seconds": [
+      0.02036964599392377,
+      -0.008498706971295178,
+      -0.05694362800568342,
+      0.02446990698808804,
+      -0.005805463966680691
+    ],
+    "plot_png_sizes_each_run": {
+      "smoke.png": 18785,
+      "PARETO.png": 42645
+    },
+    "health_status_all_runs": 200
+  },
+  "adversarial_runs": [
+    {
+      "case": "cli-deferral-only",
+      "patch_sha256": "4c89406886dba9ae1806520f0ea76dcf6b90407cd295542b553ce70eafc9eadd",
+      "reward": 0,
+      "tests_passed": 6,
+      "tests_failed": 1,
+      "cli_exit_code": 0
+    },
+    {
+      "case": "plot-deferral-only",
+      "patch_sha256": "4102b01670e87a73e7e97a033fe613712b0503e6f681b9af691a39240aeada6c",
+      "reward": 0,
+      "tests_passed": 4,
+      "tests_failed": 3,
+      "cli_exit_code": 1
+    },
+    {
+      "case": "env-override-only",
+      "patch_sha256": "a8a9b7c46925fb816dcfa7c46c126acd4851be72f09a08f62d4bd8ac7f089b32",
+      "reward": 0,
+      "tests_passed": 3,
+      "tests_failed": 4,
+      "cli_exit_code": 1
+    },
+    {
+      "case": "drops-benchmark-subcommands",
+      "patch_sha256": "ecbec59dae7e6c3f97de612f383e4a0f1d0d36719687bb070aafe0f94340a817",
+      "reward": 0,
+      "tests_passed": 6,
+      "tests_failed": 1,
+      "cli_exit_code": 1
+    }
+  ],
+  "conforming_alternative_run": {
+    "case": "alternative-helper-name",
+    "patch_sha256": "0512c709e18dccd5587436c541b86551ece05ca9ca7474c5df1d2fe13492cac8",
+    "change": "renames the benchmark import helper while preserving the lazy behavior and every public command",
+    "reward": 1,
+    "tests_passed": 7,
+    "tests_failed": 0,
+    "cli_exit_code": 0
+  },
+  "build_reproducibility": {
+    "initial_image_id": "sha256:1f8cdea899d6208f3597f54ce4a373908b272af168d3d9fdc6e42417495444a6",
+    "warm_cache_image_id": "sha256:1f8cdea899d6208f3597f54ce4a373908b272af168d3d9fdc6e42417495444a6",
+    "warm_cache_digest_stable": true,
+    "final_cutoff_profile_validation": {
+      "base_reward": 0,
+      "oracle_reward": 1,
+      "base_cli_exit_code": 1,
+      "oracle_cli_exit_code": 0
+    }
+  },
+  "critical_review_rounds": [
+    {
+      "round": 1,
+      "focus": "instruction and provenance",
+      "result": "Removed the invented user persona; retained only PR-backed measurements and executable acceptance language."
+    },
+    {
+      "round": 2,
+      "focus": "environment, dependencies, and isolation",
+      "result": "Pinned the hardened snapshot image, selected cargo-nextest 0.9.133 and protoc 34.1 before the task cutoff, added plotting dependencies, documented the torch cutoff override, verified offline lock closure, and audited Git and hidden artifacts."
+    },
+    {
+      "round": 3,
+      "focus": "Oracle correctness and scope",
+      "result": "The 128-line product change remains behaviorally minimal, applies to the base, passes the public reproduction, preserves compile-thread semantics, and keeps all public CLI paths."
+    },
+    {
+      "round": 4,
+      "focus": "verifier, E2E, alternatives, and adversarial cases",
+      "result": "Replaced the ineffective absolute threshold and private dry-run plot call; verified real PNGs, a real CPU service, one conforming alternative, and four rejected partial or destructive patches."
+    },
+    {
+      "round": 5,
+      "focus": "evidence, hashes, and final Harbor execution",
+      "result": "Refreshed artifact hashes and actual metrics, documented the independent-builder limitation, and confirmed Harbor reward 1 with all verifier exit codes 0."
+    }
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "9d8956aa-bd95-4f98-ae29-fcd79eaae928",
+    "trial_id": "a25b82ed-4b15-483b-b5e5-aaa77733986b",
+    "input_task_checksum": "597e823c8088f8d826b35d12a9753cc1ddedbd79422af60fadb56bb8450b0dc8",
+    "lock_task_digest": "sha256:f9856754baa15bae50ce053a08fdf2fe8c0ed7be513e575749397fba657fdf7a",
+    "checksum_scope": "Harbor hashes the entire task directory, including this evidence file. The recorded checksum is the exact input to this successful run; writing the run identifiers into this file necessarily changes the directory checksum afterward.",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "cli_exit_code": 0,
+    "runtime_seconds": 258,
+    "oracle_cli_to_plain_ratio": 1.005646550424217,
+    "oracle_cli_overhead_seconds": 0.005292902002111077,
+    "plot_png_sizes": {
+      "smoke.png": 18785,
+      "PARETO.png": 42645
+    },
+    "health_status": 200,
+    "canonical_image_retained_after_run": true
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "future_reference_commit_absent": true,
+    "full_git_history_present": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_and_validation_absent_from_image": true,
+    "only_public_reproduction_embedded": true,
+    "embedded_reproduction_hash_matches": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "empty_build_context": true,
+    "cache_namespace_includes_base_lock_and_template": true,
+    "remote_cache_imported": false,
+    "initial_and_warm_cache_image_digest_match": true,
+    "runtime_network_disabled": true,
+    "task_metadata_image_digest_matches_retained_image": true
+  }
+}

@@ -1,0 +1,112 @@
+diff --git a/vllm/benchmarks/sweep/plot.py b/vllm/benchmarks/sweep/plot.py
+index 156e18f..2d36928 100644
+--- a/vllm/benchmarks/sweep/plot.py
++++ b/vllm/benchmarks/sweep/plot.py
+@@ -8,7 +8,7 @@ from dataclasses import dataclass
+ from functools import partial
+ from pathlib import Path
+ from types import TracebackType
+-from typing import ClassVar
++from typing import TYPE_CHECKING, ClassVar
+ 
+ from typing_extensions import Self, override
+ 
+@@ -17,20 +17,8 @@ from vllm.utils.import_utils import PlaceholderModule
+ 
+ from .utils import sanitize_filename
+ 
+-try:
+-    import matplotlib.pyplot as plt
+-except ImportError:
+-    plt = PlaceholderModule("matplotlib").placeholder_attr("pyplot")
+-
+-try:
++if TYPE_CHECKING:
+     import pandas as pd
+-except ImportError:
+-    pd = PlaceholderModule("pandas")
+-
+-try:
+-    import seaborn as sns
+-except ImportError:
+-    seaborn = PlaceholderModule("seaborn")
+ 
+ 
+ @dataclass
+@@ -265,6 +253,20 @@ def _plot_fig(
+     fig_height: float,
+     fig_dpi: int,
+ ):
++    # Lazy-import matplotlib/pandas/seaborn
++    try:
++        import matplotlib.pyplot as plt
++    except ImportError:
++        plt = PlaceholderModule("matplotlib").placeholder_attr("pyplot")
++    try:
++        import pandas as pd
++    except ImportError:
++        pd = PlaceholderModule("pandas")
++    try:
++        import seaborn as sns
++    except ImportError:
++        sns = PlaceholderModule("seaborn")
++
+     fig_group, fig_data = fig_group_data
+ 
+     row_groups = full_groupby(
+diff --git a/vllm/benchmarks/sweep/plot_pareto.py b/vllm/benchmarks/sweep/plot_pareto.py
+index 365e87f..8ec309a 100644
+--- a/vllm/benchmarks/sweep/plot_pareto.py
++++ b/vllm/benchmarks/sweep/plot_pareto.py
+@@ -6,7 +6,7 @@ from concurrent.futures import ProcessPoolExecutor
+ from dataclasses import dataclass
+ from functools import partial
+ from pathlib import Path
+-from typing import ClassVar
++from typing import TYPE_CHECKING, ClassVar
+ 
+ from vllm.utils.collection_utils import full_groupby
+ from vllm.utils.import_utils import PlaceholderModule
+@@ -14,20 +14,8 @@ from vllm.utils.import_utils import PlaceholderModule
+ from .plot import DummyExecutor, _json_load_bytes
+ from .utils import sanitize_filename
+ 
+-try:
+-    import matplotlib.pyplot as plt
+-except ImportError:
+-    plt = PlaceholderModule("matplotlib").placeholder_attr("pyplot")
+-
+-try:
++if TYPE_CHECKING:
+     import pandas as pd
+-except ImportError:
+-    pd = PlaceholderModule("pandas")
+-
+-try:
+-    import seaborn as sns
+-except ImportError:
+-    seaborn = PlaceholderModule("seaborn")
+ 
+ 
+ def _first_present(run_data: dict[str, object], keys: list[str]):
+@@ -195,6 +183,20 @@ def _plot_fig(
+         print("[END FIGURE]")
+         return
+ 
++    # Lazy-import matplotlib/pandas/seaborn
++    try:
++        import matplotlib.pyplot as plt
++    except ImportError:
++        plt = PlaceholderModule("matplotlib").placeholder_attr("pyplot")
++    try:
++        import pandas as pd
++    except ImportError:
++        pd = PlaceholderModule("pandas")
++    try:
++        import seaborn as sns
++    except ImportError:
++        sns = PlaceholderModule("seaborn")
++
+     df = pd.DataFrame.from_records(fig_data)
+     df = df.dropna(subset=["tokens_per_user", "tokens_per_gpu"])
+ 
