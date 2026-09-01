@@ -35,6 +35,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.discover.outputs.matrix }}
+      website_changed: ${{ steps.discover.outputs.website_changed }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -50,7 +51,12 @@ jobs:
           REQUESTED_TASKS: ${{ inputs.tasks }}
         run: |
           set -euo pipefail
+          website_changed=false
           if [[ "$EVENT_NAME" == "push" ]]; then
+            if git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- |
+              grep -Eq '^(tasks/|website/|\.github/workflows/(deploy-pages|publish-task-images)\.yml$)'; then
+              website_changed=true
+            fi
             if git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- |
               grep -Fxq '.github/task-image-bootstrap'; then
               matrix="$(
@@ -74,7 +80,9 @@ jobs:
             )"
           fi
           printf 'Selected matrix: %s\n' "$matrix"
+          printf 'Website changed: %s\n' "$website_changed"
           printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+          printf 'website_changed=%s\n' "$website_changed" >> "$GITHUB_OUTPUT"
 
   validate-and-publish:
     needs: discover
@@ -124,3 +132,61 @@ jobs:
           path: harbor-jobs/${{ matrix.task }}/
           if-no-files-found: warn
           retention-days: 30
+
+  publish-website:
+    needs:
+      - require-main
+      - discover
+      - validate-and-publish
+    if: >-
+      ${{
+        always() &&
+        needs.require-main.result == 'success' &&
+        needs.discover.result == 'success' &&
+        needs.discover.outputs.website_changed == 'true' &&
+        (needs.validate-and-publish.result == 'success' ||
+          needs.validate-and-publish.result == 'skipped')
+      }}
+    concurrency:
+      group: root-pages
+      cancel-in-progress: true
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: website
+    env:
+      GITHUB_PAGES: 'true'
+      GITHUB_PAGES_BASE_PATH: ''
+      NEXT_PUBLIC_SITE_URL: https://ai-infra-bench.github.io
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install website dependencies
+        run: npm ci
+
+      - name: Build static website
+        run: npm run build:pages
+
+      - name: Publish generated site
+        env:
+          GH_TOKEN: ${{ secrets.ROOT_PAGES_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          gh auth setup-git
+          cd dist/client
+          git init -b main
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Deploy ${GITHUB_SHA}"
+          git remote add origin https://github.com/ai-infra-bench/ai-infra-bench.github.io.git
+          git push --force origin main
