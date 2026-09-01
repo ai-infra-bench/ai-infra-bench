@@ -52,14 +52,14 @@ export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
 
   return (
     <section className="task-catalog" id="tasks" aria-labelledby="task-catalog-title">
-      <div className="catalog-intro">
+      <div className="catalog-intro scroll-reveal">
         <h2 id="task-catalog-title">Tasks</h2>
         <p>
           {tasks.length} pinned AI infrastructure tasks with offline environments and execution-based verification.
         </p>
       </div>
 
-      <div className="catalog-tools">
+      <div className="catalog-tools scroll-reveal">
         <div className="workload-filter" aria-label="Filter tasks by workload">
           {['all', ...workloads].map((option) => (
             <button
@@ -77,7 +77,7 @@ export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
 
       <div className="task-cards">
         {visibleTasks.map((task) => (
-          <Link className="task-card" href={`/tasks/${task.slug}`} key={task.slug}>
+          <Link className="task-card scroll-reveal-card" href={`/tasks/${task.slug}`} key={task.slug}>
             <div className="task-primary">
               <span className="task-repository">
                 <RepositoryBrand task={task} />
