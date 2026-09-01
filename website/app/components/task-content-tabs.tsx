@@ -31,7 +31,7 @@ export function TaskContentTabs({
   const [activeVerifier, setActiveVerifier] = useState(0);
   const [activeOracle, setActiveOracle] = useState(0);
   const [activeEnvironment, setActiveEnvironment] = useState(0);
-  const [wrapLines, setWrapLines] = useState(false);
+  const [wrapLines, setWrapLines] = useState(true);
 
   return (
     <Tabs.Root className="task-content" defaultValue="instruction">
