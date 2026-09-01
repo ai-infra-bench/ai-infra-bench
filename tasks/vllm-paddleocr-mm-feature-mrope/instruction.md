@@ -1,0 +1,5 @@
+The PaddleOCR-VL input pipeline carries the exact multimodal placeholder offset and grid metadata in `mm_features`, but its position builder still searches the token buffer for visual placeholder IDs. The attached reproduction shows that changing those placeholder IDs changes the M-RoPE positions even though the feature metadata is unchanged; when the expected image token ID is absent, the feature range is treated as ordinary text.
+
+Profiling also shows the PaddleOCR-VL position builder repeatedly searching the full token list even though every image and video feature already includes its offset and processed grid. This becomes noticeable for long OCR prompts with several page images.
+
+Make PaddleOCR-VL position generation follow the offsets and grids carried by `mm_features`, independent of sentinel-token searches. Preserve the existing positions and position delta for ordinary text-only, image, video, and mixed prompts. Multiple features may arrive out of offset order; image spatial merging and video temporal scaling must remain correct. Return the same public tensor type, shape, and dtype as before.
