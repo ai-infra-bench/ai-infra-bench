@@ -1,0 +1,250 @@
+diff --git a/vllm/multimodal/hasher.py b/vllm/multimodal/hasher.py
+index 6caf9c1..ba9bcd0 100644
+--- a/vllm/multimodal/hasher.py
++++ b/vllm/multimodal/hasher.py
+@@ -83,6 +83,12 @@ class MultiModalHasher:
+ 
+             return cls.iter_item_to_bytes("image", obj.original_bytes)
+ 
++        if isinstance(obj, MediaWithBytes) and isinstance(obj.media, np.ndarray):
++            frames = obj.media
++            if frames.nbytes < len(obj.original_bytes):
++                return cls.iter_item_to_bytes("video", frames)
++            return cls.iter_item_to_bytes("video", obj.original_bytes)
++
+         if isinstance(obj, torch.Tensor):
+             tensor_obj: torch.Tensor = obj.cpu()
+             tensor_dtype = tensor_obj.dtype
+diff --git a/vllm/multimodal/inputs.py b/vllm/multimodal/inputs.py
+index c55bbe4..71f17a8 100644
+--- a/vllm/multimodal/inputs.py
++++ b/vllm/multimodal/inputs.py
+@@ -66,7 +66,10 @@ these are directly passed to the model without HF processing.
+ """
+ 
+ VideoItem: TypeAlias = Union[
+-    HfVideoItem, "torch.Tensor", tuple[HfVideoItem, dict[str, Any]]
++    HfVideoItem,
++    "torch.Tensor",
++    tuple[HfVideoItem, dict[str, Any]],
++    MediaWithBytes[tuple[HfVideoItem, dict[str, Any]]],
+ ]
+ """
+ A `transformers.video_utils.VideoInput` representing a single video item. 
+diff --git a/vllm/multimodal/media/base.py b/vllm/multimodal/media/base.py
+index 91e7a49..3c072a0 100644
+--- a/vllm/multimodal/media/base.py
++++ b/vllm/multimodal/media/base.py
+@@ -2,9 +2,10 @@
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ 
+ from abc import ABC, abstractmethod
++from collections.abc import Iterable, Iterator
+ from dataclasses import dataclass, field
+ from pathlib import Path
+-from typing import Any, Generic, TypeVar
++from typing import Any, Generic, TypeVar, cast
+ 
+ import numpy as np
+ 
+@@ -22,7 +23,8 @@ class MediaWithBytes(Generic[_T]):
+     The wrapper delegates attribute access to the underlying media object,
+     making it behave transparently like the wrapped type (e.g., PIL.Image).
+ 
+-    NOTE: Currently, this wrapper is used only for the image modality.
++    NOTE: Currently, this wrapper is used only for the image and video
++    modalities.
+     """
+ 
+     media: _T
+@@ -32,6 +34,14 @@ class MediaWithBytes(Generic[_T]):
+         """Allow np.array(obj) to return np.array(obj.media)."""
+         return np.array(self.media, *args, **kwargs)
+ 
++    def __iter__(self) -> Iterator[Any]:
++        """Allow unpacking obj to unpack obj.media (e.g. video tuples)."""
++        return iter(cast(Iterable[Any], self.media))
++
++    def __getitem__(self, index: Any) -> Any:
++        """Allow obj[i] to index obj.media (e.g. video tuples)."""
++        return cast(Any, self.media)[index]
++
+     def __getstate__(self):
+         return self.__dict__.copy()
+ 
+diff --git a/vllm/multimodal/media/connector.py b/vllm/multimodal/media/connector.py
+index 656f537..fed4165 100644
+--- a/vllm/multimodal/media/connector.py
++++ b/vllm/multimodal/media/connector.py
+@@ -29,7 +29,7 @@ from vllm.multimodal.video import get_video_loader_backend_for_processor
+ from vllm.utils.registry import ExtensionManager
+ 
+ from .audio import AudioEmbeddingMediaIO, AudioMediaIO
+-from .base import MediaIO
++from .base import MediaIO, MediaWithBytes
+ from .image import ImageEmbeddingMediaIO, ImageMediaIO
+ from .video import VideoMediaIO
+ 
+@@ -536,7 +536,7 @@ class MediaConnector:
+         *,
+         image_mode: str | None = "RGB",
+         video_processor: str | None = None,
+-    ) -> tuple[npt.NDArray, dict[str, Any]]:
++    ) -> MediaWithBytes[tuple[npt.NDArray, dict[str, Any]]]:
+         """
+         Load video from an HTTP or base64 data URL.
+         """
+@@ -562,7 +562,7 @@ class MediaConnector:
+         *,
+         image_mode: str | None = "RGB",
+         video_processor: str | None = None,
+-    ) -> tuple[npt.NDArray, dict[str, Any]]:
++    ) -> MediaWithBytes[tuple[npt.NDArray, dict[str, Any]]]:
+         """
+         Asynchronously load video from an HTTP or base64 data URL.
+ 
+diff --git a/vllm/multimodal/media/video.py b/vllm/multimodal/media/video.py
+index 978cf06..124dcd7 100644
+--- a/vllm/multimodal/media/video.py
++++ b/vllm/multimodal/media/video.py
+@@ -13,13 +13,13 @@ from vllm import envs
+ from vllm.logger import init_logger
+ 
+ from ..video import VIDEO_LOADER_REGISTRY
+-from .base import MediaIO
++from .base import MediaIO, MediaWithBytes
+ from .image import ImageMediaIO
+ 
+ logger = init_logger(__name__)
+ 
+ 
+-class VideoMediaIO(MediaIO[tuple[npt.NDArray, dict[str, Any]]]):
++class VideoMediaIO(MediaIO[MediaWithBytes[tuple[npt.NDArray, dict[str, Any]]]]):
+     """Configuration values can be user-provided either by --media-io-kwargs or
+     by the runtime API field "media_io_kwargs". Ensure proper validation and
+     error handling.
+@@ -91,14 +91,17 @@ class VideoMediaIO(MediaIO[tuple[npt.NDArray, dict[str, Any]]]):
+         self.kwargs = kwargs
+         self.video_loader = VIDEO_LOADER_REGISTRY.load(video_loader_backend)
+ 
+-    def load_bytes(self, data: bytes) -> tuple[npt.NDArray, dict[str, Any]]:
+-        return self.video_loader.load_bytes(
++    def load_bytes(
++        self, data: bytes
++    ) -> MediaWithBytes[tuple[npt.NDArray, dict[str, Any]]]:
++        video = self.video_loader.load_bytes(
+             data, num_frames=self.num_frames, **self.kwargs
+         )
++        return MediaWithBytes(video, data)
+ 
+     def load_base64(
+         self, media_type: str, data: str
+-    ) -> tuple[npt.NDArray, dict[str, Any]]:
++    ) -> MediaWithBytes[tuple[npt.NDArray, dict[str, Any]]]:
+         if media_type.lower() == "video/jpeg":
+             load_frame = partial(
+                 self.image_io.load_base64,
+@@ -160,11 +163,13 @@ class VideoMediaIO(MediaIO[tuple[npt.NDArray, dict[str, Any]]]):
+                 "frames_indices": frames_indices,
+                 "do_sample_frames": self.kwargs.get("do_sample_frames", False),
+             }
+-            return frames, metadata
++            return MediaWithBytes((frames, metadata), data.encode())
+ 
+         return self.load_bytes(pybase64.b64decode(data))
+ 
+-    def load_file(self, filepath: Path) -> tuple[npt.NDArray, dict[str, Any]]:
++    def load_file(
++        self, filepath: Path
++    ) -> MediaWithBytes[tuple[npt.NDArray, dict[str, Any]]]:
+         with filepath.open("rb") as f:
+             data = f.read()
+ 
+diff --git a/vllm/multimodal/parse.py b/vllm/multimodal/parse.py
+index 9d1e005..4a76eaa 100644
+--- a/vllm/multimodal/parse.py
++++ b/vllm/multimodal/parse.py
+@@ -366,6 +366,16 @@ class VideoProcessorItems(ProcessorBatchItems[HfVideoItem | None]):
+ 
+         self.metadata = metadata
+ 
++    def _unwrap(self, item: Any) -> Any:
++        if isinstance(item, tuple):
++            frames, metadata = item
++            return super()._unwrap(frames), metadata
++        return super()._unwrap(item)
++
++    def get_item_for_hash(self, index: int) -> Any:
++        item = self.data[index]
++        return item
++
+     def get_num_frames(self, item_idx: int) -> int:
+         video = self.get(item_idx)
+         if video is None:
+@@ -552,7 +562,10 @@ class MultiModalDataParser:
+     def _get_video_with_metadata(
+         self,
+         video: VideoItem,
+-    ) -> tuple[np.ndarray, dict[str, Any] | None]:
++    ) -> tuple[np.ndarray | MediaWithBytes[np.ndarray], dict[str, Any] | None]:
++        if isinstance(video, MediaWithBytes):
++            new_video, metadata = self._get_video_with_metadata(video.media)
++            return MediaWithBytes(new_video, video.original_bytes), metadata
+         if isinstance(video, tuple):
+             return video
+         if isinstance(video, list):
+@@ -653,7 +666,11 @@ class MultiModalDataParser:
+         else:
+             data_items = data  # type: ignore[assignment]
+ 
+-        new_videos = list[tuple[np.ndarray, dict[str, Any] | None]]()
++        new_videos = list[
++            np.ndarray
++            | MediaWithBytes[np.ndarray]
++            | tuple[np.ndarray | MediaWithBytes[np.ndarray], dict[str, Any]]
++        ]()
+         metadata_lst: list[dict[str, Any] | None] = []
+         for data_item in data_items:
+             video, metadata = self._get_video_with_metadata(data_item)
+@@ -664,12 +681,9 @@ class MultiModalDataParser:
+                         "Please check your video input in `multi_modal_data`"
+                     )
+                 new_videos.append((video, metadata))
+-                metadata_lst.append(metadata)
+             else:
+                 new_videos.append(video)
+-
+-        if not self.video_needs_metadata:
+-            metadata = None
++            metadata_lst.append(metadata)
+ 
+         return VideoProcessorItems(new_videos, metadata=metadata_lst)
+ 
+diff --git a/vllm/multimodal/utils.py b/vllm/multimodal/utils.py
+index 401e6e5..eae274a 100644
+--- a/vllm/multimodal/utils.py
++++ b/vllm/multimodal/utils.py
+@@ -24,7 +24,13 @@ from .inputs import (
+     MultiModalKwargsItem,
+     MultiModalSharedField,
+ )
+-from .media import AudioMediaIO, ImageMediaIO, MediaConnector, VideoMediaIO
++from .media import (
++    AudioMediaIO,
++    ImageMediaIO,
++    MediaConnector,
++    MediaWithBytes,
++    VideoMediaIO,
++)
+ 
+ if TYPE_CHECKING:
+     import torch.types
+@@ -332,7 +338,7 @@ def fetch_image(
+ def fetch_video(
+     video_url: str,
+     video_io_kwargs: dict[str, Any] | None = None,
+-) -> tuple[npt.NDArray, dict[str, Any]]:
++) -> MediaWithBytes[tuple[npt.NDArray, dict[str, Any]]]:
+     """
+     Args:
+         video_url: URL of the video file to fetch.
