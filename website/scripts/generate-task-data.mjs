@@ -46,6 +46,8 @@ async function renderInstruction(markdown) {
     .use(remarkRehype)
     .use(rehypeShikiFromHighlighter, highlighter, {
       theme: 'vitesse-light',
+      defaultLanguage: 'text',
+      fallbackLanguage: 'text',
       transformers: [{
         pre(node) {
           delete node.properties.tabindex;
