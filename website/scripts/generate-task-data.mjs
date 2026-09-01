@@ -1,7 +1,13 @@
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import rehypeShikiFromHighlighter from '@shikijs/rehype/core';
+import rehypeStringify from 'rehype-stringify';
+import remarkGfm from 'remark-gfm';
+import remarkParse from 'remark-parse';
+import remarkRehype from 'remark-rehype';
 import { createHighlighter } from 'shiki';
+import { unified } from 'unified';
 
 const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tasksDir = path.resolve(projectDir, '..', 'tasks');
@@ -10,7 +16,7 @@ const outputFile = path.join(outputDir, 'tasks.json');
 
 const highlighter = await createHighlighter({
   themes: ['vitesse-light'],
-  langs: ['bash', 'c', 'diff', 'python', 'text'],
+  langs: ['bash', 'c', 'diff', 'json', 'python', 'text'],
 });
 
 function languageForFile(name) {
@@ -31,6 +37,25 @@ function highlightCode(content, language) {
       },
     }],
   });
+}
+
+async function renderInstruction(markdown) {
+  const file = await unified()
+    .use(remarkParse)
+    .use(remarkGfm)
+    .use(remarkRehype)
+    .use(rehypeShikiFromHighlighter, highlighter, {
+      theme: 'vitesse-light',
+      transformers: [{
+        pre(node) {
+          delete node.properties.tabindex;
+        },
+      }],
+    })
+    .use(rehypeStringify)
+    .process(markdown);
+
+  return String(file);
 }
 
 function prioritizeFiles(files, preferredNames) {
@@ -154,7 +179,7 @@ for (const entry of entries) {
     memoryMb: getValue(environment, 'memory_mb'),
     networkMode: getValue(environment, 'network_mode'),
     verifierTimeoutSec: getValue(verifier, 'timeout_sec'),
-    instruction: instruction.trim(),
+    instructionHtml: await renderInstruction(instruction.trim()),
     verifierFiles: verifierFiles.map((file) => ({
       name: file.name,
       highlightedHtml: highlightCode(file.content, languageForFile(file.name)),

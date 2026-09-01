@@ -4,8 +4,6 @@ import { useEffect, useRef, useState } from 'react';
 import * as Select from '@radix-ui/react-select';
 import * as Tabs from '@radix-ui/react-tabs';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from '@radix-ui/react-icons';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 
 type SourceFile = {
   name: string;
@@ -14,11 +12,11 @@ type SourceFile = {
 };
 
 export function TaskContentTabs({
-  instruction,
+  instructionHtml,
   verifierFiles,
   solutionFiles,
 }: {
-  instruction: string;
+  instructionHtml: string;
   verifierFiles: SourceFile[];
   solutionFiles: SourceFile[];
 }) {
@@ -41,9 +39,7 @@ export function TaskContentTabs({
       </Tabs.List>
 
       <Tabs.Content className="content-panel instruction-panel" value="instruction">
-        <div className="markdown-body">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{instruction}</ReactMarkdown>
-        </div>
+        <div className="markdown-body" dangerouslySetInnerHTML={{ __html: instructionHtml }} />
       </Tabs.Content>
 
       <Tabs.Content className="content-panel" value="verifier">

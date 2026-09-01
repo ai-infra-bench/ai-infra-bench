@@ -50,7 +50,7 @@ export default async function TaskPage({ params }: TaskPageProps) {
         </header>
 
         <TaskContentTabs
-          instruction={task.instruction}
+          instructionHtml={task.instructionHtml}
           verifierFiles={task.verifierFiles.map(({ name, highlightedHtml, lineCount }) => ({
             name,
             highlightedHtml,

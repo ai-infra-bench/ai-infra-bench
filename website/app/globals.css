@@ -383,8 +383,11 @@ input:focus-visible {
   font-family: var(--font-newsreader), Georgia, serif;
   font-size: clamp(17px, 1.35vw, 19px);
   line-height: 1.65;
+  margin-inline: auto;
   max-width: 740px;
   min-width: 0;
+  text-align: left;
+  width: 100%;
 }
 
 .markdown-body > :first-child {
@@ -415,21 +418,23 @@ input:focus-visible {
   padding: 0.12em 0.3em;
 }
 
-.markdown-body pre {
-  background: var(--paper-clean);
-  border-bottom: 1px solid var(--line);
-  border-top: 1px solid var(--line);
+.markdown-body .shiki {
+  background: var(--paper-clean) !important;
+  border: 1px solid var(--line);
+  font-family: var(--font-geist-mono), monospace;
   font-size: 11.5px;
-  line-height: 1.55;
+  line-height: 18px;
   margin: 1.8em 0;
+  max-block-size: calc(30lh + 20px);
   max-width: 100%;
-  overflow: visible;
-  padding: 18px 20px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  overflow: auto;
+  padding: 10px 0;
+  scrollbar-color: var(--line) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
-.markdown-body pre code {
+.markdown-body .shiki code {
   background: transparent;
   font-size: inherit;
   padding: 0;
@@ -626,34 +631,38 @@ input:focus-visible {
   scrollbar-width: thin;
 }
 
-.source-code::-webkit-scrollbar {
+.source-code::-webkit-scrollbar,
+.markdown-body .shiki::-webkit-scrollbar {
   height: 8px;
   width: 8px;
 }
 
-.source-code::-webkit-scrollbar-thumb {
+.source-code::-webkit-scrollbar-thumb,
+.markdown-body .shiki::-webkit-scrollbar-thumb {
   background: var(--line);
 }
 
 .source-code .shiki {
   background: transparent !important;
+  margin: 0;
+  min-width: max-content;
+}
+
+:is(.source-code .shiki, .markdown-body .shiki) {
   counter-reset: source-line;
   font-family: inherit;
   font-size: inherit;
   line-height: inherit;
-  margin: 0;
-  min-width: max-content;
-  overflow: visible;
   white-space: pre;
 }
 
-.source-code .shiki code {
+:is(.source-code .shiki, .markdown-body .shiki) code {
   display: flex;
   flex-direction: column;
   line-height: inherit;
 }
 
-.source-code .line {
+:is(.source-code .shiki, .markdown-body .shiki) .line {
   display: block;
   flex: none;
   line-height: inherit;
@@ -662,7 +671,7 @@ input:focus-visible {
   position: relative;
 }
 
-.source-code .line::before {
+:is(.source-code .shiki, .markdown-body .shiki) .line::before {
   color: #aaa69d;
   content: counter(source-line);
   counter-increment: source-line;

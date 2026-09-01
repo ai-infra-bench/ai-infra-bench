@@ -19,7 +19,7 @@ export type BenchmarkTask = {
   memoryMb: number | null;
   networkMode: string | null;
   verifierTimeoutSec: number | null;
-  instruction: string;
+  instructionHtml: string;
   verifierFiles: Array<{
     name: string;
     highlightedHtml: string;
