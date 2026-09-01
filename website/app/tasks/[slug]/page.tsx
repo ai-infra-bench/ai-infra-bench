@@ -44,7 +44,6 @@ export default async function TaskPage({ params }: TaskPageProps) {
 
       <article className="task-detail">
         <header className="task-detail-heading">
-          <Link href="/#tasks">Back to tasks</Link>
           <h1>{formatTaskTitle(task.slug)}</h1>
           <p>{task.description}</p>
         </header>
