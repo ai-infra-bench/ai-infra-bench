@@ -101,7 +101,12 @@ async function fetchBuffer(url) {
 
 async function normalizeLogo(buffer, outputFile, cardOutputFile, trim) {
   let image = sharp(buffer, { density: 300, failOn: 'none' });
-  if (trim) image = image.trim({ background: '#ffffff', threshold: 12 });
+  if (trim) {
+    image = image.trim({
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+      threshold: 12,
+    });
+  }
   await Promise.all([
     image
       .clone()
