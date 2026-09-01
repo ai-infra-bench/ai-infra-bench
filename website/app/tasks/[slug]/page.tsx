@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { SiteHeader } from '@/app/components/site-header';
 import { TaskContentTabs } from '@/app/components/task-content-tabs';
@@ -34,8 +33,6 @@ export default async function TaskPage({ params }: TaskPageProps) {
   if (index === -1) notFound();
 
   const task = tasks[index];
-  const previous = index > 0 ? tasks[index - 1] : null;
-  const next = index < tasks.length - 1 ? tasks[index + 1] : null;
   const memoryGb = task.memoryMb ? Math.round(task.memoryMb / 1024) : null;
 
   return (
@@ -75,24 +72,6 @@ export default async function TaskPage({ params }: TaskPageProps) {
           ]}
         />
 
-        <nav className="task-pagination" aria-label="Adjacent tasks">
-          <div>
-            {previous && (
-              <Link href={`/tasks/${previous.slug}`}>
-                <span>Previous task</span>
-                {formatTaskTitle(previous.slug)}
-              </Link>
-            )}
-          </div>
-          <div>
-            {next && (
-              <Link href={`/tasks/${next.slug}`}>
-                <span>Next task</span>
-                {formatTaskTitle(next.slug)}
-              </Link>
-            )}
-          </div>
-        </nav>
       </article>
     </main>
   );
