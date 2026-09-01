@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import { HeroLogoBurst } from '@/app/components/hero-logo-burst';
 import { SiteHeader } from '@/app/components/site-header';
 import { TaskExplorer } from '@/app/components/task-explorer';
 import { getRepositoryBrand } from '@/app/lib/repository-brand';
@@ -25,6 +26,7 @@ export default function Home() {
       <SiteHeader />
 
       <section className="hero" aria-labelledby="site-title">
+        <HeroLogoBurst />
         <h1 className="sr-only" id="site-title">AI Infra Bench</h1>
         <div className="wordmark-frame">
           <Image
