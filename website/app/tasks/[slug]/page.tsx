@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeftIcon, ArrowRightIcon } from '@radix-ui/react-icons';
 import { SiteHeader } from '@/app/components/site-header';
 import { TaskContentTabs } from '@/app/components/task-content-tabs';
+import { withRouteBasePath } from '@/app/lib/base-path';
 import { formatLabel, formatTaskTitle } from '@/app/lib/task-format';
 import { getTask, tasks, type ManifestSection, type ManifestValue } from '@/app/lib/tasks';
 
@@ -153,20 +153,20 @@ export default async function TaskPage({ params }: TaskPageProps) {
       <nav className="task-sequence-nav" aria-label="Adjacent tasks">
         <div>
           {previous && (
-            <Link href={`/tasks/${previous.slug}`}>
+            <a href={withRouteBasePath(`/tasks/${previous.slug}`)}>
               <ArrowLeftIcon aria-hidden="true" />
               <span className="sequence-direction">Previous</span>
               <span className="sequence-title">{formatTaskTitle(previous.slug)}</span>
-            </Link>
+            </a>
           )}
         </div>
         <div>
           {next && (
-            <Link href={`/tasks/${next.slug}`}>
+            <a href={withRouteBasePath(`/tasks/${next.slug}`)}>
               <span className="sequence-title">{formatTaskTitle(next.slug)}</span>
               <span className="sequence-direction">Next</span>
               <ArrowRightIcon aria-hidden="true" />
-            </Link>
+            </a>
           )}
         </div>
       </nav>

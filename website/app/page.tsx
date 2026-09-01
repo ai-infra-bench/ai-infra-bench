@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import { SiteHeader } from '@/app/components/site-header';
 import { TaskExplorer } from '@/app/components/task-explorer';
+import { withBasePath } from '@/app/lib/base-path';
 import { getRepositoryBrand } from '@/app/lib/repository-brand';
 import { tasks } from '@/app/lib/tasks';
 
@@ -29,7 +30,7 @@ export default function Home() {
         <div className="wordmark-frame">
           <Image
             className="wordmark"
-            src="/brand/ai-infra-bench-wordmark.webp"
+            src={withBasePath('/brand/ai-infra-bench-wordmark.webp')}
             alt="AI Infra Bench"
             width={2059}
             height={764}

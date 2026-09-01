@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as Select from '@radix-ui/react-select';
 import * as Tabs from '@radix-ui/react-tabs';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from '@radix-ui/react-icons';
+import { withBasePath } from '@/app/lib/base-path';
 
 type SourceFile = {
   name: string;
@@ -225,7 +226,7 @@ function SourceCodePane({
     if (sourceHtmlCache.has(file.url)) return;
 
     const controller = new AbortController();
-    fetch(file.url, { signal: controller.signal })
+    fetch(withBasePath(file.url), { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error(`Unable to load ${file.name}`);
         return response.json() as Promise<{ highlightedHtml: string }>;

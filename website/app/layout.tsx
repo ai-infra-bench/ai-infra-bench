@@ -1,5 +1,7 @@
+import type { CSSProperties } from 'react';
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono, Newsreader } from 'next/font/google';
+import { withBasePath } from '@/app/lib/base-path';
 import './globals.css';
 
 const geistSans = Geist({
@@ -18,10 +20,11 @@ const newsreader = Newsreader({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
   title: 'AI Infra Bench | Task Registry',
   description: 'How much real AI infrastructure engineering work can frontier models solve?',
   icons: {
-    icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
+    icon: [{ url: withBasePath('/favicon.svg'), type: 'image/svg+xml' }],
   },
   openGraph: {
     title: 'AI Infra Bench',
@@ -40,10 +43,15 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const bodyStyle = {
+    '--paper-texture-url': `url("${withBasePath('/brand/paper-texture.webp')}")`,
+  } as CSSProperties;
+
   return (
     <html lang="en">
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${newsreader.variable} antialiased`}
+        style={bodyStyle}
       >
         {children}
       </body>

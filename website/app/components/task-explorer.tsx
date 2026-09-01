@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
+import { withBasePath, withRouteBasePath } from '@/app/lib/base-path';
 import { formatLabel, formatProjectName, formatTaskTitle } from '@/app/lib/task-format';
 
 type TaskSummary = {
@@ -28,7 +28,7 @@ function RepositoryBrand({ task }: { task: TaskSummary }) {
   return (
     <Image
       className={`task-repository-logo is-${task.repositoryLogoKind ?? 'wordmark'}`}
-      src={task.repositoryLogo}
+      src={withBasePath(task.repositoryLogo)}
       alt={name}
       width={144}
       height={40}
@@ -77,7 +77,7 @@ export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
 
       <div className="task-cards">
         {visibleTasks.map((task) => (
-          <Link className="task-card scroll-reveal-card" href={`/tasks/${task.slug}`} key={task.slug}>
+          <a className="task-card scroll-reveal-card" href={withRouteBasePath(`/tasks/${task.slug}`)} key={task.slug}>
             <div className="task-primary">
               <span className="task-repository">
                 <RepositoryBrand task={task} />
@@ -90,7 +90,7 @@ export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
               <span>{task.subsystems.map(formatLabel).join(', ')}</span>
               <span className="task-accelerator">{task.accelerator}</span>
             </footer>
-          </Link>
+          </a>
         ))}
       </div>
 
