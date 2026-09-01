@@ -65,6 +65,7 @@ export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
                     alt={task.repositoryName ?? formatProjectName(task.repository)}
                     width={144}
                     height={40}
+                    unoptimized
                   />
                 ) : (
                   <span className="task-repository-text">{formatProjectName(task.repository)}</span>
