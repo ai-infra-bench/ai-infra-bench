@@ -1,9 +1,0 @@
-# Remediation matrix
-
-| ID | Severity | Finding and evidence | Planned change | Validation | Status |
-|---|---|---|---|---|---|
-| C1 | blocking | New task: source history, instruction boundary, and reduced reproduction require validation against issue #47724 and PR #47725. | Start from the live multi-tenant symptom and keep the CPU manager boundary explicit. | Public Base/Oracle reproduce the same slot-swap routing condition; evidence records the missing GPU inference boundary. | fixed |
-| C2 | blocking | The environment and dependency cutoff have not been materialized. | Generate an exact cutoff lock and hardened empty-context Dockerfile, then build and audit the canonical image. | Lock dry-run, warm digest, Git isolation, hidden-artifact, dependency, and network gates pass. | fixed |
-| C3 | blocking | The verifier, alternative, and adversarial controls do not yet exist. | Test observable token-to-adapter routing across hot-load, no-op, mapping-change, eviction, and control paths using the real manager. | Base 0, Oracle 1 for five rounds; one structurally different alternative scores 1 and partial fixes score 0. | fixed |
-| C4 | blocking | Final evidence and Harbor identifiers are missing. | Record actual hashes, results, substitutions, limitations, image, and final Harbor run. | Artifact audit and Harbor Oracle pass with zero errors and all verifier exit codes 0. | fixed |
-| C5 | blocking | The first public run failed before the target boundary because distributed setup ran outside the active `VllmConfig`, and the fixture used invalid rank/dtype values for this base. | Enter the configuration context before distributed initialization and use base-supported rank/dtype values without changing the tested low-rank weights. | Public Base reaches real CPU punica routing and returns 3 for swapped routing; Oracle returns 0. | fixed |
