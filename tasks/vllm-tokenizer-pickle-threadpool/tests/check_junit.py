@@ -8,7 +8,7 @@ EXPECTED = {
     "test_pickle_roundtrip_returns_tokenizer_not_none",
     "test_pickle_roundtrip_preserves_encoding",
     "test_pickle_roundtrip_preserves_decoding",
-    "test_restored_tokenizer_remains_thread_safe",
+    "test_restored_tokenizer_handles_overlapping_calls",
     "test_spawned_process_receives_usable_tokenizer",
     "test_cloudpickle_roundtrip_is_usable",
     "test_multiple_pickle_protocols_are_supported",

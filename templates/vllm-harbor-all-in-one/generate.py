@@ -233,7 +233,13 @@ def reproduction_install(task_dir: Path) -> str:
     if not source_dir.is_dir():
         raise ValueError(f"{source_dir}: reproduction path must be a directory")
 
-    files = sorted(path for path in source_dir.rglob("*") if path.is_file())
+    files = sorted(
+        path
+        for path in source_dir.rglob("*")
+        if path.is_file()
+        and "__pycache__" not in path.relative_to(source_dir).parts
+        and path.suffix != ".pyc"
+    )
     if not files:
         raise ValueError(f"{source_dir}: reproduction directory is empty")
 
@@ -261,6 +267,96 @@ def reproduction_install(task_dir: Path) -> str:
             commands.append(f" \\\n && chmod 0755 {shlex.quote(str(destination))}")
     commands.append("\n")
     return "".join(commands)
+
+
+def workspace_application_install(task_dir: Path) -> str:
+    """Embed a task-owned prompt gateway at its normal workspace path."""
+    source_dir = task_dir / "environment" / "prompt-gateway"
+    if not source_dir.exists():
+        return ""
+    if not source_dir.is_dir():
+        raise ValueError(f"{source_dir}: workspace application must be a directory")
+
+    files = sorted(path for path in source_dir.rglob("*") if path.is_file())
+    if not files:
+        raise ValueError(f"{source_dir}: workspace application directory is empty")
+
+    allowed_suffixes = {".json", ".jsonl", ".md", ".py", ".txt"}
+    source_root = source_dir.resolve()
+    destination_root = Path("/workspace/prompt-gateway")
+    commands = ["# Task-owned user application installed next to the vLLM worktree.\n"]
+    commands.append("RUN install -d /workspace/prompt-gateway")
+    for path in files:
+        relative = path.relative_to(source_dir)
+        if path.is_symlink() or not path.resolve().is_relative_to(source_root):
+            raise ValueError(f"{path}: application files must not use symlinks")
+        if path.suffix not in allowed_suffixes:
+            raise ValueError(f"{path}: unsupported application file type")
+        if any(part in {"tests", "solution", "validation", "repro", ".."} for part in relative.parts):
+            raise ValueError(f"{path}: forbidden application path component")
+        content = path.read_bytes()
+        if len(content) > 256 * 1024:
+            raise ValueError(f"{path}: application source file exceeds 256 KiB")
+        destination = destination_root / relative
+        encoded = base64.b64encode(content).decode("ascii")
+        commands.append(
+            f" \\\n && install -d {shlex.quote(str(destination.parent))}"
+            f" \\\n && printf '%s' {shlex.quote(encoded)} | base64 -d > {shlex.quote(str(destination))}"
+        )
+    commands.append("\n")
+    application_commands = commands
+
+    manifest_path = source_dir / "model-assets.json"
+    if not manifest_path.is_file():
+        return "".join(application_commands)
+    commands = []
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    repository = str(manifest.get("repository", ""))
+    revision = str(manifest.get("revision", ""))
+    license_name = str(manifest.get("license", ""))
+    last_modified = str(manifest.get("last_modified", ""))
+    asset_files = manifest.get("files")
+    if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is None:
+        raise ValueError(f"{manifest_path}: invalid Hugging Face repository")
+    if SHA_RE.fullmatch(revision) is None:
+        raise ValueError(f"{manifest_path}: revision must be a commit SHA")
+    if CUTOFF_RE.fullmatch(last_modified) is None:
+        raise ValueError(f"{manifest_path}: invalid last_modified timestamp")
+    task_cutoff = metadata_value(task_dir / "task.toml", "dependency_cutoff")
+    if last_modified > task_cutoff:
+        raise ValueError(f"{manifest_path}: asset revision is newer than task cutoff")
+    if not license_name or any(char in license_name for char in "\r\n"):
+        raise ValueError(f"{manifest_path}: invalid license")
+    if not isinstance(asset_files, dict) or not asset_files:
+        raise ValueError(f"{manifest_path}: files must be a non-empty mapping")
+    forbidden_suffixes = (".bin", ".gguf", ".pt", ".pth", ".safetensors")
+    checked_files: list[tuple[str, str]] = []
+    for name, digest in sorted(asset_files.items()):
+        if re.fullmatch(r"[A-Za-z0-9_.-]+", str(name)) is None:
+            raise ValueError(f"{manifest_path}: invalid asset file name {name!r}")
+        if str(name).endswith(forbidden_suffixes):
+            raise ValueError(f"{manifest_path}: model tensor files are forbidden")
+        if re.fullmatch(r"[0-9a-f]{64}", str(digest)) is None:
+            raise ValueError(f"{manifest_path}: invalid digest for {name}")
+        checked_files.append((str(name), str(digest)))
+
+    commands.append("RUN install -d /workspace/prompt-gateway/model")
+    for name, digest in checked_files:
+        destination = destination_root / "model" / name
+        url = f"https://huggingface.co/{repository}/resolve/{revision}/{name}"
+        commands.append(
+            " \\\n && curl --http1.1 -L --retry 10 --retry-all-errors --connect-timeout 30 --max-time 600"
+            f" --proto '=https' --tlsv1.2 -sSf {shlex.quote(url)} -o {shlex.quote(str(destination))}"
+            f" \\\n && printf '%s  %s\\n' {digest} {shlex.quote(str(destination))} | sha256sum -c -"
+        )
+    commands.append("\n")
+    commands.append(
+        f"LABEL ai.infra.bench.workspace-application=prompt-gateway \\\n"
+        f"      ai.infra.bench.prompt-gateway-model={json.dumps(repository)} \\\n"
+        f"      ai.infra.bench.prompt-gateway-model-revision={revision} \\\n"
+        f"      ai.infra.bench.prompt-gateway-model-license={json.dumps(license_name)}\n\n"
+    )
+    return "".join(commands + application_commands)
 
 
 def render(task_dir: Path, template: str) -> tuple[Path, str]:
@@ -339,6 +435,7 @@ RUN --mount=type=cache,id=vllm-uv-downloads-v3,target=/root/.cache/uv,sharing=lo
         runtime_asset_install(task_file)
         + runtime_file_install(task_file)
         + reproduction_install(task_dir)
+        + workspace_application_install(task_dir)
     )
     if asset_install:
         if generated.count(ASSET_INSERTION_MARKER) != 1:
