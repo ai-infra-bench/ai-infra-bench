@@ -1,0 +1,169 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-01T17:13:13Z",
+  "source": {
+    "candidate_id": "vllm-cpu-300-260",
+    "instance_id": "vllm-project__vllm-47725",
+    "base_commit": "21b396abe14bd35d821c346d10961a97de4f2d56",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/47725",
+    "linked_issue": "https://github.com/vllm-project/vllm/issues/47724",
+    "squash_merge_commit": "392d1b4d2eaced844026196b2eea3b284a0e2554",
+    "base_is_squash_merge_parent": true,
+    "timeline": "Issue #47724 reports silent cross-adapter output during live add_lora churn; PR #47725 keys the punica mapping memo on both request mapping and current slot layout."
+  },
+  "artifacts": {
+    "task_metadata_sha256": "11b8852a6de5177df1ba57162692f29de1daee5acbf1582f962c674059a3748b",
+    "instruction_sha256": "b2cc92bdfd21458ac1c9faae194f192fcbe2c3e2f292a2c01e3063c338377ac1",
+    "dockerfile_sha256": "7d211ea722b2dbd4b6ba36f4ca38c785024318c62d82e0ef66bb594a207b2750",
+    "dependency_lock_sha256": "3fb14d309d4a0076f15b60132f73e8d3049ab6871fdc4b39904bbbbbec99299e",
+    "dependency_lock_manifest_sha256": "a652f0cb01235d0e25e4559c8e057760c15ab26cb9da0b55e17b80351d748530",
+    "image_manifest_sha256": "81d1ba9ffff10241c87075652801746cb2d721b707e57f86bef4a7452a7481fc",
+    "public_fixture_sha256": "24d113fe1c45855c5a2ad1e6bd785e4853fee093d1e3ece159e26fa624ea1488",
+    "public_reproduction_sha256": "58e3411bae81fccba0dcb9b1df79616088b82e8704ccb38b237600cbb9fe2531",
+    "oracle_patch_sha256": "b6abe9cfd699f38e5485af4a4f5f0162f9cd5ecf693f9478c06ac3341ef24124",
+    "solve_script_sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491",
+    "test_script_sha256": "02ec6c2be52f1262fe133858fa35cd773f28b1ae91a9caed61faa85e982838e8",
+    "regression_test_sha256": "6fcad3269842b6126c0640648bf686cf5a9bad39750d7d6924c34224079ca3e0",
+    "real_manager_test_sha256": "07b7a5e80af3fa455ae3fdbf09d4645f39d5cc02689e48032cfc36a60ac09894",
+    "test_fixture_sha256": "24d113fe1c45855c5a2ad1e6bd785e4853fee093d1e3ece159e26fa624ea1488",
+    "junit_checker_sha256": "8f20bebc3fea65262acbcf67419dc906095f3a4a480fefb86e54ab6dff834656",
+    "ci_cases_sha256": "481d4603cfddb61a02eb3b2ab2ef5c4057379bef856dcc90a3579f4861a267cb",
+    "remediation_matrix_sha256": "e2b203f013d5e0c05fae4862cb542ff3f74b7d048a31949e80bb81316a1ca26b"
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-lora-hotload-slot-routing:base-21b396abe14b",
+    "image_id": "sha256:f61a4aa541bc1ca2ecf85385a77256decc70c7dbbf4282ddcc46cb474f31d3d5",
+    "size_bytes": 2863583902,
+    "template_sha256": "2f1688856bf1e683d6f19bba67f07094c64c87f8da9551f1bc9c4a1e69fcb515",
+    "cache_namespace": "21b396abe14bd35d821c346d10961a97de4f2d56-3fb14d309d4a0076-2f1688856bf1e683",
+    "canonical_image_retained": true
+  },
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "depends_on_golden_names": false,
+    "behavior_cases": 10,
+    "behaviors": [
+      "unchanged request mappings are recomputed when live LoRA slots change",
+      "repeated mappings without slot changes and ordinary mapping changes remain correct",
+      "single-adapter, base-token, registration, eviction, reversed-order, repeated-id, and repeated-cycle controls remain correct"
+    ],
+    "collection_integrity": "Exactly 10 unique cases; Oracle requires zero failures, errors, or skips."
+  },
+  "public_reproduction": {
+    "entrypoint": "/opt/repro/lora_hotload_trace.py",
+    "base_exit_code": 3,
+    "base_before_slots": [1, 2],
+    "base_after_slots": [2, 1],
+    "base_after_indices": [0, 1],
+    "base_resolved": [2, 1],
+    "oracle_exit_code": 0,
+    "oracle_after_indices": [1, 0],
+    "oracle_resolved": [1, 2]
+  },
+  "repeated_runs": [
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "behavior_tests_each_round": {"passed": 7, "failed": 3, "errors": 0, "skipped": 0},
+      "manager_exit_codes": [1, 1, 1, 1, 1]
+    },
+    {
+      "case": "oracle",
+      "rounds": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "behavior_tests_each_round": {"passed": 10, "failed": 0, "errors": 0, "skipped": 0},
+      "manager_exit_codes": [0, 0, 0, 0, 0]
+    }
+  ],
+  "adversarial_runs": [
+    {
+      "case": "sorted-slot-layout",
+      "patch_sha256": "ffbfd3fb89623cd657f6780eed0a4fa18a8950ed5f88184b3cd327fc859fe8a1",
+      "reward": 0,
+      "tests_passed": 7,
+      "tests_failed": 3,
+      "planned_defect": "Sorting adapter IDs misses slot-order swaps."
+    },
+    {
+      "case": "invalidate-on-registration",
+      "patch_sha256": "3bb3f2a56e7a6351c23bc950a29d20492512aca41aa3a2f901216c0cf4fa6547",
+      "reward": 0,
+      "tests_passed": 7,
+      "tests_failed": 3,
+      "planned_defect": "Registration is not the activation-time slot reassignment boundary."
+    },
+    {
+      "case": "first-swap-only",
+      "patch_sha256": "10d7cee87b66d6f5a04eacc98c33967ef067790734e6429e9d95016c8e867637",
+      "reward": 0,
+      "tests_passed": 7,
+      "tests_failed": 3,
+      "planned_defect": "Only the first mapping call is refreshed."
+    }
+  ],
+  "conforming_alternative_run": {
+    "case": "alternative-invalidate-on-slot-change",
+    "patch_sha256": "2bc7e7a05885f02e305a851407140534da56ec38091d99a050852b97a14843ab",
+    "change": "Invalidates the old mapping at the activation boundary instead of storing Golden's slot-layout tuple.",
+    "reward": 1,
+    "tests_passed": 10,
+    "tests_failed": 0,
+    "manager_exit_code": 0
+  },
+  "hidden_end_to_end": {
+    "tests_mounted_only_during_verification": true,
+    "entrypoint": "real LRUCacheLoRAModelManager activation and set_adapter_mapping with CPU PunicaWrapper metadata",
+    "hidden_variations": "Three-token repeated adapters, reversed batch order, base-model tokens, and repeated eviction cycles are absent from the instruction example.",
+    "execution_substitutions": "Synthetic rank-2 CPU LoRA weights replace a downloaded model and GPU inference; production manager, LRU cache, LoRA layers, distributed world-size-one setup, and Punica metadata run for real.",
+    "limitation": "The task proves the routing metadata corruption boundary, not an HTTP live-load endpoint or downstream GPU token generation."
+  },
+  "build_reproducibility": {
+    "initial_image_id": "sha256:f61a4aa541bc1ca2ecf85385a77256decc70c7dbbf4282ddcc46cb474f31d3d5",
+    "warm_cache_image_id": "sha256:f61a4aa541bc1ca2ecf85385a77256decc70c7dbbf4282ddcc46cb474f31d3d5",
+    "digest_stable": true,
+    "build_context": "empty"
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "base_is_squash_merge_parent": true,
+    "future_reference_commit_absent": true,
+    "full_git_history_present": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_and_validation_absent_from_final_filesystem": true,
+    "solution_tests_and_validation_absent_from_image_layers": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "dependency_lock_dry_run_matches": true,
+    "empty_build_context": true,
+    "cached_rebuild_digest_stable": true,
+    "runtime_network_disabled": true
+  },
+  "critical_review_rounds": [
+    "instruction and public reproduction checked against issue #47724",
+    "base failure verified to reach CPU Punica routing after fixture repair",
+    "Oracle and implementation-independent alternative verified",
+    "adversarial, regression, negative, Git, dependency, and layer isolation checked",
+    "five-round stability, artifact hashes, retained image, and Harbor result checked"
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "7a02a8bb-f510-4269-8dae-85e34109b763",
+    "trial_id": "599b9ec6-d5ce-4db8-9d6b-d12c85817e70",
+    "input_task_checksum": "0e40529bedfcfd3839ab686f29bae41c380f906f320be5b4c20c79605a7172fc",
+    "lock_task_digest": "sha256:e1094a8973b289d51b2ac62aa32c7e0014a02164117cfe3202a37c0a60b26acb",
+    "checksum_scope": "Harbor hashes the task directory. This successful input predates insertion of this self-referential evidence file; executable task artifacts are hash-pinned above.",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "manager_exit_code": 0,
+    "runtime_seconds": 383,
+    "canonical_image_retained_after_run": true
+  }
+}

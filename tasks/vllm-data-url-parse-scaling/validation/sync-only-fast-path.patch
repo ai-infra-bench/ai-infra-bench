@@ -1,0 +1,40 @@
+diff --git a/vllm/multimodal/media/connector.py b/vllm/multimodal/media/connector.py
+index 6ec90a45f1d0..9d8e09a74a12 100644
+--- a/vllm/multimodal/media/connector.py
++++ b/vllm/multimodal/media/connector.py
+@@ -235,14 +235,11 @@ class MediaConnector:
+ 
+     def _load_data_url(
+         self,
+-        url_spec: Url,
++        url: str,
+         media_io: MediaIO[_M],
+     ) -> _M:  # type: ignore[type-var]
+-        url_spec_path = url_spec.path or ""
+-        data_spec, data = url_spec_path.split(",", 1)
++        data_spec, data = url[5:].split(",", 1)
+         media_type, data_type = data_spec.split(";", 1)
+-        # media_type starts with a leading "/" (e.g., "/video/jpeg")
+-        media_type = media_type.lstrip("/")
+ 
+         if data_type != "base64":
+             msg = "Only base64 data URLs are supported for now."
+@@ -290,6 +287,9 @@ class MediaConnector:
+         *,
+         fetch_timeout: int | None = None,
+     ) -> _M:  # type: ignore[type-var]
++        if url[:5].lower() == "data:":
++            return self._load_data_url(url, media_io)
++
+         url_spec = parse_url(url)
+ 
+         if url_spec.scheme and url_spec.scheme.startswith("http"):
+@@ -309,8 +309,5 @@ class MediaConnector:
+             self._put_cached_bytes(url, data)
+             return media_io.load_bytes(data)
+ 
+-        if url_spec.scheme == "data":
+-            return self._load_data_url(url_spec, media_io)
+-
+         if url_spec.scheme == "file":
+             return self._load_file_url(url_spec, media_io)

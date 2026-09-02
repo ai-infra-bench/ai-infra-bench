@@ -1,0 +1,23 @@
+diff --git a/vllm/model_executor/models/adapters.py b/vllm/model_executor/models/adapters.py
+index 467e8ab67bf5..30ef8b0c89b8 100644
+--- a/vllm/model_executor/models/adapters.py
++++ b/vllm/model_executor/models/adapters.py
+@@ -1,6 +1,7 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ 
++import itertools
+ from collections.abc import Iterable
+ from contextlib import contextmanager
+ from typing import TYPE_CHECKING, Any, TypeVar, cast
+@@ -208,9 +209,9 @@ def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]):
+                     self._get_name(),
+                 )
+ 
+             mapped_weights = (
+                 (target_prefix + name, weight)
+-                for name, weight in (*seen_weights, *weights)
++                for name, weight in itertools.chain(seen_weights, weights)
+             )
+ 
+             def default_load_weights(weights):

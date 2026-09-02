@@ -1,0 +1,175 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-01T17:20:00Z",
+  "source": {
+    "candidate_id": "vllm-cpu-300-157",
+    "instance_id": "vllm-project__vllm-42535",
+    "base_commit": "6b5c389ee326195534859a480cd2ac714d2ac14e",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/42535",
+    "linked_issue": null,
+    "predecessor_pull_request": "https://github.com/vllm-project/vllm/pull/32746",
+    "squash_merge_commit": "597ed138033e51355ff4ba49876578df92633c91",
+    "base_is_squash_merge_parent": true,
+    "timeline": "PR #32746 moved URL validation to urllib3; PR #42535 then measured its payload-sized cost for common multimodal data URLs and introduced a data-scheme fast path without weakening HTTP/file validation."
+  },
+  "artifacts": {
+    "task_metadata_sha256": "7f6ac8ea15becec213be616bf45e1539ce437ba0188d4de95578d8c67cabeb25",
+    "instruction_sha256": "0a4cea5cfb529a58e0c962488bb2720cbf661e094533a04da0e699508da18e1d",
+    "dockerfile_sha256": "6e624dab29847bb8a1e03d79697904908bb396acb26c4e8911e0115fe7b34005",
+    "dependency_lock_sha256": "b22f49fc86dee28936075d746a3fd7b66b93d8cdb08de3f5955a66613b9e0b55",
+    "dependency_lock_manifest_sha256": "a3904d62cdc22150935bedd686d8398b024920911c9957cf5a35808778e499d8",
+    "image_manifest_sha256": "8872c7d6250554d9139b7f5cf21330ea51d3ca4ff6787575e1f5c8d742b2d498",
+    "public_reproduction_sha256": "4187afaa7766524cfad5e9924f439c344e1f421ca25efbba4b46622d6d58f1f2",
+    "oracle_patch_sha256": "0c6b3a44d721a1e7a436c0c1d5a75f42f0564469d5e44dae20c239c946cc48a6",
+    "solve_script_sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491",
+    "test_script_sha256": "48aaa724d56c5619442e56e581345998579f85ea60ac16eb684936d465471ddf",
+    "regression_test_sha256": "7244867e6880d26b47fd8eb322a1684ffb782ef30600e73f3f0dd3ead3cfb2ef",
+    "real_data_url_test_sha256": "81e931ccdff87c8ca96caea6a8a012c21f8ef254c1208126d03ed87fdc0e98eb",
+    "test_fixture_sha256": "8fb3a1bf80eb2d100a473b92420d6990937b563d9b3e6c41d20b4e3ba48a6b2d",
+    "junit_checker_sha256": "a9ee49d181ad9f18c63519fa6028658871f567e9a0fb4ba5e43a7a8ce41d33f1",
+    "ci_cases_sha256": "1f2ba2a5fe10e6af800b2b1e08da4a82ae8587b4260f503453527aa7d1a50291",
+    "remediation_matrix_sha256": "016ba6cac72aa59364e3ef5f7ed7ac177aa35d68f6262c2f677b6b55320b6f62"
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-data-url-parse-scaling:base-6b5c389ee326",
+    "image_id": "sha256:64e1a9543c295730eb3d01e33e05c31cce05cf3b80c9b9560645331f7d1a85ba",
+    "size_bytes": 1651001677,
+    "template_sha256": "2f1688856bf1e683d6f19bba67f07094c64c87f8da9551f1bc9c4a1e69fcb515",
+    "cache_namespace": "6b5c389ee326195534859a480cd2ac714d2ac14e-b22f49fc86dee289-6e080ff0c9cb931b",
+    "canonical_image_retained": true
+  },
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "depends_on_golden_names": false,
+    "behavior_cases": 10,
+    "behaviors": [
+      "large synchronous and asynchronous data URLs avoid the generic parser's extra payload scan",
+      "media type, payload, and mixed-case data schemes are preserved",
+      "real PNG decoding, HTTP domain checks/downloads, and allowed file URLs remain correct",
+      "unsupported, malformed, traversal, and non-base64 inputs retain their failure boundaries"
+    ],
+    "collection_integrity": "Exactly 10 unique cases; Oracle requires zero failures, errors, or skips."
+  },
+  "public_reproduction": {
+    "entrypoint": "/opt/repro/data_url_latency.py",
+    "payload_bytes": 8388608,
+    "base_exit_code": 3,
+    "base_sync_median_ms": 28.583,
+    "base_async_median_ms": 30.382,
+    "base_payload_preserved": true,
+    "oracle_exit_code": 0,
+    "oracle_sync_median_ms": 3.554,
+    "oracle_async_median_ms": 0.924,
+    "oracle_payload_preserved": true
+  },
+  "repeated_runs": [
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "behavior_tests_each_round": {"passed": 8, "failed": 2, "errors": 0, "skipped": 0},
+      "e2e_exit_codes": [1, 1, 1, 1, 1]
+    },
+    {
+      "case": "oracle",
+      "rounds": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "behavior_tests_each_round": {"passed": 10, "failed": 0, "errors": 0, "skipped": 0},
+      "e2e_exit_codes": [0, 0, 0, 0, 0]
+    }
+  ],
+  "adversarial_runs": [
+    {
+      "case": "sync-only-fast-path",
+      "patch_sha256": "5501dbc01be664f20514fcb532bc00395493f2cc83839c196dda293b6f9f67e8",
+      "reward": 0,
+      "tests_passed": 6,
+      "tests_failed": 4,
+      "e2e_exit_code": 1,
+      "planned_defect": "Optimizes synchronous dispatch only."
+    },
+    {
+      "case": "lowercase-only-fast-path",
+      "patch_sha256": "3a8ee1cd2f0365b825484135fa528a238d023c7edac12267729eeb69f8a7bb70",
+      "reward": 0,
+      "tests_passed": 6,
+      "tests_failed": 4,
+      "e2e_exit_code": 1,
+      "planned_defect": "Rejects or misroutes mixed-case data schemes."
+    },
+    {
+      "case": "skip-data-validation",
+      "patch_sha256": "43b7d00cc22c0d8d8d82d5ee190ec3a73250a0b92b03cda9576850b7ad1ce473",
+      "reward": 0,
+      "tests_passed": 3,
+      "tests_failed": 7,
+      "e2e_exit_code": 1,
+      "planned_defect": "Returns payloads quickly without parsing media type or preserving malformed/non-base64 failures."
+    }
+  ],
+  "conforming_alternative_run": {
+    "case": "alternative-prefix-partition",
+    "patch_sha256": "702e74e434aacd006d1ec103af4abce19035fc4ea42154b9f7df7c2cafc5a98b",
+    "change": "Uses a separate case-folded prefix helper instead of Golden's inline five-character check.",
+    "reward": 1,
+    "tests_passed": 10,
+    "tests_failed": 0,
+    "e2e_exit_code": 0
+  },
+  "hidden_end_to_end": {
+    "tests_mounted_only_during_verification": true,
+    "entrypoint": "real MediaConnector sync/async dispatch with hidden mixed-case 6291473-byte data URL",
+    "harbor_oracle_measurement": {"sync_ms": 1.726, "async_ms": 0.424},
+    "hidden_variations": "Hidden payload length, mixed-case scheme, real PNG decode, HTTP allowlist/download, file traversal, malformed, and unsupported inputs are absent from the public benchmark.",
+    "execution_substitutions": "A recording MediaIO isolates URL dispatch timing; a separate real Pillow PNG case executes decoding and fake local HTTP connection objects avoid network.",
+    "limitation": "Absolute thresholds distinguish the documented generic-parser overhead on this CPU image; they do not claim all data-URL processing is asymptotically constant because payload extraction still copies strings."
+  },
+  "build_reproducibility": {
+    "initial_image_id": "sha256:64e1a9543c295730eb3d01e33e05c31cce05cf3b80c9b9560645331f7d1a85ba",
+    "warm_cache_image_id": "sha256:64e1a9543c295730eb3d01e33e05c31cce05cf3b80c9b9560645331f7d1a85ba",
+    "digest_stable": true,
+    "build_context": "empty"
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "base_is_squash_merge_parent": true,
+    "future_reference_commit_absent": true,
+    "full_git_history_present": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_and_validation_absent_from_final_filesystem": true,
+    "solution_tests_and_validation_absent_from_image_layers": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "dependency_lock_dry_run_matches": true,
+    "empty_build_context": true,
+    "cached_rebuild_digest_stable": true,
+    "runtime_network_disabled": true
+  },
+  "critical_review_rounds": [
+    "source and security-preserving predecessor boundary checked against PRs #42535 and #32746",
+    "public Base/Oracle timing and overstrong asymptotic verifier claim corrected",
+    "Oracle and structurally different prefix-helper alternative checked",
+    "partial modes, real decode, negative paths, dependency, Git, and layer isolation checked",
+    "five-round stability, hashes, retained image, and final Harbor result checked"
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "7346ab39-5bbd-46c7-9433-3fcf71893f00",
+    "trial_id": "c5043c43-cdc5-43b0-a184-bc59843ba0a7",
+    "input_task_checksum": "f9096fa6c89aa112e7bced97e7828c04e0e0dafcf1901312f13cb47b9c84f2c5",
+    "lock_task_digest": "sha256:850991b4f13a2a54de465e856023486152193e20009b9101c92284ef8857e712",
+    "checksum_scope": "Harbor hashes the task directory. This successful input predates insertion of this self-referential evidence file and final remediation status updates; executable task artifacts are hash-pinned above.",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "e2e_exit_code": 0,
+    "runtime_seconds": 455,
+    "canonical_image_retained_after_run": true
+  }
+}

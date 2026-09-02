@@ -1,0 +1,19 @@
+diff --git a/vllm/parser/abstract_parser.py b/vllm/parser/abstract_parser.py
+index 915d401f7bdd..3d362c3fe4ef 100644
+--- a/vllm/parser/abstract_parser.py
++++ b/vllm/parser/abstract_parser.py
+@@ -794,11 +794,9 @@ class DelegatingParser(Parser):
+                 reasoning_transitioned = True
+                 current_token_ids = self.extract_content_ids(delta_token_ids)
+                 if self._engine_based:
+-                    current_text = (
+-                        self.model_tokenizer.decode(current_token_ids)
+-                        if current_token_ids
+-                        else ""
+-                    )
++                    current_text = (
++                        (delta_message.content if delta_message else None) or ""
++                    )
+                     if delta_message and self._tool_parser is not None:
+                         delta_message.content = None
+                 else:

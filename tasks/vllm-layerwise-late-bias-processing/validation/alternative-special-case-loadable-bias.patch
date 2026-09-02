@@ -1,0 +1,26 @@
+diff --git a/vllm/model_executor/model_loader/reload/layerwise.py b/vllm/model_executor/model_loader/reload/layerwise.py
+index 92f454f9a5f4..d60caed20381 100644
+--- a/vllm/model_executor/model_loader/reload/layerwise.py
++++ b/vllm/model_executor/model_loader/reload/layerwise.py
+@@ -140,7 +140,7 @@ def _wrap_parameters_weight_loader(layer: torch.nn.Module) -> None:
+     """Wrap each parameter's weight loader."""
+     # Note that nested wrapping will occur for shared tensors
+     for name, tensor in get_layer_tensors(layer).items():
+-        if name in SKIP_TENSORS:
++        if name in SKIP_TENSORS and name != "bias":
+             continue
+         if _get_weight_loader(tensor).__name__ != "online_process_loader":
+             tensor.weight_loader = make_online_process_loader(layer, name)
+diff --git a/vllm/model_executor/model_loader/reload/utils.py b/vllm/model_executor/model_loader/reload/utils.py
+index f0078d0f9d85..6bbfb04f1651 100644
+--- a/vllm/model_executor/model_loader/reload/utils.py
++++ b/vllm/model_executor/model_loader/reload/utils.py
+@@ -43,7 +43,7 @@ def get_layer_size(layer: torch.nn.Module) -> int:
+     return sum(
+         tensor.numel()
+         for name, tensor in get_layer_tensors(layer).items()
+-        if name not in SKIP_TENSORS
++        if name not in SKIP_TENSORS or name == "bias"
+     )
+ 
+ 

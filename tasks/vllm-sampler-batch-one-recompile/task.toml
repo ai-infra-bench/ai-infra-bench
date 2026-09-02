@@ -1,0 +1,45 @@
+schema_version = "1.4"
+
+[task]
+name = "ai-infra-bench/vllm-sampler-batch-one-recompile"
+version = "0.0.1"
+description = "Avoid sampler recompilation when a batch grows from one request."
+authors = [{name = ""}]
+keywords = ["vllm", "cpu", "sampling", "torch-compile", "dynamic-shapes", "latency"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+candidate_id = "vllm-cpu-300-113"
+source_pr = 38933
+track = "performance"
+workload_type = "performance"
+subsystems = ["sampling", "compilation"]
+repository = "vllm-project/vllm"
+base_commit = "3b1d9c3156d22181fb99980eb2550772c854a2c2"
+dependency_cutoff = "2026-04-09T15:50:45Z"
+dependency_cutoff_overrides = [
+  "torch=2026-05-01T23:59:59Z",
+  "torchaudio=2026-05-01T23:59:59Z",
+  "torchvision=2026-05-01T23:59:59Z",
+]
+dependency_cutoff_override_reason = "The pinned base requirements require torch 2.11 CPU wheels that were uploaded after the source cutoff."
+image_digest = "sha256:6938eb76a635e8af40fe41050628a133640aa1a1a9e03a2b66a23f0e03d8352f"
+environment_template = "vllm-harbor-all-in-one"
+publication_state = "development"
+
+[agent]
+timeout_sec = 3600
+user = "root"
+network_mode = "no-network"
+
+[environment]
+accelerator = "CPU"
+build_timeout_sec = 14400
+cpus = 8
+memory_mb = 49152
+storage_mb = 20480
+workdir = "/workspace/vllm"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 1800

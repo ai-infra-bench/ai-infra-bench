@@ -1,0 +1,28 @@
+diff --git a/vllm/model_executor/models/adapters.py b/vllm/model_executor/models/adapters.py
+index 467e8ab67bf5..2ee6fe31129c 100644
+--- a/vllm/model_executor/models/adapters.py
++++ b/vllm/model_executor/models/adapters.py
+@@ -181,7 +181,7 @@ def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]):
+ 
+             seen_weights = list[tuple[str, torch.Tensor]]()
+             for name, loaded_weight in weights:
+-                seen_weights.append((name, loaded_weight))
++                seen_weights.append((name, loaded_weight.clone()))
+ 
+                 try:
+                     target_prefix = next(
+@@ -208,10 +208,10 @@ def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]):
+                     self._get_name(),
+                 )
+ 
+-            mapped_weights = (
+-                (target_prefix + name, weight)
+-                for name, weight in (*seen_weights, *weights)
+-            )
++            mapped_weights = tuple(
++                (target_prefix + name, weight.clone())
++                for name, weight in (*seen_weights, *weights)
++            )
+ 
+             def default_load_weights(weights):
+                 loader = AutoWeightsLoader(self)

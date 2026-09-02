@@ -1,0 +1,26 @@
+diff --git a/vllm/lora/model_manager.py b/vllm/lora/model_manager.py
+index bc3d278af4ee..4f8df2023cd1 100644
+--- a/vllm/lora/model_manager.py
++++ b/vllm/lora/model_manager.py
+@@ -1180,17 +1180,21 @@ class LRUCacheLoRAModelManager(LoRAModelManager):
+         return was_added
+ 
+     def activate_adapter(
+         self,
+         lora_id: int,
+     ) -> bool:
++        previous_slots = tuple(self.lora_index_to_id)
+         if (
+             lora_id not in self._active_adapters
+             and len(self._active_adapters) >= self.lora_slots
+         ):
+             self._active_adapters.remove_oldest()
+         result = super().activate_adapter(lora_id)
+         # We always touch to update the LRU cache order
+         self._active_adapters.touch(lora_id)
++        if tuple(self.lora_index_to_id) != previous_slots:
++            # Slot-dependent routing is no longer represented by the old memo.
++            self._last_mapping = None
+         return result
+ 
+     def remove_oldest_adapter(self) -> bool:

@@ -1,0 +1,173 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-01T17:14:00Z",
+  "source": {
+    "candidate_id": "vllm-cpu-300-119",
+    "instance_id": "vllm-project__vllm-39650",
+    "base_commit": "5c18b961d692cf45df0a1ecca7d1688f6168ae0f",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/39650",
+    "linked_issue": null,
+    "later_mapper_followup": "https://github.com/vllm-project/vllm/pull/50890",
+    "squash_merge_commit": "3693f922ff0e15b1e395cdc862f7c6e492a11bf4",
+    "base_is_squash_merge_parent": true,
+    "timeline": "PR #39650 reports silent pooling/embedding corruption with runai_streamer buffer reuse, separates lazy tail consumption from cloning probed tensors, and records an external GPU embedding comparison. PR #50890 changes later mapper behavior and is outside this task."
+  },
+  "artifacts": {
+    "task_metadata_sha256": "61eeabf969a757673180746560a860688891dfc807c4a6c524094b52c70e956e",
+    "instruction_sha256": "357f044621ea904a6f99bd2d1b0bce4c41c84797303248d0d66adb25ebb52037",
+    "dockerfile_sha256": "db9908d6c61bee3dde842b292af80dbb200fff28f93c91b029ad4c4e63dff800",
+    "dependency_lock_sha256": "632aef3e3df00202b5eee2aa95938ab60b8be4f4ca8e65ee0ddfa4787d1a6244",
+    "dependency_lock_manifest_sha256": "9d70a3e7c19a95cb566bf4ebab307d0e0517458df0983de048dc5df8fdba7790",
+    "image_manifest_sha256": "68e12bd0b4ffd9d3877998b4b72b4f44bb7e4e11b6dd30a8f689be8ca6d2a8e0",
+    "public_fixture_sha256": "950ae9611a8cfb3a0c34a40bd37dafd2e2b88f1dcf1e89877a9803ed1c970a77",
+    "public_reproduction_sha256": "6432e0d141c967714e1f3db8a8ad21de530073cad42c02e578a570d83e4102dc",
+    "oracle_patch_sha256": "2e52de1b9dad7b996976bf98766ee0c4caff69102b3eee6d3dc81c7c83ec2d3d",
+    "solve_script_sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491",
+    "test_script_sha256": "a19ca39fd48b7625f65f4a113f87d154fc4109c3a67baf27c5523e4e9b4a1be7",
+    "regression_test_sha256": "59350df2b000520087932ca291fae255cb8238104af859b7b5519e394cbe7020",
+    "real_stream_test_sha256": "01aad2a4b92ab71bd23f4e39ff542308de2752550ee1c18d3f1913a4ae1eaa66",
+    "test_fixture_sha256": "c7950eff0027f6503cb8312e82620653148702ff41616247b0acc1ab61dcebd7",
+    "junit_checker_sha256": "453db33fe1a264c4696dfcc6edc12ee0cdd3587f53ec65db6c0f4dc6e41afaf1",
+    "ci_cases_sha256": "d4b4cef6de8d15a882c8fbe6cb3ad613abb2cbbb767731697db1d9bd413f861f",
+    "remediation_matrix_sha256": "e0b2b50f25b2e906dc15c8b0be16bf870f21c54673d5a094b9057db1b7994058"
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-pooling-buffer-reuse-weights:base-5c18b961d692",
+    "image_id": "sha256:ec385896f9802ba5ca343d37c16f8054b616cde91f510dbb61c3f47de23a2fc7",
+    "size_bytes": 1591425419,
+    "template_sha256": "2f1688856bf1e683d6f19bba67f07094c64c87f8da9551f1bc9c4a1e69fcb515",
+    "cache_namespace": "5c18b961d692cf45df0a1ecca7d1688f6168ae0f-632aef3e3df00202-f6976e65056ca407",
+    "canonical_image_retained": true
+  },
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "depends_on_golden_names": false,
+    "behavior_cases": 10,
+    "behaviors": [
+      "buffer-reusing one-shot iterators load every retained pooling parameter and preserve output",
+      "probed packed q/k shards survive later buffer reuse",
+      "ordinary iterators and both supported checkpoint prefix forms remain correct",
+      "missing heads, unknown weights, repeated loads, and streaming consumption remain correct"
+    ],
+    "collection_integrity": "Exactly 10 unique cases; Oracle requires zero failures, errors, or skips."
+  },
+  "public_reproduction": {
+    "entrypoint": "/opt/repro/pooling_stream_trace.py",
+    "base_exit_code": 3,
+    "base_mismatched_parameters": ["model.layer0.weight", "model.layer1.weight"],
+    "base_output_matches_reference": false,
+    "oracle_exit_code": 0,
+    "oracle_mismatched_parameters": [],
+    "oracle_output_matches_reference": true
+  },
+  "repeated_runs": [
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "behavior_tests_each_round": {"passed": 4, "failed": 6, "errors": 0, "skipped": 0},
+      "stream_exit_codes": [1, 1, 1, 1, 1]
+    },
+    {
+      "case": "oracle",
+      "rounds": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "behavior_tests_each_round": {"passed": 10, "failed": 0, "errors": 0, "skipped": 0},
+      "stream_exit_codes": [0, 0, 0, 0, 0]
+    }
+  ],
+  "adversarial_runs": [
+    {
+      "case": "lazy-without-probe-clone",
+      "patch_sha256": "81264afef9e537933905287e3139d6b978036b359d3660932615bf031fea1a30",
+      "reward": 0,
+      "tests_passed": 9,
+      "tests_failed": 1,
+      "stream_exit_code": 0,
+      "planned_defect": "Consumes the tail lazily but leaves probed packed shards aliased to the reusable buffer."
+    },
+    {
+      "case": "materialize-cloned-checkpoint",
+      "patch_sha256": "ca7e587d03ab052aa38c9aa7be93f14c38a72cc6aed1c195c7cc3be40d9259a9",
+      "reward": 0,
+      "tests_passed": 5,
+      "tests_failed": 5,
+      "stream_exit_code": 1,
+      "planned_defect": "Clones only after eagerly exhausting a buffer-reusing iterator and violates streaming consumption."
+    },
+    {
+      "case": "probe-clone-with-eager-tail",
+      "patch_sha256": "e1a9249f67debd91ccc64fa330d3fe1db376fa1944368ff46b2e8ee4ef8f5be9",
+      "reward": 0,
+      "tests_passed": 5,
+      "tests_failed": 5,
+      "stream_exit_code": 1,
+      "planned_defect": "Protects the probe but still eagerly expands the unread iterator tail."
+    }
+  ],
+  "conforming_alternative_run": {
+    "case": "alternative-explicit-lazy-generator",
+    "patch_sha256": "c475ab5137d8a9669849b71bc3fff75d7bca57ec1074fef76963700c0aa09205",
+    "change": "Uses an explicit two-stage generator rather than Golden's itertools.chain.",
+    "reward": 1,
+    "tests_passed": 10,
+    "tests_failed": 0,
+    "stream_exit_code": 0
+  },
+  "hidden_end_to_end": {
+    "tests_mounted_only_during_verification": true,
+    "entrypoint": "production _create_pooling_model_cls adapter and AutoWeightsLoader over a one-shot reusable-buffer iterator",
+    "hidden_variations": "Packed q/k projections, relative checkpoint names, unknown weights, repeated runs, and first-consumption timing are absent from the public example.",
+    "execution_substitutions": "Small deterministic linear modules replace model weights; the pooling adapter and loader lifecycle run for real.",
+    "limitation": "runai_streamer and the GPU embedding model from the PR are unavailable; this reduced boundary reproduces its documented storage-reuse semantics and downstream output corruption."
+  },
+  "build_reproducibility": {
+    "initial_image_id": "sha256:ec385896f9802ba5ca343d37c16f8054b616cde91f510dbb61c3f47de23a2fc7",
+    "warm_cache_image_id": "sha256:ec385896f9802ba5ca343d37c16f8054b616cde91f510dbb61c3f47de23a2fc7",
+    "digest_stable": true,
+    "build_context": "empty"
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "base_is_squash_merge_parent": true,
+    "future_reference_commit_absent": true,
+    "full_git_history_present": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_and_validation_absent_from_final_filesystem": true,
+    "solution_tests_and_validation_absent_from_image_layers": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "dependency_lock_dry_run_matches": true,
+    "dependency_cutoff_override_reason_recorded": true,
+    "empty_build_context": true,
+    "cached_rebuild_digest_stable": true,
+    "runtime_network_disabled": true
+  },
+  "critical_review_rounds": [
+    "source and later-scope boundary checked against PRs #39650 and #50890",
+    "public Base/Oracle reproduction and missing-head fixture correction checked",
+    "Oracle and structurally different lazy-generator alternative checked",
+    "partial patches, prefix, packed, negative, dependency, Git, and layer isolation checked",
+    "five-round stability, hashes, retained image, and final Harbor result checked"
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "e4253d90-f560-480e-8e7b-9de0e6df4f65",
+    "trial_id": "8d090291-7de8-40f5-ad23-80c85be1d084",
+    "input_task_checksum": "62df66dd99ee24665a866e1ff4edd6deaca0c1afe06e574f479e4b39089600ab",
+    "lock_task_digest": "sha256:a57943292c555be76d09bda6788cb8ef045e94b1c054ae532f13db60570788fc",
+    "checksum_scope": "Harbor hashes the task directory. This successful input predates insertion of this self-referential evidence file; executable task artifacts are hash-pinned above.",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "stream_exit_code": 0,
+    "runtime_seconds": 32,
+    "canonical_image_retained_after_run": true
+  }
+}

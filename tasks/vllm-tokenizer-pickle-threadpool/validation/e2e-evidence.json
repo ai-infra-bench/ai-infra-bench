@@ -1,0 +1,173 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-01T17:48:20Z",
+  "source": {
+    "candidate_id": "vllm-cpu-300-207",
+    "instance_id": "vllm-project__vllm-45460",
+    "base_commit": "43f0e024bcc304e88b5be47555daabf795582354",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/45460",
+    "linked_issue": "https://github.com/vllm-project/vllm/issues/45433",
+    "squash_merge_commit": "5b2943f5a6c5fb267d1b2029c666f9d6b0e4ebd6",
+    "base_is_squash_merge_parent": true,
+    "timeline": "Issue #45433 reports that the thread-pool tokenizer introduced in v0.21 mutates in place but returns None, so its __reduce__ reconstruction yields None across pickle, Ray, and multiprocessing. PR #45460 returns the wrapper."
+  },
+  "artifacts": {
+    "task_metadata_sha256": "7fae3cf21b608aa724ddff143bd9938e76ba99e2c05c6146d16a3266289edaa5",
+    "instruction_sha256": "0add323ce69e82a3b59df52c5a5b737965e27a94d035644467ca88535726076c",
+    "dockerfile_sha256": "291943a339d12e0ef3e11fac36f93b3e35d09b84af83f22e2a31e1e559f3da8d",
+    "dependency_lock_sha256": "1040e9fbb6da3d72b0e3c96a8b6e3e9330c0b22d16b11f9c3f45c2a45fb4dd27",
+    "dependency_lock_manifest_sha256": "30c4b63e64f0e230717b92e68119d092d825ae727486db44bc772ef9bdbe7588",
+    "image_manifest_sha256": "2515208cd2aa4d8a34489ceeca609e971e0a8d4cbc159210bea4cde1b617c76e",
+    "public_fixture_sha256": "029ae57b66a0a2a5a174d8c76e2cf615e22bd7f830f17d62ff5325619f5a580c",
+    "public_reproduction_sha256": "c9ba6db7a976eae8de531ebe6c5052c0bdd1bc9bf030850f2b0e149b27e8346a",
+    "oracle_patch_sha256": "b9ddbb84578ddd0acbc917e99b1d52ae8e4923757c088e901cb3c70eb692c3ad",
+    "solve_script_sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491",
+    "test_script_sha256": "a59f9f3dc7d1848a6ab5e95ae8076f4c26f32b519274c97998aa3ca44233f222",
+    "regression_test_sha256": "d6965166e549d9a9f2c05b59005699d697c43d84b55ba52762029bce02680cb4",
+    "real_process_test_sha256": "2ed918faa9ad8bc2eacd8f9811ae629b34e6f11e449e7f296b7a359cfef3d65a",
+    "test_fixture_sha256": "175b201eb3c22b72395c8ed054d6035a2ff783fe8cb1ecce74b277dd09ca344d",
+    "junit_checker_sha256": "dab117c24393cc3ed34ad399be74da71cab13ce8a93f5c8b7a3e75cd6f0c4aeb",
+    "ci_cases_sha256": "4be62904c28aed7e013de38c459714fb4ca007ccce6137cd904f9983f81612d9",
+    "remediation_matrix_sha256": "cc5dec2470e76b90201cd26de0831032922a59880528219d248e1b8e266a0e58"
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-tokenizer-pickle-threadpool:base-43f0e024bcc3",
+    "image_id": "sha256:d4f275d5eb71f03b584aed05e1d4bf592cbc73f379ccace38adb800db735a9f7",
+    "size_bytes": 2813625110,
+    "template_sha256": "2f1688856bf1e683d6f19bba67f07094c64c87f8da9551f1bc9c4a1e69fcb515",
+    "cache_namespace": "43f0e024bcc304e88b5be47555daabf795582354-1040e9fbb6da3d72-58c4f34b2c181742",
+    "canonical_image_retained": true
+  },
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "depends_on_golden_names": false,
+    "behavior_cases": 10,
+    "behaviors": [
+      "standard pickle, cloudpickle, multiple protocols, and spawn reconstruct a usable tokenizer instead of None",
+      "encoding, decoding, batched calls, configured copies, and thread-safe wrapper identity survive reconstruction",
+      "repeated wrapping remains idempotent and non-fast objects preserve existing behavior"
+    ],
+    "collection_integrity": "Exactly 10 unique cases; Oracle requires zero failures, errors, or skips."
+  },
+  "public_reproduction": {
+    "entrypoint": "/opt/repro/tokenizer_pickle_trace.py",
+    "base_exit_code": 3,
+    "base_wrapped_thread_safe": true,
+    "base_pickle_is_none": true,
+    "base_spawn_ids": null,
+    "oracle_exit_code": 0,
+    "oracle_pickle_is_none": false,
+    "oracle_pickle_ids": [1, 2],
+    "oracle_spawn_ids": [1, 2],
+    "oracle_spawn_exit_code": 0
+  },
+  "repeated_runs": [
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "behavior_tests_each_round": {"passed": 2, "failed": 8, "errors": 0, "skipped": 0},
+      "process_exit_codes": [1, 1, 1, 1, 1]
+    },
+    {
+      "case": "oracle",
+      "rounds": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "behavior_tests_each_round": {"passed": 10, "failed": 0, "errors": 0, "skipped": 0},
+      "process_exit_codes": [0, 0, 0, 0, 0]
+    }
+  ],
+  "adversarial_runs": [
+    {
+      "case": "restore-raw-tokenizer",
+      "patch_sha256": "b0b7080f1f6f5d05e3771f9a6e2118ca334cbd0993ac9f51fbc0aa926ef43844",
+      "reward": 0,
+      "tests_passed": 8,
+      "tests_failed": 2,
+      "process_exit_code": 1,
+      "planned_defect": "Reconstructs the raw tokenizer and loses the requested thread-safe wrapper."
+    },
+    {
+      "case": "only-single-copy",
+      "patch_sha256": "342231014c41e3a1f7395ea21e71dd65db35a9262891d202b5900f0f903155e9",
+      "reward": 0,
+      "tests_passed": 2,
+      "tests_failed": 8,
+      "process_exit_code": 1,
+      "planned_defect": "Returns a wrapper only for the default single-copy configuration."
+    },
+    {
+      "case": "non-idempotent-wrapper",
+      "patch_sha256": "0c9ef73811044c369d2ed5f9872cdb7d80f2bad1572512d7ed5cf649fa9df12d",
+      "reward": 0,
+      "tests_passed": 9,
+      "tests_failed": 1,
+      "process_exit_code": 0,
+      "planned_defect": "Fixes reconstruction but wraps an already wrapped tokenizer again."
+    }
+  ],
+  "conforming_alternative_run": {
+    "case": "alternative-rebuild-helper",
+    "patch_sha256": "58c88b273784a57556ef1df52296eebdbc325e4a39355facd0f96e232d27061b",
+    "change": "Changes __reduce__ to a separate reconstruction helper rather than returning from maybe_make_thread_pool.",
+    "reward": 1,
+    "tests_passed": 10,
+    "tests_failed": 0,
+    "process_exit_code": 0
+  },
+  "hidden_end_to_end": {
+    "tests_mounted_only_during_verification": true,
+    "entrypoint": "real local Hugging Face fast tokenizer, dynamic thread-pool wrapper, pickle reconstruction, and multiprocessing spawn transfer",
+    "hidden_variations": "Cloudpickle, protocols 4/highest, three copies, multilingual encoding, decode, batched calls, idempotence, and non-fast controls are absent from the public example.",
+    "execution_substitutions": "A local WordLevel tokenizer replaces a downloaded model tokenizer; transformers/tokenizers, the production wrapper, pickle reducers, and OS spawn run for real.",
+    "limitation": "Ray is not installed in the canonical image; multiprocessing spawn exercises the same pickle reconstruction boundary reported by the issue, not Ray transport itself."
+  },
+  "build_reproducibility": {
+    "initial_image_id": "sha256:d4f275d5eb71f03b584aed05e1d4bf592cbc73f379ccace38adb800db735a9f7",
+    "warm_cache_image_id": "sha256:d4f275d5eb71f03b584aed05e1d4bf592cbc73f379ccace38adb800db735a9f7",
+    "digest_stable": true,
+    "build_context": "empty"
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "base_is_squash_merge_parent": true,
+    "future_reference_commit_absent": true,
+    "full_git_history_present": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_and_validation_absent_from_final_filesystem": true,
+    "solution_tests_and_validation_absent_from_image_layers": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "dependency_lock_dry_run_matches": true,
+    "empty_build_context": true,
+    "cached_rebuild_digest_stable": true,
+    "runtime_network_disabled": true
+  },
+  "critical_review_rounds": [
+    "issue #45433 and PR #45460 pickle/Ray/multiprocessing timeline checked",
+    "public Base/Oracle pickle and spawn reproduction checked",
+    "cutoff API drift in the batched-call verifier corrected; alternative implementation checked",
+    "partial wrappers, protocols, negative controls, dependency, Git, and layer isolation checked",
+    "five-round stability, hashes, retained image, and final Harbor result checked"
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "4d19bb9e-70fe-4957-ae2a-86a580d0edb5",
+    "trial_id": "c3e54aff-e400-4942-b13b-b1502f17e17c",
+    "input_task_checksum": "a9069efa712ea331b3f37dcfe5ee2a852db2c66fb8e8e369dbb8785b44ceb983",
+    "lock_task_digest": "sha256:ca550a51ae20aa307809bc21e717428ffbfccd35818f94fd45008d966dc4be71",
+    "checksum_scope": "Harbor hashes the task directory. This successful input predates insertion of this self-referential evidence file and final remediation status updates; executable task artifacts are hash-pinned above.",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "process_exit_code": 0,
+    "runtime_seconds": 308,
+    "canonical_image_retained_after_run": true
+  }
+}

@@ -1,0 +1,30 @@
+diff --git a/vllm/renderers/params.py b/vllm/renderers/params.py
+index 7e3670c738d2..d22cce862fb1 100644
+--- a/vllm/renderers/params.py
++++ b/vllm/renderers/params.py
+@@ -333,11 +333,11 @@ class TokenizeParams:
+     def _text_len_check(self, tokenizer: TokenizerLike | None, text: str) -> str:
+         """Apply length checks to prompt text if necessary."""
+         max_input_tokens = self.max_input_tokens
+-        if max_input_tokens is None:
++        if max_input_tokens is None or tokenizer is None:
+             return text
+ 
+-        if self.truncate_prompt_tokens is None and tokenizer is not None:
+-            max_input_chars = max_input_tokens * tokenizer.max_chars_per_token
++        max_input_chars = max_input_tokens * tokenizer.max_chars_per_token
++        if self.truncate_prompt_tokens is None:
+ 
+             if len(text) > max_input_chars:
+                 # To save resources, fail the request outright without even
+@@ -354,5 +354,10 @@ class TokenizeParams:
+                     parameter="input_text",
+                     value=len(text),
+                 )
++        elif len(text) > max_input_chars:
++            if self.truncation_side == "left":
++                text = text[-max_input_chars:]
++            else:
++                text = text[:max_input_chars]
+ 
+         return text

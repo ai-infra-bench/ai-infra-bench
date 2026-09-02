@@ -1,0 +1,78 @@
+diff --git a/vllm/model_executor/model_loader/reload/layerwise.py b/vllm/model_executor/model_loader/reload/layerwise.py
+index 92f454f9a5f4..d6d4eb4b9308 100644
+--- a/vllm/model_executor/model_loader/reload/layerwise.py
++++ b/vllm/model_executor/model_loader/reload/layerwise.py
+@@ -14,7 +14,7 @@ from vllm.model_executor.model_loader.weight_utils import default_weight_loader
+ 
+ from .meta import (
+-    SKIP_TENSORS,
++    SKIP_LOAD_TENSORS,
+     capture_layer_to_meta,
+     get_numel_loaded,
+     materialize_layer,
+     restore_layer_on_meta,
+@@ -140,7 +140,7 @@ def _wrap_parameters_weight_loader(layer: torch.nn.Module) -> None:
+     """Wrap each parameter's weight loader."""
+     # Note that nested wrapping will occur for shared tensors
+     for name, tensor in get_layer_tensors(layer).items():
+-        if name in SKIP_TENSORS:
++        if name in SKIP_LOAD_TENSORS:
+             continue
+         if _get_weight_loader(tensor).__name__ != "online_process_loader":
+             tensor.weight_loader = make_online_process_loader(layer, name)
+diff --git a/vllm/model_executor/model_loader/reload/meta.py b/vllm/model_executor/model_loader/reload/meta.py
+index 1ccf2a34c604..213a9aaeaf8e 100644
+--- a/vllm/model_executor/model_loader/reload/meta.py
++++ b/vllm/model_executor/model_loader/reload/meta.py
+@@ -20,20 +20,23 @@ __all__ = [
+     "get_numel_loaded",
+ ]
+ 
++# Modules whose tensors are never moved to, or materialized from, the meta device.
+ SKIP_MODULES: set[str] = {"HadamardTransform"}
+ 
+-SKIP_TENSORS: set[str] = {
++# Tensors never loaded by a weight loader, so the layerwise trigger ignores them.
++SKIP_LOAD_TENSORS: set[str] = {
+     "_expert_map",
+     "expert_mask",
+     "expert_global_to_physical",
+     "expert_physical_to_global",
+     "expert_local_to_global",
+     "e_score_correction_bias",
+-    # Built after create_weights(), so it is not tracked by the layerwise-reload
+-    # trigger and would be re-materialized into uninitialized memory. Skip it.
+-    "bias",
+ }
+ 
++# Tensors which are never moved to, or materialized from, the meta device.
++# `bias` is built after create_weights(), so it is never on meta to begin with.
++SKIP_TENSORS: set[str] = SKIP_LOAD_TENSORS | {"bias"}
++
+ 
+ def to_meta_tensor(tensor: torch.Tensor) -> torch.Tensor:
+     """Convert a tensor to a meta tensor while preserving class and attributes."""
+diff --git a/vllm/model_executor/model_loader/reload/utils.py b/vllm/model_executor/model_loader/reload/utils.py
+index f0078d0f9d85..b6d129a79403 100644
+--- a/vllm/model_executor/model_loader/reload/utils.py
++++ b/vllm/model_executor/model_loader/reload/utils.py
+@@ -33,15 +33,15 @@ def get_layer_params_buffers(layer: torch.nn.Module) -> LayerTensors:
+ def get_layer_size(layer: torch.nn.Module) -> int:
+     """Calculate total number of elements across loadable tensors in a layer.
+ 
+-    Excludes SKIP_TENSORS (e.g. _expert_map) which are never moved to meta
+-    device and never loaded via weight_loader during layerwise reload.
++    Excludes SKIP_LOAD_TENSORS (e.g. _expert_map) which are never loaded via
++    weight_loader during layerwise reload.
+     """
+-    from .meta import SKIP_TENSORS
++    from .meta import SKIP_LOAD_TENSORS
+ 
+     return sum(
+         tensor.numel()
+         for name, tensor in get_layer_tensors(layer).items()
+-        if name not in SKIP_TENSORS
++        if name not in SKIP_LOAD_TENSORS
+     )
+ 
+ 

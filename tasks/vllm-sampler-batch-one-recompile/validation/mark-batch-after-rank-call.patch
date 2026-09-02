@@ -1,0 +1,33 @@
+diff --git a/vllm/v1/sample/ops/logprobs.py b/vllm/v1/sample/ops/logprobs.py
+index cf36d46e13fd..9cdcfa456a80 100644
+--- a/vllm/v1/sample/ops/logprobs.py
++++ b/vllm/v1/sample/ops/logprobs.py
+@@ -7,7 +7,7 @@ import torch
+ from vllm.platforms import current_platform
+ 
+ 
+-@torch.compile(dynamic=True, backend=current_platform.simple_compile_backend)
++@torch.compile(backend=current_platform.simple_compile_backend)
+ def batched_count_greater_than(x: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
+     """
+     Counts elements in each row of x that are greater than the corresponding
+@@ -22,4 +22,6 @@ def batched_count_greater_than(x: torch.Tensor, values: torch.Tensor) -> torch.T
+     Returns:
+         torch.Tensor: A 1D tensor of shape (batch_size,) with the counts.
+     """
++    torch._check(x.shape[0] >= 1)
++    torch._check(x.shape[0] == values.shape[0])
+     return (x >= values).sum(-1)
+diff --git a/vllm/v1/sample/sampler.py b/vllm/v1/sample/sampler.py
+index acb969360f46..1a1379b5c623 100644
+--- a/vllm/v1/sample/sampler.py
++++ b/vllm/v1/sample/sampler.py
+@@ -325,6 +325,8 @@ class Sampler(nn.Module):
+ 
+         # Compute the ranks of the actual token.
+         token_ranks = batched_count_greater_than(logprobs, token_logprobs)
++        torch._dynamo.decorators.mark_unbacked(logprobs, 0)
++        torch._dynamo.decorators.mark_unbacked(token_logprobs, 0)
+ 
+         # Concatenate together with the topk.
+         indices = torch.cat((token_ids, topk_indices), dim=1)

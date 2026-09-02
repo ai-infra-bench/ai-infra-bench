@@ -1,0 +1,179 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-01T22:06:41Z",
+  "source": {
+    "candidate_id": "vllm-cpu-300-285",
+    "instance_id": "vllm-project__vllm-49805",
+    "base_commit": "26d725c334429dd86b3d1a9271fbb5e16e03c9ef",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/49805",
+    "linked_issue": null,
+    "squash_merge_commit": "9321aff536c1a73f0a7fefc68aef1f2630a904cc",
+    "base_is_squash_merge_parent": true,
+    "timeline": "PR #49805 reports the online-FP8 forced-Marlin CI failure. A later cross-reference mentions #39663, but it is not the original trigger, so the task keeps the PR-supported loader symptom instead of inventing a user incident."
+  },
+  "artifacts": {
+    "task_metadata_sha256": "9da2c03ba83eb0c12f35a5273de294367dcd147926d5af1c16da88c25f36e5c8",
+    "instruction_sha256": "7f0a719f564897a6535ce75a3ee6dace2d3724f5dae721559e35140f6a05a378",
+    "dockerfile_sha256": "32017002efda7e759f821790d4111de1810c9e97afdb0f8152f507dead92c82e",
+    "dependency_lock_sha256": "83b3166b1c4a201d9ede3398708f379bdfc79c1351dda65ef3ae057c23403b7b",
+    "dependency_lock_manifest_sha256": "377a9808dbc9652f44061dd8026c2a97ed438f492835b9ab93b7b360da09b840",
+    "image_manifest_sha256": "ef32bce2b98e69c942e7298b7176a6c61b097fa42edfa714a92b099a3b6b2917",
+    "public_fixture_sha256": "d2174f46b923b84c3766e12e6f70602821d3ec5db6d5e573f4f9463fb3d1d840",
+    "public_reproduction_sha256": "9f23a17d30dffdd0b6c494063ec8800f0494256c69bb0145a86286ca7e272d71",
+    "oracle_patch_sha256": "2a84a0e1faa0b9370d6fef04f563059a9ec8849fab3501cda06dd394aadc25ff",
+    "solve_script_sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491",
+    "test_script_sha256": "a9ca98b014eae89cd389b70e6cea123b66d6f68f8176c3ecbd9c95afff17c3d6",
+    "regression_test_sha256": "742d74288554bc09c44d33fb24720507848b9553e873679b6fa7dcbebf818956",
+    "real_layerwise_test_sha256": "7ac9ac755f7f69bf33bed345bb85185afede9cb5b18d7ca9f790dff14ca3e428",
+    "test_fixture_sha256": "6ffeb349ad4305bbe64e6fd199f520c31ee200bc7f6328a196856499cfc1c1d8",
+    "junit_checker_sha256": "7831958f2e22e5fdfbd4829326978a0389ae40fba4bfbb148d2b63334ef120f0",
+    "ci_cases_sha256": "2b03f1f345be714aaaea0956ac70d4ff9fac8d4b18ee017d33ab2fa6b749448d",
+    "remediation_matrix_sha256": "655ee82ade4cb96fb32ce4c925f7daeac4279fb98dbb301953fc37d7e8599646"
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-layerwise-late-bias-processing:base-26d725c33442",
+    "image_id": "sha256:d59be08997aa0d11e80dcfdd13cb1a8fe12aa3bdf6d9da998d700d0a3c530033",
+    "size_bytes": 2927952365,
+    "template_sha256": "2f1688856bf1e683d6f19bba67f07094c64c87f8da9551f1bc9c4a1e69fcb515",
+    "cache_namespace": "26d725c334429dd86b3d1a9271fbb5e16e03c9ef-83b3166b1c4a201d-2f1688856bf1e683",
+    "canonical_image_retained": true
+  },
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "depends_on_golden_names": false,
+    "behavior_cases": 9,
+    "behaviors": [
+      "late-registered bias delays processing and its loaded value is visible",
+      "layers without bias and intentionally never-loaded buffers do not deadlock",
+      "missing bias can be completed by finalization without double processing",
+      "bias remains outside meta capture while separate layers retain independent state"
+    ],
+    "collection_integrity": "Exactly 9 unique cases; Oracle requires zero failures, errors, or skips."
+  },
+  "public_reproduction": {
+    "entrypoint": "/opt/repro/layerwise_bias_trace.py",
+    "base_exit_code": 3,
+    "base_processed_after_weight": 1,
+    "base_bias_seen": [0.0, 0.0, 0.0, 0.0],
+    "oracle_exit_code": 0,
+    "oracle_processed_after_weight": 0,
+    "oracle_bias_seen": [3.0, 3.0, 3.0, 3.0]
+  },
+  "repeated_runs": [
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "behavior_tests_each_round": {"passed": 4, "failed": 5, "errors": 0, "skipped": 0},
+      "e2e_exit_codes": [1, 1, 1, 1, 1]
+    },
+    {
+      "case": "oracle",
+      "rounds": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "behavior_tests_each_round": {"passed": 9, "failed": 0, "errors": 0, "skipped": 0},
+      "e2e_exit_codes": [0, 0, 0, 0, 0]
+    }
+  ],
+  "adversarial_runs": [
+    {
+      "case": "count-bias-without-wrapping",
+      "patch_sha256": "9eb26eaed0b0537540d70680b9960a4b29fba8ca8dc41ff5c51be224cccc29e7",
+      "reward": 0,
+      "tests_passed": 4,
+      "tests_failed": 5,
+      "e2e_exit_code": 1,
+      "planned_defect": "Counts bias but leaves its loader unwrapped, so processing still runs after the last projection weight."
+    },
+    {
+      "case": "wrap-bias-without-counting",
+      "patch_sha256": "51b408a09a3e493bc23a7a6e0e697b5509584b81653b9ab695b324e432904c45",
+      "reward": 0,
+      "tests_passed": 4,
+      "tests_failed": 5,
+      "e2e_exit_code": 1,
+      "planned_defect": "Wraps bias but does not include it in the loadable-tensor count."
+    },
+    {
+      "case": "move-bias-through-meta",
+      "patch_sha256": "6a592891a73427f58627bfca7a4a38f16dac7f5a2a3bd4cbd2da74c2bfaf5d48",
+      "reward": 0,
+      "tests_passed": 8,
+      "tests_failed": 1,
+      "e2e_exit_code": 0,
+      "planned_defect": "Moves late bias into meta capture, violating the established device lifecycle while fixing timing."
+    }
+  ],
+  "conforming_alternative_run": {
+    "case": "alternative-special-case-loadable-bias",
+    "patch_sha256": "f2022a8cd2cdefb300cdb4822702bbe232f4401585ccb351e01ed53297a40b70",
+    "change": "Special-cases loadable bias at the counting and wrapper boundaries without introducing the Oracle's shared skip set.",
+    "reward": 1,
+    "tests_passed": 9,
+    "tests_failed": 0,
+    "e2e_exit_code": 0
+  },
+  "hidden_end_to_end": {
+    "tests_mounted_only_during_verification": true,
+    "entrypoint": "production initialize_online_processing, weight-loader wrappers, and finalization lifecycle",
+    "base_measurement": {
+      "processed_after_weight": [1, 1],
+      "bias_seen": [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]]
+    },
+    "oracle_measurement": {
+      "processed_after_weight": [0, 0],
+      "bias_seen": [[3.0, 3.0, 3.0, 3.0], [-2.5, -2.5, -2.5, -2.5]]
+    },
+    "hidden_variations": "Positive and negative late-bias values, two independent layers, no-bias layers, never-loaded buffers, delayed finalization, and meta-capture preservation are absent from the public example.",
+    "execution_substitutions": "A deterministic CPU quant method records values while the production layerwise loader and default weight loaders run for real.",
+    "limitation": "The reduction exercises the exact loader lifecycle but not an OPT checkpoint or FP8/Marlin accelerator kernels."
+  },
+  "build_reproducibility": {
+    "initial_image_id": "sha256:d59be08997aa0d11e80dcfdd13cb1a8fe12aa3bdf6d9da998d700d0a3c530033",
+    "warm_cache_image_id": "sha256:d59be08997aa0d11e80dcfdd13cb1a8fe12aa3bdf6d9da998d700d0a3c530033",
+    "digest_stable": true,
+    "build_context": "empty"
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "base_is_squash_merge_parent": true,
+    "future_reference_commit_absent": true,
+    "full_git_history_present": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_and_validation_absent_from_final_filesystem": true,
+    "solution_tests_and_validation_absent_from_image_layers": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "dependency_lock_dry_run_matches": true,
+    "empty_build_context": true,
+    "cached_rebuild_digest_stable": true,
+    "runtime_network_disabled": true
+  },
+  "critical_review_rounds": [
+    "source timeline checked without rewriting the later issue cross-reference as the original trigger",
+    "instruction and CPU reproduction checked against the backend-specific loader symptom",
+    "Oracle, independent alternative, and three targeted partial fixes checked",
+    "Git, dependency, network, final-filesystem, and all 16 image layers checked",
+    "five-round stability, hashes, retained image, and final Harbor result checked"
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "3f005df1-0bb6-4cee-a87e-1dc441b59b04",
+    "trial_id": "0481eef2-e334-4272-94d9-d2279ee36ded",
+    "input_task_checksum": "8f801a04756487bc3f62a397f7f40d1d8b113172a1473d229e8771b1c4d54423",
+    "lock_task_digest": "sha256:731583a4cd774bf018ee27be4daaff9548158d02a66f7bc00d2f490e3ac7daa6",
+    "checksum_scope": "Harbor hashes the task directory. This successful input predates insertion of this self-referential evidence file and the final C4 status update; executable task artifacts are hash-pinned above.",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "e2e_exit_code": 0,
+    "runtime_seconds": 359,
+    "canonical_image_retained_after_run": true
+  }
+}

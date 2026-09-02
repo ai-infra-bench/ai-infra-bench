@@ -1,0 +1,11 @@
+# Remediation matrix
+
+| ID | Severity | Finding and evidence | Planned change | Validation | Status |
+|---|---|---|---|---|---|
+| C1 | blocking | New task provenance must distinguish the chat-completions incident from the unrelated derender U+FFFD fix in PR #45919. | Attribute the Korean symptom to the reporter comment and PR #46159's engine-parser fix. | Instruction timeline and deterministic replay match the split-parser boundary. | fixed |
+| C2 | blocking | Environment and cutoff lock are missing. | Generate, build, and isolate the hardened canonical image. | Lock, digest, Git, dependencies, hidden artifacts, and network audits pass. | fixed |
+| C3 | blocking | Verifier and control patches are missing. | Cover two parser families, unpublished Unicode, chunk boundaries, finish/flush, ASCII, reasoning, and tool controls. | Base/Oracle five rounds, alternative 1, partial fixes 0. | fixed |
+| C4 | blocking | Final evidence and Harbor run are missing. | Record actual artifacts, results, substitutions, limitations, and Harbor IDs. | Evidence hash audit and Harbor Oracle pass. | fixed |
+| C5 | blocking | The first `no-lexer-flush` control scored 1 because every transition fixture emitted non-whitespace content immediately; none left content in the parser engine's deferred buffer for `finish_streaming`. | Add a transition batch whose first content is whitespace and is released only by a finished engine flush. | Oracle and the conforming alternative preserve `" answer"`; the no-flush patch drops the leading space and scores 0. | fixed |
+| C6 | blocking | The first agent-visible reproduction used one-token deltas, a matrix cell that already works in Base, so the advertised deterministic command exited 0 before and after the fix. | Use the source-backed two-token transition boundary that deterministically exposes the replacement character. | Final-image public Base exits 3 with U+FFFD; Oracle exits 0 with complete Korean content. | fixed |
+| C7 | blocking | Post-review found that the matrix claimed tool-parser compatibility without any case enabling a tool schema. | Enable tools for a Unicode content transition and require normal content with no fabricated tool call. | Oracle and alternative pass for both GLM and Qwen delegating parsers. | fixed |

@@ -1,0 +1,22 @@
+diff --git a/vllm/tokenizers/hf.py b/vllm/tokenizers/hf.py
+index b4248e229a68..4d34f5f771f2 100644
+--- a/vllm/tokenizers/hf.py
++++ b/vllm/tokenizers/hf.py
+@@ -30,8 +30,6 @@ def maybe_make_thread_pool(tokenizer: _T, copies: int = 1):
+     - Adjacent method calls could happen on different deep copies.
+     """
+-    if not isinstance(tokenizer, PreTrainedTokenizerFast) or isinstance(
+-        tokenizer, ThreadSafeHFTokenizerMixin
+-    ):
++    if not isinstance(tokenizer, PreTrainedTokenizerFast):
+         return tokenizer
+ 
+     og_tokenizer = copy.copy(tokenizer)
+@@ -99,6 +97,7 @@ class TokenizerPool(tokenizer.__class__, ThreadSafeHFTokenizerMixin):  # type: i
+     TokenizerPool.__name__ = f"TokenizerPool{og_tokenizer.__class__.__name__}"
+ 
+     tokenizer.__class__ = TokenizerPool
++    return tokenizer
+ 
+ 
+ def get_cached_tokenizer(tokenizer: HfTokenizer) -> HfTokenizer:

@@ -1,0 +1,25 @@
+diff --git a/vllm/lora/model_manager.py b/vllm/lora/model_manager.py
+index bc3d278af4ee..1ee7b324cc8b 100644
+--- a/vllm/lora/model_manager.py
++++ b/vllm/lora/model_manager.py
+@@ -117,6 +117,7 @@ class LoRAModelManager:
+         self.packed_modules: dict[str, list[str]] = {}
+         self.modules: dict[str, BaseLayerWithLoRA] = {}
+         self._last_mapping: LoRAMapping | None = None
++        self._last_active_ids: tuple[int, ...] | None = None
+         is_moe = is_moe_model(self.model)
+         self._is_moe = is_moe
+ 
+@@ -1147,9 +1148,11 @@ class LoRAModelManager:
+         return True
+ 
+     def set_adapter_mapping(self, mapping: LoRAMapping) -> None:
+-        if self._last_mapping != mapping:
++        active_ids = tuple(sorted(x for x in self.lora_index_to_id if x is not None))
++        if self._last_mapping != mapping or self._last_active_ids != active_ids:
+             self._set_adapter_mapping(mapping)
+             self._last_mapping = mapping
++            self._last_active_ids = active_ids
+ 
+     def remove_adapter(self, adapter_id: int) -> bool:
+         self.deactivate_adapter(adapter_id)

@@ -1,0 +1,173 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-01T17:35:10Z",
+  "source": {
+    "candidate_id": "vllm-cpu-300-220",
+    "instance_id": "vllm-project__vllm-46159",
+    "base_commit": "4a083cc858f075209dd964ade48c0f8ec87c3393",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/46159",
+    "origin_discussion": "https://github.com/vllm-project/vllm/pull/45919#issuecomment-4732432638",
+    "linked_issue": null,
+    "squash_merge_commit": "859e4d436ba0fb0da8a655a80d5c4fab12adc82e",
+    "base_is_squash_merge_parent": true,
+    "timeline": "A comment on PR #45919 reports intermittent Korean U+FFFD in streamed GLM chat; PR #46159 narrows it to the split engine parser transition and flushes the reasoning engine instead of decoding isolated byte-fallback IDs."
+  },
+  "artifacts": {
+    "task_metadata_sha256": "70841540ac31e4d107178ab1be0d0547d0d434856dc10f04b6fc5de2993b69ef",
+    "instruction_sha256": "eeed8705c39b8bbeb5ae451e73bef96cc1638fe2ac9075c336dd2986c09b3ca3",
+    "dockerfile_sha256": "e1e735433ca19d8bd15ceed3cdf30ade97adb51be336c02bc79eabc448cc72e6",
+    "dependency_lock_sha256": "3b8a3b45531f040ccde72474587967ad138c1dbab87366b613b332149938eff7",
+    "dependency_lock_manifest_sha256": "b49466c81d49643653d681ae5313179a53f4668ee8228425d9aa438fc040c961",
+    "image_manifest_sha256": "27e50a0f087b87ee696cf329fb1ce8ebcf12f55de331e78d5fa3545609273267",
+    "public_fixture_sha256": "93ccdbb0f809aea5dc8a9100e1658959b77433a4c4b5d44c5bdc9ae22e0493b2",
+    "public_reproduction_sha256": "b29d7235e94890a5015fbe3809c7dd336ad52ca2b7172b9e27d2e93c2214dfcf",
+    "oracle_patch_sha256": "81dbd7296724fd890690cd8bdc4ba6ef7d3a8d1399efdcef015fe85403b7c53f",
+    "solve_script_sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491",
+    "test_script_sha256": "d618ff9e5daa7c4da63936d8e6427596c1e86546d6e21a25772b28fe5a08ca28",
+    "regression_test_sha256": "27acdba70f36ab734ed15859d4b9e344613cd4ad436ee7940fc0bdc8a96e659e",
+    "real_unicode_test_sha256": "1ac07f9ea40cd656eb1f7f2735c753e6e60f1c301bccf3744f616ed8cd72cc9e",
+    "test_fixture_sha256": "747428cf1a5cfc4adc50c9239ffd18a13164fed9a3abd2e6a86320c97a4be7bc",
+    "junit_checker_sha256": "8fe5733f826f88d681a0e07fbae88222020d0ec48fd3598c776ef4acbcbd0529",
+    "ci_cases_sha256": "4276d7448e8797df564d4321a29661a0fe78a54c19fd02aef44c1a3ac1d09088",
+    "remediation_matrix_sha256": "6347bd314a96d99cfa794b0ac048e82b40d4d2651bfc180cdc673204dd9e3abd"
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-reasoning-unicode-transition:base-4a083cc858f0",
+    "image_id": "sha256:8a310c60f49b9e54f1338127ecce7a5aac14a10881461a8bcda090061cfbd267",
+    "size_bytes": 2814271287,
+    "template_sha256": "2f1688856bf1e683d6f19bba67f07094c64c87f8da9551f1bc9c4a1e69fcb515",
+    "cache_namespace": "4a083cc858f075209dd964ade48c0f8ec87c3393-3b8a3b45531f040c-58c4f34b2c181742",
+    "canonical_image_retained": true
+  },
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "depends_on_golden_names": false,
+    "behavior_cases": 12,
+    "behaviors": [
+      "GLM and Qwen split engine parsers preserve Korean, Chinese, and emoji content across reasoning transitions",
+      "results are invariant across one-, two-, three-token, and single-batch delivery",
+      "reasoning-only finish, empty content, ASCII, deferred whitespace, and consecutive fallback-token behavior remain correct",
+      "enabling a tool schema preserves normal Unicode content without fabricating a tool call"
+    ],
+    "collection_integrity": "Exactly 12 unique cases; Oracle requires zero failures, errors, or skips."
+  },
+  "public_reproduction": {
+    "entrypoint": "/opt/repro/unicode_transition_trace.py",
+    "chunk_size": 2,
+    "base_exit_code": 3,
+    "base_reasoning": "Let me think",
+    "base_content": "�전자의 주가입니다.",
+    "oracle_exit_code": 0,
+    "oracle_reasoning": "Let me think",
+    "oracle_content": "삼성전자의 주가입니다."
+  },
+  "repeated_runs": [
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "behavior_tests_each_round": {"passed": 8, "failed": 4, "errors": 0, "skipped": 0},
+      "unicode_exit_codes": [1, 1, 1, 1, 1]
+    },
+    {
+      "case": "oracle",
+      "rounds": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "behavior_tests_each_round": {"passed": 12, "failed": 0, "errors": 0, "skipped": 0},
+      "unicode_exit_codes": [0, 0, 0, 0, 0]
+    }
+  ],
+  "adversarial_runs": [
+    {
+      "case": "delete-replacement-character",
+      "patch_sha256": "a8c27067c026e2d83bbd3d4bc81735c5f06edb7a80611ca232211a26ddcedfbd",
+      "reward": 0,
+      "tests_passed": 8,
+      "tests_failed": 4,
+      "unicode_exit_code": 1,
+      "planned_defect": "Deletes the visible replacement character instead of recovering held Unicode bytes."
+    },
+    {
+      "case": "no-lexer-flush",
+      "patch_sha256": "f4183f5a10b4a52a2a45f2b039818b453904c873242870a6739846bd061fd2a9",
+      "reward": 0,
+      "tests_passed": 11,
+      "tests_failed": 1,
+      "unicode_exit_code": 0,
+      "planned_defect": "Uses only the current delta and drops content still deferred until engine finish."
+    },
+    {
+      "case": "flush-without-current-delta",
+      "patch_sha256": "b70db2fa6b454ea9109a7f35c88b7c0b04b2fc8511accbba98da3e4d34b467cb",
+      "reward": 0,
+      "tests_passed": 8,
+      "tests_failed": 4,
+      "unicode_exit_code": 1,
+      "planned_defect": "Flushes held parser content but omits valid content already returned in the transition delta."
+    }
+  ],
+  "conforming_alternative_run": {
+    "case": "alternative-compose-parser-output",
+    "patch_sha256": "7dabf0c1c92be98400756e27ba5ba9ff300440570c2c6424b9c5fa5b66c91183",
+    "change": "Builds output from a list of current and completed parser pieces and uses a differently structured finish guard.",
+    "reward": 1,
+    "tests_passed": 12,
+    "tests_failed": 0,
+    "unicode_exit_code": 0
+  },
+  "hidden_end_to_end": {
+    "tests_mounted_only_during_verification": true,
+    "entrypoint": "real DelegatingParser with production GLM/Qwen engine adapters over eight chunking/parser combinations",
+    "hidden_variations": "Qwen, Chinese, emoji, deferred whitespace, tools enabled, and chunk sizes 1/2/3/all are absent from the public example.",
+    "execution_substitutions": "A deterministic byte-fallback tokenizer supplies already decoded stream text and controlled token IDs; production parser engine, adapters, lexer, transition, and finish lifecycle run for real.",
+    "limitation": "The original GLM model, speculative decoder, GPU inference, and HTTP SSE server are unavailable; the reduced replay starts at the parser boundary documented by PR #46159."
+  },
+  "build_reproducibility": {
+    "initial_image_id": "sha256:8a310c60f49b9e54f1338127ecce7a5aac14a10881461a8bcda090061cfbd267",
+    "warm_cache_image_id": "sha256:8a310c60f49b9e54f1338127ecce7a5aac14a10881461a8bcda090061cfbd267",
+    "digest_stable": true,
+    "build_context": "empty"
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "base_is_squash_merge_parent": true,
+    "future_reference_commit_absent": true,
+    "full_git_history_present": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_and_validation_absent_from_final_filesystem": true,
+    "solution_tests_and_validation_absent_from_image_layers": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "dependency_lock_dry_run_matches": true,
+    "empty_build_context": true,
+    "cached_rebuild_digest_stable": true,
+    "runtime_network_disabled": true
+  },
+  "critical_review_rounds": [
+    "incident attribution distinguished PR #46159 from the separate PR #45919 derender fix",
+    "public reproduction corrected from a passing one-token cell to deterministic two-token failure",
+    "deferred finish and tools-enabled gaps added; Oracle and alternative checked",
+    "partial patches, chunk/parser matrix, dependency, Git, and layer isolation checked",
+    "five-round stability, hashes, retained image, and final Harbor result checked"
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "53ecd45c-57bc-4cc1-8782-3f44cb391c04",
+    "trial_id": "f8f378d2-caf2-4aae-9f8b-5c5fcb0ec424",
+    "input_task_checksum": "05aeb59635b1002a74341e392de7d37062241649bb8025162b076246766ef591",
+    "lock_task_digest": "sha256:e07bb84a2964505cde2512ea4c638e75155f34877580b613620ad4452669d5d3",
+    "checksum_scope": "Harbor hashes the task directory. This successful input predates insertion of this self-referential evidence file; executable task artifacts are hash-pinned above.",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "unicode_exit_code": 0,
+    "runtime_seconds": 33,
+    "canonical_image_retained_after_run": true
+  }
+}

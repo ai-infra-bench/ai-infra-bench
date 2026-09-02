@@ -1,0 +1,184 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-01T22:06:41Z",
+  "source": {
+    "candidate_id": "vllm-cpu-300-113",
+    "instance_id": "vllm-project__vllm-38933",
+    "base_commit": "3b1d9c3156d22181fb99980eb2550772c854a2c2",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/38933",
+    "linked_issue": null,
+    "squash_merge_commit": "a8c6ee9b787d273916206a29b77feebadb80c368",
+    "base_is_squash_merge_parent": true,
+    "timeline": "PR #38933 reports an RL workload whose first batch-size 1 to larger-batch transition incurs about 205 ms of recompilation. No issue is linked, so the task preserves only that reported workload and pause."
+  },
+  "artifacts": {
+    "task_metadata_sha256": "759ba51efa59669fdeb7e94abe9d9a86b340fd00ddd0568b675b6c15add9007b",
+    "instruction_sha256": "08bb5074c9f55abe233aeef84cb79e25cfe973356adc4faa204349ab33a95a28",
+    "dockerfile_sha256": "ec154996e58e95e141a145880936337ad202089e4ec5682c63a8c96451abf034",
+    "dependency_lock_sha256": "b74a265d5d39ac0c8c16242ef5a6fe8fa51670069dca90ea31b15575daa4c707",
+    "dependency_lock_manifest_sha256": "d4034356373cd9b54b712595b7e00ff554b4bf9d4442181866dac7628a0f1c44",
+    "image_manifest_sha256": "15b0f5142e24c823317b3643c60bce432680d1d8ad74115ff6738f2212e53754",
+    "public_fixture_sha256": "8fc3184c3a45565972632f978ffab98bb37d4b6400adb763808f1227b35a1efe",
+    "public_reproduction_sha256": "7d1c6a13be53cca21eecbe8a3356b59ef0583b0e13725ba9a4320568de0937d9",
+    "oracle_patch_sha256": "efa51d127600bf7975eaa6d197d7ba697f54bcd4ed388610c271d6794fdcc87d",
+    "solve_script_sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491",
+    "test_script_sha256": "309da1805363a69c519bdeee58235650e1286dc79ee028e3cd8b9aad8f733d21",
+    "regression_test_sha256": "348827da64a18e9f8fc9601aa3c0b0d5e7fd6cbe0cb462d320db397ead4894e1",
+    "real_sampler_test_sha256": "c96eb788662c9dd2817366eafb3e0555bf099d4fe7ae0149e2f9e4e4c046a993",
+    "test_fixture_sha256": "e369e9f6cd6518b85a498d879f50d322da7730d0d5e867a760f020bea2930ad5",
+    "junit_checker_sha256": "8cc0cd35e626a20d87c5c3d265f2763049a889bc8063d725865c753e9cd78a2f",
+    "ci_cases_sha256": "7d85d9152ffb05d6bb237105e5351defbf209f11eb677ea6c0e393db982c11d8",
+    "remediation_matrix_sha256": "98b5f67ebab07916a2c57b8fe732d5a30fb87e26371fc032357a73bba2a98573"
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-sampler-batch-one-recompile:base-3b1d9c3156d2",
+    "image_id": "sha256:6938eb76a635e8af40fe41050628a133640aa1a1a9e03a2b66a23f0e03d8352f",
+    "size_bytes": 1590432602,
+    "template_sha256": "2f1688856bf1e683d6f19bba67f07094c64c87f8da9551f1bc9c4a1e69fcb515",
+    "cache_namespace": "3b1d9c3156d22181fb99980eb2550772c854a2c2-b74a265d5d39ac0c-f6976e65056ca407",
+    "canonical_image_retained": true
+  },
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "depends_on_golden_names": false,
+    "behavior_cases": 9,
+    "behaviors": [
+      "positive batch-size changes reuse one Dynamo graph through Sampler.gather_logprobs",
+      "selected token logprobs, top-k IDs, ranks, shapes, and dtypes remain correct",
+      "repeated batch-one and varied positive batch orders do not recompile",
+      "empty and mismatched batch dimensions fail instead of broadcasting or truncating"
+    ],
+    "collection_integrity": "Exactly 9 unique cases; Oracle requires zero failures, errors, or skips."
+  },
+  "public_reproduction": {
+    "entrypoint": "/opt/repro/sampler_compile_trace.py",
+    "batch_sizes": [1, 2, 8, 3],
+    "base_exit_code": 3,
+    "base_compile_counts": [1, 2, 2, 2],
+    "oracle_exit_code": 0,
+    "oracle_compile_counts": [1, 1, 1, 1]
+  },
+  "repeated_runs": [
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "behavior_tests_each_round": {"passed": 4, "failed": 5, "errors": 0, "skipped": 0},
+      "e2e_exit_codes": [1, 1, 1, 1, 1]
+    },
+    {
+      "case": "oracle",
+      "rounds": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "behavior_tests_each_round": {"passed": 9, "failed": 0, "errors": 0, "skipped": 0},
+      "e2e_exit_codes": [0, 0, 0, 0, 0]
+    }
+  ],
+  "adversarial_runs": [
+    {
+      "case": "checks-without-symbolic-batch",
+      "patch_sha256": "6ffc145507050e0a5fde8963454c27e67721d4afcba37294622d2dca53dbcd2f",
+      "reward": 0,
+      "tests_passed": 6,
+      "tests_failed": 3,
+      "e2e_exit_code": 1,
+      "planned_defect": "Adds input checks but leaves the batch dimension specialized."
+    },
+    {
+      "case": "single-symbol-without-equality",
+      "patch_sha256": "57f0fd2153bb050205d8294cf6215da5131ed68b84249b18f49e3cd73e6d2bcc",
+      "reward": 0,
+      "tests_passed": 5,
+      "tests_failed": 4,
+      "e2e_exit_code": 1,
+      "planned_defect": "Marks one operand symbolic but omits the batch-equality boundary."
+    },
+    {
+      "case": "mark-batch-after-rank-call",
+      "patch_sha256": "fbcff49671e8d68f6e1ece1705266a084f5fecb66d35cc32e53fa020feeced3c",
+      "reward": 0,
+      "tests_passed": 6,
+      "tests_failed": 3,
+      "e2e_exit_code": 1,
+      "planned_defect": "Marks tensors only after the compiled rank-counting call has already specialized."
+    }
+  ],
+  "conforming_alternative_run": {
+    "case": "alternative-symbolic-helper",
+    "patch_sha256": "e0932ed1b9513a9fa2b5988d87baf4e63c03ec86c9a26dcee4aea81747ff8df6",
+    "change": "Uses a helper to validate and mark both batch operands before the compiled call rather than the Oracle's inline structure.",
+    "reward": 1,
+    "tests_passed": 9,
+    "tests_failed": 0,
+    "e2e_exit_code": 0
+  },
+  "hidden_end_to_end": {
+    "tests_mounted_only_during_verification": true,
+    "entrypoint": "real Sampler.gather_logprobs with a Torch Dynamo graph-counting backend",
+    "base_measurement": {
+      "batch_orders": [[1, 3, 7, 2], [5, 1, 4], [1, 1, 6]],
+      "compile_counts": [[1, 2, 2, 2], [1, 2, 3], [1, 1, 2]]
+    },
+    "oracle_measurement": {
+      "batch_orders": [[1, 3, 7, 2], [5, 1, 4], [1, 1, 6]],
+      "compile_counts": [[1, 1, 1, 1], [1, 1, 1], [1, 1, 1]]
+    },
+    "hidden_variations": "Larger-to-one transitions, repeated one, multiple positive size orders, direct rank correctness, output dtypes, empty batches, and mismatched dimensions are absent from the public example.",
+    "execution_substitutions": "The production Sampler path and Dynamo front end run for real; a deterministic counting backend returns GraphModule.forward instead of invoking Inductor.",
+    "limitation": "The task verifies graph reuse deterministically and does not grade wall-clock latency on the PR author's host."
+  },
+  "dependency_exception": {
+    "packages": ["torch", "torchaudio", "torchvision"],
+    "source_cutoff": "2026-04-09T15:50:45Z",
+    "package_cutoff": "2026-05-01T23:59:59Z",
+    "reason": "The squash-parent requirements require torch 2.11 CPU wheels uploaded after the source cutoff; every unrelated package remains source-cutoff-bound."
+  },
+  "build_reproducibility": {
+    "initial_image_id": "sha256:6938eb76a635e8af40fe41050628a133640aa1a1a9e03a2b66a23f0e03d8352f",
+    "warm_cache_image_id": "sha256:6938eb76a635e8af40fe41050628a133640aa1a1a9e03a2b66a23f0e03d8352f",
+    "digest_stable": true,
+    "build_context": "empty"
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "base_is_squash_merge_parent": true,
+    "future_reference_commit_absent": true,
+    "full_git_history_present": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_and_validation_absent_from_final_filesystem": true,
+    "solution_tests_and_validation_absent_from_image_layers": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "dependency_lock_dry_run_matches": true,
+    "empty_build_context": true,
+    "cached_rebuild_digest_stable": true,
+    "runtime_network_disabled": true
+  },
+  "critical_review_rounds": [
+    "source timeline checked without inventing a linked issue, serving hardware, or traffic",
+    "deterministic graph-count reproduction checked against the reported 1-to-N pause",
+    "Oracle, independent alternative, invalid-shape boundaries, and three partial fixes checked",
+    "cutoff exception, Git, network, final-filesystem, and all 16 image layers checked",
+    "five-round stability, hashes, retained image, and final Harbor result checked"
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "753db6ab-e92a-48d8-b874-42312aa1a6b9",
+    "trial_id": "89180d32-b382-45b0-b2ec-b053db84802a",
+    "input_task_checksum": "aa81a94a91b059833cd5f55d8d2bedf7d40ea7bb5130edb796ea804b342fa920",
+    "lock_task_digest": "sha256:428289eb1d11a3c4368389a58dbccc1cf93ca851a4771edf2f9e5a14aa45b672",
+    "checksum_scope": "Harbor hashes the task directory. This successful input predates insertion of this self-referential evidence file and the final C4 status update; executable task artifacts are hash-pinned above.",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "e2e_exit_code": 0,
+    "runtime_seconds": 369,
+    "canonical_image_retained_after_run": true
+  }
+}

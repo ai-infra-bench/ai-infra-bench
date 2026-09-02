@@ -1,0 +1,174 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-01T17:43:15Z",
+  "source": {
+    "candidate_id": "vllm-cpu-300-241",
+    "instance_id": "vllm-project__vllm-47007",
+    "base_commit": "db808b39614384a0349378268a46a1a0feabcec3",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/47007",
+    "linked_issue": null,
+    "squash_merge_commit": "c231d1f2906ed3f9a995d84a6c7ba67e6914fb16",
+    "base_is_squash_merge_parent": true,
+    "timeline": "PR #47007 identifies unbounded tokenizer work when explicit-side post-tokenization slicing disables ordinary tokenizer truncation. No user issue is linked, so the instruction stays at the PR-supported request/resource symptom."
+  },
+  "artifacts": {
+    "task_metadata_sha256": "1e044c64a59e22e09b2f91a5387a95ca1bcbf8f52ce394723fbe2354e2ad545f",
+    "instruction_sha256": "6c7daae5b04fe7ac41215069fa9e99c05ccb720e81702592aa3d4f99293c8844",
+    "dockerfile_sha256": "a116e95886cea36b77e2772e371105222ddb0f3cca0363a33b05f46ea6abcf60",
+    "dependency_lock_sha256": "1fa8d73e4e8a5d7cf395e335d264c794f697a5714b759b8706b7b60d730f2006",
+    "dependency_lock_manifest_sha256": "112a8370e999a700a0d9ee54d76b1dfe905f4634f8031a93ae2935fb6bc8c8b7",
+    "image_manifest_sha256": "f0703a07a0eeebeba90ffc644b57e2853a0db495235a5a32fa11145a1532ba18",
+    "public_fixture_sha256": "4c1132b4dfc6f64e7f591d06ff3b342e96b9b57dbac06e2cf0da9fff5552577f",
+    "public_reproduction_sha256": "99d7776d0bc89e138a75f9966204415a672bd37eb3f9ef22e24d2815ddd0da19",
+    "oracle_patch_sha256": "7ead658ea87a606e37ca820dc891d3436b86d561b7d87a18ebf0da9f5ab7d9f2",
+    "solve_script_sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491",
+    "test_script_sha256": "062a3c6feff2d53a5ea32aefee78447b3703440ab284cb56c7ccf73497dae220",
+    "regression_test_sha256": "2fbc629d06deddeeeea1925a93f265a1ac405a5de79d304549cac397b988e000",
+    "real_renderer_test_sha256": "c43eb6f03b306e8e015c9cff96073ae2b0227fb7f813bb28ed383970601acd32",
+    "test_fixture_sha256": "848d7295241e08a553303b6942e64712f58b6e642308cf93393db3374a805f49",
+    "junit_checker_sha256": "8c9541c47399c9c9d0aef9e012c4b0a9397db6fe4e7daaa2bf1622ac6b368e9b",
+    "ci_cases_sha256": "f0fb07d404447255d4314f02bec6ee37eaab90d92805e9ee9c1113fadef5d977",
+    "remediation_matrix_sha256": "f09746e255d3ab32217ccebbc148cfcae520cdf326cd261bb2146159c38664bc"
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-explicit-truncation-work-bound:base-db808b396143",
+    "image_id": "sha256:998a9acb3aa85bfeb9c7f8f7c4d5e5a6fd5b143b3fac38bcb41759abc09ac685",
+    "size_bytes": 2812637004,
+    "template_sha256": "2f1688856bf1e683d6f19bba67f07094c64c87f8da9551f1bc9c4a1e69fcb515",
+    "cache_namespace": "db808b39614384a0349378268a46a1a0feabcec3-1fa8d73e4e8a5d7c-58c4f34b2c181742",
+    "canonical_image_retained": true
+  },
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "depends_on_golden_names": false,
+    "behavior_cases": 9,
+    "behaviors": [
+      "explicit left/right truncation bounds tokenizer input while preserving the requested end",
+      "the character bound tracks available input tokens and tokenizer max-characters-per-token",
+      "synchronous and asynchronous HfRenderer paths agree",
+      "no-truncation validation, tokenizer-default truncation, no-context-limit, token-list, lowercase, and special-token controls remain correct"
+    ],
+    "collection_integrity": "Exactly 9 unique cases; Oracle requires zero failures, errors, or skips."
+  },
+  "public_reproduction": {
+    "entrypoint": "/opt/repro/explicit_truncation_trace.py",
+    "input_characters": 500,
+    "returned_token_count": 4,
+    "base_exit_code": 3,
+    "base_tokenizer_input_characters": 500,
+    "oracle_exit_code": 0,
+    "oracle_tokenizer_input_characters": 100,
+    "requested_side_preserved": true
+  },
+  "repeated_runs": [
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "behavior_tests_each_round": {"passed": 4, "failed": 5, "errors": 0, "skipped": 0},
+      "e2e_exit_codes": [1, 1, 1, 1, 1]
+    },
+    {
+      "case": "oracle",
+      "rounds": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "behavior_tests_each_round": {"passed": 9, "failed": 0, "errors": 0, "skipped": 0},
+      "e2e_exit_codes": [0, 0, 0, 0, 0]
+    }
+  ],
+  "adversarial_runs": [
+    {
+      "case": "left-only-pretrim",
+      "patch_sha256": "550cc4661ee5573475688996b490f175c2f7cd073bc65f8b308d9630af864677",
+      "reward": 0,
+      "tests_passed": 6,
+      "tests_failed": 3,
+      "e2e_exit_code": 1,
+      "planned_defect": "Bounds left truncation only."
+    },
+    {
+      "case": "tokenizer-max-length-only",
+      "patch_sha256": "d3a082b6d0071aa13ee3a96da9279e1179bb663d63cf4ac3694e7ef2126d743a",
+      "reward": 0,
+      "tests_passed": 4,
+      "tests_failed": 5,
+      "e2e_exit_code": 1,
+      "planned_defect": "Uses the tokenizer's default direction, which can disagree with the caller's explicit side."
+    },
+    {
+      "case": "pretrim-without-explicit-side",
+      "patch_sha256": "f924525e43dbd79d8cae52fa5990fdf332fccad9bab448fe7d1a7804eba44591",
+      "reward": 0,
+      "tests_passed": 8,
+      "tests_failed": 1,
+      "e2e_exit_code": 0,
+      "planned_defect": "Changes tokenizer-default truncation by pre-trimming even when no side override exists."
+    }
+  ],
+  "conforming_alternative_run": {
+    "case": "alternative-side-table",
+    "patch_sha256": "cbd40cfc9e700ae1f72edf56d02cab1ed91908dc6f5c69d9ac545aeb41a72c81",
+    "change": "Uses a side-to-slice table rather than Golden's explicit branch structure.",
+    "reward": 1,
+    "tests_passed": 9,
+    "tests_failed": 0,
+    "e2e_exit_code": 0
+  },
+  "hidden_end_to_end": {
+    "tests_mounted_only_during_verification": true,
+    "entrypoint": "real HfRenderer sync/async render and tokenize prompt pipeline",
+    "base_measurement": {"left_tokenizer_chars": 504, "right_tokenizer_chars": 605},
+    "oracle_measurement": {"left_tokenizer_chars": 180, "right_tokenizer_chars": 144},
+    "hidden_variations": "Unicode text, distinct character ratios, async right-side rendering, no context limit, and tokenizer-default input above the character bound are absent from the public example.",
+    "execution_substitutions": "A recording deterministic tokenizer replaces model assets and exposes the text length entering tokenization; production HfRenderer validation, preprocessing, tokenization, and post-token slicing run for real.",
+    "limitation": "The task measures the exact input presented at the tokenizer boundary rather than wall-clock cost of a downloaded tokenizer."
+  },
+  "build_reproducibility": {
+    "initial_image_id": "sha256:998a9acb3aa85bfeb9c7f8f7c4d5e5a6fd5b143b3fac38bcb41759abc09ac685",
+    "warm_cache_image_id": "sha256:998a9acb3aa85bfeb9c7f8f7c4d5e5a6fd5b143b3fac38bcb41759abc09ac685",
+    "digest_stable": true,
+    "build_context": "empty"
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "base_is_squash_merge_parent": true,
+    "future_reference_commit_absent": true,
+    "full_git_history_present": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_and_validation_absent_from_final_filesystem": true,
+    "solution_tests_and_validation_absent_from_image_layers": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "dependency_lock_dry_run_matches": true,
+    "empty_build_context": true,
+    "cached_rebuild_digest_stable": true,
+    "runtime_network_disabled": true
+  },
+  "critical_review_rounds": [
+    "source reviewed without inventing an unlinked production incident",
+    "base corrected from PR creation SHA to squash merge parent before image build",
+    "public and hidden Base/Oracle behavior plus alternative implementation checked",
+    "default-side adversarial gap, negative paths, dependency, Git, and layer isolation checked",
+    "five-round stability, hashes, retained image, and final Harbor result checked"
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "1ab876d3-66c5-4a3c-9cd5-f6c2732a151b",
+    "trial_id": "eab75eee-355c-4517-a182-049dd8746be9",
+    "input_task_checksum": "8b5d485f9394965c15dceeaa1c91bc4dcf6b0e169c72089155da1f3bdd0f8b25",
+    "lock_task_digest": "sha256:ac4ef08d4be9a4111fcc212a5603d76fca33a788dbf6a3d6e5a06b5f267c407a",
+    "checksum_scope": "Harbor hashes the task directory. This successful input predates insertion of this self-referential evidence file and final remediation status updates; executable task artifacts are hash-pinned above.",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "e2e_exit_code": 0,
+    "runtime_seconds": 687,
+    "canonical_image_retained_after_run": true
+  }
+}

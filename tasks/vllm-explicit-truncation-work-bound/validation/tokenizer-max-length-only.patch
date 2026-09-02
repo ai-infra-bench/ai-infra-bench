@@ -1,0 +1,15 @@
+diff --git a/vllm/renderers/params.py b/vllm/renderers/params.py
+index 7e3670c738d2..7d8ee2540292 100644
+--- a/vllm/renderers/params.py
++++ b/vllm/renderers/params.py
+@@ -319,8 +319,9 @@ class TokenizeParams:
+         # left truncation while callers may request right truncation.
+         if self.truncation_side is not None and self.truncate_prompt_tokens is not None:
+             return dict(
+-                truncation=False,
++                truncation=self.max_input_tokens is not None,
++                max_length=self.max_input_tokens,
+                 add_special_tokens=self.add_special_tokens,
+             )
+ 
+         return dict(

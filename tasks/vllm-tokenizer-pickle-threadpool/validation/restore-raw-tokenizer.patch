@@ -1,0 +1,21 @@
+diff --git a/vllm/tokenizers/hf.py b/vllm/tokenizers/hf.py
+index b4248e229a68..fd9b59cc659e 100644
+--- a/vllm/tokenizers/hf.py
++++ b/vllm/tokenizers/hf.py
+@@ -17,4 +17,8 @@ class ThreadSafeHFTokenizerMixin:
+     pass
+ 
+ 
++def _restore_raw_tokenizer(tokenizer, _copies):
++    return tokenizer
++
++
+ def maybe_make_thread_pool(tokenizer: _T, copies: int = 1):
+@@ -93,6 +97,6 @@ class TokenizerPool(tokenizer.__class__, ThreadSafeHFTokenizerMixin):  # type: i
+                 return tok(*args, **kwargs)
+ 
+         def __reduce__(self):
+-            return maybe_make_thread_pool, (og_tokenizer, copies)
++            return _restore_raw_tokenizer, (og_tokenizer, copies)
+ 
+     TokenizerPool.__name__ = f"TokenizerPool{og_tokenizer.__class__.__name__}"

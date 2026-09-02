@@ -1,0 +1,31 @@
+diff --git a/vllm/multimodal/media/connector.py b/vllm/multimodal/media/connector.py
+index 6ec90a45f1d0..60f3be780ed4 100644
+--- a/vllm/multimodal/media/connector.py
++++ b/vllm/multimodal/media/connector.py
+@@ -290,6 +290,9 @@ class MediaConnector:
+         *,
+         fetch_timeout: int | None = None,
+     ) -> _M:  # type: ignore[type-var]
++        if url[:5].lower() == "data:":
++            return media_io.load_base64("", url[5:])
++
+         url_spec = parse_url(url)
+ 
+         if url_spec.scheme and url_spec.scheme.startswith("http"):
+@@ -325,8 +328,15 @@ class MediaConnector:
+         *,
+         fetch_timeout: int | None = None,
+     ) -> _M:
+-        url_spec = parse_url(url)
+         loop = asyncio.get_running_loop()
+ 
++        if url[:5].lower() == "data:":
++            future = loop.run_in_executor(
++                global_thread_pool, media_io.load_base64, "", url[5:]
++            )
++            return await future
++
++        url_spec = parse_url(url)
++
+         if url_spec.scheme and url_spec.scheme.startswith("http"):
+             self._assert_url_in_allowed_media_domains(url_spec)

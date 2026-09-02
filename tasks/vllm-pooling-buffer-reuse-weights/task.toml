@@ -1,0 +1,45 @@
+schema_version = "1.4"
+
+[task]
+name = "ai-infra-bench/vllm-pooling-buffer-reuse-weights"
+version = "0.0.1"
+description = "Prevent silent pooling-model weight corruption with buffer-reusing streaming loaders."
+authors = [{name = ""}]
+keywords = ["vllm", "cpu", "pooling", "embedding", "weight-loading", "streaming"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+candidate_id = "vllm-cpu-300-119"
+source_pr = 39650
+track = "representative"
+workload_type = "bugfix"
+subsystems = ["model_loading_layers", "model_implementation"]
+repository = "vllm-project/vllm"
+base_commit = "5c18b961d692cf45df0a1ecca7d1688f6168ae0f"
+dependency_cutoff = "2026-04-13T19:30:55Z"
+dependency_cutoff_overrides = [
+  "torch=2026-05-01T23:59:59Z",
+  "torchaudio=2026-05-01T23:59:59Z",
+  "torchvision=2026-05-01T23:59:59Z",
+]
+dependency_cutoff_override_reason = "The pinned base requirements require torch 2.11 CPU wheels that were uploaded after the source cutoff."
+image_digest = "sha256:ec385896f9802ba5ca343d37c16f8054b616cde91f510dbb61c3f47de23a2fc7"
+environment_template = "vllm-harbor-all-in-one"
+publication_state = "development"
+
+[agent]
+timeout_sec = 3600
+user = "root"
+network_mode = "no-network"
+
+[environment]
+accelerator = "CPU"
+build_timeout_sec = 14400
+cpus = 8
+memory_mb = 49152
+storage_mb = 20480
+workdir = "/workspace/vllm"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 1800

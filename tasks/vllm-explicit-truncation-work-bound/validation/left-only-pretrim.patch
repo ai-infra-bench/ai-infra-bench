@@ -1,0 +1,14 @@
+diff --git a/vllm/renderers/params.py b/vllm/renderers/params.py
+index 7e3670c738d2..d4c58bd4a3d0 100644
+--- a/vllm/renderers/params.py
++++ b/vllm/renderers/params.py
+@@ -354,5 +354,9 @@ class TokenizeParams:
+                     parameter="input_text",
+                     value=len(text),
+                 )
++        elif self.truncation_side == "left" and tokenizer is not None:
++            max_input_chars = max_input_tokens * tokenizer.max_chars_per_token
++            if len(text) > max_input_chars:
++                text = text[-max_input_chars:]
+ 
+         return text
