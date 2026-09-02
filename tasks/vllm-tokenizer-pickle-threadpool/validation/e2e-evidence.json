@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-09-02T16:10:09Z",
+  "recorded_at": "2026-09-02T17:33:24Z",
   "source": {
     "candidate_id": "vllm-cpu-300-207",
     "instance_id": "vllm-project__vllm-45460",
@@ -9,10 +9,10 @@
     "linked_issue": "https://github.com/vllm-project/vllm/issues/45433",
     "squash_merge_commit": "5b2943f5a6c5fb267d1b2029c666f9d6b0e4ebd6",
     "base_is_squash_merge_parent": true,
-    "timeline": "Issue #45433 reports that a tokenizer usable inside a Ray actor becomes unusable after it is returned to another process. The report later narrows this to reconstruction of vLLM's pooled tokenizer; PR #45460 restores the return value while retaining the pool. The instruction begins from the prompt-gateway failure rather than the narrowed mechanism."
+    "timeline": "Issue #45433 reports that a tokenizer usable inside a Ray actor becomes unusable after it is returned to another process. The report later narrows this to reconstruction of vLLM's pooled tokenizer; PR #45460 restores the return value while retaining the pool. The instruction begins from an executable task-owned prompt-gateway failure rather than the narrowed mechanism; the application is a reproduction surface, not claimed production evidence."
   },
   "artifacts": {
-    "task_metadata_sha256": "88fa285d2dd63b53658d9cbc7536e87b37fbe200dfa96998e813327f1cd15417",
+    "task_metadata_sha256": "64d4ee409c2653f2273d6d69a73eda715a6012ffecd0c4166060367cf1ab3dc9",
     "instruction_sha256": "13bfc85701224a92e4ec3d63ad0d2afa766d55e95892ae0e5e7742b1904ed752",
     "dockerfile_sha256": "c7e87fd26de1ea431b683752f7190563bcdb4f43cb6f903f3b3fd658ea2004ff",
     "dependency_lock_sha256": "984de83c1435760a7a74cd94ceea359a99c2626a780698822dd5fdea4ab6c2d8",
@@ -21,13 +21,14 @@
     "oracle_patch_sha256": "b9ddbb84578ddd0acbc917e99b1d52ae8e4923757c088e901cb3c70eb692c3ad",
     "solve_script_sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491",
     "test_script_sha256": "c9afce60892f6d13e07fc48d4c9bc7e2da60ce48f360af1d8a7eb6456aab19bb",
-    "regression_test_sha256": "1e0a8c97bd08d1eb2dafc9fe7a5751d4dd12598bf4f18f12c3f27c30f321d75d",
-    "test_fixture_sha256": "9d2e656ce8f5c37406e3cba8fba92941c05c0d1d59109c2bd3ec597515e5fa98",
+    "regression_test_sha256": "2ddb511aad723021eec4f5d145ec9e5ed06c917b329912f88191d2370ce5e75b",
+    "test_fixture_sha256": "5e47f76e64897ae6b17a220da5a38acf6ea72d8c7d453e6afa3ae0983903d4fb",
     "ray_e2e_sha256": "a35b6838410ee0170c0c85c1c9837cc1b11bcf85e9a0452edbf5a65ea5150ded",
     "app_e2e_sha256": "f94908376c8a3c775b4e76a474772997c8545674af6eddb36d4794c0a774476d",
-    "junit_checker_sha256": "1d523d6ad7d2153bd7ffbdbd2911559a3cb8c984da699241b2cb9b5e45dfd0a6",
-    "ci_cases_sha256": "959c378236e9141dc1079a6517f1713677b0554307444bbddb2d8e2fb03dc7e1",
-    "remediation_matrix_sha256": "431901ef3ae219d2087065d5e6083b9300cc6d6f3b91e1a903ccc38904db838a",
+    "junit_checker_sha256": "92c4537bbbd4d35270c7b90014e3846a828f1471ef6cc89fcf274b57f230f5c0",
+    "ci_cases_sha256": "8130f7568a4ac73bf665d23dc232c6602d9f8ef66e48c32ff5b9221ce5b4d93f",
+    "remediation_matrix_sha256": "0d55b9d0c0898decc206087c958a7f8a7f0be3bf397bf8704f8b6716840de735",
+    "serialized_lock_alternative_sha256": "dd7717b99e25823705c7d1fee5db03ac244f90f82f4a3a8e8c73caa79980caf5",
     "app_domain_sha256": "9e109fc9ea2a41c7782b2c6198ff7dd259d9f741f9975079c20245ec86867598",
     "app_config_sha256": "9aa5d93a222c299e3e6bf21460d76a702bd49fe891ae2d8be525a95b1d4f24b9",
     "app_main_sha256": "06fe2a211699f19828ffb79dcb25b38b0cf0c94e7aacf71cb66fd6b50ddfc1ee",
@@ -50,14 +51,26 @@
     "runtime_path": "/workspace/prompt-gateway",
     "python_source_lines": 588,
     "purpose": "Read queued prompts, calculate token budgets through a Ray-hosted vLLM runtime, and create admission batches.",
+    "provenance": "Task-owned executable reproduction derived from the public Ray/process handoff symptom in issue #45433; it is not presented as an original production or CI application.",
     "default_log_points": ["startup", "request count", "completion or exception"],
     "root_cause_terms_absent": ["pickle", "cloudpickle", "thread pool", "wrapper", "__reduce__", "unpickle"],
+    "root_cause_scan_scope": "instruction.md and task-owned Python, configuration, request, and manifest sources; immutable tokenizer vocabulary assets are excluded because ordinary vocabulary entries are not diagnostic hints",
     "ray_version": "2.55.1",
     "model_repository": "Qwen/Qwen2.5-0.5B-Instruct",
     "model_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
     "model_files_verified": 7,
     "model_weights_included": false,
     "model_weight_note": "The application consumes only the real Qwen tokenizer. vLLM's dummy loader initializes the model because generation is outside this task boundary."
+  },
+  "runtime_resources": {
+    "cpus": 4,
+    "memory_mb": 16384,
+    "base_full_verifier_reward": 0,
+    "oracle_full_verifier_reward": 1,
+    "base_exit_codes": {"pytest": 1, "integrity": 1, "ray": 1, "app": 1},
+    "oracle_exit_codes": {"pytest": 0, "integrity": 0, "ray": 0, "app": 0},
+    "clean_image_build_at_these_resources_validated": false,
+    "note": "The retained canonical image was reused. The 4 CPU and 16 GiB claim covers agent and verifier runtime, not a clean vLLM CPU image build."
   },
   "instruction_reproduction": {
     "entrypoint": "/workspace/prompt-gateway/main.py",
@@ -78,7 +91,7 @@
     "behavior_cases": 10,
     "behaviors": [
       "tokenizers returned by vLLM remain usable after real Ray actor and worker handoff",
-      "encoding, decoding, batched calls, multiple transfer protocols, configured copies, and overlapping calls remain correct",
+      "encoding, decoding, batched calls, multiple transfer protocols, non-default pool configuration, and concurrent calls remain correct",
       "repeated setup remains idempotent and non-fast objects preserve existing behavior",
       "the task-owned prompt gateway processes all queued requests and writes a valid batch plan"
     ],
@@ -111,7 +124,7 @@
       "tests_failed": 1,
       "ray_exit_code": 0,
       "app_exit_code": 0,
-      "planned_defect": "The handoff works but overlapping public calls reuse one unsafe tokenizer instance."
+      "planned_defect": "The handoff works but concurrent public calls reuse one unsafe tokenizer instance."
     },
     {
       "case": "only-single-copy",
@@ -134,15 +147,34 @@
       "planned_defect": "The handoff works but repeated setup wraps an already prepared tokenizer again."
     }
   ],
-  "conforming_alternative_run": {
-    "case": "alternative-rebuild-helper",
-    "patch_sha256": "58c88b273784a57556ef1df52296eebdbc325e4a39355facd0f96e232d27061b",
-    "change": "Uses a separate reconstruction helper rather than Oracle's direct return structure.",
-    "reward": 1,
-    "tests_passed": 10,
-    "tests_failed": 0,
-    "ray_exit_code": 0,
-    "app_exit_code": 0
+  "conforming_alternative_runs": [
+    {
+      "case": "alternative-rebuild-helper",
+      "patch_sha256": "58c88b273784a57556ef1df52296eebdbc325e4a39355facd0f96e232d27061b",
+      "change": "Uses a separate reconstruction helper rather than Oracle's direct return structure.",
+      "reward": 1,
+      "tests_passed": 10,
+      "tests_failed": 0,
+      "ray_exit_code": 0,
+      "app_exit_code": 0
+    },
+    {
+      "case": "alternative-serialized-lock",
+      "patch_sha256": "dd7717b99e25823705c7d1fee5db03ac244f90f82f4a3a8e8c73caa79980caf5",
+      "change": "Reconstructs a tokenizer that serializes public calls with a lock instead of rebuilding Golden's multi-copy pool.",
+      "reward": 1,
+      "tests_passed": 10,
+      "tests_failed": 0,
+      "ray_exit_code": 0,
+      "app_exit_code": 0
+    }
+  ],
+  "concurrency_stress": {
+    "rounds_each": 20,
+    "oracle_passes": 20,
+    "serialized_lock_alternative_passes": 20,
+    "unsafe_raw_tokenizer_rejections": 20,
+    "method": "Two public callers rendezvous before encode. Separate safe instances may overlap; a serializing lock may queue one caller; an unsafe shared raw instance is rejected if the same underlying tokenizer overlaps."
   },
   "hidden_end_to_end": {
     "tests_mounted_only_during_verification": true,
@@ -152,7 +184,7 @@
     ],
     "base_measurement": {"ray_exit_code": 1, "app_exit_code": 1},
     "oracle_measurement": {"ray_exit_code": 0, "app_exit_code": 0},
-    "hidden_variations": "Cloudpickle, protocols 4/highest, three copies, multilingual encoding, decode, batched calls, overlapping calls, idempotence, and non-fast controls are absent from the instruction log.",
+    "hidden_variations": "Cloudpickle, protocols 4/highest, a non-default pool configuration, multilingual encoding, decode, batched calls, concurrent calls, idempotence, and non-fast controls are absent from the instruction log.",
     "execution_substitutions": "The real Qwen tokenizer, vLLM LLM public API, Ray actor, Ray worker, and application pipeline run. Model weights are replaced by vLLM's dummy loader because no token generation occurs.",
     "limitation": "The task validates tokenizer retrieval from an actual LLM object and Ray transport, but not a GPU model-generation request."
   },
@@ -188,18 +220,21 @@
     "source issue, PR, comments, inline review, commits, and user-visible Ray failure checked",
     "curator repro removed and user app built from the earlier prompt-gateway failure boundary",
     "real Qwen tokenizer, pinned Ray, real LLM API, app E2E, and independent Ray E2E checked",
-    "implementation-coupled mixin assertion replaced with observable overlapping-call behavior and all controls rerun",
-    "five-round stability, Git/dependency/network/layer isolation, warm digest, hashes, and Harbor checked"
+    "implementation-coupled overlap requirement replaced with observable concurrent safety that accepts both a pool and a serializing lock",
+    "non-default pool configuration is checked for usability without claiming that private warm-copy count is observable",
+    "five-round stability at 4 CPU and 16 GiB, Git/dependency/network/layer isolation, warm digest, hashes, and Harbor checked"
   ],
   "harbor": {
     "version": "0.22.0",
-    "job_id": "45d3bea4-cda5-4f15-ba54-739a745dedcb",
-    "trial_id": "39301518-bfce-4eb4-9ec7-30c8233e3045",
-    "input_task_checksum": "371532b59bf9614d0d6ca341466ae1e6dc951a50b8ef312537ae953c80e707b4",
-    "lock_task_digest": "sha256:858d079e7dad152868de91a727ed61a63823285410a4543671844e3666ff5494",
-    "checksum_scope": "Harbor hashes the task directory. This successful input predates the final evidence refresh, C7 status update, and addition of patch hashes to ci-cases; executable patches and verifier files are unchanged and hash-pinned above.",
+    "job_id": "9dedb140-accf-446d-9597-6709e45ca4dc",
+    "trial_id": "de12f8f6-31ac-4175-9b2a-91f94f3e2148",
+    "input_task_checksum": "b7b18dd2722a7463725b9eaa023e4273b9de5adfc2b8e2eeda75cb3dfaa17475",
+    "lock_task_digest": "sha256:34ea119b74cb086b6ae62b49eee10762cc7f21b1aa144345a42840fe2bf43078",
+    "checksum_scope": "The successful Harbor input contains the final task metadata, instruction, image, solution, tests, all five control patches, and ci-cases manifest. This evidence refresh and the C4/C7 status transition were recorded after the run; they do not change any agent, verifier, image, solution, or control behavior.",
     "agent": "oracle",
     "environment": "docker",
+    "cpu_enforcement_policy": "limit",
+    "memory_enforcement_policy": "limit",
     "n_completed_trials": 1,
     "n_errored_trials": 0,
     "reward": 1,
@@ -207,7 +242,7 @@
     "integrity_exit_code": 0,
     "ray_exit_code": 0,
     "app_exit_code": 0,
-    "runtime_seconds": 414,
+    "runtime_seconds": 81,
     "canonical_image_retained_after_run": true
   }
 }

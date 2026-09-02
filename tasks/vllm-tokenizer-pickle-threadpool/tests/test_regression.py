@@ -7,7 +7,7 @@ from vllm.tokenizers.hf import maybe_make_thread_pool
 from tokenizer_fixture import (
     cloudpickle_roundtrip,
     make_tokenizer,
-    overlapping_encodes,
+    concurrent_encodes,
     pickle_roundtrip,
     pooled,
     spawn_roundtrip,
@@ -29,9 +29,9 @@ def test_pickle_roundtrip_preserves_decoding() -> None:
     assert restored.decode([2, 3]) == "hello world"
 
 
-def test_restored_tokenizer_handles_overlapping_calls() -> None:
+def test_restored_tokenizer_handles_concurrent_calls() -> None:
     restored = pickle_roundtrip(pooled(copies=2))
-    assert overlapping_encodes(restored) == [[2, 3], [4, 5]]
+    assert concurrent_encodes(restored) == [[2, 3], [4, 5]]
 
 
 def test_spawned_process_receives_usable_tokenizer() -> None:
@@ -53,7 +53,7 @@ def test_multiple_pickle_protocols_are_supported() -> None:
     assert observations == [[2, 3], [2, 3]]
 
 
-def test_configured_pool_size_survives_roundtrip() -> None:
+def test_non_default_pool_configuration_is_usable_after_roundtrip() -> None:
     restored = pickle_roundtrip(pooled(copies=3))
     assert restored is not None
     assert restored(["hello", "world"])["input_ids"] == [[2], [3]]

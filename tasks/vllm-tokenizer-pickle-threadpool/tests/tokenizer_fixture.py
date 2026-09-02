@@ -68,40 +68,63 @@ def spawn_roundtrip(tokenizer):
     return queue.get(timeout=5)
 
 
-def overlapping_encodes(tokenizer) -> list[list[int]]:
+def concurrent_encodes(tokenizer) -> list[list[int]]:
     original = PreTrainedTokenizerFast.encode
     state_lock = threading.Lock()
+    callers_ready = threading.Event()
     first_entered = threading.Event()
+    second_entered = threading.Event()
     release_first = threading.Event()
     active_instances: set[int] = set()
+    ready_callers = 0
+    total_entries = 0
 
     def guarded_encode(instance, *args, **kwargs):
+        nonlocal total_entries
         identity = id(instance)
         with state_lock:
             if identity in active_instances:
                 release_first.set()
                 raise RuntimeError("one tokenizer instance handled overlapping calls")
             active_instances.add(identity)
-            is_first = not first_entered.is_set()
-            if is_first:
+            total_entries += 1
+            if total_entries == 1:
                 first_entered.set()
-            else:
-                release_first.set()
+            elif total_entries == 2:
+                second_entered.set()
         try:
-            if is_first and not release_first.wait(timeout=5):
-                raise TimeoutError("second encode call did not overlap the first")
+            if not release_first.wait(timeout=5):
+                raise TimeoutError("concurrent encode probe was not released")
             return original(instance, *args, **kwargs)
         finally:
             with state_lock:
                 active_instances.discard(identity)
 
+    def encode_after_rendezvous(prompt: str):
+        nonlocal ready_callers
+        with state_lock:
+            ready_callers += 1
+            if ready_callers == 2:
+                callers_ready.set()
+        if not callers_ready.wait(timeout=5):
+            raise TimeoutError("concurrent encode callers did not rendezvous")
+        return tokenizer.encode(prompt)
+
     PreTrainedTokenizerFast.encode = guarded_encode
     try:
         with ThreadPoolExecutor(max_workers=2) as executor:
             futures = [
-                executor.submit(tokenizer.encode, "hello world"),
-                executor.submit(tokenizer.encode, "杭州 weather"),
+                executor.submit(encode_after_rendezvous, "hello world"),
+                executor.submit(encode_after_rendezvous, "杭州 weather"),
             ]
+            if not first_entered.wait(timeout=5):
+                raise TimeoutError("no tokenizer encode call entered")
+            # A pool may admit both calls on separate instances. A lock may
+            # serialize them before this boundary. Give an unsafe raw object a
+            # deterministic window to overlap, then release either safe form.
+            second_entered.wait(timeout=0.5)
+            release_first.set()
             return [future.result(timeout=10) for future in futures]
     finally:
+        release_first.set()
         PreTrainedTokenizerFast.encode = original

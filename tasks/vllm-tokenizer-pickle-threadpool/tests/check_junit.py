@@ -8,11 +8,11 @@ EXPECTED = {
     "test_pickle_roundtrip_returns_tokenizer_not_none",
     "test_pickle_roundtrip_preserves_encoding",
     "test_pickle_roundtrip_preserves_decoding",
-    "test_restored_tokenizer_handles_overlapping_calls",
+    "test_restored_tokenizer_handles_concurrent_calls",
     "test_spawned_process_receives_usable_tokenizer",
     "test_cloudpickle_roundtrip_is_usable",
     "test_multiple_pickle_protocols_are_supported",
-    "test_configured_pool_size_survives_roundtrip",
+    "test_non_default_pool_configuration_is_usable_after_roundtrip",
     "test_repeated_wrapping_is_idempotent",
     "test_non_fast_object_keeps_existing_behavior",
 }

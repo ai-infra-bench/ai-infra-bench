@@ -1,0 +1,84 @@
+diff --git a/vllm/tokenizers/hf.py b/vllm/tokenizers/hf.py
+index b4248e229a68..abbbbbbbbbbb 100644
+--- a/vllm/tokenizers/hf.py
++++ b/vllm/tokenizers/hf.py
+@@ -5,2 +5,3 @@ import copy
+ import queue
++import threading
+ from pathlib import Path
+@@ -25,1 +26,54 @@
++def _rebuild_locked_tokenizer(tokenizer):
++    """Rebuild a serializing thread-safe tokenizer after transport."""
++    if isinstance(tokenizer, ThreadSafeHFTokenizerMixin):
++        return tokenizer
++
++    original = copy.copy(tokenizer)
++    lock = threading.RLock()
++
++    class LockedTokenizer(tokenizer.__class__, ThreadSafeHFTokenizerMixin):  # type: ignore
++        def apply_chat_template(self, *args, **kwargs):
++            with lock:
++                return original.apply_chat_template(*args, **kwargs)
++
++        def batch_decode(self, *args, **kwargs):
++            with lock:
++                return original.batch_decode(*args, **kwargs)
++
++        def batch_encode(self, *args, **kwargs):
++            with lock:
++                return original.batch_encode(*args, **kwargs)
++
++        def convert_tokens_to_ids(self, *args, **kwargs):
++            with lock:
++                return original.convert_tokens_to_ids(*args, **kwargs)
++
++        def convert_ids_to_tokens(self, *args, **kwargs):
++            with lock:
++                return original.convert_ids_to_tokens(*args, **kwargs)
++
++        def convert_tokens_to_string(self, *args, **kwargs):
++            with lock:
++                return original.convert_tokens_to_string(*args, **kwargs)
++
++        def decode(self, *args, **kwargs):
++            with lock:
++                return original.decode(*args, **kwargs)
++
++        def encode(self, *args, **kwargs):
++            with lock:
++                return original.encode(*args, **kwargs)
++
++        def __call__(self, *args, **kwargs):
++            with lock:
++                return original(*args, **kwargs)
++
++        def __reduce__(self):
++            return _rebuild_locked_tokenizer, (original,)
++
++    LockedTokenizer.__name__ = f"LockedTokenizer{original.__class__.__name__}"
++    tokenizer.__class__ = LockedTokenizer
++    return tokenizer
++
++
+ def maybe_make_thread_pool(tokenizer: _T, copies: int = 1):
+@@ -88,12 +142,12 @@
+         def encode(self, *args, **kwargs):
+             with _borrow_from_pool() as tok:
+                 return tok.encode(*args, **kwargs)
+-
+-        def __call__(self, *args, **kwargs):
+-            with _borrow_from_pool() as tok:
+-                return tok(*args, **kwargs)
+-
+-        def __reduce__(self):
+-            return maybe_make_thread_pool, (og_tokenizer, copies)
++
++        def __call__(self, *args, **kwargs):
++            with _borrow_from_pool() as tok:
++                return tok(*args, **kwargs)
++
++        def __reduce__(self):
++            return _rebuild_locked_tokenizer, (og_tokenizer,)
+-
++
+     TokenizerPool.__name__ = f"TokenizerPool{og_tokenizer.__class__.__name__}"
