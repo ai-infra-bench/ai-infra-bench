@@ -13,7 +13,7 @@ index 68f71bd5d41b..3c80e3d015d1 100644
 @@ -1414,18 +1415,19 @@ def _get_logprobs(
              if not delta_message:
                  continue
- 
+
 -            target_state, tool_call = processor.resolve_target_state(delta_message)
 -            if target_state == _StateType.NONE:
 -                continue
@@ -21,7 +21,7 @@ index 68f71bd5d41b..3c80e3d015d1 100644
 +                target_state, tool_call = processor.resolve_target_state(dm)
 +                if target_state == _StateType.NONE:
 +                    continue
- 
+
 -            if processor.needs_transition(target_state, tool_call):
 -                for event in processor.close_current():
 -                    yield _increment_sequence_number_and_return(event)
@@ -32,12 +32,12 @@ index 68f71bd5d41b..3c80e3d015d1 100644
 +                        yield _increment_sequence_number_and_return(event)
 +                    for event in processor.open(target_state, tool_call):
 +                        yield _increment_sequence_number_and_return(event)
- 
+
 -            for event in processor.emit_delta(delta_message, output, _get_logprobs):
 -                yield _increment_sequence_number_and_return(event)
 +                for event in processor.emit_delta(dm, output, _get_logprobs):
 +                    yield _increment_sequence_number_and_return(event)
- 
+
          for event in processor.close_current():
              yield _increment_sequence_number_and_return(event)
 diff --git a/vllm/entrypoints/openai/responses/streaming_events.py b/vllm/entrypoints/openai/responses/streaming_events.py
@@ -46,7 +46,7 @@ index b49c46fc5390..9c463b3d5b40 100644
 +++ b/vllm/entrypoints/openai/responses/streaming_events.py
 @@ -61,7 +61,7 @@
  from openai_harmony import Message as HarmonyMessage
- 
+
  from vllm.entrypoints.mcp.tool_server import ToolServer
 -from vllm.entrypoints.openai.engine.protocol import DeltaMessage
 +from vllm.entrypoints.openai.engine.protocol import DeltaMessage, DeltaToolCall
@@ -55,8 +55,8 @@ index b49c46fc5390..9c463b3d5b40 100644
      is_function_recipient,
 @@ -1118,6 +1118,38 @@ class _StateHandlers(NamedTuple):
      done_fn: Callable[..., list[StreamingResponsesResponse]]
- 
- 
+
+
 +def split_delta(delta: DeltaMessage) -> list[DeltaMessage]:
 +    """Decompose a DeltaMessage with multiple fields into atomic deltas.
 +
@@ -122,7 +122,7 @@ index b49c46fc5390..9c463b3d5b40 100644
 -                content_handlers.delta_fn(self.state, delta_message.content, logprobs)
 -            )
 -            return events
- 
+
          if self.state.current_state == _StateType.TOOL_CALL:
              assert delta_message.tool_calls is not None
 -            tool_call_function = delta_message.tool_calls[0].function
