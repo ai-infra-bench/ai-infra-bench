@@ -42,6 +42,13 @@ def main() -> int:
             max_duration=2,
         )
         assert_numbered_targets(dynamic_frames, dynamic_targets)
+
+        nemotron_frames, nemotron_targets = assert_public_parity(
+            generated,
+            loader_name="nemotron_vl",
+            num_frames=9,
+        )
+        assert_numbered_targets(nemotron_frames, nemotron_targets)
         print(
             {
                 "entrypoint": "VIDEO_LOADER_REGISTRY.load(...).load_bytes",
@@ -50,6 +57,7 @@ def main() -> int:
                 "concurrent_decodes": len(concurrent),
                 "generated_sample_counts": counts,
                 "dynamic_frames": len(dynamic_frames),
+                "nemotron_frames": len(nemotron_frames),
             },
             flush=True,
         )

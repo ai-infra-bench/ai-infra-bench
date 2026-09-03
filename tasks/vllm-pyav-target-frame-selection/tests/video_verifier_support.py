@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import math
 from functools import lru_cache
 
 import av
@@ -85,12 +86,62 @@ def assert_public_parity(data: bytes, *, loader_name="opencv", max_mae=2.0, **kw
     )
     assert pyav_frames.shape == opencv_frames.shape
     assert pyav_frames.dtype == opencv_frames.dtype == np.uint8
+    _assert_metadata(
+        data,
+        opencv_metadata,
+        expected_backend=f"opencv{_suffix(loader_name)}",
+        loader_name=loader_name,
+    )
+    _assert_metadata(
+        data,
+        pyav_metadata,
+        expected_backend=f"pyav{_suffix(loader_name)}",
+        loader_name=loader_name,
+    )
     if len(pyav_frames):
         per_frame_mae = np.abs(
             pyav_frames.astype(np.int16) - opencv_frames.astype(np.int16)
         ).mean(axis=(1, 2, 3))
         assert np.all(per_frame_mae <= max_mae), per_frame_mae.tolist()
     return pyav_frames, list(pyav_metadata["frames_indices"])
+
+
+def _assert_metadata(data: bytes, metadata: dict, *, expected_backend, loader_name):
+    required = {
+        "total_num_frames",
+        "fps",
+        "duration",
+        "video_backend",
+        "frames_indices",
+        "do_sample_frames",
+    }
+    assert required <= metadata.keys()
+
+    with av.open(io.BytesIO(data)) as container:
+        stream = container.streams.video[0]
+        expected_total = stream.frames or 0
+        expected_fps = float(stream.average_rate) if stream.average_rate else 0.0
+        pyav_duration = (
+            float(stream.duration * stream.time_base) if stream.duration else 0.0
+        )
+    if expected_total == 0 and pyav_duration > 0 and expected_fps > 0:
+        expected_total = int(pyav_duration * expected_fps)
+
+    expected_duration = pyav_duration
+    if expected_backend.startswith("opencv") and expected_fps > 0:
+        expected_duration = expected_total / expected_fps
+
+    assert metadata["total_num_frames"] == expected_total
+    assert math.isclose(metadata["fps"], expected_fps, rel_tol=0, abs_tol=1e-9)
+    assert math.isclose(
+        metadata["duration"], expected_duration, rel_tol=0, abs_tol=1e-9
+    )
+    assert metadata["video_backend"] == expected_backend
+    assert metadata["do_sample_frames"] == (
+        len(metadata["frames_indices"]) == expected_total
+    )
+    if loader_name == "nemotron_vl":
+        assert metadata["original_video_bytes"] == data
 
 
 def _suffix(loader_name: str) -> str:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -115,21 +116,46 @@ def test_concurrent_public_pyav_decodes_do_not_share_state():
     assert [sampled for sampled, _ in results] == sample_counts
 
 
-def test_pyav_public_path_works_without_opencv_importable():
+def test_nemotron_public_loader_returns_matching_moments_and_metadata():
+    data = numbered_h264(83, 24, 29, 112, 80, 2)
+    frames, targets = assert_public_parity(
+        data, loader_name="nemotron_vl", num_frames=10
+    )
+    assert len(frames) == len(targets) == 10
+    assert targets == sorted(targets)
+
+
+@pytest.mark.parametrize(
+    ("loader_name", "kwargs"),
+    [
+        ("opencv", {"num_frames": 8}),
+        ("opencv_dynamic", {"fps": 3, "max_duration": 2}),
+        ("nemotron_vl", {"num_frames": 8}),
+    ],
+)
+def test_pyav_public_paths_work_without_opencv_importable(loader_name, kwargs):
     script = r'''import sys
+import json
+import os
 sys.modules["cv2"] = None
 sys.modules["cv2.videoio_registry"] = None
 from pathlib import Path
 from vllm.multimodal.video import VIDEO_LOADER_REGISTRY
 data = Path("/opt/video/sintel-trailer.mp4").read_bytes()
-frames, metadata = VIDEO_LOADER_REGISTRY.load("opencv").load_bytes(
-    data, num_frames=8, backend="pyav"
+loader_name = os.environ["VLLM_TEST_LOADER"]
+kwargs = json.loads(os.environ["VLLM_TEST_KWARGS"])
+frames, metadata = VIDEO_LOADER_REGISTRY.load(loader_name).load_bytes(
+    data, backend="pyav", **kwargs
 )
-assert len(frames) == 8
-assert metadata["video_backend"] == "pyav"
+assert len(frames) > 0
+assert metadata["video_backend"].startswith("pyav")
+if loader_name == "nemotron_vl":
+    assert metadata["original_video_bytes"] == data
 '''
     environment = os.environ.copy()
     environment["PYTHONPATH"] = "/workspace/vllm"
+    environment["VLLM_TEST_LOADER"] = loader_name
+    environment["VLLM_TEST_KWARGS"] = json.dumps(kwargs)
     result = subprocess.run(
         [sys.executable, "-c", script],
         cwd="/workspace/vllm",
