@@ -1,6 +1,4 @@
-I have a prompt gateway app in `/workspace/prompt-gateway`. It starts a vLLM runtime in a Ray actor, reads queued requests, checks their token budgets, and groups them into batches. The vLLM checkout is in `/workspace/vllm`.
-
-Running it currently fails:
+I have a prompt gateway app in `/workspace/prompt-gateway`. It starts a vLLM runtime in a Ray actor, reads queued requests, checks their token budgets, and groups them into batches. Running it currently fails:
 
 ```text
 2026-09-02 15:37:43 INFO prompt_gateway starting prompt gateway with config /workspace/prompt-gateway/settings.json
@@ -28,4 +26,4 @@ ray.exceptions.RayTaskError(AttributeError): ray::plan_remote_batch()
 AttributeError: 'NoneType' object has no attribute 'encode'
 ```
 
-This looks like a vLLM problem rather than a malformed request. Find the cause and fix it in `/workspace/vllm`. Existing local and concurrent tokenizer use should keep working.
+This looks like a vLLM problem rather than a malformed request, find the cause and fix it in `/workspace/vllm`.
