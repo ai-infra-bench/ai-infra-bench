@@ -4,7 +4,7 @@
 
 ARG VLLM_BASE_SHA=626fa9bba5663a5cf6a870debf031ee344ddb822
 ARG VLLM_DEPENDENCY_CUTOFF=2026-05-28T04:59:34Z
-ARG VLLM_CACHE_NAMESPACE=626fa9bba5663a5cf6a870debf031ee344ddb822-ea0a2002b8105f9e-58c4f34b2c181742
+ARG VLLM_CACHE_NAMESPACE=626fa9bba5663a5cf6a870debf031ee344ddb822-5b78f543e60b1aef-58c4f34b2c181742
 ARG VLLM_REPO=https://github.com/vllm-project/vllm.git
 
 ######################### PINNED SYSTEM BASE #########################
@@ -120,7 +120,7 @@ RUN case "$TARGETARCH" in \
  && cargo nextest --version
 
 ARG VLLM_DEPENDENCY_CUTOFF
-# Exact task dependency lock (sha256:ea0a2002b8105f9e84d12078294d88b42949f87dbbd6a4e616abde1a3864c3e9) is embedded so this
+# Exact task dependency lock (sha256:5b78f543e60b1aef49f9145685a8f4560aef28c4cb35acf1d39d0cc69b75b3e0) is embedded so this
 # Dockerfile remains independently buildable with an empty context.
 RUN --mount=type=cache,id=vllm-uv-downloads-v3,target=/root/.cache/uv,sharing=locked <<'VLLM_INSTALL_EOF'
 set -eu
@@ -131,7 +131,10 @@ cat > /tmp/vllm-requirements.lock <<'VLLM_REQUIREMENTS_EOF'
 aiohappyeyeballs==2.6.2
     # via aiohttp
 aiohttp==3.13.5
-    # via -r requirements/common.txt
+    # via
+    #   -r requirements/common.txt
+    #   fsspec
+    #   litellm
 aiosignal==1.4.0
     # via aiohttp
 annotated-doc==0.0.4
@@ -179,6 +182,7 @@ charset-normalizer==3.4.7
 click==8.4.1
     # via
     #   huggingface-hub
+    #   litellm
     #   rich-toolkit
     #   typer
     #   uvicorn
@@ -190,12 +194,17 @@ compressed-tensors==0.15.0.1
     # via -r requirements/common.txt
 cryptography==48.0.0
     # via pyjwt
+datasets==4.8.5
+    # via mini-swe-agent
 depyf==0.20.0
     # via -r requirements/common.txt
 detect-installer==0.1.0
     # via fastapi-cloud-cli
 dill==0.4.1
-    # via depyf
+    # via
+    #   datasets
+    #   depyf
+    #   multiprocess
 diskcache==5.6.3
     # via -r requirements/common.txt
 distro==1.9.0
@@ -224,17 +233,21 @@ fastar==0.11.0
     # via
     #   fastapi
     #   fastapi-cloud-cli
+fastuuid==0.14.0
+    # via litellm
 filelock==3.29.0
     # via
     #   -r requirements/common.txt
+    #   datasets
     #   huggingface-hub
     #   torch
 frozenlist==1.8.0
     # via
     #   aiohttp
     #   aiosignal
-fsspec==2026.4.0
+fsspec==2026.2.0
     # via
+    #   datasets
     #   huggingface-hub
     #   torch
 gguf==0.19.0
@@ -259,9 +272,11 @@ httpx==0.28.1
     # via
     #   -r extras.in
     #   anthropic
+    #   datasets
     #   fastapi
     #   fastapi-cloud-cli
     #   huggingface-hub
+    #   litellm
     #   mcp
     #   model-hosting-container-standards
     #   openai
@@ -269,6 +284,7 @@ httpx-sse==0.4.3
     # via mcp
 huggingface-hub==1.16.4
     # via
+    #   datasets
     #   tokenizers
     #   transformers
 idna==3.16
@@ -280,6 +296,8 @@ idna==3.16
     #   yarl
 ijson==3.5.0
     # via -r requirements/common.txt
+importlib-metadata==8.9.0
+    # via litellm
 iniconfig==2.3.0
     # via pytest
 intel-cmplr-lib-ur==2024.2.1
@@ -292,6 +310,8 @@ jinja2==3.1.6
     # via
     #   -r requirements/build/cpu.txt
     #   fastapi
+    #   litellm
+    #   mini-swe-agent
     #   torch
 jiter==0.15.0
     # via
@@ -301,12 +321,17 @@ jmespath==1.1.0
     # via model-hosting-container-standards
 jsonschema==4.26.0
     # via
+    #   litellm
     #   mcp
     #   mistral-common
 jsonschema-specifications==2025.9.1
     # via jsonschema
 lark==1.2.2
     # via -r requirements/common.txt
+linkify-it-py==2.1.0
+    # via markdown-it-py
+litellm==1.86.2
+    # via mini-swe-agent
 llguidance==1.7.5
     # via -r requirements/common.txt
 llvmlite==0.47.0
@@ -316,13 +341,20 @@ lm-format-enforcer==0.11.3
 loguru==0.7.3
     # via compressed-tensors
 markdown-it-py==4.2.0
-    # via rich
+    # via
+    #   mdit-py-plugins
+    #   rich
+    #   textual
 markupsafe==3.0.3
     # via jinja2
 mcp==1.27.1
     # via -r requirements/common.txt
+mdit-py-plugins==0.6.1
+    # via textual
 mdurl==0.1.2
     # via markdown-it-py
+mini-swe-agent==2.3.0
+    # via -r extras.in
 mistral-common==1.11.2
     # via -r requirements/common.txt
 model-hosting-container-standards==0.1.15
@@ -335,6 +367,8 @@ multidict==6.7.1
     # via
     #   aiohttp
     #   yarl
+multiprocess==0.70.19
+    # via datasets
 networkx==3.6.1
     # via torch
 ninja==1.13.0
@@ -346,15 +380,20 @@ numba==0.65.0
 numpy==2.3.5
     # via
     #   -r requirements/common.txt
+    #   datasets
     #   gguf
     #   mistral-common
     #   numba
     #   opencv-python-headless
+    #   pandas
     #   torchvision
     #   transformers
     #   xgrammar
 openai==2.38.0
-    # via -r requirements/common.txt
+    # via
+    #   -r requirements/common.txt
+    #   litellm
+    #   mini-swe-agent
 openai-harmony==0.0.8
     # via -r requirements/common.txt
 opencv-python-headless==4.13.0.92
@@ -400,6 +439,7 @@ outlines-core==0.2.14
 packaging==26.2
     # via
     #   -r requirements/build/cpu.txt
+    #   datasets
     #   huggingface-hub
     #   lm-format-enforcer
     #   pytest
@@ -407,6 +447,8 @@ packaging==26.2
     #   transformers
     #   vcs-versioning
     #   wheel
+pandas==3.0.3
+    # via datasets
 partial-json-parser==0.2.1.1.post7
     # via -r requirements/common.txt
 pillow==12.2.0
@@ -414,6 +456,10 @@ pillow==12.2.0
     #   -r requirements/common.txt
     #   mistral-common
     #   torchvision
+platformdirs==4.10.0
+    # via
+    #   mini-swe-agent
+    #   textual
 pluggy==1.6.0
     # via pytest
 prometheus-client==0.25.0
@@ -422,6 +468,8 @@ prometheus-client==0.25.0
     #   prometheus-fastapi-instrumentator
 prometheus-fastapi-instrumentator==7.1.0
     # via -r requirements/common.txt
+prompt-toolkit==3.0.52
+    # via mini-swe-agent
 propcache==0.5.2
     # via
     #   aiohttp
@@ -435,6 +483,8 @@ psutil==7.2.2
     # via -r requirements/common.txt
 py-cpuinfo==9.0.0
     # via -r requirements/common.txt
+pyarrow==24.0.0
+    # via datasets
 pybase64==1.4.3
     # via -r requirements/common.txt
 pycountry==26.2.16
@@ -448,8 +498,10 @@ pydantic==2.13.4
     #   compressed-tensors
     #   fastapi
     #   fastapi-cloud-cli
+    #   litellm
     #   lm-format-enforcer
     #   mcp
+    #   mini-swe-agent
     #   mistral-common
     #   model-hosting-container-standards
     #   openai
@@ -471,6 +523,7 @@ pygments==2.20.0
     # via
     #   pytest
     #   rich
+    #   textual
 pyjwt==2.13.0
     # via mcp
 pytest==9.0.3
@@ -482,8 +535,12 @@ pytest-asyncio==1.4.0
     # via -r extras.in
 pytest-timeout==2.4.0
     # via -r extras.in
+python-dateutil==2.9.0.post0
+    # via pandas
 python-dotenv==1.2.2
     # via
+    #   litellm
+    #   mini-swe-agent
     #   pydantic-settings
     #   uvicorn
 python-json-logger==4.1.0
@@ -495,9 +552,11 @@ python-multipart==0.0.29
 pyyaml==6.0.3
     # via
     #   -r requirements/common.txt
+    #   datasets
     #   gguf
     #   huggingface-hub
     #   lm-format-enforcer
+    #   mini-swe-agent
     #   transformers
     #   uvicorn
 pyzmq==27.1.0
@@ -515,13 +574,17 @@ regex==2026.5.9
 requests==2.34.2
     # via
     #   -r requirements/common.txt
+    #   datasets
     #   gguf
+    #   mini-swe-agent
     #   mistral-common
     #   opentelemetry-exporter-otlp-proto-http
     #   tiktoken
 rich==15.0.0
     # via
+    #   mini-swe-agent
     #   rich-toolkit
+    #   textual
     #   typer
 rich-toolkit==0.19.10
     # via
@@ -561,7 +624,9 @@ setuptools-scm==10.0.5
 shellingham==1.5.4
     # via typer
 six==1.17.0
-    # via -r requirements/common.txt
+    # via
+    #   -r requirements/common.txt
+    #   python-dateutil
 sniffio==1.3.1
     # via
     #   anthropic
@@ -579,13 +644,19 @@ supervisor==4.3.0
     # via model-hosting-container-standards
 sympy==1.14.0
     # via torch
+tenacity==9.1.4
+    # via mini-swe-agent
+textual==8.2.7
+    # via mini-swe-agent
 tiktoken==0.13.0
     # via
     #   -r requirements/common.txt
+    #   litellm
     #   mistral-common
 tokenizers==0.22.2
     # via
     #   -r requirements/common.txt
+    #   litellm
     #   transformers
 torch==2.11.0+cpu
     # via
@@ -601,6 +672,7 @@ torchvision==0.26.0+cpu
 tqdm==4.67.3
     # via
     #   -r requirements/common.txt
+    #   datasets
     #   gguf
     #   huggingface-hub
     #   openai
@@ -617,6 +689,7 @@ typer==0.25.1
     #   fastapi-cli
     #   fastapi-cloud-cli
     #   huggingface-hub
+    #   mini-swe-agent
     #   transformers
 typing-extensions==4.15.0
     # via
@@ -643,6 +716,7 @@ typing-extensions==4.15.0
     #   referencing
     #   rich-toolkit
     #   starlette
+    #   textual
     #   torch
     #   typing-inspection
     #   xgrammar
@@ -652,6 +726,8 @@ typing-inspection==0.4.2
     #   mcp
     #   pydantic
     #   pydantic-settings
+uc-micro-py==2.0.0
+    # via linkify-it-py
 urllib3==2.7.0
     # via
     #   requests
@@ -671,14 +747,20 @@ watchfiles==1.2.0
     # via
     #   -r requirements/common.txt
     #   uvicorn
+wcwidth==0.7.0
+    # via prompt-toolkit
 websockets==16.0
     # via uvicorn
 wheel==0.47.0
     # via -r requirements/build/cpu.txt
 xgrammar==0.2.1
     # via -r requirements/common.txt
+xxhash==3.7.0
+    # via datasets
 yarl==1.24.2
     # via aiohttp
+zipp==4.1.0
+    # via importlib-metadata
 VLLM_REQUIREMENTS_EOF
 uv pip install --system --index-strategy first-index \
   --torch-backend cpu -r /tmp/vllm-requirements.lock
@@ -755,8 +837,20 @@ RUN find . -type d -name __pycache__ -prune -exec rm -rf {} + \
  && test -z "$(git fsck --full --no-reflogs --unreachable --no-progress 2>/dev/null)" \
  && test -z "$(git status --porcelain)"
 
-RUN install -d /opt/repro && install -d /opt/repro \
- && printf '%s' ZnJvbSBfX2Z1dHVyZV9fIGltcG9ydCBhbm5vdGF0aW9ucwoKaW1wb3J0IGpzb24KaW1wb3J0IHNvY2tldAppbXBvcnQgdGhyZWFkaW5nCmltcG9ydCB0aW1lCmZyb20gY29sbGVjdGlvbnMuYWJjIGltcG9ydCBBc3luY0l0ZXJhdG9yCmZyb20gdW5pdHRlc3QubW9jayBpbXBvcnQgQXN5bmNNb2NrLCBNYWdpY01vY2sKCmltcG9ydCBodHRweAppbXBvcnQgdXZpY29ybgpmcm9tIGZhc3RhcGkgaW1wb3J0IEZhc3RBUEkKCmZyb20gdmxsbS5lbnRyeXBvaW50cy5vcGVuYWkuZW5naW5lLnByb3RvY29sIGltcG9ydCAoCiAgICBEZWx0YUZ1bmN0aW9uQ2FsbCwKICAgIERlbHRhTWVzc2FnZSwKICAgIERlbHRhVG9vbENhbGwsCikKZnJvbSB2bGxtLmVudHJ5cG9pbnRzLm9wZW5haS5yZXNwb25zZXMuYXBpX3JvdXRlciBpbXBvcnQgYXR0YWNoX3JvdXRlcgpmcm9tIHZsbG0uZW50cnlwb2ludHMub3BlbmFpLnJlc3BvbnNlcy5zZXJ2aW5nIGltcG9ydCBPcGVuQUlTZXJ2aW5nUmVzcG9uc2VzCmZyb20gdmxsbS5pbnB1dHMgaW1wb3J0IHRva2Vuc19pbnB1dApmcm9tIHZsbG0ub3V0cHV0cyBpbXBvcnQgQ29tcGxldGlvbk91dHB1dCwgUmVxdWVzdE91dHB1dAoKCkVYUEVDVEVEID0gJ3sicGF0aCI6Ii90bXAveC5weSIsImNvbnRlbnQiOiJwcmludChcXCJoaVxcIikifScKCgpjbGFzcyBEZXRlcm1pbmlzdGljUGFyc2VyOgogICAgcmVhc29uaW5nX3BhcnNlciA9IE1hZ2ljTW9jaygpCiAgICB0b29sX3BhcnNlciA9IE5vbmUKCiAgICBkZWYgX19pbml0X18oc2VsZikgLT4gTm9uZToKICAgICAgICBzZWxmLnVzZWQgPSBGYWxzZQoKICAgIGRlZiBwYXJzZV9kZWx0YShzZWxmLCAqKl9rd2FyZ3MpOgogICAgICAgIGlmIHNlbGYudXNlZDoKICAgICAgICAgICAgcmV0dXJuIE5vbmUKICAgICAgICBzZWxmLnVzZWQgPSBUcnVlCiAgICAgICAgcmV0dXJuIERlbHRhTWVzc2FnZSgKICAgICAgICAgICAgdG9vbF9jYWxscz1bCiAgICAgICAgICAgICAgICBEZWx0YVRvb2xDYWxsKAogICAgICAgICAgICAgICAgICAgIGluZGV4PTAsCiAgICAgICAgICAgICAgICAgICAgaWQ9ImNhbGxfd3JpdGUiLAogICAgICAgICAgICAgICAgICAgIHR5cGU9ImZ1bmN0aW9uIiwKICAgICAgICAgICAgICAgICAgICBmdW5jdGlvbj1EZWx0YUZ1bmN0aW9uQ2FsbChuYW1lPSJ3cml0ZSIpLAogICAgICAgICAgICAgICAgKSwKICAgICAgICAgICAgICAgIERlbHRhVG9vbENhbGwoCiAgICAgICAgICAgICAgICAgICAgaW5kZXg9MCwKICAgICAgICAgICAgICAgICAgICBmdW5jdGlvbj1EZWx0YUZ1bmN0aW9uQ2FsbChhcmd1bWVudHM9RVhQRUNURUQpLAogICAgICAgICAgICAgICAgKSwKICAgICAgICAgICAgXQogICAgICAgICkKCiAgICBkZWYgaXNfcmVhc29uaW5nX2VuZChzZWxmLCAqX2FyZ3MsICoqX2t3YXJncykgLT4gYm9vbDoKICAgICAgICByZXR1cm4gRmFsc2UKCiAgICBkZWYgZXh0cmFjdF9yZXNwb25zZV9vdXRwdXRzKHNlbGYsICoqX2t3YXJncykgLT4gbGlzdDoKICAgICAgICByZXR1cm4gW10KCgpjbGFzcyBQYXJzZXJGYWN0b3J5OgogICAgcmVhc29uaW5nX3BhcnNlcl9jbHMgPSBOb25lCiAgICB0b29sX3BhcnNlcl9jbHMgPSBOb25lCgogICAgZGVmIF9fY2FsbF9fKHNlbGYsICpfYXJncywgKipfa3dhcmdzKSAtPiBEZXRlcm1pbmlzdGljUGFyc2VyOgogICAgICAgIHJldHVybiBEZXRlcm1pbmlzdGljUGFyc2VyKCkKCgpkZWYgc2VydmluZygpIC0+IE9wZW5BSVNlcnZpbmdSZXNwb25zZXM6CiAgICBlbmdpbmUgPSBNYWdpY01vY2soKQogICAgZW5naW5lLmVycm9yZWQgPSBGYWxzZQogICAgZW5naW5lLm1vZGVsX2NvbmZpZy5tYXhfbW9kZWxfbGVuID0gNDA5NgogICAgZW5naW5lLm1vZGVsX2NvbmZpZy5tb2RlbCA9ICJtb29uc2hvdGFpL0tpbWktSzIuNSIKICAgIGVuZ2luZS5tb2RlbF9jb25maWcuZ2VuZXJhdGlvbl9jb25maWcgPSAidmxsbSIKICAgIGVuZ2luZS5tb2RlbF9jb25maWcub3ZlcnJpZGVfZ2VuZXJhdGlvbl9jb25maWcgPSB7fQogICAgZW5naW5lLm1vZGVsX2NvbmZpZy5oZl9jb25maWcubW9kZWxfdHlwZSA9ICJ0ZXN0IgogICAgZW5naW5lLm1vZGVsX2NvbmZpZy5oZl90ZXh0X2NvbmZpZyA9IE1hZ2ljTW9jaygpCiAgICBlbmdpbmUubW9kZWxfY29uZmlnLmdldF9kaWZmX3NhbXBsaW5nX3BhcmFtLnJldHVybl92YWx1ZSA9IHt9CiAgICBlbmdpbmUuaW5wdXRfcHJvY2Vzc29yID0gTWFnaWNNb2NrKCkKICAgIGVuZ2luZS5yZW5kZXJlciA9IE1hZ2ljTW9jaygpCiAgICBlbmdpbmUucmVuZGVyZXIuZ2V0X3Rva2VuaXplci5yZXR1cm5fdmFsdWUgPSBNYWdpY01vY2soKQogICAgZW5naW5lLmlzX3RyYWNpbmdfZW5hYmxlZCA9IEFzeW5jTW9jayhyZXR1cm5fdmFsdWU9RmFsc2UpCgogICAgYXN5bmMgZGVmIGdlbmVyYXRlKCpfYXJncywgKipfa3dhcmdzKSAtPiBBc3luY0l0ZXJhdG9yW1JlcXVlc3RPdXRwdXRdOgogICAgICAgIHlpZWxkIFJlcXVlc3RPdXRwdXQoCiAgICAgICAgICAgIHJlcXVlc3RfaWQ9InJlcSIsCiAgICAgICAgICAgIHByb21wdD0icHJvbXB0IiwKICAgICAgICAgICAgcHJvbXB0X3Rva2VuX2lkcz1bMSwgMl0sCiAgICAgICAgICAgIHByb21wdF9sb2dwcm9icz1Ob25lLAogICAgICAgICAgICBvdXRwdXRzPVsKICAgICAgICAgICAgICAgIENvbXBsZXRpb25PdXRwdXQoCiAgICAgICAgICAgICAgICAgICAgaW5kZXg9MCwKICAgICAgICAgICAgICAgICAgICB0ZXh0PSJtb2RlbCB1cGRhdGUiLAogICAgICAgICAgICAgICAgICAgIHRva2VuX2lkcz1bMTBdLAogICAgICAgICAgICAgICAgICAgIGN1bXVsYXRpdmVfbG9ncHJvYj0wLjAsCiAgICAgICAgICAgICAgICAgICAgbG9ncHJvYnM9Tm9uZSwKICAgICAgICAgICAgICAgICAgICBmaW5pc2hfcmVhc29uPSJzdG9wIiwKICAgICAgICAgICAgICAgICAgICBzdG9wX3JlYXNvbj1Ob25lLAogICAgICAgICAgICAgICAgKQogICAgICAgICAgICBdLAogICAgICAgICAgICBmaW5pc2hlZD1UcnVlLAogICAgICAgICAgICBudW1fY2FjaGVkX3Rva2Vucz0wLAogICAgICAgICkKCiAgICBlbmdpbmUuZ2VuZXJhdGUgPSBnZW5lcmF0ZQogICAgcmVuZGVyID0gTWFnaWNNb2NrKCkKICAgIHJlbmRlci5wcmVwcm9jZXNzX2NoYXQgPSBBc3luY01vY2soCiAgICAgICAgcmV0dXJuX3ZhbHVlPShbXSwgW3Rva2Vuc19pbnB1dChbMSwgMl0pXSkKICAgICkKICAgIG1vZGVscyA9IE1hZ2ljTW9jaygpCiAgICBtb2RlbHMuaXNfYmFzZV9tb2RlbC5yZXR1cm5fdmFsdWUgPSBUcnVlCiAgICBtb2RlbHMubW9kZWxfbmFtZS5yZXR1cm5fdmFsdWUgPSAibW9vbnNob3RhaS9LaW1pLUsyLjUiCiAgICBtb2RlbHMubG9yYV9yZXF1ZXN0cyA9IHt9CiAgICBoYW5kbGVyID0gT3BlbkFJU2VydmluZ1Jlc3BvbnNlcygKICAgICAgICBlbmdpbmVfY2xpZW50PWVuZ2luZSwKICAgICAgICBtb2RlbHM9bW9kZWxzLAogICAgICAgIG9wZW5haV9zZXJ2aW5nX3JlbmRlcj1yZW5kZXIsCiAgICAgICAgcmVxdWVzdF9sb2dnZXI9Tm9uZSwKICAgICAgICBjaGF0X3RlbXBsYXRlPU5vbmUsCiAgICAgICAgY2hhdF90ZW1wbGF0ZV9jb250ZW50X2Zvcm1hdD0iYXV0byIsCiAgICApCiAgICBoYW5kbGVyLnBhcnNlciA9IFBhcnNlckZhY3RvcnkoKQogICAgcmV0dXJuIGhhbmRsZXIKCgpkZWYgbWFpbigpIC0+IGludDoKICAgIGFwcCA9IEZhc3RBUEkoKQogICAgYXR0YWNoX3JvdXRlcihhcHApCiAgICBhcHAuc3RhdGUub3BlbmFpX3NlcnZpbmdfcmVzcG9uc2VzID0gc2VydmluZygpCgogICAgbGlzdGVuZXIgPSBzb2NrZXQuc29ja2V0KCkKICAgIGxpc3RlbmVyLmJpbmQoKCIxMjcuMC4wLjEiLCAwKSkKICAgIGxpc3RlbmVyLmxpc3RlbigpCiAgICBwb3J0ID0gbGlzdGVuZXIuZ2V0c29ja25hbWUoKVsxXQogICAgc2VydmVyID0gdXZpY29ybi5TZXJ2ZXIoCiAgICAgICAgdXZpY29ybi5Db25maWcoYXBwLCBsb2dfbGV2ZWw9Indhcm5pbmciLCBsaWZlc3Bhbj0ib2ZmIikKICAgICkKICAgIHRocmVhZCA9IHRocmVhZGluZy5UaHJlYWQoCiAgICAgICAgdGFyZ2V0PXNlcnZlci5ydW4sCiAgICAgICAga3dhcmdzPXsic29ja2V0cyI6IFtsaXN0ZW5lcl19LAogICAgICAgIGRhZW1vbj1UcnVlLAogICAgKQogICAgdGhyZWFkLnN0YXJ0KCkKICAgIGRlYWRsaW5lID0gdGltZS5tb25vdG9uaWMoKSArIDE1CiAgICB3aGlsZSBub3Qgc2VydmVyLnN0YXJ0ZWQgYW5kIHRpbWUubW9ub3RvbmljKCkgPCBkZWFkbGluZToKICAgICAgICB0aW1lLnNsZWVwKDAuMDUpCiAgICBhc3NlcnQgc2VydmVyLnN0YXJ0ZWQKCiAgICByZXF1ZXN0ID0gewogICAgICAgICJtb2RlbCI6ICJtb29uc2hvdGFpL0tpbWktSzIuNSIsCiAgICAgICAgInN0cmVhbSI6IFRydWUsCiAgICAgICAgInN0b3JlIjogRmFsc2UsCiAgICAgICAgImlucHV0IjogKAogICAgICAgICAgICAnQ2FsbCB0aGUgd3JpdGUgdG9vbCB0byBwdXQgcHJpbnQoImhpIikgaW50byAvdG1wL3gucHkuICcKICAgICAgICAgICAgIk5vIGV4cGxhbmF0aW9uLiIKICAgICAgICApLAogICAgICAgICJ0b29scyI6IFsKICAgICAgICAgICAgewogICAgICAgICAgICAgICAgInR5cGUiOiAiZnVuY3Rpb24iLAogICAgICAgICAgICAgICAgIm5hbWUiOiAid3JpdGUiLAogICAgICAgICAgICAgICAgImRlc2NyaXB0aW9uIjogIldyaXRlIGNvbnRlbnQgdG8gYSBmaWxlLiIsCiAgICAgICAgICAgICAgICAicGFyYW1ldGVycyI6IHsKICAgICAgICAgICAgICAgICAgICAidHlwZSI6ICJvYmplY3QiLAogICAgICAgICAgICAgICAgICAgICJwcm9wZXJ0aWVzIjogewogICAgICAgICAgICAgICAgICAgICAgICAicGF0aCI6IHsidHlwZSI6ICJzdHJpbmcifSwKICAgICAgICAgICAgICAgICAgICAgICAgImNvbnRlbnQiOiB7InR5cGUiOiAic3RyaW5nIn0sCiAgICAgICAgICAgICAgICAgICAgfSwKICAgICAgICAgICAgICAgICAgICAicmVxdWlyZWQiOiBbInBhdGgiLCAiY29udGVudCJdLAogICAgICAgICAgICAgICAgfSwKICAgICAgICAgICAgfQogICAgICAgIF0sCiAgICB9CiAgICBldmVudHMgPSBbXQogICAgdHJ5OgogICAgICAgIHdpdGggaHR0cHguc3RyZWFtKAogICAgICAgICAgICAiUE9TVCIsCiAgICAgICAgICAgIGYiaHR0cDovLzEyNy4wLjAuMTp7cG9ydH0vdjEvcmVzcG9uc2VzIiwKICAgICAgICAgICAganNvbj1yZXF1ZXN0LAogICAgICAgICAgICB0aW1lb3V0PTMwLAogICAgICAgICkgYXMgcmVzcG9uc2U6CiAgICAgICAgICAgIHByaW50KGYiUE9TVCAvdjEvcmVzcG9uc2VzIHtyZXNwb25zZS5zdGF0dXNfY29kZX0iKQogICAgICAgICAgICBmb3IgbGluZSBpbiByZXNwb25zZS5pdGVyX2xpbmVzKCk6CiAgICAgICAgICAgICAgICBpZiBsaW5lLnN0YXJ0c3dpdGgoImRhdGE6ICIpOgogICAgICAgICAgICAgICAgICAgIGV2ZW50ID0ganNvbi5sb2FkcyhsaW5lWzY6XSkKICAgICAgICAgICAgICAgICAgICBldmVudHMuYXBwZW5kKGV2ZW50KQogICAgICAgICAgICAgICAgICAgIHByaW50KGYie2V2ZW50Wyd0eXBlJ119OiB7bGluZVs2Ol19IikKICAgIGZpbmFsbHk6CiAgICAgICAgc2VydmVyLnNob3VsZF9leGl0ID0gVHJ1ZQogICAgICAgIHRocmVhZC5qb2luKHRpbWVvdXQ9MTApCiAgICAgICAgbGlzdGVuZXIuY2xvc2UoKQoKICAgIGRvbmUgPSBuZXh0KAogICAgICAgIGV2ZW50WyJpdGVtIl1bImFyZ3VtZW50cyJdCiAgICAgICAgZm9yIGV2ZW50IGluIGV2ZW50cwogICAgICAgIGlmIGV2ZW50WyJ0eXBlIl0gPT0gInJlc3BvbnNlLm91dHB1dF9pdGVtLmRvbmUiCiAgICAgICAgYW5kIGV2ZW50WyJpdGVtIl1bInR5cGUiXSA9PSAiZnVuY3Rpb25fY2FsbCIKICAgICkKICAgIHRyeToKICAgICAgICBwYXJzZWQgPSBqc29uLmxvYWRzKGRvbmUpCiAgICBleGNlcHQganNvbi5KU09ORGVjb2RlRXJyb3IgYXMgZXJyb3I6CiAgICAgICAgcHJpbnQoZiJkb25lLmFyZ3VtZW50cz17ZG9uZSFyfSIpCiAgICAgICAgcHJpbnQoZiJqc29uX2Vycm9yPXtlcnJvci5tc2d9IikKICAgICAgICByZXR1cm4gMwogICAgcHJpbnQoZiJkb25lLmFyZ3VtZW50cz17ZG9uZSFyfSIpCiAgICBwcmludChmIm1hdGNoZXNfcmVxdWVzdD17cGFyc2VkID09IGpzb24ubG9hZHMoRVhQRUNURUQpfSIpCiAgICByZXR1cm4gMCBpZiBwYXJzZWQgPT0ganNvbi5sb2FkcyhFWFBFQ1RFRCkgZWxzZSAzCgoKaWYgX19uYW1lX18gPT0gIl9fbWFpbl9fIjoKICAgIHJhaXNlIFN5c3RlbUV4aXQobWFpbigpKQo= | base64 -d > /opt/repro/responses_tool_stream.py
+# Optional task-scoped runtime fixture with pinned content and license metadata.
+RUN mkdir -p /opt/swe-bench-verified \
+ && curl --http1.1 -L --retry 10 --retry-all-errors --connect-timeout 30 --max-time 600 \
+      --proto '=https' --tlsv1.2 -sSf https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified/resolve/c104f840cc67f8b6eec6f759ebc8b2693d585d4a/data/test-00000-of-00001.parquet -o /opt/swe-bench-verified/test.parquet \
+ && printf '%s  %s\n' a45b1fe4e2f0c8390b2b2938ac83e92ed5979000856808f3679c07812e9e6dcd /opt/swe-bench-verified/test.parquet | sha256sum -c - \
+ && printf '%s\n' \
+      'Source: https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified/resolve/c104f840cc67f8b6eec6f759ebc8b2693d585d4a/data/test-00000-of-00001.parquet' \
+      'License: MIT' \
+      'Attribution: SWE-bench Verified by the SWE-bench authors; immutable dataset revision c104f840cc67f8b6eec6f759ebc8b2693d585d4a.' \
+      > /opt/swe-bench-verified/ATTRIBUTION.txt
+LABEL ai.infra.bench.runtime-file-source="https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified/resolve/c104f840cc67f8b6eec6f759ebc8b2693d585d4a/data/test-00000-of-00001.parquet" \
+      ai.infra.bench.runtime-file-sha256=a45b1fe4e2f0c8390b2b2938ac83e92ed5979000856808f3679c07812e9e6dcd \
+      ai.infra.bench.runtime-file-license="MIT"
+
 LABEL ai.infra.bench.environment-template=vllm-harbor-all-in-one \
       ai.infra.bench.base-commit=$VLLM_BASE_SHA \
       ai.infra.bench.dependency-cutoff=$VLLM_DEPENDENCY_CUTOFF \
