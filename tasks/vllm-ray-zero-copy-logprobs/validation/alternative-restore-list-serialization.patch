@@ -1,0 +1,45 @@
+diff --git a/vllm/v1/engine/logprobs.py b/vllm/v1/engine/logprobs.py
+--- a/vllm/v1/engine/logprobs.py
++++ b/vllm/v1/engine/logprobs.py
+@@ -88,9 +88,6 @@ class LogprobsProcessor:
+-        for rank_np, logprobs_np, token_ids_np in zip(
+-            ranks_lst, logprobs_lst, token_ids_lst
+-        ):
+-            rank = rank_np.tolist()
+-            logprobs = logprobs_np.tolist()
+-            token_ids = token_ids_np.tolist()
++        for rank, logprobs, token_ids in zip(
++            ranks_lst, logprobs_lst, token_ids_lst
++        ):
+             # Detokenize (non-incrementally).
+             decoded_tokens: list[str] | Iterable[None]
+             if self.tokenizer is None:
+diff --git a/vllm/v1/outputs.py b/vllm/v1/outputs.py
+--- a/vllm/v1/outputs.py
++++ b/vllm/v1/outputs.py
+@@ -24,10 +24,10 @@ else:
+ class LogprobsLists(NamedTuple):
+     # [num_reqs x num_generated_tokens, max_num_logprobs + 1]
+-    logprob_token_ids: np.ndarray
++    logprob_token_ids: list[list[int]]
+     # [num_reqs x num_generated_tokens, max_num_logprobs + 1]
+-    logprobs: np.ndarray
++    logprobs: list[list[float]]
+     # [num_reqs x num_generated_tokens]
+-    sampled_token_ranks: np.ndarray
++    sampled_token_ranks: list[int]
+     # [num_reqs]
+     # Used for slicing the logprobs in cases like speculative
+     # decoding where the number of generated tokens may be
+@@ -61,8 +61,8 @@ class LogprobsTensors(NamedTuple):
+     def tolists(self, cu_num_generated_tokens: list[int] | None = None):
+         return LogprobsLists(
+-            self.logprob_token_ids.cpu().numpy(),
+-            self.logprobs.cpu().numpy(),
+-            self.selected_token_ranks.cpu().numpy(),
++            self.logprob_token_ids.tolist(),
++            self.logprobs.tolist(),
++            self.selected_token_ranks.tolist(),
+             cu_num_generated_tokens
+             if cu_num_generated_tokens is not None
+             else self.cu_num_generated_tokens,

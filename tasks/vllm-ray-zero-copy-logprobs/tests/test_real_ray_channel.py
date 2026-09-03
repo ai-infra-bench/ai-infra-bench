@@ -4,14 +4,16 @@
 from __future__ import annotations
 
 import os
+import traceback
 
 import numpy as np
 import ray
+import torch
 from ray.dag import InputNode
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 from vllm.v1.executor import ray_utils
-from vllm.v1.outputs import LogprobsLists, ModelRunnerOutput
+from vllm.v1.outputs import LogprobsTensors, ModelRunnerOutput
 
 
 @ray.remote(num_cpus=1)
@@ -37,26 +39,31 @@ class _Stage:
             70: (4, 17),
         }[case_id]
         token_ids = (
-            np.arange(rows * cols, dtype=np.int32).reshape(rows, cols) + case_id
+            torch.arange(rows * cols, dtype=torch.int32).reshape(rows, cols)
+            + case_id
         )
-        logprobs = np.linspace(
+        logprobs = torch.linspace(
             -case_id / 10,
             -0.001,
             rows * cols,
-            dtype=np.float32,
+            dtype=torch.float32,
         ).reshape(rows, cols)
-        ranks = np.arange(rows, dtype=np.int16) + case_id
+        ranks = torch.arange(rows, dtype=torch.int16) + case_id
+        sampled_token_ids = [
+            [case_id + index * cols] for index in range(rows)
+        ]
         return ModelRunnerOutput(
             req_ids=[f"req-{case_id}-{index}" for index in range(rows)],
             req_id_to_index={
                 f"req-{case_id}-{index}": index for index in range(rows)
             },
-            logprobs=LogprobsLists(
+            sampled_token_ids=sampled_token_ids,
+            logprobs=LogprobsTensors(
                 token_ids,
                 logprobs,
                 ranks,
                 list(range(rows + 1)),
-            ),
+            ).tolists(),
         )
 
     def forward(self, output: ModelRunnerOutput) -> ModelRunnerOutput:
@@ -79,6 +86,9 @@ def _check_output(output: ModelRunnerOutput, case_id: int) -> dict[str, object]:
     }[case_id]
     assert output.logprobs is not None
     token_ids, logprobs, ranks, cu_tokens = output.logprobs
+    token_ids_array = np.asarray(token_ids)
+    logprobs_array = np.asarray(logprobs)
+    ranks_array = np.asarray(ranks)
     expected_ids = (
         np.arange(rows * cols, dtype=np.int32).reshape(rows, cols) + case_id
     )
@@ -88,17 +98,28 @@ def _check_output(output: ModelRunnerOutput, case_id: int) -> dict[str, object]:
         rows * cols,
         dtype=np.float32,
     ).reshape(rows, cols)
-    np.testing.assert_array_equal(token_ids, expected_ids)
-    np.testing.assert_allclose(logprobs, expected_logprobs)
-    np.testing.assert_array_equal(ranks, np.arange(rows, dtype=np.int16) + case_id)
+    np.testing.assert_array_equal(token_ids_array, expected_ids)
+    np.testing.assert_allclose(
+        logprobs_array,
+        expected_logprobs,
+        rtol=1e-6,
+        atol=1e-7,
+    )
+    np.testing.assert_array_equal(
+        ranks_array,
+        np.arange(rows, dtype=np.int16) + case_id,
+    )
+    expected_sampled_token_ids = [
+        [int(token_id)] for token_id in expected_ids[:, 0]
+    ]
+    assert output.sampled_token_ids == expected_sampled_token_ids
     assert cu_tokens == list(range(rows + 1))
-    assert token_ids.dtype == np.int32
-    assert logprobs.dtype == np.float32
-    assert ranks.dtype == np.int16
     return {
         "case": case_id,
         "logprobs": True,
-        "shape": list(token_ids.shape),
+        "shape": list(token_ids_array.shape),
+        "sampled_token_count": len(expected_sampled_token_ids),
+        "representation": type(token_ids).__name__,
     }
 
 
@@ -152,6 +173,7 @@ def main() -> int:
         )
         return 0
     except Exception as exc:
+        traceback.print_exc()
         lines = str(exc).splitlines()
         print(
             {

@@ -1,22 +1,23 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import pytest
 import torch
 
+from vllm.v1.engine.logprobs import LogprobsProcessor
 from vllm.v1.executor import ray_utils
-from vllm.v1.outputs import LogprobsLists, LogprobsTensors, ModelRunnerOutput
+from vllm.v1.outputs import LogprobsTensors, ModelRunnerOutput
 
 
 @dataclass(frozen=True)
-class ArrayProfile:
+class PayloadProfile:
     rows: int
     cols: int
-    token_dtype: np.dtype
-    logprob_dtype: np.dtype
-    rank_dtype: np.dtype
+    token_dtype: torch.dtype
+    logprob_dtype: torch.dtype
+    rank_dtype: torch.dtype
     offset: int
 
 
@@ -34,23 +35,25 @@ class _RayResultBoundary:
         return refs.value
 
 
-def _make_output(profile: ArrayProfile, readonly=(True, True, True)):
+def _make_output(profile: PayloadProfile):
     size = profile.rows * profile.cols
     token_ids = (
-        np.arange(size, dtype=profile.token_dtype).reshape(profile.rows, profile.cols)
+        torch.arange(size, dtype=profile.token_dtype).reshape(
+            profile.rows, profile.cols
+        )
         + profile.offset
     )
     logprobs = (
-        np.linspace(-3.0, -0.01, size, dtype=profile.logprob_dtype).reshape(
+        torch.linspace(-3.0, -0.01, size, dtype=profile.logprob_dtype).reshape(
             profile.rows, profile.cols
         )
         - profile.offset / 100
     )
-    ranks = np.arange(profile.rows, dtype=profile.rank_dtype) + profile.offset
-    arrays = (token_ids, logprobs, ranks)
-    for array, make_readonly in zip(arrays, readonly):
-        if make_readonly:
-            array.setflags(write=False)
+    ranks = torch.arange(profile.rows, dtype=profile.rank_dtype) + profile.offset
+    cu_tokens = list(range(profile.rows + 1))
+    tensor_payload = LogprobsTensors(token_ids, logprobs, ranks, cu_tokens)
+    expected = tuple(tensor.cpu().numpy().copy() for tensor in tensor_payload[:3])
+
     prompt = LogprobsTensors.empty_cpu(profile.rows, profile.cols)
     prompt.logprob_token_ids.fill_(profile.offset)
     prompt.logprobs.fill_(-profile.offset / 10)
@@ -61,15 +64,13 @@ def _make_output(profile: ArrayProfile, readonly=(True, True, True)):
             f"req-{profile.offset}-{index}": index
             for index in range(profile.rows)
         },
-        logprobs=LogprobsLists(
-            token_ids,
-            logprobs,
-            ranks,
-            list(range(profile.rows + 1)),
-        ),
+        sampled_token_ids=[
+            [int(token_id)] for token_id in expected[0][:, 0]
+        ],
+        logprobs=tensor_payload.tolists(),
         prompt_logprobs_dict={"prompt": prompt},
     )
-    return output, arrays, prompt
+    return output, expected, prompt
 
 
 def _through_result_boundary(monkeypatch, output):
@@ -79,31 +80,34 @@ def _through_result_boundary(monkeypatch, output):
 
 def _assert_values(actual, expected):
     assert actual.logprobs is not None
-    actual_arrays = actual.logprobs[:3]
-    for got, want in zip(actual_arrays, expected):
-        np.testing.assert_array_equal(got, want)
-        assert got.dtype == want.dtype
-        assert got.shape == want.shape
-    return actual_arrays
+    converted = tuple(np.asarray(value) for value in actual.logprobs[:3])
+    np.testing.assert_array_equal(converted[0], expected[0])
+    np.testing.assert_allclose(converted[1], expected[1], rtol=1e-6, atol=1e-7)
+    np.testing.assert_array_equal(converted[2], expected[2])
+    return converted
 
 
 PROFILES = [
-    ArrayProfile(1, 1, np.dtype("int32"), np.dtype("float32"), np.dtype("int16"), 3),
-    ArrayProfile(2, 4, np.dtype("int64"), np.dtype("float64"), np.dtype("int32"), 11),
-    ArrayProfile(5, 3, np.dtype("uint32"), np.dtype("float32"), np.dtype("int64"), 29),
-    ArrayProfile(17, 9, np.dtype("int32"), np.dtype("float64"), np.dtype("int16"), 41),
+    PayloadProfile(1, 1, torch.int32, torch.float32, torch.int16, 3),
+    PayloadProfile(2, 4, torch.int64, torch.float64, torch.int32, 11),
+    PayloadProfile(5, 3, torch.int32, torch.float32, torch.int64, 29),
+    PayloadProfile(17, 9, torch.int32, torch.float64, torch.int16, 41),
 ]
 
 
 @pytest.mark.parametrize("profile", PROFILES)
-def test_borrowed_readonly_logprob_memory_is_released(monkeypatch, profile):
-    output, original_arrays, prompt = _make_output(profile)
+def test_logprob_values_survive_result_boundary(monkeypatch, profile):
+    output, expected, prompt = _make_output(profile)
     result = _through_result_boundary(monkeypatch, output)
 
-    actual_arrays = _assert_values(result, original_arrays)
-    for actual, original in zip(actual_arrays, original_arrays):
-        assert not np.shares_memory(actual, original)
+    _assert_values(result, expected)
     assert result.logprobs.cu_num_generated_tokens == list(range(profile.rows + 1))
+    assert result.req_ids == output.req_ids
+    assert result.req_id_to_index == output.req_id_to_index
+    assert result.sampled_token_ids == output.sampled_token_ids
+    assert result.sampled_token_ids == [
+        [int(token_id)] for token_id in expected[0][:, 0]
+    ]
     actual_prompt = result.prompt_logprobs_dict["prompt"]
     torch.testing.assert_close(actual_prompt.logprob_token_ids, prompt.logprob_token_ids)
     torch.testing.assert_close(actual_prompt.logprobs, prompt.logprobs)
@@ -113,43 +117,46 @@ def test_borrowed_readonly_logprob_memory_is_released(monkeypatch, profile):
     )
 
 
-@pytest.mark.parametrize(
-    "readonly",
-    [
-        (True, False, False),
-        (False, True, False),
-        (False, False, True),
-        (False, False, False),
-    ],
-)
-def test_mixed_ownership_preserves_values_without_copy_policy(
-    monkeypatch, readonly
-):
-    output, original_arrays, _prompt = _make_output(PROFILES[1], readonly=readonly)
-    result = _through_result_boundary(monkeypatch, output)
+@pytest.mark.parametrize("profile", PROFILES)
+def test_repeated_results_do_not_mix_payloads(monkeypatch, profile):
+    first, first_expected, _ = _make_output(profile)
+    second_profile = replace(profile, offset=profile.offset + 100)
+    second, second_expected, _ = _make_output(second_profile)
 
-    actual_arrays = _assert_values(result, original_arrays)
-    for actual, original, was_readonly in zip(
-        actual_arrays, original_arrays, readonly
-    ):
-        if was_readonly:
-            assert not np.shares_memory(actual, original)
+    first_result = _through_result_boundary(monkeypatch, first)
+    second_result = _through_result_boundary(monkeypatch, second)
+
+    first_values = _assert_values(first_result, first_expected)
+    second_values = _assert_values(second_result, second_expected)
+    assert first_result.req_ids != second_result.req_ids
+    assert first_result.sampled_token_ids == [
+        [int(token_id)] for token_id in first_expected[0][:, 0]
+    ]
+    assert second_result.sampled_token_ids == [
+        [int(token_id)] for token_id in second_expected[0][:, 0]
+    ]
+    assert any(
+        not np.array_equal(before, after)
+        for before, after in zip(first_values, second_values)
+    )
 
 
-def test_empty_logprob_arrays_are_valid(monkeypatch):
-    token_ids = np.empty((0, 0), dtype=np.int32)
-    logprobs = np.empty((0, 0), dtype=np.float32)
-    ranks = np.empty((0,), dtype=np.int16)
-    for array in (token_ids, logprobs, ranks):
-        array.setflags(write=False)
+def test_empty_logprob_payload_is_valid(monkeypatch):
+    tensor_payload = LogprobsTensors(
+        torch.empty((0, 0), dtype=torch.int32),
+        torch.empty((0, 0), dtype=torch.float32),
+        torch.empty((0,), dtype=torch.int16),
+        [0],
+    )
     output = ModelRunnerOutput(
         req_ids=[],
         req_id_to_index={},
-        logprobs=LogprobsLists(token_ids, logprobs, ranks, [0]),
+        logprobs=tensor_payload.tolists(),
     )
     result = _through_result_boundary(monkeypatch, output)
-    arrays = _assert_values(result, (token_ids, logprobs, ranks))
-    assert all(not np.shares_memory(actual, before) for actual, before in zip(arrays, (token_ids, logprobs, ranks)))
+    assert result.logprobs is not None
+    assert all(len(value) == 0 for value in result.logprobs[:3])
+    assert result.logprobs.cu_num_generated_tokens == [0]
 
 
 def test_none_logprobs_and_unrelated_fields_are_preserved(monkeypatch):
@@ -167,10 +174,21 @@ def test_none_logprobs_and_unrelated_fields_are_preserved(monkeypatch):
     assert result.logprobs is None
 
 
-def test_result_object_identity_and_array_writeability_are_not_requirements(
-    monkeypatch,
-):
-    output, original_arrays, _prompt = _make_output(PROFILES[0])
+def test_downstream_logprob_processing_accepts_result_payload(monkeypatch):
+    output, expected, _ = _make_output(PROFILES[1])
     result = _through_result_boundary(monkeypatch, output)
-    actual_arrays = _assert_values(result, original_arrays)
-    assert all(not np.shares_memory(actual, before) for actual, before in zip(actual_arrays, original_arrays))
+    _assert_values(result, expected)
+
+    processor = LogprobsProcessor(
+        tokenizer=None,
+        logprobs=[],
+        prompt_logprobs=None,
+        cumulative_logprob=0.0,
+        num_logprobs=PROFILES[1].cols - 1,
+        num_prompt_logprobs=None,
+    )
+    processor._update_sample_logprobs(result.logprobs)
+
+    assert len(processor.logprobs) == PROFILES[1].rows
+    expected_cumulative = float(expected[1][:, 0].sum())
+    assert processor.cumulative_logprob == pytest.approx(expected_cumulative)
