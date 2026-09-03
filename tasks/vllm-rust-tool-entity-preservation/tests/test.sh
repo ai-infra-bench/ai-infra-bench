@@ -12,11 +12,19 @@ opencode_rc=0
 mkdir -p rust/src/tool-parser/examples
 cp /tests/tool_parser_probe.rs \
   rust/src/tool-parser/examples/ai_infra_probe.rs
+cp /tests/vllm_server_http_harness.rs \
+  rust/src/server/src/routes/ai_infra_http_e2e.rs
+printf '\n#[cfg(test)]\nmod ai_infra_http_e2e;\n' >> \
+  rust/src/server/src/routes.rs
 timeout 600 cargo build --quiet --manifest-path rust/Cargo.toml \
   -p vllm-tool-parser --example ai_infra_probe || build_rc=$?
 if [ "$build_rc" -eq 0 ]; then
   timeout 600 cargo test --quiet --manifest-path rust/Cargo.toml \
     -p vllm-tool-parser --no-run || source_tests_rc=$?
+  if [ "$source_tests_rc" -eq 0 ]; then
+    timeout 900 cargo test --quiet --manifest-path rust/Cargo.toml \
+      -p vllm-server ai_infra_http_server --no-run || source_tests_rc=$?
+  fi
 else
   source_tests_rc=1
 fi

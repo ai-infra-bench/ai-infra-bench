@@ -714,6 +714,8 @@ ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0+g${VLLM_BASE_SHA} \
 RUN --mount=type=cache,id=vllm-uv-downloads-v3,target=/root/.cache/uv,sharing=locked \
     --mount=type=cache,id=vllm-ccache-${VLLM_CACHE_NAMESPACE},target=/root/.cache/ccache,sharing=locked \
     --mount=type=cache,id=vllm-fetchcontent-${VLLM_CACHE_NAMESPACE},target=/workspace/vllm/.deps,sharing=locked \
+    --mount=type=cache,id=vllm-cargo-registry-${VLLM_CACHE_NAMESPACE},target=/root/.cargo/registry,sharing=locked \
+    --mount=type=cache,id=vllm-cargo-git-${VLLM_CACHE_NAMESPACE},target=/root/.cargo/git,sharing=locked \
     python -c "import importlib.metadata as m; assert not any((d.metadata.get('Name') or '').lower() == 'vllm' for d in m.distributions())" \
  && \
     VLLM_TARGET_DEVICE=cpu \
@@ -728,7 +730,9 @@ RUN --mount=type=cache,id=vllm-uv-downloads-v3,target=/root/.cache/uv,sharing=lo
  && python -c "from pathlib import Path; import vllm; assert Path(vllm.__file__).resolve().is_relative_to(Path('/workspace/vllm'))"
 
 ARG PROTOC_VERSION=34.2
-RUN if [ -f rust/Cargo.toml ]; then \
+RUN --mount=type=cache,id=vllm-cargo-registry-${VLLM_CACHE_NAMESPACE},target=/root/.cargo/registry,sharing=locked \
+    --mount=type=cache,id=vllm-cargo-git-${VLLM_CACHE_NAMESPACE},target=/root/.cargo/git,sharing=locked \
+    if [ -f rust/Cargo.toml ]; then \
       case "$TARGETARCH" in \
         amd64) protoc_arch=x86_64; protoc_sha=b52e803fad2f63232f75351c0ff735e891f40262de791bade78a3636831a522a ;; \
         arm64) protoc_arch=aarch_64; protoc_sha=63d92a87482d4eaa41a72f9de6ea7f476e1fb4c722700fa0b981cc204f7d3a14 ;; \
@@ -746,7 +750,6 @@ RUN if [ -f rust/Cargo.toml ]; then \
       cargo vendor --locked --manifest-path rust/Cargo.toml \
         /opt/vllm-cargo-vendor > /root/.cargo/config.toml; \
       printf '\n[net]\noffline = true\n' >> /root/.cargo/config.toml; \
-      rm -rf /root/.cargo/registry /root/.cargo/git; \
       cargo metadata --manifest-path rust/Cargo.toml --locked --offline \
         --no-deps --format-version 1 > /dev/null; \
       rustup default 1.95; \

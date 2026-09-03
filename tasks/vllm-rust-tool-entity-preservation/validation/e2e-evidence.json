@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-09-03T18:14:48+08:00",
+  "recorded_at": "2026-09-03T20:30:13+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-197",
     "instance_id": "vllm-project__vllm-45025",
@@ -17,14 +17,14 @@
     "surface": "OpenCode edit cannot find a Maven pom.xml line after entity spellings are changed in the vLLM path",
     "starting_point": "user-visible OpenCode failure followed by a captured tool_use event",
     "agent_workdir": "/workspace/vllm",
-    "reproduction_class": "reduced reproduction with deterministic model output at the unavailable weights boundary"
+    "reproduction_class": "reduced reproduction with deterministic engine-core output at the unavailable model-weights boundary and the real vLLM Rust HTTP server above it"
   },
   "image": {
     "canonical_tag": "ai-infra-bench/vllm-rust-tool-entity-preservation:base-7920ccb97c2d",
-    "image_id": "sha256:9b8defd296ade6c129e5fcdf7dec934c866746f8503eb463b1d9dc1dd103621f",
-    "size_bytes": 2892957806,
-    "created": "2026-09-03T16:24:53.250043937+08:00",
-    "dockerfile_sha256": "68da3b46562ae785ea04adaa3739daf3f7b0c4c645ea168ced85eeeb25ff9da0",
+    "image_id": "sha256:ed097e55f032297db87db864bd650dae51c18262a32dd3a740f7fc88e5160095",
+    "size_bytes": 2699665457,
+    "created": "2026-09-03T19:58:17.481565475+08:00",
+    "dockerfile_sha256": "87a0fa4e3ba482309ed9517f4558388c5e3cc01005a553106fd53af5c994fa27",
     "template_sha256": "937254afa48676af36edf5f67a127f939ef222505711e06da3f98e1e34fdcc8c",
     "dependency_lock_sha256": "45ac4b0a275a3511aba15050fc38fe0295702ef18dbf266f981d09628ee9ce54",
     "dependency_lock_manifest_sha256": "34118f5340c19069c962f57372791dc8aa6816422535a14783228283e25353dc",
@@ -53,21 +53,21 @@
     }
   },
   "artifacts": {
-    "task_metadata_sha256": "a244e43f10469c84f03041954c41be0066342bf19382ac99c4e068ed95c18f73",
+    "task_metadata_sha256": "70d74e41e007198fae25b4e5725e8b6a9dce1ebe4934d653d840a29cc3f4cf63",
     "instruction_sha256": "341e5c442f5c4df6ded59c4ce0a16ba6ffea91a22886b68387cf2b9f794ecf38",
-    "image_manifest_sha256": "8603d3374f0e8383eef3f1c51a681f8a42b7db4cd81117107fbf5708c40ccaae",
+    "image_manifest_sha256": "d0f041582513e945b9a2de78db567087a6bfb2c0e56231d300cdcf378265a1a8",
     "oracle_patch_sha256": "e55f208810c944e9391c198edda9190dc37fcf72c45a2182e31c82ea6ab733eb",
     "solve_script_sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491",
-    "test_script_sha256": "55da89a14060cfd3f46820011737b3846bd9012afa6113ea28043c3a09714baf",
+    "test_script_sha256": "063ed343f515cadb01f2c10af786f4295148c98e11164b2ed524b18b45f5d9f6",
     "regression_test_sha256": "a34c32bd341484fe1fc23a7a1220145cca802f0d21b1fdba953376197c890a93",
     "junit_checker_sha256": "bde7713303474020313e4926c995b67780926ae4f12389554e51c40705fdab6a",
     "verifier_support_sha256": "e32ebb19697f0f62959f309bbe57598ab0cd578c4686737028eeff0f6a2ae63a",
     "rust_probe_sha256": "7a68ea4b15e9a14c32f643b5617624d92cda5928e03730246dadd84408385b38",
     "real_rust_matrix_sha256": "5cc65154cd1de77adff94e2934a1c62cce29bf013ca794248e46e9180581d8de",
-    "opencode_provider_sha256": "a4dad83966e6ed6e65340d9521e733b8f1516644eb8eef7918d0b7cc47312e9b",
-    "real_opencode_edit_sha256": "bc29fbc8ecbbf51154560e705ccb809bf77421cbd1713c9c86728ae026581dbd",
+    "vllm_server_http_harness_sha256": "7d6984cad905f02097c3ea37f1f3d15a0f28d4a2fa0dd70985544bcab7394686",
+    "real_opencode_edit_sha256": "7652d46064e738b6cebf501aa8a710778b45c7ecae0a479c3f39f70983126e61",
     "ci_cases_sha256": "51860779d220afcd48daa19cbb1e53790d9c46815d5350ae3a31f2f670a7d41c",
-    "remediation_matrix_sha256": "8320a7f7dd9079723ff6b9cd47b46c3286cb991a9ae67ee69657089af0b73299"
+    "remediation_matrix_sha256": "f5635c2f05f3609526a9dff324761df7d5a3218a218e4f93e1c26e22722de6ff"
   },
   "verifier_contract": {
     "asserts_private_implementation_structure": false,
@@ -90,7 +90,7 @@
   },
   "real_end_to_end": {
     "tests_mounted_only_during_verification": true,
-    "entrypoint": "real OpenCode request schemas -> production vllm-tool-parser crate -> OpenAI-compatible SSE -> real OpenCode read/edit -> pom.xml filesystem -> Maven validate",
+    "entrypoint": "real OpenCode request -> vLLM Rust POST /v1/chat/completions -> request conversion -> ChatLlm output pipeline -> production Rust ToolParser -> vLLM SSE -> real OpenCode read/edit -> pom.xml filesystem -> Maven validate",
     "instruction_story": {
       "parser": "minimax_m2",
       "model": "MiniMaxAI/MiniMax-M2.5",
@@ -113,7 +113,7 @@
         "zai-org/GLM-4.5",
         "deepseek-ai/DeepSeek-V3.2"
       ],
-      "modes": ["complete", "stream"],
+      "engine_output_schedules": ["single chunk", "fragmented chunks"],
       "cells": 8,
       "entity_spellings_per_cell": 22,
       "named": ["&amp;", "&lt;", "&gt;", "&quot;", "&apos;"],
@@ -123,12 +123,14 @@
       "oracle_successful_cells": 8,
       "maven_exit_code": 0
     },
-    "substituted_boundary": "Model weights are not loaded. A deterministic test-only endpoint supplies raw model-format text; response IDs, call IDs, timestamps, and usage fields follow the live API shape but are not production model telemetry.",
+    "substituted_boundary": "Model weights are not loaded. A test-only mock engine-core supplies deterministic raw model-format token output. The production vLLM Rust HTTP server owns request validation, conversion, chat output processing, tool parsing, response IDs, usage accounting, and SSE assembly.",
     "real_layers": [
       "OpenCode 1.17.3 CLI and session continuation",
       "OpenCode read and edit implementations and actual request schemas",
+      "vLLM Rust /v1/chat/completions TCP route, request validation, and request conversion",
+      "vLLM ChatLlm decoding and structured output pipeline",
       "production Rust ToolParser implementations",
-      "OpenAI-compatible streamed response consumption",
+      "vLLM OpenAI-compatible SSE assembly and OpenCode streamed response consumption",
       "filesystem reads and exact-string edits",
       "Maven 3.9.9 offline validation"
     ]
@@ -177,8 +179,8 @@
     "opencode_exit_code": 0
   },
   "build_reproducibility": {
-    "initial_image_id": "sha256:9b8defd296ade6c129e5fcdf7dec934c866746f8503eb463b1d9dc1dd103621f",
-    "warm_cache_image_id": "sha256:9b8defd296ade6c129e5fcdf7dec934c866746f8503eb463b1d9dc1dd103621f",
+    "initial_image_id": "sha256:ed097e55f032297db87db864bd650dae51c18262a32dd3a740f7fc88e5160095",
+    "warm_cache_image_id": "sha256:ed097e55f032297db87db864bd650dae51c18262a32dd3a740f7fc88e5160095",
     "warm_cache_digest_stable": true
   },
   "isolation_gates": {
@@ -190,7 +192,9 @@
     "solution_tests_validation_and_repro_absent_from_image": true,
     "image_history_free_of_hidden_artifacts": true,
     "all_16_image_layers_free_of_hidden_artifacts": true,
-    "provider_pom_and_probe_exist_only_under_tests": true,
+    "mock_engine_harness_pom_and_probe_exist_only_under_tests": true,
+    "cargo_registry_or_git_paths_in_any_oci_layer": 0,
+    "post_cutoff_cargo_sparse_index_records_in_any_oci_layer": 0,
     "vllm_imports_from_base_worktree": true,
     "python_lock_packages": 157,
     "dependency_lock_offline_dry_run_no_changes": true,
@@ -201,15 +205,15 @@
   },
   "harbor": {
     "version": "0.22.0",
-    "job_id": "fbac5338-6fe6-4c21-bee1-65619dffb688",
-    "trial_id": "07ce6229-45e6-4e04-b99c-036601cbf3a9",
-    "trial_name": "task__yCpzPP2",
-    "input_task_checksum": "2697b785aa2f59ca4a87c516649cef5fe8bc26b4d44ec1a18162da08f087f18f",
-    "lock_task_digest": "sha256:af6cdb17325f392776aa490e0251a943c50976a54df3d8291a99f2e268c35c28",
-    "checksum_scope": "The Harbor input was a temporary copy of the final runtime task with only [environment].docker_image injected to select the retained canonical image. Runtime artifacts were unchanged afterward; only this Harbor record and the remediation audit record were updated, which necessarily changes the directory checksum.",
-    "task_preparation": "temporary copy; instruction, tests, solution, and validation controls were unchanged",
+    "job_id": "86877f73-7cec-406e-b729-d7acf6a2df5e",
+    "trial_id": "61de0728-5e74-46ed-9d07-e05a63d6f3b0",
+    "trial_name": "pr21-final-harbor-case.vV8L4w__7ma2uha",
+    "input_task_checksum": "c6694d390fd94cd76c4546ad2032f5536d06c6c887a7ebb2d3521185e1cb66b8",
+    "lock_task_digest": "sha256:1171c948ae05a829570bb6974c0ced1efa57bae659e33c81513619547528a712",
+    "checksum_scope": "The Harbor input was a temporary copy of the final runtime task with only [environment].docker_image injected to select the retained canonical image. Runtime artifacts were unchanged afterward; only this Harbor record was updated, which necessarily changes the directory checksum.",
+    "task_preparation": "temporary copy; instruction, tests, solution, validation controls, image manifest, and remediation status were unchanged",
     "canonical_image_tag": "ai-infra-bench/vllm-rust-tool-entity-preservation:base-7920ccb97c2d",
-    "canonical_image_id": "sha256:9b8defd296ade6c129e5fcdf7dec934c866746f8503eb463b1d9dc1dd103621f",
+    "canonical_image_id": "sha256:ed097e55f032297db87db864bd650dae51c18262a32dd3a740f7fc88e5160095",
     "agent": "oracle",
     "environment": "docker",
     "n_completed_trials": 1,
@@ -221,7 +225,7 @@
     "integrity_exit_code": 0,
     "rust_exit_code": 0,
     "opencode_exit_code": 0,
-    "runtime_seconds": 63,
+    "runtime_seconds": 188,
     "junit_cases": 56,
     "junit_failures": 0,
     "junit_errors": 0,
