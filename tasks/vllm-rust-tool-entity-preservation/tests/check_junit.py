@@ -20,6 +20,7 @@ SINGLE_PARAMETER_CASES = (
 )
 PARSER_MODE_CASES = (
     "test_numeric_entities_are_preserved_complete_and_streaming",
+    "test_entities_are_preserved_for_unrelated_tool_and_parameter",
     "test_existing_whitespace_normalization_is_unchanged",
 )
 EXPECTED = {
@@ -38,7 +39,7 @@ def main() -> None:
     root = ET.parse(Path(sys.argv[1])).getroot()
     cases = root.findall(".//testcase")
     names = [case.attrib["name"] for case in cases]
-    assert len(EXPECTED) == 56, EXPECTED
+    assert len(EXPECTED) == 64, EXPECTED
     assert len(names) == len(EXPECTED), names
     assert set(names) == EXPECTED, names
     assert len(names) == len(set(names)), names

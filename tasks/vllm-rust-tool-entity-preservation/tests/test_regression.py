@@ -9,6 +9,16 @@ from verifier_support import PARSERS, argument, multiple_wire, run_probe, wire
 
 MODES = ("complete", "stream")
 PARSER_MODES = tuple(product(PARSERS, MODES))
+UNRELATED_TOOL = {
+    "name": "catalog_lookup",
+    "description": "Look up a catalog entry",
+    "parameters": {
+        "type": "object",
+        "properties": {"query_expression": {"type": "string"}},
+        "required": ["query_expression"],
+    },
+    "strict": None,
+}
 
 
 @pytest.mark.parametrize("parser", PARSERS)
@@ -37,6 +47,30 @@ def test_numeric_entities_are_preserved_complete_and_streaming(
     value = "A &#38; B &#x3C; C &#X3E; D &#00038; E &#128512;"
     result = run_probe(parser, mode, wire(parser, [("content", value)]))
     assert argument(result)["content"] == value
+
+
+@pytest.mark.parametrize(
+    ("parser", "mode"),
+    PARSER_MODES,
+    ids=[f"{parser}-{mode}" for parser, mode in PARSER_MODES],
+)
+def test_entities_are_preserved_for_unrelated_tool_and_parameter(
+    parser: str,
+    mode: str,
+) -> None:
+    value = "catalog &amp; literal &#38; decimal &#x3C; hexadecimal"
+    result = run_probe(
+        parser,
+        mode,
+        wire(
+            parser,
+            [("query_expression", value)],
+            tool_name="catalog_lookup",
+            string_parameters={"query_expression"},
+        ),
+        tools=[UNRELATED_TOOL],
+    )
+    assert argument(result)["query_expression"] == value
 
 
 @pytest.mark.parametrize("parser", PARSERS)
