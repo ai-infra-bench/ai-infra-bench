@@ -203,6 +203,26 @@ def test_existing_streaming_outputs_remain_unchanged(
 
 
 @pytest.mark.parametrize(
+    "chunks,expected_content",
+    [
+        (["plain <"], "plain <"),
+        (["plain <mm:"], "plain <mm:"),
+        (["plain <mm:", "not-a-marker"], "plain <mm:not-a-marker"),
+        (["plain </mm:"], "plain </mm:"),
+    ],
+    ids=["less-than", "start-prefix-at-finish", "invalid-start-prefix", "end-prefix"],
+)
+def test_incomplete_marker_like_content_remains_visible(chunks, expected_content):
+    parser, tokenizer = _parser()
+
+    reasoning, content, tool_calls = _stream(parser, tokenizer, chunks)
+
+    assert reasoning is None
+    assert content == expected_content
+    assert tool_calls == []
+
+
+@pytest.mark.parametrize(
     "tokenizer,split_runtime",
     [(MiniMaxTokenizer(), False), (RuntimeSplitTokenizer(), True)],
     ids=["atomic-marker", "runtime-pieces"],
@@ -221,6 +241,20 @@ def test_existing_prefilled_reasoning_mode_remains_unchanged(
 
     assert reasoning == "plan"
     assert content == "answer"
+    assert tool_calls == []
+
+
+def test_disabled_thinking_mode_remains_plain_content():
+    parser, tokenizer = _parser(thinking_mode="disabled")
+
+    reasoning, content, tool_calls = _stream(
+        parser,
+        tokenizer,
+        ["plain ", "answer"],
+    )
+
+    assert reasoning is None
+    assert content == "plain answer"
     assert tool_calls == []
 
 

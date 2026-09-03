@@ -1,17 +1,23 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-08-31T18:14:32+08:00",
+  "recorded_at": "2026-09-03T21:55:00+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-223",
     "instance_id": "vllm-project__vllm-45718",
     "base_commit": "e368415daa2c4a4141904ec9c85e7a0dcaff6160",
     "pull_request": "https://github.com/vllm-project/vllm/pull/45718",
-    "issue": "https://github.com/vllm-project/vllm/issues/45687",
-    "scope_boundary": "Covers split-token streaming markers from issue 45687, not the later prompt-initialization regression reported in issues 46042 and 50549."
+    "related_pull_request": "https://github.com/vllm-project/vllm/pull/50594",
+    "issues": [
+      "https://github.com/vllm-project/vllm/issues/45687",
+      "https://github.com/vllm-project/vllm/issues/46042",
+      "https://github.com/vllm-project/vllm/issues/50549"
+    ],
+    "scope_boundary": "Combines split-token streaming parsing with MiniMax M3 prompt-mode initialization for OpenAI Chat Completions. Continuation, Responses, batch, structured-output, and live model execution are outside this task."
   },
   "image": {
     "canonical_tag": "ai-infra-bench/vllm-minimax-m3-streaming-reasoning:base-e368415daa2c",
     "image_id": "sha256:4ad2798441190b1508185ecb3ca79c640d79c396380f43b23d34b5d56a6ce20b",
+    "size_bytes": 2580501271,
     "dockerfile_sha256": "60e2a5b0a54b0c70655a64a2e17a0048f23df8065d720844e8a46ef411068c3c",
     "dependency_lock_sha256": "dad89d0d5e9c20bfb60c53a41ee65bd17c7e0d6482b32451a2cd5b330f1d937c",
     "dependency_lock_manifest_sha256": "b23aa8f6d17f344cca04d017183a24fc5f7eed210c6d6fb50499e5e952ff661f",
@@ -23,60 +29,121 @@
     }
   },
   "artifacts": {
-    "instruction_sha256": "c7555a03a7e152ea86945249c5471040702ea53e822a1b2e68e8a950130de1dc",
-    "oracle_patch_sha256": "d292b3b7636132a78428c6c5c9e85b4004f4944e6a5d1f7eabdcb88ae9059033",
-    "test_script_sha256": "36b2bd098caa09b25f1b1646a9a6941adab9d98752c473dbbe08347f165c4fc7",
-    "regression_test_sha256": "84f61c5deaed29e6df6908ca77eaba2359842695aa4073415b18f555d8722673",
-    "junit_checker_sha256": "ae31379f0e72494968c6665f9b5632c9c45c50415a08b95ebefc22386bb5a779",
+    "task_toml_sha256": "d351cf7c0d3f2de424eda5440ad0b7ca3b45d730cc541b3431319a8e4db7c7c7",
+    "instruction_sha256": "8a13c1116848461bf291064efac45b850039407bb96f0934b7df8e78176ab54a",
+    "oracle_patch_sha256": "27d69d2aa1c11de61232faf010b7b763434a942ab3c70b871fc1be13db6da608",
+    "test_script_sha256": "2b6126e1d3eb9c0e80c237421f64f042f30debc01f53c6a17b3c468cb6ac94d5",
+    "regression_test_sha256": "373506beced4100e1e29ad034f9da8eb3c14b68c1a1f93857fb7a83c7bb13aea",
+    "junit_checker_sha256": "5660d151d8531d66b7607294fb7bfeaea20299832a599d44bb625611c8fdac99",
     "real_tokenizer_test_sha256": "5686ea24963712c5632ccedf0d3d010e13f19244f0a44dbfd42c16e84f4742dd",
-    "real_http_mcp_test_sha256": "f70eafd48ed18b87f3d0232af6bf3f2aef3e7a29610cf7dfd4871685dc1b6570"
+    "real_serving_test_sha256": "1c002a7e70aa62aa539989a4ff2f343715e1ef0eda9ddece414c0a3c788d1ea9",
+    "ci_cases_sha256": "7d4b3763052598535adbefecead15b051b41c7cd18b32a370850516ae8cb15e9",
+    "remediation_matrix_sha256": "db0de6432c44a6c06e1efdf424970b116dd6928fe8615864525cc2c7b298921e"
   },
   "verifier_contract": {
     "asserts_private_implementation_structure": false,
-    "behavior_cases": 20,
+    "behavior_cases": 25,
     "behaviors": [
-      "complete visible markers encoded as ordinary runtime pieces are hidden while their text is emitted as reasoning",
-      "markers split at varied streaming-delta boundaries are buffered without leaking partial marker text",
-      "existing atomic-marker, plain streaming, and prefilled-reasoning behavior remains unchanged",
-      "non-streaming reasoning and content remain unchanged",
-      "streamed requests with varied reasoning, function names, and arguments preserve structured tool calls"
+      "adaptive prompt initialization defers reasoning state to generated output instead of treating instructional prompt markers as completed reasoning",
+      "enabled prompt initialization begins inside reasoning and disabled prompt initialization begins after reasoning",
+      "complete markers emitted from split token IDs and markers split across streaming deltas are hidden while reasoning remains separated",
+      "adaptive and enabled streams transition into structured function calls with varied names and arguments",
+      "atomic-marker, plain streaming, non-streaming, disabled-thinking, malformed-prefix, and repeated-request behavior remains correct"
     ],
-    "public_boundary": "Tests construct the parser through ParserManager and assert only parse/parse_delta response fields; they do not import the MiniMax parser implementation, access private parser state, or assert helper method shapes.",
-    "collection_integrity": "JUnit must contain exactly 20 unique, passing, non-skipped cases"
+    "public_boundary": "Tests assert Chat Completions response fields through ParserManager and a real ASGI/OpenAIServingChat lifecycle; they do not inspect Golden helpers, private state, patch shape, or call counts.",
+    "collection_integrity": "JUnit must contain exactly 25 unique, passing, non-skipped cases"
   },
   "real_lifecycle_boundary": {
-    "kind": "pinned MiniMax M3 tokenizer plus vLLM's registered combined parser and a local HTTP SSE lifecycle",
-    "entrypoint": "HTTP POST /v1/chat/completions -> ChatCompletionRequest -> ParserManager -> registered MiniMax reasoning/tool parser",
+    "kind": "ASGI Chat Completions request with the pinned MiniMax M3 tokenizer and chat template, OpenAIServingChat, registered combined parser, and SSE serialization",
+    "entrypoint": "ASGI POST /v1/chat/completions -> ChatCompletionRequest -> HfRenderer -> OpenAIServingChat -> ParserManager -> SSE",
+    "thinking_modes": ["adaptive", "enabled", "disabled"],
     "real_marker_vocab_ids": [200059, 200060],
-    "exact_issue_chunks": 5,
-    "cross_delta_chunks": 6,
+    "split_start_marker_ids": [60, 4759, 58, 37959, 62],
+    "split_end_marker_ids": [1579, 4759, 58, 37959, 62],
+    "stream_requests": 6,
+    "nonstream_requests": 3,
     "http_status": 200,
-    "mcp_backed_tool": "search_incident_runbooks",
     "stream_tool_call_verified": true,
     "nonstream_comparison_verified": true,
-    "http_sse_bytes_fragmented": true,
+    "prompt_rendering_verified": true,
+    "engine_prompt_state_verified": true,
+    "request_isolation_verified": true,
     "model_runner_executed": false,
-    "limitation": "The verifier uses the pinned real tokenizer and chat metadata without model weights. It sends real local HTTP requests through the production request schema and registered combined parser while supplying deterministic generated token IDs at the model-output boundary."
+    "limitation": "Model execution is replaced with deterministic generated text and valid tokenizer IDs because model weights and GPUs are unavailable. Tokenizer loading, chat-template rendering, request validation, serving state, parser registration, reasoning parsing, tool parsing, and SSE serialization execute real base code."
   },
   "repeated_runs": [
-    {"case": "base", "rounds": 5, "rewards": [0, 0, 0, 0, 0], "behavior_tests_each_round": {"passed": 7, "failed": 13}, "e2e_exit_codes": [1, 1, 1, 1, 1], "http_exit_codes": [1, 1, 1, 1, 1]},
-    {"case": "oracle", "rounds": 5, "rewards": [1, 1, 1, 1, 1], "behavior_tests_each_round": {"passed": 20, "failed": 0}, "e2e_exit_codes": [0, 0, 0, 0, 0], "http_exit_codes": [0, 0, 0, 0, 0]}
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "behavior_tests_each_round": {"passed": 12, "failed": 13, "errors": 0, "skipped": 0},
+      "e2e_exit_codes": [1, 1, 1, 1, 1],
+      "serving_exit_codes": [1, 1, 1, 1, 1]
+    },
+    {
+      "case": "oracle",
+      "rounds": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "behavior_tests_each_round": {"passed": 25, "failed": 0, "errors": 0, "skipped": 0},
+      "e2e_exit_codes": [0, 0, 0, 0, 0],
+      "serving_exit_codes": [0, 0, 0, 0, 0]
+    }
   ],
+  "upstream_regression_run": {
+    "path": "tests/reasoning/test_minimax_m3_reasoning_parser.py",
+    "passed": 15,
+    "failed": 0,
+    "skipped": 0
+  },
   "adversarial_runs": [
-    {"case": "ignore_prefilled_reasoning_mode", "patch_sha256": "12f8425cb8719c8b270fb5ed0d75bef4ff5a2d65f444fb8ece111727b654224c", "reward": 0, "tests_passed": 18, "tests_failed": 2, "e2e_exit_code": 0, "http_exit_code": 0},
-    {"case": "drop_cross_delta_marker_buffering", "patch_sha256": "8a5098e47a201b216f4da0ac8831200646a0b56a0c951294b76c3b6ecdec5ff3", "reward": 0, "tests_passed": 13, "tests_failed": 7, "e2e_exit_code": 1, "http_exit_code": 0},
-    {"case": "break_nonstreaming_regression", "patch_sha256": "1b4af3db782466957d96113d2bf44611e3192abe6607772e376a188832e7a457", "reward": 0, "tests_passed": 18, "tests_failed": 2, "e2e_exit_code": 0, "http_exit_code": 1}
+    {
+      "case": "use_output_state_for_prompt",
+      "patch_sha256": "52485a7cc2c61096ac4d20c3a39c86c446f3ec799286a76b9e7db70d054115c1",
+      "reward": 0,
+      "tests_passed": 25,
+      "tests_failed": 0,
+      "e2e_exit_code": 0,
+      "serving_exit_code": 1
+    },
+    {
+      "case": "drop_cross_delta_marker_buffering",
+      "patch_sha256": "73af3bf0935dcff6cb57014c8dd6bb50ae71548befabe2a890c583f7d53f8e1d",
+      "reward": 0,
+      "tests_passed": 18,
+      "tests_failed": 7,
+      "e2e_exit_code": 1,
+      "serving_exit_code": 0
+    },
+    {
+      "case": "break_nonstreaming_regression",
+      "patch_sha256": "b417ac7e395dad32d7f2ed87fb4f9b1afac07fb560a8589b4abdd4b0e590d1b0",
+      "reward": 0,
+      "tests_passed": 23,
+      "tests_failed": 2,
+      "e2e_exit_code": 0,
+      "serving_exit_code": 1
+    }
   ],
   "alternative_implementation_runs": [
-    {"case": "atomic_marker_helpers_with_text_streaming", "patch_sha256": "171e092309d02e48c249047cc0ce225e7a6a9ddb95dcdc515cb1f6e59e726918", "reward": 1, "tests_passed": 20, "tests_failed": 0, "e2e_exit_code": 0, "http_exit_code": 0}
+    {
+      "case": "atomic_marker_helpers_with_text_streaming",
+      "patch_sha256": "404830ba9dd49d39305d33e71d4c36869ac38927da0b08467715b22839b30404",
+      "reward": 1,
+      "tests_passed": 25,
+      "tests_failed": 0,
+      "e2e_exit_code": 0,
+      "serving_exit_code": 0
+    }
   ],
   "harbor": {
     "version": "0.22.0",
-    "job_id": "afa4ead7-ab1c-465a-a579-9baedbdaba93",
-    "trial_id": "f11f368c-2409-4732-841d-9318d097e786",
-    "input_task_checksum": "d58a8ebc361d0ccc829d8189a24f80019cdbeaa19a66ef3624867ede82a49d2e",
+    "job_id": "a99b7ed8-d1cb-443b-afa7-9c70db41f249",
+    "trial_id": "a781761c-f2eb-41ed-80ac-1585f2c5aada",
+    "package_digest": "sha256:18afa16421d37f0279486f72536303abf2583d1a6e734d932a59acdb1e7cc90b",
+    "input_task_checksum": "a82bde78df99479102942e2ba6a0a85e089854e7d8a5681632a132e3b6ed6d7f",
     "agent": "oracle",
     "environment": "docker",
+    "prebuilt_image_used": false,
     "n_completed_trials": 1,
     "n_errored_trials": 0,
     "reward": 1,
@@ -84,8 +151,8 @@
     "pytest_exit_code": 0,
     "integrity_exit_code": 0,
     "e2e_exit_code": 0,
-    "http_exit_code": 0,
-    "runtime_seconds": 30,
+    "serving_exit_code": 0,
+    "runtime_seconds": 644,
     "canonical_image_retained_after_run": true
   },
   "provenance_gates": {
@@ -96,7 +163,6 @@
     "solution_and_tests_absent_from_image": true,
     "vllm_imports_from_base_worktree": true,
     "installed_dependencies_match_lock": true,
-    "cached_rebuild_digest_stable": true,
     "runtime_network_disabled": true
   }
 }
