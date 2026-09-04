@@ -17,6 +17,7 @@ required = {
     "test_hybrid_transfer_preserves_group_payloads[full]",
     "test_hybrid_transfer_preserves_group_payloads[mla]",
     "test_shared_padded_storage_transfers_without_neighbor_corruption",
+    "test_partial_prefix_transfers_requested_suffix_per_group",
     "test_physical_block_expansion_copies_only_requested_payload[full]",
     "test_physical_block_expansion_copies_only_requested_payload[mla]",
     "test_registration_failure_is_reported",
@@ -25,10 +26,12 @@ required = {
     "test_layout_mismatch_is_not_reported_as_complete",
     "test_nixl_hybrid_remote_prefill_behavior_is_unchanged",
     "test_prompt_embeddings_remote_prefill_uses_remote_state_then_resumes",
+    "test_two_element_gdn_remote_decode_boundary[token_ids]",
+    "test_two_element_gdn_remote_decode_boundary[prompt_embeddings]",
     "test_warm_full_prefix_remote_decode_remains_schedulable",
     "test_prompt_embeddings_remote_decode_remains_schedulable",
 }
-assert tests == 20, f"expected exactly 20 tests, got {tests}"
+assert tests == 23, f"expected exactly 23 tests, got {tests}"
 assert failures == 0 and errors == 0 and skipped == 0
 assert len(names) == tests, "test case names must be unique"
 assert required <= names, f"missing required tests: {required - names}"

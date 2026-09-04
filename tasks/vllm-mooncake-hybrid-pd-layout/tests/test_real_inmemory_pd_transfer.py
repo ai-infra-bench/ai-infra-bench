@@ -20,8 +20,8 @@ from verifier_support import (
 
 
 def main() -> None:
-    logical_block_size = 32
-    physical_ratio = 8
+    logical_block_size = 18
+    physical_ratio = 3
     config = make_hybrid_config(
         logical_block_size=logical_block_size,
         num_blocks=12,
@@ -54,10 +54,12 @@ def main() -> None:
             source_attention = source["model.layers.0.self_attn"]
             source_gdn = source["model.layers.1.linear_attn"]
             source_gdn_conv, source_gdn_temporal = source_gdn
-            for logical_block, base_value in ((1, 20), (3, 60)):
+            for logical_block, base_value in ((0, 10), (1, 20), (3, 60)):
                 start = logical_block * physical_ratio
                 for offset in range(physical_ratio):
                     source_attention[start + offset].fill_(base_value + offset)
+            source_gdn_conv[1].fill_(11)
+            source_gdn_temporal[1].fill_(13)
             source_gdn_conv[2].fill_(17)
             source_gdn_temporal[2].fill_(23)
             source_gdn_conv[5].fill_(29)
@@ -71,8 +73,8 @@ def main() -> None:
                     producer,
                     consumer,
                     local_block_ids=[
-                        [1, 3],
-                        [NULL_BLOCK_ID, 2, 5],
+                        [0, 1, 3],
+                        [NULL_BLOCK_ID, 1, 2, 5],
                     ],
                     remote_block_ids=[
                         [7, 9],

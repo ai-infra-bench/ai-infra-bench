@@ -221,6 +221,64 @@ def test_shared_padded_storage_transfers_without_neighbor_corruption() -> None:
             shutdown_connectors(producer, consumer)
 
 
+def test_partial_prefix_transfers_requested_suffix_per_group() -> None:
+    config = make_hybrid_config(
+        logical_block_size=LOGICAL_BLOCK_SIZE,
+        num_blocks=12,
+        attention_kind="full",
+    )
+    transport = MemoryTransport()
+    with patched_worker_runtime(
+        transport, kernel_block_size=LOGICAL_BLOCK_SIZE
+    ):
+        producer, consumer, source, destination = _register_pair(
+            config,
+            transport=transport,
+            kernel_block_size=LOGICAL_BLOCK_SIZE,
+        )
+        try:
+            source_attention = source["model.layers.0.self_attn"]
+            destination_attention = destination["model.layers.0.self_attn"]
+            source_gdn = source["model.layers.1.linear_attn"]
+            destination_gdn = destination["model.layers.1.linear_attn"]
+            source_attention[1].fill_(11)
+            source_attention[4].fill_(47)
+            source_gdn[0][2].fill_(21)
+            source_gdn[1][2].fill_(23)
+            source_gdn[0][6].fill_(61)
+            source_gdn[1][6].fill_(67)
+            destination_attention.fill_(193)
+            mamba_storage_bytes(destination_gdn).fill_(197)
+            attention_before = destination_attention.clone()
+            gdn_before = mamba_storage_bytes(destination_gdn).clone()
+            source_gdn_bytes = mamba_storage_bytes(source_gdn)
+
+            finished = asyncio.run(
+                transfer_once(
+                    producer,
+                    consumer,
+                    local_block_ids=[[1, 4], [NULL_BLOCK_ID, 2, 6]],
+                    remote_block_ids=[[7], [NULL_BLOCK_ID, 9]],
+                    transfer_id="partial-prefix-per-group",
+                )
+            )
+
+            assert finished[1] == {"decoder-request"}
+            expected_attention = attention_before.clone()
+            expected_attention[7] = source_attention[4]
+            assert torch.equal(destination_attention, expected_attention)
+            gdn_page_bytes = config.kv_cache_groups[1].kv_cache_spec.page_size_bytes
+            expected_gdn = gdn_before.clone()
+            expected_gdn[9 * gdn_page_bytes : 10 * gdn_page_bytes] = source_gdn_bytes[
+                6 * gdn_page_bytes : 7 * gdn_page_bytes
+            ]
+            assert torch.equal(mamba_storage_bytes(destination_gdn), expected_gdn)
+            assert torch.equal(destination_gdn[0][9], source_gdn[0][6])
+            assert torch.equal(destination_gdn[1][9], source_gdn[1][6])
+        finally:
+            shutdown_connectors(producer, consumer)
+
+
 @pytest.mark.parametrize("attention_kind", ["full", "mla", "sliding_mla"])
 def test_physical_block_expansion_copies_only_requested_payload(
     attention_kind: str,
@@ -438,6 +496,96 @@ def test_hybrid_remote_prefill_leaves_one_token_for_decode() -> None:
     matched, asynchronous = connector.get_num_new_matched_tokens(request, 0)
     assert matched == 34
     assert asynchronous is True
+
+
+@pytest.mark.parametrize("prompt_kind", ["token_ids", "prompt_embeddings"])
+def test_two_element_gdn_remote_decode_boundary(prompt_kind: str) -> None:
+    prompt_token_ids = [101, 202] if prompt_kind == "token_ids" else None
+    prompt_embeds = (
+        torch.arange(2 * 8, dtype=torch.float32).reshape(2, 8)
+        if prompt_kind == "prompt_embeddings"
+        else None
+    )
+
+    def make_request(request_id: str, *, remote_decode: bool) -> Request:
+        request = Request(
+            request_id=request_id,
+            prompt_token_ids=(
+                list(prompt_token_ids) if prompt_token_ids is not None else None
+            ),
+            prompt_embeds=(
+                prompt_embeds.clone() if prompt_embeds is not None else None
+            ),
+            sampling_params=SamplingParams(max_tokens=1),
+            pooling_params=None,
+            block_hasher=None,
+        )
+        request.kv_transfer_params = {
+            "do_remote_prefill": not remote_decode,
+            "do_remote_decode": remote_decode,
+            "transfer_id": f"transfer-{request_id}",
+        }
+        if not remote_decode:
+            request.kv_transfer_params.update(
+                {
+                    "remote_engine_id": "producer-engine",
+                    "remote_bootstrap_addr": "http://unused",
+                }
+            )
+        return request
+
+    config = make_hybrid_config(
+        logical_block_size=LOGICAL_BLOCK_SIZE,
+        num_blocks=64,
+    )
+    producer_config = make_vllm_config(
+        "kv_producer", logical_block_size=LOGICAL_BLOCK_SIZE
+    )
+    producer = create_scheduler(
+        producer_config,
+        num_blocks=64,
+        kv_cache_config=config,
+    )
+    producer_request = make_request(f"producer-{prompt_kind}", remote_decode=True)
+    producer.add_request(producer_request)
+    producer_output = producer.schedule()
+    assert producer_request.num_prompt_tokens == 1
+    if prompt_token_ids is not None:
+        assert producer_request.prompt_token_ids == prompt_token_ids[:1]
+    else:
+        assert torch.equal(producer_request.prompt_embeds, prompt_embeds[:1])
+    assert producer_output.num_scheduled_tokens[producer_request.request_id] == 1
+    producer_result = producer.update_from_output(
+        producer_output,
+        create_model_runner_output([producer_request]),
+    )
+    assert producer_result[0].outputs[0].finish_reason is not None
+
+    consumer_config = make_vllm_config(
+        "kv_consumer", logical_block_size=LOGICAL_BLOCK_SIZE
+    )
+    consumer = create_scheduler(
+        consumer_config,
+        num_blocks=64,
+        kv_cache_config=config,
+    )
+    consumer_request = make_request(f"consumer-{prompt_kind}", remote_decode=False)
+    consumer.add_request(consumer_request)
+    waiting_output = consumer.schedule()
+    assert consumer_request.status == RequestStatus.WAITING_FOR_REMOTE_KVS
+    assert consumer_request.num_computed_tokens == 1
+    assert consumer_request.request_id not in waiting_output.num_scheduled_tokens
+    received = ModelRunnerOutput.with_kv_conn_output_only(
+        KVConnectorOutput(finished_recving={consumer_request.request_id})
+    )
+    consumer.update_from_output(waiting_output, received)
+    resumed_output = consumer.schedule()
+    assert resumed_output.num_scheduled_tokens[consumer_request.request_id] == 1
+    consumer_result = consumer.update_from_output(
+        resumed_output,
+        create_model_runner_output([consumer_request]),
+    )
+    assert consumer_result[0].outputs[0].finish_reason is not None
 
 
 def test_prompt_embeddings_remote_prefill_uses_remote_state_then_resumes() -> None:
