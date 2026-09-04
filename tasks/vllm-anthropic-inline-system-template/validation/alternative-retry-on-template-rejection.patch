@@ -1,0 +1,70 @@
+diff --git a/vllm/entrypoints/anthropic/serving.py b/vllm/entrypoints/anthropic/serving.py
+--- a/vllm/entrypoints/anthropic/serving.py
++++ b/vllm/entrypoints/anthropic/serving.py
+@@ -205,6 +205,37 @@ class AnthropicServingMessages(OpenAIServingChat):
+             if not (msg.role == "user" and "content" not in openai_msg):
+                 openai_messages.append(openai_msg)
+
++    @staticmethod
++    def _is_system_template_rejection(error: ValueError) -> bool:
++        """Return whether rendering rejected a non-leading system message."""
++        return "system message must be" in str(error).lower()
++
++    @staticmethod
++    def _retry_request_with_leading_system(
++        request: ChatCompletionRequest,
++    ) -> ChatCompletionRequest:
++        """Build a retry request with all system text in one leading message."""
++        payload = request.model_dump()
++        system_parts: list[str] = []
++        remaining_messages: list[dict[str, Any]] = []
++
++        for message in payload["messages"]:
++            if message["role"] != "system":
++                remaining_messages.append(message)
++                continue
++            content = message.get("content")
++            if isinstance(content, str) and content:
++                system_parts.append(content)
++
++        if not system_parts:
++            return request
++
++        payload["messages"] = [
++            {"role": "system", "content": "\n\n".join(system_parts)},
++            *remaining_messages,
++        ]
++        return ChatCompletionRequest.model_validate(payload)
++
+     @classmethod
+     def _convert_message_content(
+         cls,
+@@ -500,7 +531,13 @@ class AnthropicServingMessages(OpenAIServingChat):
+         chat_req = self._convert_anthropic_to_openai_request(request)
+         if logger.isEnabledFor(logging.DEBUG):
+             logger.debug("Convert to OpenAI request %s", chat_req.model_dump_json())
+-        generator = await self.create_chat_completion(chat_req, raw_request)
++        try:
++            generator = await self.create_chat_completion(chat_req, raw_request)
++        except ValueError as error:
++            if not self._is_system_template_rejection(error):
++                raise
++            chat_req = self._retry_request_with_leading_system(chat_req)
++            generator = await self.create_chat_completion(chat_req, raw_request)
+
+         if isinstance(generator, ErrorResponse):
+             return generator
+@@ -906,6 +943,12 @@ class AnthropicServingMessages(OpenAIServingChat):
+     ) -> AnthropicCountTokensResponse | ErrorResponse:
+         """Implements Anthropic's messages.count_tokens endpoint."""
+         chat_req = self._convert_anthropic_to_openai_request(request)
+-        result = await self.render_chat_request(chat_req)
++        try:
++            result = await self.render_chat_request(chat_req)
++        except ValueError as error:
++            if not self._is_system_template_rejection(error):
++                raise
++            chat_req = self._retry_request_with_leading_system(chat_req)
++            result = await self.render_chat_request(chat_req)
+         if isinstance(result, ErrorResponse):
+             return result

@@ -707,8 +707,8 @@ RUN python - <<'VLLM_RUNTIME_ASSET_EOF'
 from huggingface_hub import snapshot_download
 
 snapshot_download(
-    repo_id='Qwen/Qwen3.5-27B',
-    revision='fc05daec18b0a78c049392ed2e771dde82bdf654',
+    repo_id='Qwen/Qwen3.6-27B',
+    revision='6a9e13bd6fc8f0983b9b99948120bc37f49c13e9',
     local_dir='/opt/models/qwen-template',
     allow_patterns=['config.json', 'tokenizer.json', 'tokenizer_config.json', 'chat_template.jinja'],
 )
@@ -721,8 +721,8 @@ RUN rm -rf /opt/models/qwen-template/.cache /root/.cache/huggingface \
  && test -z "$(find /opt/models/qwen-template -type f \
       \( -name '*.bin' -o -name '*.gguf' -o -name '*.pt' -o -name '*.pth' -o -name '*.safetensors' \) \
       -print -quit)"
-LABEL ai.infra.bench.runtime-asset-repository=Qwen/Qwen3.5-27B \
-      ai.infra.bench.runtime-asset-revision=fc05daec18b0a78c049392ed2e771dde82bdf654
+LABEL ai.infra.bench.runtime-asset-repository=Qwen/Qwen3.6-27B \
+      ai.infra.bench.runtime-asset-revision=6a9e13bd6fc8f0983b9b99948120bc37f49c13e9
 
 LABEL ai.infra.bench.environment-template=vllm-harbor-all-in-one \
       ai.infra.bench.base-commit=$VLLM_BASE_SHA \
