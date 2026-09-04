@@ -23,6 +23,7 @@ TIMEOUT = 120
 AGENT_TIMEOUT = 10 * 60 * 60
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)+$")
 RAW_ID = re.compile(r"(?:^|-)(?:pr|issue|candidate|instance)-[a-z0-9]+(?:-|$)")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
 REQUIRED_FILES = (
     "instruction.md",
     "environment/Dockerfile",
@@ -36,6 +37,7 @@ REQUIRED_FILES = (
     "validation/e2e-evidence.json",
 )
 EVIDENCE_HASHES = {
+    "task_toml_sha256": "task.toml",
     "task_metadata_sha256": "task.toml",
     "instruction_sha256": "instruction.md",
     "image_manifest_sha256": "environment/image-manifest.json",
@@ -46,6 +48,11 @@ EVIDENCE_HASHES = {
     "junit_checker_sha256": "tests/check_junit.py",
     "ci_cases_sha256": "validation/ci-cases.json",
     "remediation_matrix_sha256": "validation/remediation-matrix.md",
+}
+CORE_EVIDENCE_HASHES = {
+    "instruction.md",
+    "solution/oracle.patch",
+    "tests/test.sh",
 }
 
 
@@ -96,6 +103,27 @@ def digest(path: Path) -> str:
 
 def mapping(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def recorded_sha256(value: Any) -> str | None:
+    if isinstance(value, str) and SHA256.fullmatch(value):
+        return value
+    if isinstance(value, dict):
+        candidate = value.get("sha256")
+        if isinstance(candidate, str) and SHA256.fullmatch(candidate):
+            return candidate
+    return None
+
+
+def safe_task_relative_path(value: Any) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    path = Path(value)
+    if path.is_absolute() or ".." in path.parts or any(
+        character in value for character in "\r\n\0"
+    ):
+        return None
+    return path.as_posix()
 
 
 def load(task: Path, audit: Audit) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -198,6 +226,8 @@ def check_artifacts(
     config: dict[str, Any],
     documents: dict[str, Any],
     audit: Audit,
+    *,
+    strict_evidence: bool,
 ) -> None:
     before = audit.errors
     image = mapping(documents.get("environment/image-manifest.json"))
@@ -236,7 +266,7 @@ def check_artifacts(
         {"image manifest": image.get("image_id")},
     )
 
-    hashes = [
+    hashes: list[tuple[str, Any, str]] = [
         ("image manifest", image.get("dockerfile_sha256"), "environment/Dockerfile"),
         (
             "image manifest",
@@ -250,36 +280,123 @@ def check_artifacts(
         ),
     ]
     output = mapping(lock.get("output"))
-    if isinstance(output.get("path"), str):
-        hashes.append(("lock manifest", output.get("sha256"), output["path"]))
+    lock_output_path = safe_task_relative_path(output.get("path"))
+    if lock_output_path is not None:
+        hashes.append(("lock manifest", output.get("sha256"), lock_output_path))
     else:
-        audit.require(False, "lock manifest does not record output.path")
+        audit.require(False, "lock manifest does not record a safe output.path")
     artifacts = mapping(evidence.get("artifacts"))
+    checked_paths: set[str] = set()
+
+    files = mapping(artifacts.get("files"))
+    for raw_relative, recorded in sorted(files.items(), key=lambda item: str(item[0])):
+        relative = safe_task_relative_path(raw_relative)
+        if not audit.require(
+            relative is not None,
+            f"evidence artifacts.files contains unsafe path {raw_relative!r}",
+        ):
+            continue
+        hashes.append(
+            (
+                f"evidence artifacts.files[{relative!r}]",
+                recorded_sha256(recorded),
+                relative,
+            )
+        )
+
     for key, relative in EVIDENCE_HASHES.items():
         if key in artifacts:
             hashes.append((f"evidence artifacts.{key}", artifacts[key], relative))
+
+    manifest = mapping(documents.get("validation/ci-cases.json"))
+    manifest_cases = manifest.get("cases", [])
+    case_items = manifest_cases if isinstance(manifest_cases, list) else []
+    declared_control_hashes = {
+        recorded
+        for item in case_items
+        for recorded in [recorded_sha256(mapping(item).get("patch_sha256"))]
+        if recorded is not None
+    }
+
+    known_keys = {*EVIDENCE_HASHES, "files"}
+    for key, recorded in sorted(artifacts.items()):
+        if key in known_keys or not key.endswith("_sha256"):
+            continue
+        candidate = recorded_sha256(recorded)
+        audit.require(
+            candidate is not None,
+            f"evidence artifacts.{key} is not a 64-character SHA-256",
+        )
+        if candidate in declared_control_hashes:
+            continue
+        audit.warn(
+            f"evidence artifacts.{key} has no explicit path mapping and was not checked"
+        )
+
     for source, recorded, relative in hashes:
+        audit.require(
+            recorded_sha256(recorded) is not None,
+            f"{source} does not contain a 64-character SHA-256 for {relative}",
+        )
         path = task / relative
         audit.require(path.is_file(), f"{source} refers to missing {relative}")
-        if path.is_file():
-            audit.require(
-                recorded == digest(path), f"{source} hash is stale for {relative}"
-            )
+        if path.is_file() and recorded_sha256(recorded) is not None:
+            matches = recorded_sha256(recorded) == digest(path)
+            audit.require(matches, f"{source} hash is stale for {relative}")
+            if matches:
+                checked_paths.add(relative)
 
-    control_hashes = {digest(path) for path in (task / "validation").glob("*.patch")}
-    for group in ("adversarial_runs", "alternative_implementation_runs"):
-        runs = evidence.get(group, [])
-        if not audit.require(
-            isinstance(runs, list), f"evidence {group} must be a list"
-        ):
-            continue
-        for index, item in enumerate(runs):
-            recorded = mapping(item).get("patch_sha256")
+    cases = manifest_cases
+    if audit.require(isinstance(cases, list), "validation cases must be a list"):
+        for index, item in enumerate(cases):
+            case = mapping(item)
+            patch_name = case.get("patch")
+            recorded = case.get("patch_sha256")
+            if not isinstance(patch_name, str):
+                audit.require(False, f"validation case {index} has no patch")
+                continue
+            relative = f"validation/{patch_name}"
+            path = task / relative
             audit.require(
-                recorded in control_hashes,
-                f"evidence {group}[{index}] does not match a control patch",
+                recorded_sha256(recorded) is not None,
+                f"validation case {index} patch hash is not a 64-character SHA-256",
             )
-    audit.finish(before, "artifact identities and standard hashes match")
+            audit.require(path.is_file(), f"validation case refers to missing {relative}")
+            if path.is_file() and recorded_sha256(recorded) is not None:
+                matches = recorded == digest(path)
+                audit.require(
+                    matches, f"validation case patch hash is stale for {relative}"
+                )
+                if matches:
+                    checked_paths.add(relative)
+
+    for relative in sorted(CORE_EVIDENCE_HASHES):
+        audit.require(
+            relative in checked_paths,
+            f"evidence does not provide a checked hash for required {relative}",
+        )
+
+    expected_coverage = {
+        "task.toml",
+        "instruction.md",
+        "solution/oracle.patch",
+        "solution/solve.sh",
+        "validation/ci-cases.json",
+        *(
+            path.relative_to(task).as_posix()
+            for path in (task / "tests").rglob("*")
+            if path.is_file()
+        ),
+    }
+    uncovered = sorted(expected_coverage - checked_paths)
+    if uncovered:
+        message = f"evidence hash coverage is incomplete: {uncovered}"
+        if strict_evidence:
+            audit.require(False, message)
+        else:
+            audit.warn(message)
+    print(f"INFO: checked artifact hashes for {sorted(checked_paths)}")
+    audit.finish(before, "artifact identities and all recorded hashes pass")
 
 
 def check_junit(task: Path, junit: Path, audit: Audit) -> None:
@@ -367,7 +484,10 @@ def check_image(
             result.returncode == 0,
             f"{patch.relative_to(task)} does not apply: {result.stderr.strip()}",
         )
-    audit.finish(before, f"image audit and {len(patches)} patch checks pass")
+    audit.finish(
+        before,
+        f"image identity and {len(patches)} patch applicability checks pass",
+    )
 
 
 def check_staged(task: Path, repo: Path, audit: Audit) -> None:
@@ -399,12 +519,31 @@ def check_staged(task: Path, repo: Path, audit: Audit) -> None:
     audit.finish(before, "staged changes are clean and limited to the task")
 
 
+def check_diff_whitespace(task: Path, repo: Path, audit: Audit) -> None:
+    before = audit.errors
+    approved = task.relative_to(repo).as_posix()
+    for label, command in (
+        ("working-tree", ["git", "diff", "--check", "--", approved]),
+        ("staged", ["git", "diff", "--cached", "--check", "--", approved]),
+    ):
+        result = run(command, cwd=repo)
+        audit.require(
+            result.returncode == 0,
+            f"{label} task diff has whitespace errors: "
+            f"{(result.stdout + result.stderr).strip()}",
+        )
+    audit.finish(before, "task diff whitespace checks pass")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("task", type=Path)
     parser.add_argument("--image", help="run image and patch checks")
+    parser.add_argument("--junit", type=Path, help="run the task's JUnit checker")
     parser.add_argument(
-        "--junit", type=Path, required=True, help="run the task's JUnit checker"
+        "--strict-evidence",
+        action="store_true",
+        help="fail when executable artifact hash coverage is incomplete",
     )
     parser.add_argument("--staged", action="store_true", help="check staged scope")
     args = parser.parse_args()
@@ -422,8 +561,16 @@ def main() -> int:
     config, documents = load(task, audit)
     if config:
         check_task(task, config, repo, audit)
-        check_artifacts(task, config, documents, audit)
-        check_junit(task, args.junit.resolve(), audit)
+        check_artifacts(
+            task,
+            config,
+            documents,
+            audit,
+            strict_evidence=args.strict_evidence,
+        )
+        check_diff_whitespace(task, repo, audit)
+        if args.junit:
+            check_junit(task, args.junit.resolve(), audit)
         if args.image:
             check_image(task, config, repo, args.image, audit)
         if args.staged:
