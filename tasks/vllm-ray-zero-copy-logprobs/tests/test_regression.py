@@ -6,6 +6,11 @@ import numpy as np
 import pytest
 import torch
 
+from vllm.entrypoints.openai.completion.protocol import CompletionRequest
+from vllm.entrypoints.openai.completion.serving import OpenAIServingCompletion
+from vllm.entrypoints.openai.engine.protocol import RequestResponseMetadata
+from vllm.logprobs import Logprob
+from vllm.outputs import CompletionOutput, RequestOutput
 from vllm.v1.engine.logprobs import LogprobsProcessor
 from vllm.v1.executor import ray_utils
 from vllm.v1.outputs import LogprobsTensors, ModelRunnerOutput
@@ -192,3 +197,116 @@ def test_downstream_logprob_processing_accepts_result_payload(monkeypatch):
     assert len(processor.logprobs) == PROFILES[1].rows
     expected_cumulative = float(expected[1][:, 0].sum())
     assert processor.cumulative_logprob == pytest.approx(expected_cumulative)
+
+
+def test_completion_response_preserves_text_tokens_and_logprobs():
+    output = CompletionOutput(
+        index=0,
+        text=" Photo uploads close the app unexpectedly.",
+        token_ids=[101, 202],
+        cumulative_logprob=-1.25,
+        logprobs=[
+            {
+                101: Logprob(logprob=-0.5, rank=1),
+                111: Logprob(logprob=-1.5, rank=2),
+            },
+            {
+                202: Logprob(logprob=-0.75, rank=1),
+                212: Logprob(logprob=-1.75, rank=2),
+            },
+        ],
+        finish_reason="length",
+    )
+    final_result = RequestOutput(
+        request_id="completion-contract",
+        prompt="Summarize the ticket.",
+        prompt_token_ids=[7, 8, 9],
+        prompt_logprobs=None,
+        outputs=[output],
+        finished=True,
+    )
+    request = CompletionRequest(
+        prompt="Summarize the ticket.",
+        max_tokens=2,
+        logprobs=1,
+        return_tokens_as_token_ids=True,
+        return_token_ids=True,
+    )
+    serving = object.__new__(OpenAIServingCompletion)
+    serving.enable_prompt_tokens_details = False
+    request_metadata = RequestResponseMetadata(request_id="completion-contract")
+
+    response = serving.request_output_to_completion_response(
+        [final_result],
+        request,
+        request_id="cmpl-contract",
+        created_time=1234567890,
+        model_name="offline-model",
+        tokenizer=None,
+        request_metadata=request_metadata,
+    )
+
+    assert response.id == "cmpl-contract"
+    assert response.object == "text_completion"
+    assert response.created == 1234567890
+    assert response.model == "offline-model"
+    assert len(response.choices) == 1
+    choice = response.choices[0]
+    assert choice.text == output.text
+    assert choice.token_ids == [101, 202]
+    assert choice.finish_reason == "length"
+    assert choice.logprobs is not None
+    assert choice.logprobs.text_offset == [0, len("token_id:101")]
+    assert choice.logprobs.tokens == ["token_id:101", "token_id:202"]
+    assert choice.logprobs.token_logprobs == pytest.approx([-0.5, -0.75])
+    assert choice.logprobs.top_logprobs == [
+        {"token_id:101": -0.5, "token_id:111": -1.5},
+        {"token_id:202": -0.75, "token_id:212": -1.75},
+    ]
+    assert response.usage.prompt_tokens == 3
+    assert response.usage.completion_tokens == 2
+    assert response.usage.total_tokens == 5
+    assert request_metadata.final_usage_info == response.usage
+
+    no_logprobs_output = CompletionOutput(
+        index=0,
+        text=" Existing no-logprobs behavior remains intact.",
+        token_ids=[303],
+        cumulative_logprob=None,
+        logprobs=None,
+        finish_reason="stop",
+    )
+    no_logprobs_result = RequestOutput(
+        request_id="completion-no-logprobs",
+        prompt="Continue.",
+        prompt_token_ids=[10],
+        prompt_logprobs=None,
+        outputs=[no_logprobs_output],
+        finished=True,
+    )
+    no_logprobs_metadata = RequestResponseMetadata(
+        request_id="completion-no-logprobs"
+    )
+    no_logprobs_response = serving.request_output_to_completion_response(
+        [no_logprobs_result],
+        CompletionRequest(
+            prompt="Continue.",
+            max_tokens=1,
+            logprobs=None,
+            return_token_ids=True,
+        ),
+        request_id="cmpl-no-logprobs",
+        created_time=1234567891,
+        model_name="offline-model",
+        tokenizer=None,
+        request_metadata=no_logprobs_metadata,
+    )
+
+    no_logprobs_choice = no_logprobs_response.choices[0]
+    assert no_logprobs_choice.text == no_logprobs_output.text
+    assert no_logprobs_choice.token_ids == [303]
+    assert no_logprobs_choice.logprobs is None
+    assert no_logprobs_response.usage.prompt_tokens == 1
+    assert no_logprobs_response.usage.completion_tokens == 1
+    assert no_logprobs_response.usage.total_tokens == 2
+    assert no_logprobs_metadata.final_usage_info == no_logprobs_response.usage
