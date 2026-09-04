@@ -5,7 +5,6 @@ import { SiteHeader } from '@/app/components/site-header';
 import { TaskContentTabs } from '@/app/components/task-content-tabs';
 import { withRouteBasePath } from '@/app/lib/base-path';
 import { formatLabel, formatTaskTitle } from '@/app/lib/task-format';
-import { absoluteSiteUrl } from '@/app/lib/site-url';
 import { getTask, tasks, type ManifestSection, type ManifestValue } from '@/app/lib/tasks';
 
 type TaskPageProps = {
@@ -84,26 +83,12 @@ export async function generateMetadata({ params }: TaskPageProps): Promise<Metad
   const task = tasks.find((candidate) => candidate.slug === slug);
   if (!task) return {};
 
-  const title = formatTaskTitle(task.slug);
-  const url = absoluteSiteUrl(`/tasks/${task.slug}`);
+  const title = `${formatTaskTitle(task.slug)} | AI Infra Bench`;
   return {
     title,
     description: task.description,
-    keywords: task.keywords,
-    alternates: { canonical: url },
-    openGraph: {
-      title: `${title} | AI Infra Bench`,
-      description: task.description,
-      url,
-      type: 'article',
-      images: [],
-    },
-    twitter: {
-      card: 'summary',
-      title: `${title} | AI Infra Bench`,
-      description: task.description,
-      images: [],
-    },
+    openGraph: { title, description: task.description, images: [] },
+    twitter: { card: 'summary', title, description: task.description, images: [] },
   };
 }
 
@@ -116,44 +101,6 @@ export default async function TaskPage({ params }: TaskPageProps) {
   if (!task) notFound();
   const previous = index > 0 ? tasks[index - 1] : null;
   const next = index < tasks.length - 1 ? tasks[index + 1] : null;
-  const title = formatTaskTitle(task.slug);
-  const url = absoluteSiteUrl(`/tasks/${task.slug}`);
-  const structuredData = {
-    '@context': 'https://schema.org',
-    '@graph': [
-      {
-        '@type': 'CreativeWork',
-        '@id': `${url}#task`,
-        name: title,
-        description: task.description,
-        url,
-        keywords: task.keywords,
-        license: 'https://www.apache.org/licenses/LICENSE-2.0',
-        isPartOf: {
-          '@type': 'Dataset',
-          '@id': `${absoluteSiteUrl('/')}#dataset`,
-          name: 'AI Infra Bench task registry',
-        },
-      },
-      {
-        '@type': 'BreadcrumbList',
-        itemListElement: [
-          {
-            '@type': 'ListItem',
-            position: 1,
-            name: 'AI Infra Bench',
-            item: absoluteSiteUrl('/'),
-          },
-          {
-            '@type': 'ListItem',
-            position: 2,
-            name: title,
-            item: url,
-          },
-        ],
-      },
-    ],
-  };
   const compute = { ...task.manifest.environment };
   if (!Object.hasOwn(compute, 'topology')) {
     compute.topology = task.accelerator === 'CPU' ? 'Not applicable' : null;
@@ -185,17 +132,11 @@ export default async function TaskPage({ params }: TaskPageProps) {
 
   return (
     <main className="task-page">
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: JSON.stringify(structuredData).replaceAll('<', '\\u003c'),
-        }}
-      />
       <SiteHeader />
 
       <article className="task-detail">
         <header className="task-detail-heading">
-          <h1>{title}</h1>
+          <h1>{formatTaskTitle(task.slug)}</h1>
           <p>{task.description}</p>
         </header>
 
