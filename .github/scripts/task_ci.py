@@ -161,8 +161,19 @@ def validation_manifest(task_dir: Path) -> dict[str, Any]:
     return manifest
 
 
+def task_validation_mode(task_dir: Path, config: dict[str, Any]) -> str:
+    validation_mode = config.get("metadata", {}).get("validation_mode", "oracle")
+    if validation_mode not in ("oracle", "verifier_only"):
+        raise ContractError(
+            f"{task_dir.name}: unsupported metadata.validation_mode "
+            f"{validation_mode!r}"
+        )
+    return validation_mode
+
+
 def validate_task(task_dir: Path) -> None:
-    task_contract(task_dir)
+    config, _ = task_contract(task_dir)
+    task_validation_mode(task_dir, config)
     validation_manifest(task_dir)
 
 
@@ -327,7 +338,7 @@ def prepare_case(task_dir: Path, image: str, case_name: str, output: Path) -> st
 
     solution = output / "solution"
     patch_source = task_dir / "validation" / case["patch"]
-    shutil.rmtree(solution)
+    shutil.rmtree(solution, ignore_errors=True)
     solution.mkdir()
     shutil.copy2(patch_source, solution / "ci-case.patch")
 
@@ -416,15 +427,16 @@ def command_hardware_check(args: argparse.Namespace) -> None:
 
 def command_cases(args: argparse.Namespace) -> None:
     task_dir = TASKS_DIR / args.task
+    config, _ = task_contract(task_dir)
+    validation_mode = task_validation_mode(task_dir, config)
     manifest = validation_manifest(task_dir)
-    cases = [
-        {"name": "base", "expected_reward": 0},
-        {"name": "oracle", "expected_reward": 1},
-        *[
-            {"name": item["name"], "expected_reward": item["expected_reward"]}
-            for item in manifest["cases"]
-        ],
-    ]
+    cases = [{"name": "base", "expected_reward": 0}]
+    if validation_mode == "oracle":
+        cases.append({"name": "oracle", "expected_reward": 1})
+    cases.extend(
+        {"name": item["name"], "expected_reward": item["expected_reward"]}
+        for item in manifest["cases"]
+    )
     print(json.dumps(cases, separators=(",", ":")))
 
 

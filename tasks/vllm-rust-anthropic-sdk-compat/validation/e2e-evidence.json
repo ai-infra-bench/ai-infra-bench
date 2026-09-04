@@ -1,0 +1,208 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-05T01:45:13+08:00",
+  "validation_mode": "verifier_only",
+  "source": {
+    "repository": "vllm-project/vllm",
+    "base_commit": "e196268bade5291c3fd80906bf9cd8c64851b21b",
+    "base_committed_at": "2026-07-01T23:19:42Z",
+    "rust_frontend_roadmap": "https://github.com/vllm-project/vllm/issues/44280",
+    "anthropic_rust_rfc": "https://github.com/vllm-project/vllm/issues/47753",
+    "later_partial_pull_request": {
+      "url": "https://github.com/vllm-project/vllm/pull/52896",
+      "state": "open",
+      "created_at": "2026-08-19T06:59:39Z",
+      "head_sha": "1e19c0826853371a5549f23d83678b7e56b8baea",
+      "scope": "request types, conversion, and count_tokens only; Messages responses are not implemented",
+      "present_in_agent_image": false
+    },
+    "anthropic_sdk": {
+      "package": "anthropic",
+      "version": "1.3.0",
+      "release": "https://github.com/anthropics/anthropic-sdk-python/releases/tag/v1.3.0",
+      "published_at": "2026-09-01T17:36:55Z"
+    }
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-rust-anthropic-sdk-compat:base-e196268bade5",
+    "image_id": "sha256:535bb97cac5f23043e7874dfde5037c1fee6d76d180d1da2e6e8217ca161d125",
+    "size_bytes": 2788218619,
+    "environment_key_linux_amd64": "e81c58e5a6b4ad2412fda24466278bb10ed7321400b1e1e07defcbd52f4dc5ee",
+    "dockerfile_sha256": "09898be17068f866d71465bf17f0694053f3c649e58928b09836853562f4057f",
+    "dependency_lock_sha256": "66381ea1f3066b95f59db73fdcfe60c30dfc7bc9f7c321012f3f2fc757b402cf",
+    "dependency_lock_manifest_sha256": "3b47db96962f269156ac850e8e85fd6697f4b02408aad762468430b96b08a202",
+    "installed_versions": {
+      "vllm": "0.0.0+ge196268bade5291c3fd80906bf9cd8c64851b21b.cpu",
+      "anthropic": "1.3.0",
+      "httpx2": "2.12.0",
+      "rustc": "1.95.0",
+      "protoc": "34.2"
+    },
+    "warm_cache_rebuild": {
+      "command_option": "--provenance=false",
+      "image_id": "sha256:535bb97cac5f23043e7874dfde5037c1fee6d76d180d1da2e6e8217ca161d125",
+      "digest_stable": true
+    }
+  },
+  "runtime_assets": {
+    "repository": "Qwen/Qwen3.6-27B",
+    "revision": "6a9e13bd6fc8f0983b9b99948120bc37f49c13e9",
+    "files": {
+      "config.json": "69db4eb7196bc8190813231b3018ca05d8c2e3abc7b1af19d55c157af44a9d9c",
+      "tokenizer.json": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+      "tokenizer_config.json": "5186f0defcd7f232382c7f0aebcd2252d073bb921ab240e407b7ae8745d2b29b",
+      "chat_template.jinja": "e84f32a23fdda27689f868aa4a1a5621f41133e51a48d7f3efcbea2839574259"
+    },
+    "model_tensor_files_present": false
+  },
+  "artifacts": {
+    "instruction_sha256": "df4d749421478db78f6dd5695ba409e7bd3fcfb4ae8c6916fe91cbe71f90c565",
+    "task_toml_sha256": "31d89d6871b66748dda6ea0d0680b3952c2746191570b532c7126c4d4d37fb45",
+    "test_script_sha256": "d9b4d688198207e8f84766ea07a3745cc98347ed7b97c12eea94c873ca080492",
+    "tests_tree_sha256": "8d48fb90c2fb250a4d9dd4ea9b338f949533e7982f80bba3cd3fc467230f535b",
+    "image_manifest_sha256": "e4dd3c7810f74eead7e2e1ca2ca99a5460918c094517acadb5ea285766330071",
+    "validation_cases_sha256": "04f2e8ba8b33229c0e3409fad646ce1b898db095c26afb97c4ebb5991edbaf25",
+    "static_json_control_sha256": "60358658916d5cea5e75011d82382517a413d3c82aa2d1a7a321889b04fa7e9b",
+    "count_tokens_control_sha256": "b460169dd3b37d17f71d33e4dbda8097170e09b3a442cf9e8e4e660de19fb55c"
+  },
+  "commands": {
+    "build": "docker buildx build --load --provenance=false --file tasks/vllm-rust-anthropic-sdk-compat/environment/Dockerfile --tag ai-infra-bench/vllm-rust-anthropic-sdk-compat:base-e196268bade5 tasks/vllm-rust-anthropic-sdk-compat/environment",
+    "image_audit": "python3 .github/scripts/task_ci.py image-check --task vllm-rust-anthropic-sdk-compat --image ai-infra-bench/vllm-rust-anthropic-sdk-compat:base-e196268bade5",
+    "hardware_audit": "python3 .github/scripts/task_ci.py hardware-check --task vllm-rust-anthropic-sdk-compat",
+    "base_verifier": "docker run --rm --network=none -v $TASK/tests:/tests:ro -v $LOGS:/logs/verifier ai-infra-bench/vllm-rust-anthropic-sdk-compat:base-e196268bade5 bash -lc /tests/test.sh",
+    "control_preparation": "python3 .github/scripts/task_ci.py prepare-case --task vllm-rust-anthropic-sdk-compat --image ai-infra-bench/vllm-rust-anthropic-sdk-compat:base-e196268bade5 --case $CASE --output $CASE_DIR",
+    "harbor": "harbor run --path $CASE_DIR --agent $AGENT --env docker --jobs-dir $JOBS --job-name $JOB --n-concurrent 1 --cpus ignore --memory ignore --delete --yes",
+    "real_rust_cli": "VLLM_USE_RUST_FRONTEND=1 vllm serve /tmp/rust-cli-model --host 127.0.0.1 --port 8019 --served-model-name local-model --chat-template /tmp/rust-cli-model/chat_template.jinja --load-format dummy --dtype float32 --max-model-len 1024 --max-num-batched-tokens 1024 --max-num-seqs 8 --enforce-eager"
+  },
+  "verifier_contract": {
+    "sdk_version": "1.3.0",
+    "pytest_cases": 86,
+    "sdk_fixture_cases": 17,
+    "rust_http_cases": 69,
+    "python_frontend_control_checks": 10,
+    "collection_integrity": "Reward 1 requires exactly 17 unique passing SDK-fixture cases and 69 unique passing Rust HTTP cases, with no failure, error, or skip, plus all ten Python controls.",
+    "public_boundary": "official Anthropic SDK -> real TCP HTTP/SSE -> Rust build_router, validation, ChatRequest rendering, engine client, output processors -> SDK typed result",
+    "substitution": "Only model generation is deterministic. The Rust router, request conversion, rendering, tokenization, engine request boundary, output processing, SSE framing, HTTP transport, and SDK parser execute for real.",
+    "asserts_private_candidate_structure": false,
+    "imports_oracle_helpers": false,
+    "solution_present": false
+  },
+  "positive_controls": {
+    "executions": 10,
+    "sdk_fixture": {
+      "result_each_execution": "17 passed, 0 failed, 0 errors, 0 skipped",
+      "server": "independent verifier-only HTTP and SSE fixture",
+      "client": "official anthropic 1.3.0 sync, async, raw, streaming-response, stream-helper, parse, and count_tokens interfaces"
+    },
+    "python_frontend": {
+      "result_each_execution": "10 of 10 checks true",
+      "server": "pinned Python vLLM frontend with a real CPU model runner and dummy weights",
+      "checks": [
+        "sync message",
+        "async message",
+        "string system prompt",
+        "block system prompt",
+        "raw response",
+        "streaming message",
+        "tool declaration",
+        "tool-use/tool-result history",
+        "token counting",
+        "token counting with tools"
+      ]
+    }
+  },
+  "real_rust_cli_base": {
+    "entrypoint": "VLLM_USE_RUST_FRONTEND=1 vllm serve",
+    "uses_real_cpu_model_runner": true,
+    "uses_dummy_weights": true,
+    "rust_frontend_launch_log_present": true,
+    "statuses": {
+      "GET /health": 200,
+      "POST /v1/chat/completions": 200,
+      "POST /v1/messages": 404,
+      "POST /v1/messages/count_tokens": 404
+    },
+    "result_sha256": "2b52092a2eb855b4c3a7c89f4fa6f85f6e0bfdb3d140ca74b243912af610c5b8",
+    "server_log_sha256": "0d2db8d716c6fcce5c38be2d5e331baa055821cf06d5593c8b81504b314d1cf2"
+  },
+  "repeated_runs": [
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "sdk_fixture_each_round": {"passed": 17, "failed": 0, "errors": 0, "skipped": 0},
+      "python_frontend_checks_each_round": {"passed": 10, "failed": 0},
+      "rust_http_each_round": {"passed": 1, "failed": 68, "errors": 0, "skipped": 0},
+      "reward_record_sha256_each_round": "ef3d2ffd3a441b05fad3823577266d7571fd713bff1c425c03da363de92ac045"
+    }
+  ],
+  "controls": [
+    {
+      "case": "static-json-endpoints",
+      "patch_sha256": "60358658916d5cea5e75011d82382517a413d3c82aa2d1a7a321889b04fa7e9b",
+      "expected_reward": 0,
+      "actual_reward": 0,
+      "rust_http": {"passed": 1, "failed": 68, "errors": 0, "skipped": 0},
+      "failure": "Only the existing OpenAI/health regression passes. Static responses cannot satisfy request conversion, exact tokenizer accounting, streaming, tools, validation, or engine-boundary semantics."
+    },
+    {
+      "case": "count-tokens-only",
+      "patch_sha256": "b460169dd3b37d17f71d33e4dbda8097170e09b3a442cf9e8e4e660de19fb55c",
+      "expected_reward": 0,
+      "actual_reward": 0,
+      "rust_http": {"passed": 1, "failed": 68, "errors": 0, "skipped": 0},
+      "failure": "Only the existing OpenAI/health regression passes. The fixed count does not match observed tokenizer work, and the Messages generation surface remains absent."
+    }
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "environment": "docker",
+    "input_scope_note": "The Harbor runs use the frozen instruction, environment, tests, and control patches. Only evidence and review/remediation documentation was added afterward.",
+    "all_declared_cases_matched_expected_reward": true,
+    "cases": [
+      {
+        "case": "base",
+        "job_id": "683bcb99-1569-4934-a84f-5e1dfc494df6",
+        "trial": "vllm-anthropic-harbor-exact-base__Fd4HtfB",
+        "reward": 0,
+        "n_completed_trials": 1,
+        "n_errored_trials": 0,
+        "result_sha256": "7a0580a2b6d10e6928c36282560b67605f80d8d34a3abed6bdbc1f30428d4a1d"
+      },
+      {
+        "case": "static-json-endpoints",
+        "job_id": "d306c5fe-d553-4f30-bdbd-4e85607e25db",
+        "trial": "vllm-anthropic-harbor-exact-stat__rQyRKWD",
+        "reward": 0,
+        "n_completed_trials": 1,
+        "n_errored_trials": 0,
+        "result_sha256": "b5c90d7fa86619fc389ef4947d0b0045a694fdc6e5f9c5bb3aad8240b9b47e23"
+      },
+      {
+        "case": "count-tokens-only",
+        "job_id": "65b6b638-648c-46e6-a09a-66782ff1bd5c",
+        "trial": "vllm-anthropic-harbor-exact-coun__EULYf3t",
+        "reward": 0,
+        "n_completed_trials": 1,
+        "n_errored_trials": 0,
+        "result_sha256": "2018030643cf3fc6851caffe1efec0e0a307324d4eae9eb2bc9a93b7a781632c"
+      }
+    ],
+    "oracle_case_created_or_run": false
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "future_partial_pr_commit_absent": true,
+    "current_upstream_main_commit_absent": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "tests_solution_and_validation_absent_from_agent_image": true,
+    "test_sentinels_absent_from_image_history": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "runtime_asset_allowlist_exact": true,
+    "runtime_asset_tensors_absent": true,
+    "runtime_network_disabled": true
+  },
+  "known_limitation": "No complete correct Rust Anthropic implementation exists in the task or was executed. The positive evidence validates the SDK protocol fixture, the older Python frontend's compatible subset, the real Rust Base boundary, and rejection of two incomplete implementations; it is not an Oracle or conforming-alternative result."
+}

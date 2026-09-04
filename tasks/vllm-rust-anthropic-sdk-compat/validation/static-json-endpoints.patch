@@ -1,0 +1,49 @@
+diff --git a/rust/src/server/src/routes.rs b/rust/src/server/src/routes.rs
+index 1f7dd038..e4cd1e47 100644
+--- a/rust/src/server/src/routes.rs
++++ b/rust/src/server/src/routes.rs
+@@ -16,7 +16,7 @@ mod world_size;
+ 
+ use std::sync::Arc;
+ 
+-use axum::Router;
++use axum::{Json, Router};
+ use axum::extract::DefaultBodyLimit;
+ use axum::middleware::{from_fn, from_fn_with_state};
+ use axum::routing::{get, post};
+@@ -27,6 +27,23 @@ use crate::state::AppState;
+ 
+ const DEFAULT_JSON_BODY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
+ 
++async fn static_anthropic_message() -> Json<serde_json::Value> {
++    Json(serde_json::json!({
++        "id": "msg_static",
++        "type": "message",
++        "role": "assistant",
++        "model": "local-model",
++        "content": [{"type": "text", "text": "static"}],
++        "stop_reason": "end_turn",
++        "stop_sequence": null,
++        "usage": {"input_tokens": 1, "output_tokens": 1}
++    }))
++}
++
++async fn static_anthropic_count() -> Json<serde_json::Value> {
++    Json(serde_json::json!({"input_tokens": 1}))
++}
++
+ fn server_dev_mode_enabled() -> bool {
+     std::env::var("VLLM_SERVER_DEV_MODE")
+         .ok()
+@@ -78,6 +95,11 @@ fn build_router_with_options(
+         .route("/v1/models", get(openai::list_models))
+         .route("/v1/completions", post(openai::completions))
+         .route("/v1/chat/completions", post(openai::chat_completions))
++        .route("/v1/messages", post(static_anthropic_message))
++        .route(
++            "/v1/messages/count_tokens",
++            post(static_anthropic_count),
++        )
+         // vLLM specific endpoints
+         .route("/tokenize", post(tokenize::tokenize))
+         .route("/detokenize", post(tokenize::detokenize))
