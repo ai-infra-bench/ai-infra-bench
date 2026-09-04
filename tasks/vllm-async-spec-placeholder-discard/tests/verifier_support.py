@@ -163,6 +163,23 @@ def capture_spec_frame(
 ) -> SchedulerOutput:
     prepare_for_schedule(requests)
     output = scheduler.schedule()
+    add_speculation_to_frame(
+        output,
+        requests,
+        num_drafts=num_drafts,
+        num_accepted=num_accepted,
+    )
+    return output
+
+
+def add_speculation_to_frame(
+    output: SchedulerOutput,
+    requests: list[Request],
+    *,
+    num_drafts: int,
+    num_accepted: int,
+) -> None:
+    """Add the unavailable model-runner speculation boundary to one frame."""
     expected_ids = {request.request_id for request in requests}
     assert set(output.num_scheduled_tokens) == expected_ids
     for request in requests:
@@ -174,7 +191,6 @@ def capture_spec_frame(
         request.num_output_placeholders += num_drafts
     output.total_num_scheduled_tokens = len(requests) * (num_drafts + 1)
     output._verifier_num_accepted = num_accepted
-    return output
 
 
 def resume_after_reset(scheduler: AsyncScheduler, requests: list[Request]):

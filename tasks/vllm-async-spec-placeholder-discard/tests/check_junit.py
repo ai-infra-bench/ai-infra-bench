@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
-EXPECTED_TESTS = 15
+EXPECTED_TESTS = 16
 
 
 def main() -> int:
