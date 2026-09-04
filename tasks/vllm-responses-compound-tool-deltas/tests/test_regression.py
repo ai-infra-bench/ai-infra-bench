@@ -58,6 +58,22 @@ async def test_text_and_bash_command_both_reach_client() -> None:
     ]
     calls = completed_calls(events)
     assert text == [content]
+    ordered_deltas = [
+        (event["type"], event["delta"])
+        for event in events
+        if event["type"]
+        in {
+            "response.output_text.delta",
+            "response.function_call_arguments.delta",
+        }
+    ]
+    assert ordered_deltas == [
+        ("response.output_text.delta", content),
+        (
+            "response.function_call_arguments.delta",
+            compact_json(arguments),
+        ),
+    ]
     assert len(calls) == 1
     assert calls[0]["name"] == "bash"
     assert calls[0]["arguments"] == compact_json(arguments)
