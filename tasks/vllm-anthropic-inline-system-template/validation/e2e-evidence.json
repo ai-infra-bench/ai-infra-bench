@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-09-04T17:13:14+08:00",
+  "recorded_at": "2026-09-04T20:40:04+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-218",
     "instance_id": "vllm-project__vllm-46025",
@@ -37,12 +37,12 @@
     "instruction_sha256": "52408007773ce29eff7aeb595523a41cb00e915083b0c7e0a290ac88cb0de201",
     "oracle_patch_sha256": "051548c2d8302dcbfde564eaf1b8255bf41f7cf865352c085f082ff4b8e060a2",
     "test_script_sha256": "a4ddf48d3c4feddfd6c009a029d7f23cac1296629b316b266b534f888cd703c3",
-    "anthropic_sdk_e2e_sha256": "b987852c9ccf0434cb2f318cae419f87a5e65a7d093698f6e4bf3011c14503d2",
+    "anthropic_sdk_e2e_sha256": "d989904dfd493b42776de6c5493ea01861fa7af89271806bb88cad65d1de06af",
     "anthropic_sdk_probe_sha256": "006385ba70eb8201e6248e7bfb503c7c3ecaed9707b71804ec3ae1c452228e54",
     "probe_checker_sha256": "1a43acb6bc547e1f44b43dd80c4db83f51c8e189fbf47044ea368c5b61320a3e",
     "image_manifest_sha256": "629dfdb7221c5e614a7bf75708fede8999a96877cd9026888a301318f8445562",
     "alternative_patch_sha256": "5dc319902beb75fbd673cd1e342971e9366d5ced029e90e1c9417cfa6314ab08",
-    "validation_cases_sha256": "308e59d551b9f04e3bd2ceb22df6478b54886126f08647b6b8dbbabc57d448b6"
+    "validation_cases_sha256": "76dd56a5689f6b9f984b1dba7506bdd84dd502e2e555dc14cc37c4a7d66ae016"
   },
   "verifier_contract": {
     "asserts_private_implementation_structure": false,
@@ -53,7 +53,7 @@
     "behaviors": [
       "official Qwen3.6 template accepts seven hidden inline-system layouts through Messages and count_tokens",
       "three representative layouts also succeed through the streaming Messages SDK",
-      "a restrictive diagnostic template requires leading and inline system content to survive exactly once in the accepted system block",
+      "a restrictive diagnostic template requires leading and inline system content to survive exactly once and in source order, while every user and assistant turn remains unchanged",
       "a permissive diagnostic template requires the inline system message and all neighboring turns to remain in place"
     ],
     "authoritative_boundary": "official Anthropic Python SDK over real HTTP to a real CPU vLLM server",
@@ -77,14 +77,14 @@
   "repeated_runs": [
     {
       "case": "base",
-      "rounds": 5,
-      "rewards": [0, 0, 0, 0, 0],
+      "rounds": 1,
+      "rewards": [0],
       "failed_stage": "official Qwen inline-system matrix"
     },
     {
       "case": "oracle",
-      "rounds": 5,
-      "rewards": [1, 1, 1, 1, 1],
+      "rounds": 1,
+      "rewards": [1],
       "official_qwen_cases_each_round": 7,
       "restrictive_cases_each_round": 1,
       "permissive_cases_each_round": 1
@@ -114,6 +114,18 @@
       "patch_sha256": "65edede4b747a360f89281840115ea3e5272cd31713edcf3d343a55ac4d50b71",
       "reward": 0,
       "failed_stage": "permissive position-preservation template"
+    },
+    {
+      "case": "corrupts_non_system_conversation_content",
+      "patch_sha256": "472636de7bf7dd2568b7d287b845d2127939b3f7328537eafc33d8ea32474e9e",
+      "reward": 0,
+      "failed_stage": "restrictive full-conversation content assertions"
+    },
+    {
+      "case": "duplicates_inline_system_content",
+      "patch_sha256": "9e8bbb7993ac441b0c3243531cda14d1c494de9ffbc3384bfbbd46d1d4352e7a",
+      "reward": 0,
+      "failed_stage": "restrictive exact-once system-content assertions"
     }
   ],
   "conforming_alternative_run": {
@@ -124,11 +136,18 @@
     "restrictive_cases": 1,
     "permissive_cases": 1
   },
+  "independent_oracle_challenge": {
+    "change": "replace both system sentinels and every non-system conversation payload with values absent from the verifier inventory, then require exact preservation through count_tokens, non-streaming Messages, and streaming Messages",
+    "oracle_exit_code": 0,
+    "alternative_exit_code": 0,
+    "sdk_operations_each": 3
+  },
   "harbor": {
     "version": "0.22.0",
-    "job_id": "429947c2-c395-419c-a3f8-5eb992325cd6",
-    "trial_id": "a78187dc-6329-4439-9d3e-16e41b0c8371",
-    "input_task_checksum": "a1c30ba6d109e7ac6d7d4ba1168ac26af2d8a10e2227c2d5ec9d3e458559f96b",
+    "job_id": "9e4f893b-fc62-4f2e-9cf1-10a74b73b2c9",
+    "trial_id": "bd965886-a35a-4df8-89e9-dc98b2ae7a9e",
+    "input_task_checksum": "6abf5bb46fced023d0227add0a16131a53cb5b7dba65d826acc7b299b85a46f5",
+    "input_checksum_scope_note": "The checksum identifies the frozen executable task before this evidence-only result refresh.",
     "agent": "oracle",
     "environment": "docker",
     "n_completed_trials": 1,
@@ -137,7 +156,7 @@
     "command_exit_code": 0,
     "api_exit_code": 0,
     "integrity_exit_code": 0,
-    "runtime_seconds": 88,
+    "runtime_seconds": 81,
     "canonical_image_retained_after_run": true
   },
   "provenance_gates": {

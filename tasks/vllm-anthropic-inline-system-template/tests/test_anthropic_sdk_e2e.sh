@@ -45,9 +45,15 @@ cat > "$work_dir/restrictive_sentinel.jinja" <<'EOF'
   {%- endif -%}
 {%- endfor -%}
 {%- if messages and messages[0].content != 't' -%}
+  {%- set merged_system = messages[0].content -%}
   {%- if ns.system_count != 1 -%}{{ raise_exception('Expected one merged system message') }}{%- endif -%}
-  {%- if 'LEAD_SENTINEL' not in messages[0].content -%}{{ raise_exception('Leading system content was lost') }}{%- endif -%}
-  {%- if 'INLINE_SENTINEL' not in messages[0].content -%}{{ raise_exception('Inline system content was lost') }}{%- endif -%}
+  {%- if merged_system.count('LEAD_SENTINEL') != 1 -%}{{ raise_exception('Leading system content must appear exactly once') }}{%- endif -%}
+  {%- if merged_system.count('INLINE_SENTINEL') != 1 -%}{{ raise_exception('Inline system content must appear exactly once') }}{%- endif -%}
+  {%- if merged_system.find('LEAD_SENTINEL') > merged_system.find('INLINE_SENTINEL') -%}{{ raise_exception('System content order changed') }}{%- endif -%}
+  {%- if messages|length != 4 -%}{{ raise_exception('Conversation message count changed') }}{%- endif -%}
+  {%- if messages[1].role != 'user' or messages[1].content != 'diagnostic user turn' -%}{{ raise_exception('First user turn changed') }}{%- endif -%}
+  {%- if messages[2].role != 'assistant' or messages[2].content != 'diagnostic assistant turn' -%}{{ raise_exception('Assistant turn changed') }}{%- endif -%}
+  {%- if messages[3].role != 'user' or messages[3].content != 'continue' -%}{{ raise_exception('Final user turn changed') }}{%- endif -%}
 {%- endif -%}
 {%- for message in messages -%}{{ message.role }}:{{ message.content }}
 {%- endfor -%}
