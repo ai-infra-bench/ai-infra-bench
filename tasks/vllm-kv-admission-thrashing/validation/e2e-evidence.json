@@ -1,141 +1,203 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-08-31T14:52:44+08:00",
+  "recorded_at": "2026-09-04T18:55:00+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-094",
     "instance_id": "vllm-project__vllm-37307",
+    "repository": "vllm-project/vllm",
     "base_commit": "4731884796d43bd8493769dbfb0e199a2a542092",
-    "vela_environment_success_overlap": false
+    "reference_pr": "https://github.com/vllm-project/vllm/pull/37307",
+    "reference_merge_commit": "dc78c2c933ac8903d7e34bff7b5161eae70595fc"
+  },
+  "fact_validation": {
+    "scheduler_lifecycle": {
+      "base": "The three recorded contention cases each preempted and rolled back the same long request twice.",
+      "oracle": "The same cases completed both requests with no rollback or preemption.",
+      "entry_point": "Scheduler.schedule followed by Scheduler.update_from_output"
+    },
+    "real_cpu_http": {
+      "entry_point": "vllm serve and streaming POST /v1/completions",
+      "base": {
+        "incumbent_events": 96,
+        "target_events": 4,
+        "preemptions": 2.0,
+        "baseline_gap_seconds": 0.004774206026922911,
+        "max_contended_gap_seconds": 0.02123284002300352,
+        "contended_gap_ratio": 4.4474075696076705
+      },
+      "oracle": {
+        "incumbent_events": 96,
+        "target_events": 4,
+        "preemptions": 0.0,
+        "max_contended_gap_seconds": 0.00528846203815192,
+        "contended_gap_ratio": 1.1460968093066854
+      }
+    },
+    "preserved_behavior": [
+      "three full-attention requests that fit progressed before the incumbent finished",
+      "two prefix-cache cases retained nonzero cached-token credit",
+      "sliding-window, chunked-local, and hybrid full-plus-sliding cases retained concurrent progress"
+    ]
   },
   "image": {
     "canonical_tag": "ai-infra-bench/vllm-kv-admission-thrashing:base-4731884796d4",
-    "image_id": "sha256:f4a027256c8475393f00bb91875e2d8e5411bc73d18fa770d473a97554f1b1f8",
-    "dockerfile_sha256": "57d8f8565bd1c64149d5086848db83b0ba3e38c67f9d6fb6107e02a7885a64b9",
-    "dependency_lock_sha256": "c65d574c8aad4abdb3b034b1e736b5e7cbff1c12aaa145c086e84f946225fa70",
-    "dependency_lock_manifest_sha256": "bd1cc18d0a56b3b7d3685f2860838313e6fe703346d20a9d0e0f40987775aecf"
+    "image_id": "sha256:a3079f12717a09f311a769b4fc07e68f8abb29ba34b60ce33d04d47935b51574",
+    "size_bytes": 1679674749,
+    "dockerfile_sha256": "71fbc4474f9ad1b8c768d27ce5beb2af38a0e9b4c54b4b64e8bc8b53a6e82229",
+    "dependency_lock_sha256": "dafe282dea8de514092ef74876a765f844643ab5fe62c0a878dafefcfe400426",
+    "dependency_lock_manifest_sha256": "a67301b0adf3cf393740512d7d254335f67539ec6d785e5b97f2604afe31eec8",
+    "provenance_sha256": "281c27b0e07bdb48cb24f1e3c5715a0379634229d739c62d53bbb19b5b7bf0ec",
+    "cache_only_rebuild_image_id": "sha256:a3079f12717a09f311a769b4fc07e68f8abb29ba34b60ce33d04d47935b51574"
   },
   "artifacts": {
-    "instruction_sha256": "ea46c506c6b2c13703c748d01110fd673300f3c987cec9fe93140253020970b6",
-    "oracle_patch_sha256": "840dc2528a2f9aa0e08e30024a3a4dbabd0564e669653c2e2c5793e2cee68c71",
-    "test_script_sha256": "8d0cddb162d32b16713ddf6a7f265b89d1b8dd1be9c4c07698e9974eaec6cc39",
-    "regression_test_sha256": "6667f7e7e2b6a71e444faef05dc3ea847376bc58ed7704f65d0befa5818121a5",
-    "junit_checker_sha256": "bc7d6f4275db1208fd6c38b12f42b923c857c28a6c8bfec13824c4b8d7e37a41",
-    "scheduler_probe_sha256": "e91ddbb0a61c3f08fd52e1d2c28c98ed1a3d725aa8875a1d71acee6013edcd9c",
-    "real_scheduler_lifecycle_sha256": "58b738443f54fc1499d2f451c78c72e36794623949ce9ccbb8453f9b1ea3438c",
-    "real_cpu_server_sha256": "b00e69cfc507c4bc70ce1de9ff8209e0c50e80ed35dc11e7707f3c199030392e"
+    "instruction_sha256": "6a0c2cd37b4774c54c88fef0fbc1a3a8d26d030ac9d3f844b42d297c035d6315",
+    "task_toml_sha256": "6cc700fbda7b93971a02740eb6f6e13cf55af6dfa98e37071fe568e13e213110",
+    "oracle_patch_sha256": "5fbf2fe3b2e9f5705b51bc99e76fec0133a81807e59dab0d99e42e9a65dc6c4f",
+    "test_script_sha256": "7aa42209554662055fd4d6f660d4c6ef8a10955a323642fd34a65d29f41633d0",
+    "regression_test_sha256": "f1813a6361f52bfa04a44a7e9a341e4b98defcc1c3b040b92f183be8ed18fb2f",
+    "scheduler_probe_sha256": "45312bbd2c86cb0c5f6dd8c51ec149db666b038f0ff10a8fc52df337f3e7930e",
+    "junit_checker_sha256": "dcb42bbf63990078bc2d7e23ecc3fd4b0a235f6890fb8dde53177422a1d77362",
+    "scheduler_lifecycle_sha256": "8a68baa52c40f52b074762e28a300061ef228eaedf456e9aefc32e5379a4140d",
+    "cpu_http_e2e_sha256": "60f3acef4c55286c505fab35f28955453e670a9339d438b6920778beccfbad52",
+    "verifier_compose_sha256": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f"
   },
   "verifier_contract": {
+    "behavior_cases": 14,
+    "collection_integrity": "JUnit contains exactly 14 unique, passing, non-skipped cases for a full reward.",
+    "allows_necessary_preemption": true,
+    "maximum_repeated_preemptions_per_request": 1,
     "asserts_private_implementation_structure": false,
     "imports_oracle_helpers": false,
-    "imports_source_test_utilities": false,
-    "behavior_cases": 11,
     "behaviors": [
-      "six hidden KV-capacity matrices complete without target preemption or computed-token regression",
-      "the incumbent decode request and the long waiting request both eventually finish",
-      "three requests that fit make progress before the incumbent finishes instead of being globally serialized",
-      "two prefix-cache configurations preserve a nonzero cache hit and complete without preemption"
-    ],
-    "authoritative_boundary": "Scheduler schedule/update_from_output lifecycle and serialized HTTP completion responses",
-    "collection_integrity": "JUnit must contain exactly 11 unique, passing, non-skipped cases"
+      "single and burst long-prompt workloads complete without repeated rollback",
+      "active generations and queued prompts both finish",
+      "requests that fit are not globally serialized",
+      "prefix-cache credit remains usable",
+      "sliding-window, chunked-local, and hybrid attention retain existing concurrency"
+    ]
   },
-  "hidden_boundaries": {
-    "tests_mounted_only_during_verification": true,
-    "scheduler_lifecycle": {
-      "uses_real_scheduler": true,
-      "uses_real_scheduler_output": true,
-      "uses_real_model_runner_output_type": true,
-      "rounds_run_until_both_requests_finish": true,
-      "model_runner_executed": false,
-      "purpose": "deterministically expose repeated preemption and computed-token rollback"
-    },
-    "cpu_http_server": {
-      "starts_real_vllm_serve": true,
-      "creates_real_local_opt_weights": true,
-      "uses_real_cpu_model_runner": true,
-      "uses_real_http_requests": true,
-      "concurrent_requests": 2,
-      "purpose": "verify the scheduler change does not break a complete CPU engine and HTTP serving path"
-    }
+  "e2e_boundary": {
+    "path": "real HTTP streaming client -> vllm serve -> real tokenizer -> real CPU model runner -> real scheduler/KV allocator -> streaming completion and Prometheus metrics",
+    "substitution": "A locally generated OPT model replaces the unavailable production-scale model and GPU forward pass.",
+    "preserved_semantics": "The real request, tokenization, scheduling, KV allocation, model-runner, streaming, and metrics paths execute in both Base and Oracle.",
+    "limitations": "Absolute production throughput is not claimed; the verifier uses within-stream gap ratio and the real preemption metric."
   },
   "repeated_runs": [
     {
       "case": "base",
       "rounds": 5,
       "rewards": [0, 0, 0, 0, 0],
-      "behavior_tests_each_round": {"passed": 5, "failed": 6},
+      "behavior_tests_each_round": {"passed": 8, "failed": 6},
       "lifecycle_exit_codes": [1, 1, 1, 1, 1],
-      "server_exit_codes": [0, 0, 0, 0, 0]
+      "server_exit_codes": [1, 1, 1, 1, 1]
     },
     {
       "case": "oracle",
       "rounds": 5,
       "rewards": [1, 1, 1, 1, 1],
-      "behavior_tests_each_round": {"passed": 11, "failed": 0},
+      "behavior_tests_each_round": {"passed": 14, "failed": 0},
       "lifecycle_exit_codes": [0, 0, 0, 0, 0],
-      "server_exit_codes": [0, 0, 0, 0, 0]
+      "server_exit_codes": [0, 0, 0, 0, 0],
+      "http_preemptions": [0, 0, 0, 0, 0],
+      "http_contended_gap_ratios": [1.182522723423304, 1.0711177841372663, 1.1413268783051476, 1.234207646645211, 1.2098124149266734]
     }
   ],
-  "adversarial_runs": [
+  "controls": [
     {
-      "case": "accounting_helper_without_scheduler_gate",
-      "patch_sha256": "ac3428fe5a05fd029235cd8119eb30d6fa04916db0df4bd52d82e06c70248474",
-      "reward": 0,
-      "tests_passed": 5,
-      "tests_failed": 6,
-      "lifecycle_exit_code": 1,
-      "server_exit_code": 0
+      "case": "alternative-scheduler-reservation",
+      "patch_sha256": "9633626839ad74d83ac0127fc058815d5bce2036acec8ca6baedf5b157dc186e",
+      "expected_reward": 1,
+      "actual_reward": 1,
+      "tests_passed": 14,
+      "tests_failed": 0,
+      "harbor_job_id": "ab7a79f6-ad88-411f-ba1b-e6dae2d0a847",
+      "harbor_trial_id": "e79bf082-72a4-4ae6-b6e1-b08567bccd1f"
     },
     {
-      "case": "hardcoded_visible_prompt_length_only",
-      "patch_sha256": "cca9f91005bcd395f79d92bc1313e4ca7c549d2617ce821dba714583622f484f",
-      "reward": 0,
-      "tests_passed": 7,
-      "tests_failed": 4,
-      "lifecycle_exit_code": 1,
-      "server_exit_code": 0
-    },
-    {
-      "case": "prevents_preemption_by_starving_large_prompts",
-      "patch_sha256": "2930d8ec8aad7ecc2f5bf086883e16179105e47b610a7a8bad814065559658ce",
-      "reward": 0,
-      "tests_passed": 8,
+      "case": "full-isl-gate-only",
+      "patch_sha256": "840dc2528a2f9aa0e08e30024a3a4dbabd0564e669653c2e2c5793e2cee68c71",
+      "expected_reward": 0,
+      "actual_reward": 0,
+      "tests_passed": 11,
       "tests_failed": 3,
-      "lifecycle_exit_code": 1,
-      "server_exit_code": 0
+      "harbor_job_id": "9bad6310-1468-4dca-adbf-7ca71e75bb35",
+      "harbor_trial_id": "87423a1b-fa65-4644-b6d0-e01dfc5f58fb",
+      "failure": "over-serializes sliding-window, chunked-local, and hybrid attention"
+    },
+    {
+      "case": "insufficient-accounting-helper-only",
+      "patch_sha256": "ac3428fe5a05fd029235cd8119eb30d6fa04916db0df4bd52d82e06c70248474",
+      "expected_reward": 0,
+      "actual_reward": 0,
+      "tests_passed": 8,
+      "tests_failed": 6,
+      "harbor_job_id": "45e07ed0-762d-41f2-b87b-205fe694a4cc",
+      "harbor_trial_id": "3a19699e-c815-4198-92ce-3bd585dacb1a"
+    },
+    {
+      "case": "oracle-starves-largest-prompts",
+      "patch_sha256": "f277b23f0712dd445e7caf5ff254365c37e86469d4005c27a92221c24122e601",
+      "expected_reward": 0,
+      "actual_reward": 0,
+      "tests_passed": 6,
+      "tests_failed": 8,
+      "harbor_job_id": "7c258949-e9bf-4740-a913-9ff6c019d791",
+      "harbor_trial_id": "db8159ff-8948-4781-86b4-d7123c621420"
+    },
+    {
+      "case": "oracle-visible-length-only",
+      "patch_sha256": "bdae482a2061b71d5d650d7b562effa2287e18413394c2a3f70f550714a4596d",
+      "expected_reward": 0,
+      "actual_reward": 0,
+      "tests_passed": 9,
+      "tests_failed": 5,
+      "harbor_job_id": "3bcbe9bd-d0ff-4751-b544-c7111bac7278",
+      "harbor_trial_id": "306928a2-6a23-4a54-86ed-b2b8d71cac88"
+    },
+    {
+      "case": "runtime-interpreter-tamper",
+      "script_sha256": "91eeea7970195a7bdcde41fb8fc43250a8d34dde4ec9ac89b20732b0e3cd7b7c",
+      "actual_reward": 0,
+      "harbor_job_id": "ef9a08e3-6442-4500-a0fe-da8d1002ea08",
+      "harbor_trial_id": "4441473f-efbe-4d0a-bffc-a85cf7c00996",
+      "result": "The non-root agent could not replace /usr/local/bin/python; the fresh verifier rejected the unchanged Base behavior."
     }
   ],
-  "conforming_alternative_run": {
-    "change": "renamed the Oracle configuration, capacity method, and internal variables before verification",
-    "reward": 1,
-    "tests_passed": 11,
-    "tests_failed": 0,
-    "lifecycle_exit_code": 0,
-    "server_exit_code": 0
-  },
   "harbor": {
     "version": "0.22.0",
-    "job_id": "759935b5-5f66-4afc-a19b-ef251c09b1f1",
-    "trial_id": "e4ab5406-1192-44cb-946e-6284f7cffad1",
-    "input_task_checksum": "a25aaf456a2c529c3f817d4c90abb72f8f0bbefcdcd56265ca26f4d0e04a4c5a",
-    "agent": "oracle",
-    "environment": "docker",
-    "n_completed_trials": 1,
-    "n_errored_trials": 0,
-    "reward": 1,
-    "command_exit_code": 0,
-    "pytest_exit_code": 0,
-    "integrity_exit_code": 0,
-    "lifecycle_exit_code": 0,
-    "server_exit_code": 0,
-    "runtime_seconds": 52,
-    "canonical_image_retained_after_run": true
+    "verifier_environment_mode": "separate",
+    "base": {
+      "job_id": "6241315e-03c9-42a5-8bfb-a98706c9b44d",
+      "trial_id": "8cc473bb-7477-455e-95bc-e01a952d8bad",
+      "reward": 0,
+      "n_completed_trials": 1,
+      "n_errored_trials": 0
+    },
+    "oracle": {
+      "job_id": "bc1254f4-65ec-4910-8c44-6ba0f86f8ced",
+      "trial_id": "d7dbe056-6989-45ad-9240-670f8cbfc0ec",
+      "input_task_checksum": "c05861547bde41b54619766ad4fd51b77a8b9aa3979ca03fe3325c21a3bf79a6",
+      "reward": 1,
+      "n_completed_trials": 1,
+      "n_errored_trials": 0,
+      "command_exit_code": 0,
+      "pytest_exit_code": 0,
+      "integrity_exit_code": 0,
+      "lifecycle_exit_code": 0,
+      "server_exit_code": 0,
+      "runtime_seconds": 70
+    },
+    "all_declared_cases_matched_expected_reward": true
   },
   "provenance_gates": {
     "head_matches_base": true,
     "future_reference_commit_absent": true,
     "remotes_tags_reflogs_absent": true,
     "unreachable_git_objects_absent": true,
-    "solution_and_tests_absent_from_image": true,
+    "solution_tests_and_validation_absent_from_agent_image": true,
+    "tests_mounted_only_in_separate_verifier": true,
+    "agent_user_is_non_root": true,
+    "system_interpreter_not_agent_writable": true,
     "vllm_imports_from_base_worktree": true,
     "installed_dependencies_match_lock": true,
     "cache_only_rebuild_digest_stable": true,

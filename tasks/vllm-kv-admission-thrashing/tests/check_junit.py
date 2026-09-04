@@ -3,7 +3,7 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-EXPECTED_TESTS = 11
+EXPECTED_TESTS = 14
 
 def main() -> int:
     root = ET.parse(Path(sys.argv[1])).getroot()

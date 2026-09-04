@@ -1,18 +1,27 @@
-# syntax=docker/dockerfile:1
-# Template inputs below are replaced from task.toml by generate.py. Generated
-# task Dockerfiles are self-contained and differ only in their frozen inputs.
+# syntax=docker/dockerfile:1.7.0@sha256:dbbd5e059e8a07ff7ea6233b213b36aa516b4c53c645f1817a4dd18b83cbea56
+# Self-contained, cutoff-pinned environment for this task.
 
 ARG VLLM_BASE_SHA=4731884796d43bd8493769dbfb0e199a2a542092
 ARG VLLM_DEPENDENCY_CUTOFF=2026-03-24T16:53:07Z
-ARG VLLM_CACHE_NAMESPACE=4731884796d43bd8493769dbfb0e199a2a542092-c65d574c8aad4abd
+ARG VLLM_CACHE_NAMESPACE=4731884796d43bd8493769dbfb0e199a2a542092-dafe282dea8de514
 ARG VLLM_REPO=https://github.com/vllm-project/vllm.git
+ARG DEBIAN_SNAPSHOT=20260324T160000Z
 
 ######################### PINNED SOURCE #########################
-FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc AS source
+FROM python:3.12.12-slim-trixie@sha256:42f1689d6d6b906c7e829f9d9ec38491550344ac9adc01e464ff9a08df1ffb48 AS source
 ARG VLLM_BASE_SHA
 ARG VLLM_REPO
+ARG DEBIAN_SNAPSHOT
 RUN test -n "$VLLM_BASE_SHA" \
- && apk add --no-cache ca-certificates git \
+ && rm -f /etc/apt/sources.list.d/debian.sources \
+ && printf '%s\n' \
+      "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT} trixie main" \
+      "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT} trixie-updates main" \
+      "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT} trixie-security main" \
+      > /etc/apt/sources.list \
+ && apt-get -o Acquire::Check-Valid-Until=false update \
+ && apt-get install -y --no-install-recommends ca-certificates git \
+ && rm -rf /var/lib/apt/lists/* \
  && mkdir -p /src/vllm \
  && git -C /src/vllm init -q \
  && git -C /src/vllm config core.logAllRefUpdates false \
@@ -35,620 +44,50 @@ RUN test -n "$VLLM_BASE_SHA" \
  && test -z "$(git -C /src/vllm status --porcelain)"
 
 ######################### ALL-IN-ONE CPU ENVIRONMENT #########################
-FROM python:3.12-slim-trixie@sha256:09f7da3bc104798d0afb40bc08d23ab2da20a76130cec1f2ef170848f5d85217
-ARG TARGETARCH
+FROM python:3.12.12-slim-trixie@sha256:42f1689d6d6b906c7e829f9d9ec38491550344ac9adc01e464ff9a08df1ffb48
+ARG DEBIAN_SNAPSHOT
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     UV_LINK_MODE=copy \
     UV_HTTP_TIMEOUT=500 \
-    CARGO_HOME=/root/.cargo \
-    RUSTUP_HOME=/root/.rustup \
-    PATH=/root/.cargo/bin:$PATH \
-    CARGO_BUILD_JOBS=4 \
-    CARGO_INCREMENTAL=0 \
     CC=/usr/bin/gcc \
     CXX=/usr/bin/g++ \
     CCACHE_DIR=/root/.cache/ccache \
     CMAKE_CXX_COMPILER_LAUNCHER=ccache \
     MAX_JOBS=8
 
-RUN apt-get update \
+RUN rm -f /etc/apt/sources.list.d/debian.sources \
+ && printf '%s\n' \
+      "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT} trixie main" \
+      "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT} trixie-updates main" \
+      "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT} trixie-security main" \
+      > /etc/apt/sources.list \
+ && apt-get -o Acquire::Check-Valid-Until=false update \
  && apt-get install -y --no-install-recommends \
       bash build-essential ca-certificates ccache curl ffmpeg \
       git jq libgl1 libnuma-dev libsm6 libssl-dev libtcmalloc-minimal4 \
       libxext6 lsof make pkg-config sudo unzip wget xz-utils \
  && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir uv==0.11.28
-
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-      | sh -s -- -y --profile minimal --default-toolchain none \
- && rustup toolchain install 1.95 --profile minimal --component rustfmt,clippy \
- && rustup default 1.95
-
-RUN case "$TARGETARCH" in \
-      amd64) nextest_platform=linux ;; \
-      arm64) nextest_platform=linux-arm ;; \
-      *) echo "Unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
-    esac \
- && curl --http1.1 -L --retry 10 --retry-all-errors --connect-timeout 30 --max-time 600 \
+RUN curl --http1.1 -L --retry 10 --retry-all-errors --connect-timeout 30 --max-time 600 \
       --proto '=https' --tlsv1.2 -sSf \
-      "https://get.nexte.st/0.9.143/$nextest_platform" \
-      -o /tmp/cargo-nextest.tar.gz \
- && tar -xzf /tmp/cargo-nextest.tar.gz -C /root/.cargo/bin \
- && rm -f /tmp/cargo-nextest.tar.gz \
- && cargo nextest --version
+      "https://files.pythonhosted.org/packages/36/fa/086616d98b0b8a2cc5e7b49c389118a8196027a79a5a501f5e738f718f59/uv-0.11.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl" \
+      -o /tmp/uv-0.11.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl \
+ && printf '%s  %s\n' \
+      30a08ee4291580784a5e276a1cbec8830994dba2ed5c94d878cce8b2121367cf \
+      /tmp/uv-0.11.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl | sha256sum -c - \
+ && pip install --no-cache-dir --no-deps \
+      /tmp/uv-0.11.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl \
+ && rm -f /tmp/uv-0.11.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl \
+ && uv --version | grep -Eq '^uv 0\.11\.0([[:space:]]|$)'
 
 ARG VLLM_DEPENDENCY_CUTOFF
-# Exact task dependency lock (sha256:c65d574c8aad4abdb3b034b1e736b5e7cbff1c12aaa145c086e84f946225fa70) is embedded so this
-# Dockerfile remains independently buildable with an empty context.
-RUN --mount=type=cache,id=vllm-uv-downloads-v3,target=/root/.cache/uv,sharing=locked <<'VLLM_INSTALL_EOF'
-set -eu
-cat > /tmp/vllm-requirements.lock <<'VLLM_REQUIREMENTS_EOF'
-# Generated with uv 0.11.28 from the pinned base requirements and task
-# extras for CPython 3.12 on x86_64 manylinux_2_28. Packages newer than
-# 2026-03-24T16:53:07Z were excluded during resolution.
-aiohappyeyeballs==2.6.1
-    # via aiohttp
-aiohttp==3.13.3
-    # via -r requirements/common.txt
-aiosignal==1.4.0
-    # via aiohttp
-annotated-doc==0.0.4
-    # via
-    #   fastapi
-    #   typer
-annotated-types==0.7.0
-    # via pydantic
-anthropic==0.86.0
-    # via -r requirements/common.txt
-anyio==4.13.0
-    # via
-    #   anthropic
-    #   httpx
-    #   mcp
-    #   openai
-    #   sse-starlette
-    #   starlette
-    #   watchfiles
-astor==0.8.1
-    # via depyf
-attrs==26.1.0
-    # via
-    #   aiohttp
-    #   jsonschema
-    #   referencing
-blake3==1.0.8
-    # via -r requirements/common.txt
-cachetools==7.0.5
-    # via -r requirements/common.txt
-cbor2==5.9.0
-    # via -r requirements/common.txt
-certifi==2026.2.25
-    # via
-    #   httpcore
-    #   httpx
-    #   requests
-    #   sentry-sdk
-cffi==2.0.0
-    # via cryptography
-charset-normalizer==3.4.6
-    # via requests
-click==8.3.1
-    # via
-    #   rich-toolkit
-    #   typer
-    #   uvicorn
-cloudpickle==3.1.2
-    # via -r requirements/common.txt
-cmake==4.3.0
-    # via -r requirements/cpu-build.txt
-compressed-tensors==0.14.0.1
-    # via -r requirements/common.txt
-coverage==7.13.5
-    # via pytest-cov
-cryptography==46.0.5
-    # via pyjwt
-depyf==0.20.0
-    # via -r requirements/common.txt
-dill==0.4.1
-    # via depyf
-diskcache==5.6.3
-    # via -r requirements/common.txt
-distro==1.9.0
-    # via
-    #   anthropic
-    #   openai
-dnspython==2.8.0
-    # via email-validator
-docstring-parser==0.17.0
-    # via anthropic
-einops==0.8.2
-    # via -r requirements/common.txt
-email-validator==2.3.0
-    # via
-    #   fastapi
-    #   pydantic
-fastapi==0.135.2
-    # via
-    #   -r requirements/common.txt
-    #   model-hosting-container-standards
-fastapi-cli==0.0.24
-    # via fastapi
-fastapi-cloud-cli==0.15.0
-    # via fastapi-cli
-fastar==0.9.0
-    # via fastapi-cloud-cli
-filelock==3.25.2
-    # via
-    #   -r requirements/common.txt
-    #   huggingface-hub
-    #   torch
-    #   transformers
-frozenlist==1.8.0
-    # via
-    #   aiohttp
-    #   aiosignal
-fsspec==2026.2.0
-    # via
-    #   huggingface-hub
-    #   torch
-gguf==0.18.0
-    # via -r requirements/common.txt
-googleapis-common-protos==1.73.0
-    # via
-    #   opentelemetry-exporter-otlp-proto-grpc
-    #   opentelemetry-exporter-otlp-proto-http
-grpcio==1.78.0
-    # via opentelemetry-exporter-otlp-proto-grpc
-h11==0.16.0
-    # via
-    #   httpcore
-    #   uvicorn
-hf-xet==1.4.2
-    # via huggingface-hub
-httpcore==1.0.9
-    # via httpx
-httptools==0.7.1
-    # via uvicorn
-httpx==0.28.1
-    # via
-    #   anthropic
-    #   fastapi
-    #   fastapi-cloud-cli
-    #   mcp
-    #   model-hosting-container-standards
-    #   openai
-httpx-sse==0.4.3
-    # via mcp
-huggingface-hub==0.36.2
-    # via
-    #   tokenizers
-    #   transformers
-idna==3.11
-    # via
-    #   anyio
-    #   email-validator
-    #   httpx
-    #   requests
-    #   yarl
-ijson==3.5.0
-    # via -r requirements/common.txt
-importlib-metadata==8.7.1
-    # via opentelemetry-api
-iniconfig==2.3.0
-    # via pytest
-intel-cmplr-lib-ur==2024.2.1
-    # via intel-openmp
-intel-openmp==2024.2.1
-    # via -r requirements/cpu.txt
-interegular==0.3.3
-    # via lm-format-enforcer
-jinja2==3.1.6
-    # via
-    #   -r requirements/cpu-build.txt
-    #   fastapi
-    #   torch
-jiter==0.13.0
-    # via
-    #   anthropic
-    #   openai
-jmespath==1.1.0
-    # via model-hosting-container-standards
-jsonschema==4.26.0
-    # via
-    #   mcp
-    #   mistral-common
-jsonschema-specifications==2025.9.1
-    # via jsonschema
-lark==1.2.2
-    # via -r requirements/common.txt
-llguidance==1.3.0
-    # via -r requirements/common.txt
-llvmlite==0.44.0
-    # via numba
-lm-format-enforcer==0.11.3
-    # via -r requirements/common.txt
-loguru==0.7.3
-    # via compressed-tensors
-markdown-it-py==4.0.0
-    # via rich
-markupsafe==3.0.3
-    # via jinja2
-mcp==1.26.0
-    # via -r requirements/common.txt
-mdurl==0.1.2
-    # via markdown-it-py
-mistral-common==1.10.0
-    # via -r requirements/common.txt
-model-hosting-container-standards==0.1.14
-    # via -r requirements/common.txt
-mpmath==1.3.0
-    # via sympy
-msgspec==0.20.0
-    # via -r requirements/common.txt
-multidict==6.7.1
-    # via
-    #   aiohttp
-    #   yarl
-networkx==3.6.1
-    # via torch
-ninja==1.13.0
-    # via
-    #   -r requirements/common.txt
-    #   -r requirements/cpu-build.txt
-numba==0.61.2
-    # via -r requirements/cpu.txt
-numpy==2.2.6
-    # via
-    #   -r requirements/common.txt
-    #   gguf
-    #   mistral-common
-    #   numba
-    #   opencv-python-headless
-    #   torchvision
-    #   transformers
-    #   xgrammar
-openai==2.29.0
-    # via -r requirements/common.txt
-openai-harmony==0.0.8
-    # via -r requirements/common.txt
-opencv-python-headless==4.13.0.92
-    # via
-    #   -r requirements/common.txt
-    #   mistral-common
-opentelemetry-api==1.40.0
-    # via
-    #   -r requirements/common.txt
-    #   opentelemetry-exporter-otlp-proto-grpc
-    #   opentelemetry-exporter-otlp-proto-http
-    #   opentelemetry-sdk
-    #   opentelemetry-semantic-conventions
-opentelemetry-exporter-otlp==1.40.0
-    # via -r requirements/common.txt
-opentelemetry-exporter-otlp-proto-common==1.40.0
-    # via
-    #   opentelemetry-exporter-otlp-proto-grpc
-    #   opentelemetry-exporter-otlp-proto-http
-opentelemetry-exporter-otlp-proto-grpc==1.40.0
-    # via opentelemetry-exporter-otlp
-opentelemetry-exporter-otlp-proto-http==1.40.0
-    # via opentelemetry-exporter-otlp
-opentelemetry-proto==1.40.0
-    # via
-    #   opentelemetry-exporter-otlp-proto-common
-    #   opentelemetry-exporter-otlp-proto-grpc
-    #   opentelemetry-exporter-otlp-proto-http
-opentelemetry-sdk==1.40.0
-    # via
-    #   -r requirements/common.txt
-    #   opentelemetry-exporter-otlp-proto-grpc
-    #   opentelemetry-exporter-otlp-proto-http
-    #   opentelemetry-semantic-conventions-ai
-opentelemetry-semantic-conventions==0.61b0
-    # via
-    #   opentelemetry-sdk
-    #   opentelemetry-semantic-conventions-ai
-opentelemetry-semantic-conventions-ai==0.5.0
-    # via -r requirements/common.txt
-outlines-core==0.2.11
-    # via -r requirements/common.txt
-packaging==26.0
-    # via
-    #   -r requirements/cpu-build.txt
-    #   huggingface-hub
-    #   lm-format-enforcer
-    #   pytest
-    #   pytest-rerunfailures
-    #   setuptools-scm
-    #   transformers
-    #   wheel
-partial-json-parser==0.2.1.1.post7
-    # via -r requirements/common.txt
-pillow==12.1.1
-    # via
-    #   -r requirements/common.txt
-    #   mistral-common
-    #   torchvision
-pluggy==1.6.0
-    # via
-    #   pytest
-    #   pytest-cov
-prometheus-client==0.24.1
-    # via
-    #   -r requirements/common.txt
-    #   prometheus-fastapi-instrumentator
-prometheus-fastapi-instrumentator==7.1.0
-    # via -r requirements/common.txt
-propcache==0.4.1
-    # via
-    #   aiohttp
-    #   yarl
-protobuf==6.33.6
-    # via
-    #   -r requirements/common.txt
-    #   googleapis-common-protos
-    #   opentelemetry-proto
-psutil==7.2.2
-    # via -r requirements/common.txt
-py==1.11.0
-    # via pytest-forked
-py-cpuinfo==9.0.0
-    # via -r requirements/common.txt
-pybase64==1.4.3
-    # via -r requirements/common.txt
-pycountry==26.2.16
-    # via pydantic-extra-types
-pycparser==3.0
-    # via cffi
-pydantic==2.12.5
-    # via
-    #   -r requirements/common.txt
-    #   anthropic
-    #   compressed-tensors
-    #   fastapi
-    #   fastapi-cloud-cli
-    #   lm-format-enforcer
-    #   mcp
-    #   mistral-common
-    #   model-hosting-container-standards
-    #   openai
-    #   openai-harmony
-    #   pydantic-extra-types
-    #   pydantic-settings
-    #   xgrammar
-pydantic-core==2.41.5
-    # via pydantic
-pydantic-extra-types==2.11.1
-    # via
-    #   fastapi
-    #   mistral-common
-pydantic-settings==2.13.1
-    # via
-    #   fastapi
-    #   mcp
-pygments==2.19.2
-    # via
-    #   pytest
-    #   rich
-pyjwt==2.12.1
-    # via mcp
-pytest==9.0.2
-    # via
-    #   -r extras.in
-    #   pytest-asyncio
-    #   pytest-cov
-    #   pytest-forked
-    #   pytest-rerunfailures
-    #   pytest-shard
-    #   pytest-timeout
-pytest-asyncio==1.3.0
-    # via -r extras.in
-pytest-cov==7.1.0
-    # via -r extras.in
-pytest-forked==1.6.0
-    # via -r extras.in
-pytest-rerunfailures==16.1
-    # via -r extras.in
-pytest-shard==0.1.2
-    # via -r extras.in
-pytest-timeout==2.4.0
-    # via -r extras.in
-python-dotenv==1.2.2
-    # via
-    #   pydantic-settings
-    #   uvicorn
-python-json-logger==4.0.0
-    # via -r requirements/common.txt
-python-multipart==0.0.22
-    # via
-    #   fastapi
-    #   mcp
-pyyaml==6.0.3
-    # via
-    #   -r requirements/common.txt
-    #   gguf
-    #   huggingface-hub
-    #   lm-format-enforcer
-    #   transformers
-    #   uvicorn
-pyzmq==27.1.0
-    # via -r requirements/common.txt
-referencing==0.37.0
-    # via
-    #   jsonschema
-    #   jsonschema-specifications
-regex==2026.2.28
-    # via
-    #   -r requirements/common.txt
-    #   -r requirements/cpu-build.txt
-    #   tiktoken
-    #   transformers
-requests==2.32.5
-    # via
-    #   -r requirements/common.txt
-    #   gguf
-    #   huggingface-hub
-    #   mistral-common
-    #   opentelemetry-exporter-otlp-proto-http
-    #   tiktoken
-    #   transformers
-rich==14.3.3
-    # via
-    #   rich-toolkit
-    #   typer
-rich-toolkit==0.19.7
-    # via
-    #   fastapi-cli
-    #   fastapi-cloud-cli
-rignore==0.7.6
-    # via fastapi-cloud-cli
-rpds-py==0.30.0
-    # via
-    #   jsonschema
-    #   referencing
-safetensors==0.7.0
-    # via transformers
-sentencepiece==0.2.1
-    # via -r requirements/common.txt
-sentry-sdk==2.56.0
-    # via fastapi-cloud-cli
-setproctitle==1.3.7
-    # via -r requirements/common.txt
-setuptools==77.0.3
-    # via
-    #   -r requirements/common.txt
-    #   -r requirements/cpu-build.txt
-    #   -r requirements/cpu.txt
-    #   model-hosting-container-standards
-    #   setuptools-scm
-    #   torch
-setuptools-scm==9.2.2
-    # via -r requirements/cpu-build.txt
-shellingham==1.5.4
-    # via typer
-six==1.17.0
-    # via -r requirements/common.txt
-sniffio==1.3.1
-    # via
-    #   anthropic
-    #   openai
-sse-starlette==3.3.3
-    # via mcp
-starlette==0.52.1
-    # via
-    #   fastapi
-    #   mcp
-    #   model-hosting-container-standards
-    #   prometheus-fastapi-instrumentator
-    #   sse-starlette
-supervisor==4.3.0
-    # via model-hosting-container-standards
-sympy==1.14.0
-    # via torch
-tblib==3.2.2
-    # via -r extras.in
-tiktoken==0.12.0
-    # via
-    #   -r requirements/common.txt
-    #   mistral-common
-tokenizers==0.22.2
-    # via
-    #   -r requirements/common.txt
-    #   transformers
-torch==2.10.0+cpu
-    # via
-    #   -r requirements/cpu-build.txt
-    #   -r requirements/cpu.txt
-    #   compressed-tensors
-    #   torchvision
-    #   xgrammar
-torchaudio==2.11.0+cpu
-    # via -r requirements/cpu.txt
-torchvision==0.25.0+cpu
-    # via -r requirements/cpu.txt
-tqdm==4.67.3
-    # via
-    #   -r requirements/common.txt
-    #   gguf
-    #   huggingface-hub
-    #   openai
-    #   transformers
-transformers==4.57.6
-    # via
-    #   -r requirements/common.txt
-    #   compressed-tensors
-    #   xgrammar
-triton==3.6.0
-    # via xgrammar
-typer==0.24.1
-    # via
-    #   fastapi-cli
-    #   fastapi-cloud-cli
-typing-extensions==4.15.0
-    # via
-    #   -r requirements/common.txt
-    #   aiosignal
-    #   anthropic
-    #   anyio
-    #   fastapi
-    #   grpcio
-    #   huggingface-hub
-    #   mcp
-    #   mistral-common
-    #   openai
-    #   opentelemetry-api
-    #   opentelemetry-exporter-otlp-proto-grpc
-    #   opentelemetry-exporter-otlp-proto-http
-    #   opentelemetry-sdk
-    #   opentelemetry-semantic-conventions
-    #   pydantic
-    #   pydantic-core
-    #   pydantic-extra-types
-    #   pytest-asyncio
-    #   referencing
-    #   rich-toolkit
-    #   starlette
-    #   torch
-    #   typing-inspection
-    #   xgrammar
-typing-inspection==0.4.2
-    # via
-    #   fastapi
-    #   mcp
-    #   pydantic
-    #   pydantic-settings
-urllib3==2.6.3
-    # via
-    #   requests
-    #   sentry-sdk
-uvicorn==0.42.0
-    # via
-    #   fastapi
-    #   fastapi-cli
-    #   fastapi-cloud-cli
-    #   mcp
-uvloop==0.22.1
-    # via uvicorn
-watchfiles==1.1.1
-    # via
-    #   -r requirements/common.txt
-    #   uvicorn
-websockets==16.0
-    # via uvicorn
-wheel==0.46.3
-    # via -r requirements/cpu-build.txt
-xgrammar==0.1.32
-    # via -r requirements/common.txt
-yarl==1.23.0
-    # via aiohttp
-zipp==3.23.0
-    # via importlib-metadata
-VLLM_REQUIREMENTS_EOF
-uv pip install --system --index-strategy first-index \
-  --torch-backend cpu -r /tmp/vllm-requirements.lock
-rm -f /tmp/vllm-requirements.lock
-VLLM_INSTALL_EOF
+# The exact cutoff-bounded dependency lock is the only local build input.
+COPY lock/requirements.txt /tmp/vllm-requirements.lock
+RUN --mount=type=cache,id=vllm-uv-downloads-v3,target=/root/.cache/uv,sharing=locked \
+    uv pip install --system --require-hashes --index-strategy first-index \
+      --torch-backend cpu -r /tmp/vllm-requirements.lock \
+ && rm -f /tmp/vllm-requirements.lock
 
 COPY --from=source /src/vllm/ /workspace/vllm/
 WORKDIR /workspace/vllm
@@ -669,11 +108,6 @@ RUN --mount=type=cache,id=vllm-uv-downloads-v3,target=/root/.cache/uv,sharing=lo
     fi \
  && python -c "from pathlib import Path; import vllm; assert Path(vllm.__file__).resolve().is_relative_to(Path('/workspace/vllm'))"
 
-RUN if [ -f rust/Cargo.toml ]; then \
-      if [ -x tools/install_protoc.sh ]; then tools/install_protoc.sh; fi; \
-      cargo fetch --manifest-path rust/Cargo.toml --locked; \
-    fi
-
 # Keep .git and every commit reachable from the pinned base on local main.
 # Remove fetch-only metadata and reject any hidden, unreachable Git objects.
 RUN find . -type d -name __pycache__ -prune -exec rm -rf {} + \
@@ -690,9 +124,14 @@ RUN find . -type d -name __pycache__ -prune -exec rm -rf {} + \
  && test -z "$(git fsck --full --no-reflogs --unreachable --no-progress 2>/dev/null)" \
  && test -z "$(git status --porcelain)"
 
-LABEL ai.infra.bench.environment-template=vllm-harbor-all-in-one \
+RUN useradd --create-home --shell /bin/bash agent \
+ && chown -R agent:agent /workspace/vllm
+
+LABEL ai.infra.bench.environment-template=vllm-cutoff-pinned \
       ai.infra.bench.base-commit=$VLLM_BASE_SHA \
       ai.infra.bench.dependency-cutoff=$VLLM_DEPENDENCY_CUTOFF \
       ai.infra.bench.cache-namespace=$VLLM_CACHE_NAMESPACE
+USER agent
+ENV HOME=/home/agent
 ENTRYPOINT []
 CMD ["sleep", "infinity"]

@@ -102,7 +102,7 @@ index eaa95dfe4..b5b26f333 100644
 +        max_num_batched_tokens=max_num_batched_tokens,
      )
 diff --git a/vllm/v1/core/kv_cache_manager.py b/vllm/v1/core/kv_cache_manager.py
-index 2c712a1b1..7aa5b09be 100644
+index 2c712a1b1..e43901dd6 100644
 --- a/vllm/v1/core/kv_cache_manager.py
 +++ b/vllm/v1/core/kv_cache_manager.py
 @@ -109,6 +109,7 @@ class KVCacheManager:
@@ -125,11 +125,11 @@ index 2c712a1b1..7aa5b09be 100644
              use_eagle=self.use_eagle,
              enable_caching=self.enable_caching,
              enable_kv_cache_events=enable_kv_cache_events,
-@@ -215,6 +221,69 @@ class KVCacheManager:
+@@ -215,6 +221,37 @@ class KVCacheManager:
  
          return self.create_kv_cache_blocks(computed_blocks), num_new_computed_tokens
  
-+    def _num_blocks_needed_for_prompt(
++    def get_num_blocks_needed_for_prompt(
 +        self,
 +        request: Request,
 +        num_new_computed_tokens: int = 0,
@@ -160,43 +160,11 @@ index 2c712a1b1..7aa5b09be 100644
 +            num_tokens_main_model=full_num_tokens,
 +        )
 +
-+    def can_admit_request(
-+        self,
-+        request: Request,
-+        running_requests: Sequence[Request],
-+        num_new_computed_tokens: int = 0,
-+        new_computed_blocks: KVCacheBlocks | None = None,
-+        num_external_computed_tokens: int = 0,
-+        num_encoder_tokens: int = 0,
-+    ) -> bool:
-+        """Return whether a waiting request can be admitted without consuming
-+        capacity that the current running set still needs to finish prefill.
-+
-+        The estimate is recalculated from live block state for every admission
-+        decision. This avoids double-spending unallocated future capacity when
-+        several long prompts arrive in the same scheduling round.
-+        """
-+        reserved_for_running = sum(
-+            self._num_blocks_needed_for_prompt(running_request)
-+            for running_request in running_requests
-+        )
-+        candidate_blocks = self._num_blocks_needed_for_prompt(
-+            request,
-+            num_new_computed_tokens=num_new_computed_tokens,
-+            new_computed_blocks=new_computed_blocks,
-+            num_external_computed_tokens=num_external_computed_tokens,
-+            num_encoder_tokens=num_encoder_tokens,
-+        )
-+        return (
-+            reserved_for_running + candidate_blocks
-+            <= self.block_pool.get_num_free_blocks()
-+        )
-+
      def allocate_slots(
          self,
          request: Request,
 diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
-index 486ce8deb..f7f59ecef 100644
+index 486ce8deb..192a94e7d 100644
 --- a/vllm/v1/core/sched/scheduler.py
 +++ b/vllm/v1/core/sched/scheduler.py
 @@ -225,6 +225,7 @@ class Scheduler(SchedulerInterface):
@@ -215,18 +183,29 @@ index 486ce8deb..f7f59ecef 100644
          self.has_mamba_layers = kv_cache_config.has_mamba_layers
          self.needs_kv_cache_zeroing = kv_cache_config.needs_kv_cache_zeroing
          self.need_mamba_block_aligned_split = (
-@@ -719,6 +719,18 @@ class Scheduler(SchedulerInterface):
+@@ -719,6 +719,29 @@ class Scheduler(SchedulerInterface):
                          for i in encoder_inputs_to_schedule
                      )
  
-+                if not self.kv_cache_manager.can_admit_request(
++                reserved_for_running = sum(
++                    self.kv_cache_manager.get_num_blocks_needed_for_prompt(
++                        running_request
++                    )
++                    for running_request in self.running
++                )
++                candidate_blocks = (
++                    self.kv_cache_manager.get_num_blocks_needed_for_prompt(
 +                        request,
-+                        self.running,
 +                        num_new_computed_tokens=num_new_local_computed_tokens,
 +                        new_computed_blocks=new_computed_blocks,
 +                        num_external_computed_tokens=num_external_computed_tokens,
 +                        num_encoder_tokens=num_encoder_tokens,
-+                    ):
++                    )
++                )
++                if (
++                    reserved_for_running + candidate_blocks
++                    > self.kv_cache_manager.block_pool.get_num_free_blocks()
++                ):
 +                    if request.has_encoder_inputs:
 +                        self.encoder_cache_manager.free(request)
 +                    break

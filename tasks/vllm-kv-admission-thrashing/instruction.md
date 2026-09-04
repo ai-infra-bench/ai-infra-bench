@@ -1,9 +1,7 @@
-I am seeing a severe throughput drop while serving a workload with long prompts. Chunked prefill is enabled, and the same request repeatedly reports that it was preempted without making visible progress.
+I am an infrastructure engineer investigating a serving-performance regression in a vLLM deployment. Chunked prefill is enabled, and the affected traffic includes bursts of long prompts arriving while other requests are already generating tokens.
 
-The logs contain repeated entries like these:
+During the investigation, I found that under high KV-cache pressure, some long requests are repeatedly preempted after partial prefill and lose the progress they made. They return to the queue, are admitted again, and repeat the same cycle. While this continues, requests that were already decoding can go for extended periods without producing new tokens.
 
-    (EngineCore_DP0 pid=11842) WARNING 03-17 15:39:29 [scheduler.py:928] Request cmpl-bench-5f83f700-51-0-bfc32831 preempted (num_tokens=40000, computed_tokens=32568, preemption_count=7) due to insufficient KV cache blocks.
-    (EngineCore_DP0 pid=11842) WARNING 03-17 15:39:30 [scheduler.py:928] Request cmpl-bench-5f83f700-51-0-bfc32831 preempted (num_tokens=40000, computed_tokens=32568, preemption_count=8) due to insufficient KV cache blocks.
-    (EngineCore_DP0 pid=11842) WARNING 03-17 15:39:32 [scheduler.py:928] Request cmpl-bench-5f83f700-51-0-bfc32831 preempted (num_tokens=40000, computed_tokens=32568, preemption_count=9) due to insufficient KV cache blocks.
+I need you to fix the scheduling behavior so this finite mixed workload makes steady progress. The scheduler may still preempt requests when necessary, but it must not repeatedly admit and preempt the same request without durable progress. Active generations and queued long prompts must both complete.
 
-The requests that are already decoding slow down badly whenever this happens. Trace why the long request keeps returning to the same preempted state without making progress, and fix the scheduler.
+Do not solve this by delaying every new prompt until all active generations have finished. Requests that the current scheduler can run concurrently must retain that behavior, including requests that reuse cached prefixes and long prompts on sliding-window or chunked-local-attention models.
