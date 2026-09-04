@@ -1,4 +1,4 @@
-import { mkdir, readdir, rename, rm } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,6 +10,9 @@ const normalizedBasePath = basePath.replace(/^\/+/, '');
 const nestedDir = path.join(clientDir, normalizedBasePath);
 const nestedAssetsDir = path.join(nestedDir, '_next');
 const targetAssetsDir = path.join(clientDir, '_next');
+const siteUrl = new URL(
+  process.env.NEXT_PUBLIC_SITE_URL ?? 'https://ai-infra-bench.github.io',
+);
 
 let nestedEntries = [];
 try {
@@ -24,5 +27,34 @@ if (normalizedBasePath && nestedEntries.length > 0) {
   await rename(nestedAssetsDir, targetAssetsDir);
   await rm(nestedDir, { recursive: true, force: true });
 }
+
+const taskIndex = JSON.parse(
+  await readFile(path.join(projectDir, 'app', 'generated', 'task-index.json'), 'utf8'),
+);
+const absoluteUrl = (route) => new URL(route, siteUrl).toString();
+const sitemapUrls = [
+  absoluteUrl('/'),
+  ...taskIndex.map((task) => absoluteUrl(`/tasks/${task.slug}`)),
+];
+const sitemap = [
+  '<?xml version="1.0" encoding="UTF-8"?>',
+  '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+  ...sitemapUrls.map((url) => `  <url><loc>${url}</loc></url>`),
+  '</urlset>',
+  '',
+].join('\n');
+const robots = [
+  'User-Agent: *',
+  'Allow: /',
+  '',
+  `Host: ${siteUrl.origin}`,
+  `Sitemap: ${absoluteUrl('/sitemap.xml')}`,
+  '',
+].join('\n');
+
+await Promise.all([
+  writeFile(path.join(clientDir, 'robots.txt'), robots),
+  writeFile(path.join(clientDir, 'sitemap.xml'), sitemap),
+]);
 
 console.log(`Prepared GitHub Pages artifact in ${clientDir}`);
