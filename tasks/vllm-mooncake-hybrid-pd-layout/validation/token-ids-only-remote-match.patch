@@ -1,5 +1,5 @@
 diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/mooncake_connector.py b/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/mooncake_connector.py
-index 1bc23cead..e756064b6 100644
+index 1bc23cead..c0886ae03 100644
 --- a/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/mooncake_connector.py
 +++ b/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/mooncake_connector.py
 @@ -22,7 +22,6 @@ from vllm.config import VllmConfig
@@ -219,10 +219,9 @@ index 1bc23cead..e756064b6 100644
 @@ -650,7 +751,9 @@ class MooncakeConnectorScheduler:
              # Remote prefill: get all prompt blocks from remote.
              assert not self.is_kv_producer
--            token_ids = request.prompt_token_ids or []
-+            num_prompt_tokens = request.num_prompt_tokens
+             token_ids = request.prompt_token_ids or []
 -            count = len(token_ids) - num_computed_tokens
-+            count = self._get_remote_prefill_token_count(num_prompt_tokens) - (
++            count = self._get_remote_prefill_token_count(len(token_ids)) - (
 +                num_computed_tokens
 +            )
              if count > 0:
@@ -344,7 +343,7 @@ index 1bc23cead..e756064b6 100644
          )
          local_regions, remote_regions, align_err = _align_transfer_regions(
              local_regions, remote_regions
-@@ -1271,6 +1401,35 @@ class MooncakeConnectorWorker:
+@@ -1271,6 +1401,32 @@ class MooncakeConnectorWorker:
              remote_tp_ranks,
          )
 
@@ -369,10 +368,7 @@ index 1bc23cead..e756064b6 100644
 +                self._physical_blocks_per_logical_kv_block,
 +                block_arange,
 +            ).tolist()
-+            if (
-+                not isinstance(group_specs[i].kv_cache_spec, MambaSpec)
-+                and type(group_specs[i].kv_cache_spec) is not FullAttentionSpec
-+            )
++            if not isinstance(group_specs[i].kv_cache_spec, MambaSpec)
 +            else group
 +            for i, group in enumerate(block_ids)
 +        ]
@@ -380,7 +376,7 @@ index 1bc23cead..e756064b6 100644
      async def _build_transfer_params(
          self,
          ready_reqs: list[tuple[ReqId, SendBlockMeta]],
-@@ -1293,14 +1452,6 @@ class MooncakeConnectorWorker:
+@@ -1293,14 +1449,6 @@ class MooncakeConnectorWorker:
              ):
                  continue
 
@@ -395,7 +391,7 @@ index 1bc23cead..e756064b6 100644
              if len(send_meta.local_block_ids) != len(remote_block_ids_per_group):
                  logger.error(
                      "req %s: KV group count mismatch: local=%d, remote=%d",
-@@ -1312,26 +1463,55 @@ class MooncakeConnectorWorker:
+@@ -1312,26 +1460,55 @@ class MooncakeConnectorWorker:
                  if err_msg is None:
                      err_msg = "KV group count mismatch"
                  continue
@@ -458,7 +454,7 @@ index 1bc23cead..e756064b6 100644
 
              if has_block_error:
                  err_reqs.append(d_req_id)
-@@ -1339,22 +1519,44 @@ class MooncakeConnectorWorker:
+@@ -1339,22 +1516,44 @@ class MooncakeConnectorWorker:
                      err_msg = "P num blocks less than D"
                  continue
 
@@ -514,7 +510,7 @@ index 1bc23cead..e756064b6 100644
                  )
                  if not should_transfer:
                      # Replicated KV cache: only one producer rank in the TP group
-@@ -1368,7 +1570,7 @@ class MooncakeConnectorWorker:
+@@ -1368,7 +1567,7 @@ class MooncakeConnectorWorker:
                      "Computed source transfer region exceeds local KV block size."
                  )
                  assert dst_region_offset + transfer_len <= remote_region.kv_block_len, (
@@ -523,7 +519,7 @@ index 1bc23cead..e756064b6 100644
                  )
                  # Collapse one contiguous block group into a single larger
                  # transfer descriptor when the per-block copy is identical.
-@@ -1411,28 +1613,10 @@ class MooncakeConnectorWorker:
+@@ -1411,28 +1610,10 @@ class MooncakeConnectorWorker:
                              )
                              lengths.append(transfer_len)
 
@@ -553,7 +549,7 @@ index 1bc23cead..e756064b6 100644
                  remote_session,
              )
 
-@@ -1480,18 +1664,33 @@ class MooncakeConnectorWorker:
+@@ -1480,18 +1661,33 @@ class MooncakeConnectorWorker:
 
          logger.info("Registering KV_Caches. use_mla: %s", self.use_mla)
 
@@ -593,7 +589,7 @@ index 1bc23cead..e756064b6 100644
              logger.debug(
                  "registering layer %s with %d cache tensor(s)",
                  layer_name,
-@@ -1501,45 +1700,63 @@ class MooncakeConnectorWorker:
+@@ -1501,45 +1697,63 @@ class MooncakeConnectorWorker:
              for cache in cache_list:
                  self._log_debug_cache_registration(layer_name, cache)
                  base_addr = cache.data_ptr()
@@ -683,7 +679,7 @@ index 1bc23cead..e756064b6 100644
          )
 
          # No need to launch server for D node.
-@@ -1642,8 +1859,10 @@ class MooncakeConnectorWorker:
+@@ -1642,8 +1856,10 @@ class MooncakeConnectorWorker:
              },
              kv_caches_base_addr=self.kv_caches_base_addr,
              block_lens=self.block_len_per_layer,
@@ -694,7 +690,7 @@ index 1bc23cead..e756064b6 100644
          )
 
          encoded_data = self._encoder.encode(metadata)
-@@ -1852,15 +2071,34 @@ class MooncakeConnectorWorker:
+@@ -1852,15 +2068,34 @@ class MooncakeConnectorWorker:
          self,
          base_addrs: list[int],
          block_lens: list[int],

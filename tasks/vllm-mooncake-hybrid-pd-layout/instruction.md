@@ -6,6 +6,6 @@ Preserve each cache group's block identity and layout semantics throughout regis
 
 Transfers must remain correct when one logical attention block maps to multiple physical blocks. Every requested payload must match the source after transfer, and no transfer may overlap or corrupt neighboring blocks.
 
-Mooncake P/D transfers cache state rather than prefill logits. For GDN remote decode, leave the final prompt token for the decoder to recompute locally, for both token IDs and prompt embeddings. Cold requests and repeated requests with a fully populated producer-side prefix cache must complete successfully, and the prefill engine must remain healthy.
+Mooncake P/D transfers cache state rather than prefill logits. For GDN remote-decode prompts containing at least two prompt elements, leave the final prompt element for the decoder to recompute locally, for both token IDs and prompt embeddings. Within this supported prompt-length boundary, cold requests and repeated requests with a fully populated producer-side prefix cache must complete successfully, and the prefill engine must remain healthy. Single-element GDN remote-decode prompts are outside the scope of this task.
 
 Existing pure full-attention Mooncake transfer and NIXL GDN remote-prefill token accounting must remain compatible. Layout mismatches and memory-registration or transfer failures must continue to surface as errors rather than silently succeeding. Mamba variants other than GDN are outside the scope of this task.

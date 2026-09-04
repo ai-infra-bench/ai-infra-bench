@@ -203,9 +203,10 @@ index 1bc23ce..b77e4e5 100644
 @@ -650,10 +742,15 @@ class MooncakeConnectorScheduler:
              # Remote prefill: get all prompt blocks from remote.
              assert not self.is_kv_producer
-             token_ids = request.prompt_token_ids or []
+-            token_ids = request.prompt_token_ids or []
++            num_prompt_tokens = request.num_prompt_tokens
 -            count = len(token_ids) - num_computed_tokens
-+            count = self._get_remote_prefill_token_count(len(token_ids)) - (
++            count = self._get_remote_prefill_token_count(num_prompt_tokens) - (
 +                num_computed_tokens
 +            )
              if count > 0:

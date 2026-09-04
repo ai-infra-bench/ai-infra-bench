@@ -24,10 +24,11 @@ required = {
     "test_pure_full_attention_transfer_is_unchanged",
     "test_layout_mismatch_is_not_reported_as_complete",
     "test_nixl_hybrid_remote_prefill_behavior_is_unchanged",
+    "test_prompt_embeddings_remote_prefill_uses_remote_state_then_resumes",
     "test_warm_full_prefix_remote_decode_remains_schedulable",
     "test_prompt_embeddings_remote_decode_remains_schedulable",
 }
-assert tests == 19, f"expected exactly 19 tests, got {tests}"
+assert tests == 20, f"expected exactly 20 tests, got {tests}"
 assert failures == 0 and errors == 0 and skipped == 0
 assert len(names) == tests, "test case names must be unique"
 assert required <= names, f"missing required tests: {required - names}"

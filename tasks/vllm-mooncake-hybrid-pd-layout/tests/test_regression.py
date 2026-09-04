@@ -14,7 +14,8 @@ from vllm.distributed.kv_transfer.kv_connector.v1.mooncake.mooncake_connector im
 from vllm.distributed.kv_transfer.kv_connector.v1.nixl.connector import NixlConnector
 from vllm.v1.attention.backends.utils import NULL_BLOCK_ID
 from vllm.v1.kv_cache_interface import KVCacheConfig, KVCacheGroupSpec
-from vllm.v1.request import Request
+from vllm.v1.outputs import KVConnectorOutput, ModelRunnerOutput
+from vllm.v1.request import Request, RequestStatus
 
 from verifier_support import (
     MemoryTransport,
@@ -437,6 +438,76 @@ def test_hybrid_remote_prefill_leaves_one_token_for_decode() -> None:
     matched, asynchronous = connector.get_num_new_matched_tokens(request, 0)
     assert matched == 34
     assert asynchronous is True
+
+
+def test_prompt_embeddings_remote_prefill_uses_remote_state_then_resumes() -> None:
+    embeddings = torch.arange(9 * 8, dtype=torch.float32).reshape(9, 8)
+
+    def make_request(request_id: str) -> Request:
+        request = Request(
+            request_id=request_id,
+            prompt_token_ids=None,
+            prompt_embeds=embeddings.clone(),
+            sampling_params=SamplingParams(max_tokens=1),
+            pooling_params=None,
+            block_hasher=None,
+        )
+        request.kv_transfer_params = {
+            "do_remote_prefill": True,
+            "do_remote_decode": False,
+            "transfer_id": f"transfer-{request_id}",
+            "remote_engine_id": "producer-engine",
+            "remote_bootstrap_addr": "http://unused",
+        }
+        return request
+
+    config = make_hybrid_config(
+        logical_block_size=LOGICAL_BLOCK_SIZE,
+        num_blocks=64,
+    )
+    vllm_config = make_vllm_config(
+        "kv_consumer", logical_block_size=LOGICAL_BLOCK_SIZE
+    )
+    connector = MooncakeConnector(vllm_config, KVConnectorRole.SCHEDULER, config)
+    partial_request = make_request("partial-embedding-request")
+    assert connector.get_num_new_matched_tokens(partial_request, 3) == (5, True)
+
+    pure_config = make_pure_attention_config(logical_block_size=LOGICAL_BLOCK_SIZE)
+    pure_vllm_config = make_vllm_config(
+        "kv_consumer", logical_block_size=LOGICAL_BLOCK_SIZE
+    )
+    pure_connector = MooncakeConnector(
+        pure_vllm_config,
+        KVConnectorRole.SCHEDULER,
+        pure_config,
+    )
+    pure_request = make_request("pure-embedding-request")
+    assert pure_connector.get_num_new_matched_tokens(pure_request, 0) == (9, True)
+
+    scheduler = create_scheduler(
+        vllm_config,
+        num_blocks=64,
+        kv_cache_config=config,
+    )
+    request = make_request("consumer-embedding-request")
+    scheduler.add_request(request)
+    waiting_output = scheduler.schedule()
+    assert request.status == RequestStatus.WAITING_FOR_REMOTE_KVS
+    assert request.num_computed_tokens == 8
+    assert request.request_id not in waiting_output.num_scheduled_tokens
+
+    received = ModelRunnerOutput.with_kv_conn_output_only(
+        KVConnectorOutput(finished_recving={request.request_id})
+    )
+    scheduler.update_from_output(waiting_output, received)
+    resumed_output = scheduler.schedule()
+    assert request.status == RequestStatus.RUNNING
+    assert resumed_output.num_scheduled_tokens[request.request_id] == 1
+    result = scheduler.update_from_output(
+        resumed_output,
+        create_model_runner_output([request]),
+    )
+    assert result[0].outputs[0].finish_reason is not None
 
 
 def test_pure_attention_remote_prefill_keeps_full_prompt() -> None:
