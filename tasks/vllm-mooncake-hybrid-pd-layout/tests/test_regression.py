@@ -200,7 +200,7 @@ def test_shared_padded_storage_transfers_without_neighbor_corruption() -> None:
             shutdown_connectors(producer, consumer)
 
 
-@pytest.mark.parametrize("attention_kind", ["mla", "sliding_mla"])
+@pytest.mark.parametrize("attention_kind", ["full", "mla", "sliding_mla"])
 def test_physical_block_expansion_copies_only_requested_payload(
     attention_kind: str,
 ) -> None:
@@ -489,6 +489,24 @@ def test_warm_full_prefix_remote_decode_remains_schedulable() -> None:
     output = scheduler.schedule()
     assert output.num_scheduled_tokens[repeated.request_id] > 0
     assert repeated.num_prompt_tokens == LOGICAL_BLOCK_SIZE
+    repeated_result = scheduler.update_from_output(
+        output, create_model_runner_output([repeated])
+    )
+    assert repeated_result[0].outputs[0].finish_reason is not None
+
+    follow_up = create_request(
+        request_id=43,
+        block_size=LOGICAL_BLOCK_SIZE,
+        num_tokens=7,
+        max_tokens=1,
+    )
+    scheduler.add_request(follow_up)
+    output = scheduler.schedule()
+    assert output.num_scheduled_tokens[follow_up.request_id] > 0
+    follow_up_result = scheduler.update_from_output(
+        output, create_model_runner_output([follow_up], use_eos=True)
+    )
+    assert follow_up_result[0].outputs[0].finish_reason is not None
 
 
 def test_prompt_embeddings_remote_decode_remains_schedulable() -> None:
@@ -501,7 +519,10 @@ def test_prompt_embeddings_remote_decode_remains_schedulable() -> None:
     )
     vllm_config.cache_config.enable_prefix_caching = False
     scheduler = create_scheduler(vllm_config, num_blocks=64, kv_cache_config=config)
-    embeddings = torch.randn(LOGICAL_BLOCK_SIZE + 1, 8)
+    embeddings = torch.arange(
+        (LOGICAL_BLOCK_SIZE + 1) * 8, dtype=torch.float32
+    ).reshape(LOGICAL_BLOCK_SIZE + 1, 8)
+    original_embeddings = embeddings.clone()
     request = Request(
         request_id="embedding-request",
         prompt_token_ids=None,
@@ -519,6 +540,11 @@ def test_prompt_embeddings_remote_decode_remains_schedulable() -> None:
     output = scheduler.schedule()
     assert output.num_scheduled_tokens[request.request_id] > 0
     assert request.num_prompt_tokens == LOGICAL_BLOCK_SIZE
+    assert torch.equal(request.prompt_embeds, original_embeddings[:-1])
+    result = scheduler.update_from_output(
+        output, create_model_runner_output([request])
+    )
+    assert result[0].outputs[0].finish_reason is not None
 
 
 def test_scheduler_can_finish_cold_gdn_remote_decode() -> None:
@@ -536,9 +562,11 @@ def test_scheduler_can_finish_cold_gdn_remote_decode() -> None:
         num_tokens=35,
         do_remote_decode=True,
     )
+    original_prompt_token_ids = list(request.prompt_token_ids)
     scheduler.add_request(request)
     output = scheduler.schedule()
     assert output.num_scheduled_tokens[request.request_id] == 34
+    assert request.prompt_token_ids == original_prompt_token_ids[:-1]
     result = scheduler.update_from_output(
         output, create_model_runner_output([request])
     )

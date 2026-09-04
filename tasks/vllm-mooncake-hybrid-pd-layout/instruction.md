@@ -8,4 +8,4 @@ Transfers must remain correct when one logical attention block maps to multiple 
 
 Mooncake P/D transfers cache state rather than prefill logits. For GDN remote decode, leave the final prompt token for the decoder to recompute locally, for both token IDs and prompt embeddings. Cold requests and repeated requests with a fully populated producer-side prefix cache must complete successfully, and the prefill engine must remain healthy.
 
-Existing pure full-attention Mooncake transfer and NIXL P/D behavior must remain compatible. Layout mismatches and memory-registration or transfer failures must continue to surface as errors rather than silently succeeding. Mamba variants other than GDN are outside the scope of this task.
+Existing pure full-attention Mooncake transfer and NIXL GDN remote-prefill token accounting must remain compatible. Layout mismatches and memory-registration or transfer failures must continue to surface as errors rather than silently succeeding. Mamba variants other than GDN are outside the scope of this task.

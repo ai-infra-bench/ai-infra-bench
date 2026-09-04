@@ -17,6 +17,7 @@ required = {
     "test_hybrid_transfer_preserves_group_payloads[full]",
     "test_hybrid_transfer_preserves_group_payloads[mla]",
     "test_shared_padded_storage_transfers_without_neighbor_corruption",
+    "test_physical_block_expansion_copies_only_requested_payload[full]",
     "test_physical_block_expansion_copies_only_requested_payload[mla]",
     "test_registration_failure_is_reported",
     "test_transfer_failure_is_not_reported_as_complete",
@@ -26,7 +27,7 @@ required = {
     "test_warm_full_prefix_remote_decode_remains_schedulable",
     "test_prompt_embeddings_remote_decode_remains_schedulable",
 }
-assert tests == 18, f"expected exactly 18 tests, got {tests}"
+assert tests == 19, f"expected exactly 19 tests, got {tests}"
 assert failures == 0 and errors == 0 and skipped == 0
 assert len(names) == tests, "test case names must be unique"
 assert required <= names, f"missing required tests: {required - names}"
