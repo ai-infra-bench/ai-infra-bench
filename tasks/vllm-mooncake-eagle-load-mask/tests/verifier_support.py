@@ -34,6 +34,7 @@ from vllm.v1.kv_cache_interface import (
 
 
 BLOCK_BYTES = 64
+TARGET_MODEL_ID = "MiniMaxAI/MiniMax-M2.5"
 
 
 @dataclass(frozen=True)
@@ -191,7 +192,7 @@ class MemoryWritingStore:
 def _database(group_index, group, hash_block_size, buffer):
     database = ChunkedTokenDatabase(
         KeyMetadata(
-            model_name="minimax",
+            model_name=TARGET_MODEL_ID,
             tp_rank=0,
             pcp_rank=0,
             dcp_rank=0,
@@ -204,6 +205,42 @@ def _database(group_index, group, hash_block_size, buffer):
     database.set_kv_caches_base_addr([ctypes.addressof(buffer)])
     database.set_block_len([BLOCK_BYTES])
     return database
+
+
+def receive_plan_trace(profile: ReceiveProfile):
+    """Capture the real coordinator/database plan without asserting its shape."""
+    coordinator = _coordinator(profile)
+    block_hashes = hashes(profile.num_hashes)
+    _, hit_length = coordinator.find_longest_cache_hit(
+        block_hashes,
+        max_length=profile.max_length,
+        cached_block_pool=_cached_pool(profile, block_hashes),
+    )
+    buffers = [(ctypes.c_ubyte * BLOCK_BYTES)() for _group in profile.groups]
+    databases = [
+        _database(index, group, profile.hash_block_size, buffers[index])
+        for index, group in enumerate(profile.groups)
+    ]
+    masks = coordinator.load_mask(block_hashes, hit_length)
+    enumerated_offsets = []
+    submitted_offsets = []
+    for group_index, database in enumerate(databases):
+        group_offsets = []
+        submitted_group_offsets = []
+        for start, _end, _key in database.process_tokens(hit_length, block_hashes):
+            group_offsets.append(start)
+            chunk_index = start // database.block_size
+            if chunk_index < len(masks[group_index]) and masks[group_index][chunk_index]:
+                submitted_group_offsets.append(start)
+        enumerated_offsets.append(group_offsets)
+        submitted_offsets.append(submitted_group_offsets)
+    return {
+        "target_model": TARGET_MODEL_ID,
+        "reported_external_hit_tokens": hit_length,
+        "enumerated_chunk_offsets": enumerated_offsets,
+        "load_mask": [list(mask) for mask in masks],
+        "submitted_chunk_offsets": submitted_offsets,
+    }
 
 
 def run_receive(profile: ReceiveProfile, *, tp_rank=0, request_count=1):

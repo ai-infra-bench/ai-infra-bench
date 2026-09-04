@@ -1,13 +1,13 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-08-31T17:45:52+08:00",
+  "recorded_at": "2026-09-04T20:37:38+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-175",
     "instance_id": "vllm-project__vllm-43516",
     "base_commit": "aa2b56ffb0c1d8b29d6468282a49d9b4a9f0dd1c",
     "pull_request": "https://github.com/vllm-project/vllm/pull/43516",
     "directly_linked_issue": null,
-    "reported_origin": "Cross-instance MiniMax MTP/EAGLE-3 Mooncake loads returned corrupted generations while non-MTP loads were unaffected."
+    "reported_origin": "The source PR establishes the connector failure mechanism. The MiniMax-M2.5 deployment and request in instruction.md are a newly constructed scenario, not a claim about the source PR's deployment."
   },
   "image": {
     "canonical_tag": "ai-infra-bench/vllm-mooncake-eagle-load-mask:base-aa2b56ffb0c1",
@@ -18,18 +18,37 @@
     "dependency_lock_manifest_sha256": "33bb1911a9843cd5d2bd007efd61c8a6492476825291c04eb770414417cdaaf5"
   },
   "artifacts": {
-    "instruction_sha256": "15fcef1a912add158ee388bf2ca51d15ae93dbbd59a1a4b95bc34a9d9cb31888",
-    "oracle_patch_sha256": "72bc24986984524252e818baf6b2effee4c1616c5110c16c783377fdd9e90c46",
-    "test_script_sha256": "d7367f0d30148be02f5857c0b00e1ef24760bbd9265aad989006f7d6cb0ccd30",
-    "regression_test_sha256": "f24b1d339728538cf2464268539ed9c5be095ebd613ad4f450402d105d19a522",
-    "verifier_support_sha256": "368bb45d0883595029c943efd5cd5aa38958a54a6c80a08d6dd4b6c644c2409c",
-    "real_receive_test_sha256": "96c8a4a5703e35d919a29aba0e741dc665de5072313c18a007d68c7eadeb6467",
-    "junit_checker_sha256": "a5645da4c167c132f825f4da503a2ad9724a17e3f9e105f7e3881c950d6fab48",
-    "alternative_receiver_normalization_patch_sha256": "12d069d63ed9cfe1e3262e76d8ec23b7c79009e7e9c3ffe60a1feb73feeb3e3c",
-    "single_group_only_patch_sha256": "a4ae731e06721c4b38894ed1075168be0aeb437eaad84040a94aa806e73beb66",
-    "pad_all_groups_patch_sha256": "ea484e7eaa93e6921836dab6307dcc964ccb628deac2b3c7ad33c23e5608217a",
-    "visible_trace_patch_sha256": "f541400f97a667def5f6dbbd08f6faa71ec1b17e3eaa977f9b569210506b86e7",
-    "skip_all_conftest_patch_sha256": "9c99e33ae04abacf33cb464c74a9644152e1775ec25d64f6d1731dcb1f19a0fc"
+    "files": {
+      "task.toml": "090735eb16b144a8922d3c2ab497f9d7ba9802a8ec9c44dcce5f1db676a7b8c2",
+      "instruction.md": "33a451276d1e851a5dec8a093efc59cac37270027b0ee5294a67942eb788a6d1",
+      "solution/oracle.patch": "72bc24986984524252e818baf6b2effee4c1616c5110c16c783377fdd9e90c46",
+      "solution/solve.sh": "30736ddecc6d93c65becaef873117262947e06abc41e37210157417696d39d56",
+      "tests/check_junit.py": "a5645da4c167c132f825f4da503a2ad9724a17e3f9e105f7e3881c950d6fab48",
+      "tests/test.sh": "d7367f0d30148be02f5857c0b00e1ef24760bbd9265aad989006f7d6cb0ccd30",
+      "tests/test_real_receive_pipeline.py": "e41552d444f16d845059c4cf4847cb16625d6a110c7c75b64187b0ea340287b4",
+      "tests/test_regression.py": "f24b1d339728538cf2464268539ed9c5be095ebd613ad4f450402d105d19a522",
+      "tests/verifier_support.py": "7d8e1ef5eca70149613cbfa9811a26651f9d41508b41cf71e36739b320810d36",
+      "validation/ci-cases.json": "0b96d33c601755e7013f68d219d893f2f614f7a250a49b225ccb8fc766eaf080"
+    }
+  },
+  "scenario_configuration": {
+    "kind": "newly constructed deployment scenario",
+    "target_model": "MiniMaxAI/MiniMax-M2.5",
+    "target_revision": "f710177d938eff80b684d42c5aa84b382612f21f",
+    "target_repository_created_at": "2026-02-12T06:05:24Z",
+    "target_architecture": "MiniMaxM2ForCausalLM",
+    "target_num_mtp_modules": 3,
+    "draft_model": "thoughtworks/MiniMax-M2.5-Eagle3",
+    "draft_revision": "fb4699b3d33913e6b5e2462dd7962775e44e5fea",
+    "draft_repository_created_at": "2026-04-09T15:29:21Z",
+    "draft_architecture": "LlamaForCausalLMEagle3",
+    "method": "eagle3",
+    "num_speculative_tokens": 3,
+    "target_tensor_parallel_size": 4,
+    "draft_tensor_parallel_size": 1,
+    "pinned_base_config_parse": "passed",
+    "full_model_weights_loaded": false,
+    "validation_note": "The pinned Base resolved both immutable Hugging Face configs and accepted the complete SpeculativeConfig. Safetensors metadata was inspected, but full target and draft weights were not downloaded or executed."
   },
   "verifier_contract": {
     "behavior_cases": 18,
@@ -66,9 +85,25 @@
     "concurrent_requests": 4,
     "covers_single_hybrid_mixed_and_mamba_groups": true,
     "external_rdma_transport_exercised": false,
-    "limitation": "No Mooncake metadata or RDMA service is available in the CPU task environment. An in-memory transport implements batch_get_into_multi_buffers and writes deterministic bytes to the real addresses prepared by ChunkedTokenDatabase."
+    "limitation": "The CPU verifier does not run MiniMax-M2.5 weights, HTTP serving, two physical replicas, a Mooncake metadata service, or RDMA/TCP transport. An in-memory transport implements batch_get_into_multi_buffers and writes deterministic bytes to the real addresses prepared by ChunkedTokenDatabase. Model and transport layers are substituted because they do not determine the Base-versus-Oracle receive-mask distinction."
   },
-  "repeated_runs": [
+  "captured_receive_trace": {
+    "case": "single FullAttention group, block_size=16, four stored blocks, Eagle-3 enabled",
+    "base": {
+      "reported_external_hit_tokens": 48,
+      "enumerated_chunk_offsets": [0, 16, 32],
+      "load_mask": [true, true],
+      "submitted_chunk_offsets": [0, 16]
+    },
+    "oracle": {
+      "reported_external_hit_tokens": 48,
+      "enumerated_chunk_offsets": [0, 16, 32],
+      "load_mask": [true, true, true],
+      "submitted_chunk_offsets": [0, 16, 32]
+    },
+    "visibility": "validation evidence only; the low-level trace is not included in instruction.md"
+  },
+  "current_runs": [
     {
       "case": "base",
       "rounds": 5,
@@ -84,6 +119,16 @@
       "e2e_exit_codes": [0, 0, 0, 0, 0]
     }
   ],
+  "independent_challenge": {
+    "case": "single FullAttention group with a 24-token block size, six stored blocks, and a 120-token Eagle hit",
+    "copied_from_existing_profiles": false,
+    "oracle_loaded_blocks": 5,
+    "oracle_expected_blocks": 5,
+    "alternative_loaded_blocks": 5,
+    "alternative_expected_blocks": 5,
+    "oracle_result": "passed",
+    "alternative_result": "passed"
+  },
   "alternative_implementation_run": {
     "case": "receiver_side_semantic_mask_normalization",
     "patch_sha256": "12d069d63ed9cfe1e3262e76d8ec23b7c79009e7e9c3ffe60a1feb73feeb3e3c",
@@ -130,9 +175,9 @@
   ],
   "harbor": {
     "version": "0.22.0",
-    "job_id": "987bd9d3-9cfb-4e6f-9f26-706330f24578",
-    "trial_id": "b2d3cd97-67fd-4eda-a36e-cdcae7c0b12c",
-    "input_task_checksum": "1de7ecf5115ccdc71b3ce5ec8f43fc2be8bd6b9f430ade5b79561627038bee8b",
+    "job_id": "f169e914-86f0-479f-b7be-1da056e25ada",
+    "trial_id": "87a83367-6159-4664-8ba7-0a2efaa28354",
+    "input_task_checksum": "64aedcfc8165b0ef0bb695b835bcd37e6fdbaa585acb198668bef6129a23d60e",
     "agent": "oracle",
     "environment": "docker",
     "n_completed_trials": 1,
@@ -145,8 +190,9 @@
     "tests_passed": 18,
     "tests_failed": 0,
     "tests_skipped": 0,
-    "runtime_seconds": 27,
-    "canonical_image_retained_after_run": true
+    "runtime_seconds": 23,
+    "canonical_image_retained_after_run": true,
+    "evidence_written_after_input_checksum": true
   },
   "provenance_gates": {
     "head_matches_base": true,

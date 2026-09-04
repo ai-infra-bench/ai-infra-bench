@@ -9,12 +9,20 @@ from verifier_support import (
     MIXED_PROFILE,
     NON_EAGLE_PROFILES,
     SINGLE_EAGLE_PROFILES,
+    receive_plan_trace,
     run_receive,
 )
 
 
 def main() -> int:
     try:
+        print(
+            {
+                "trace_kind": "reduced receive-plan instrumentation",
+                "trace": receive_plan_trace(SINGLE_EAGLE_PROFILES[3]),
+            },
+            flush=True,
+        )
         cases = [
             run_receive(SINGLE_EAGLE_PROFILES[4]),
             run_receive(NON_EAGLE_PROFILES[1]),
