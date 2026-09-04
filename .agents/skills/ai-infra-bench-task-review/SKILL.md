@@ -1,69 +1,77 @@
 ---
 name: ai-infra-bench-task-review
-description: Review and harden ai-infra-bench Harbor tasks by checking provenance, instructions, environments, verifiers, and evidence; do not use for ordinary code review.
+description: Review and harden ai-infra-bench Harbor tasks by checking, in order, the authenticity of the task statement, the authenticity and cutoff integrity of the environment, and the behavioral alignment and fairness of the verifier. Do not use for ordinary code review.
 ---
 
 # Review and Harden ai-infra-bench Tasks
 
-A task is jointly defined by its source history, instruction, environment, solution, verifier, and validation evidence. A passing Golden patch proves only that one implementation satisfies the current tests; it does not prove that the task is valid.
+The goal is to confirm that the task describes a real infrastructure problem, the image provides a realistic development environment that could have existed only on the cutoff date, and the verifier accepts different correct implementations while rejecting incorrect or hacked solutions.
+
+Every task must pass three gates in order: task statement, environment, and verification. When an earlier gate has a blocking issue, do not conceal it by changing a later gate. Do not change the task contract to accommodate the verifier.
+
+For every review, read [references/review-rubric.md](references/review-rubric.md) in full. When the user authorizes changes, validation, a commit, or a PR, also read [references/validation-playbook.md](references/validation-playbook.md) in full. You may run `scripts/audit_task_artifacts.py` as a final static gate, but static checks do not replace behavioral validation.
 
 ## Working modes
 
-- For a review request, stay read-only: inspect primary sources, run relevant non-mutating diagnostics, and report findings. Do not rewrite the task before the user approves the direction.
-- For a hardening request, first read the review report, confirm that it still applies to the current task revision, and convert approved findings into a traceable remediation matrix. Only then begin editing.
-- Commit only when the user explicitly asks. Stage exact task paths and exclude shared templates and unrelated dirty files.
+- When the user asks only for a review, review the task completely. You may run any commands needed, including reproducing the behavior inside the image and running the verifier, but do not modify the task or create a PR.
+- When the user asks for changes, continue in the same isolated worktree and from the same reviewed version. Map each finding to its change before editing the approved scope.
+- Commit, push, or create a PR only with explicit user authorization. Stage only the target paths and preserve all other tracked and untracked changes.
 
-Read [references/review-rubric.md](references/review-rubric.md) for every review. When the user asks to fix, build, validate, or commit a task, also read [references/validation-playbook.md](references/validation-playbook.md) before changing files.
+## Gate 1: The task statement describes a real problem
 
-## Principles
+The problem must be real, and every detail must be factual. It may come from an ordinary user's day-to-day work, such as deploying an inference service locally, training a model locally, encountering unexpected behavior, or needing the infrastructure to support something new. It may also come from an infrastructure practitioner, in which case it can be more specialized, such as conducting an investigation or building tools for performance or behavior analysis.
 
-1. Start from the public PR, issues, and the pinned base. Do not invent users, logs, failure modes, or discovery history.
-2. When facts, environment, and scope allow it, start the instruction from an earlier user action or surface symptom in the discovery timeline. Do not begin from an already-narrowed internal diagnosis or disclose the Golden approach.
-3. The instruction and verifier must align. Hidden tests may vary inputs and boundaries, but must not add hidden functionality.
-4. Judge observable behavior, not implementation shape. The verifier must not require Golden-only helpers, private fields, new parameter names, exact internal state sequences, or a specific algorithm.
-5. Cover a real subsystem boundary. Unit tests and mocks may support diagnosis, but cannot be the only basis for reward.
-6. Base must fail because the target behavior is wrong, and Oracle must pass. A base failure caused by a missing Golden helper or import has no scoring value.
-7. Challenge the verifier with incomplete and hack patches, and use a behaviorally correct implementation with different internals as a positive control. The former must score 0; the latter must receive full reward.
-8. Build from the PR base without leaking future source, dependencies, Git objects, or build caches. Keep a complete, self-contained Dockerfile and retain the canonical image.
-9. Record limitations accurately. Deterministic model output or fault injection may replace unavailable components, but reconstructed data must not be presented as original production or CI evidence.
-10. Evidence must report actual results. Test counts, hashes, image IDs, Harbor IDs, exit codes, and limitations must match the final artifacts.
-11. Every blocking finding must be fixed, rejected with evidence, deferred with user approval, or genuinely blocked. Do not claim completion while a blocking finding remains unresolved.
+Check each of the following:
 
-## Workflow
+- The user's actions match the real semantics of the product and project.
+- Every command, configuration, request, input, output, error, log, metric, and sequence of events has been validated in the pinned environment by some concrete method.
+- Logs in the task statement must be produced by the corresponding real code path. They must not be hand-assembled from output that does not exist.
+- The task statement includes only information the user has, observable symptoms, the expected outcome, and behavior that must remain intact.
+- It does not reveal the root cause, Oracle function names, variable names, internal state, algorithms, or the test inventory.
 
-1. Establish scope and read the complete local task, including `environment/`, `solution/`, `tests/`, and `validation/`. Record the branch, worktree, base commit, and candidate or instance identity.
-2. Retrieve the complete relevant GitHub context: PRs, issues, all discussions, inline review, every PR commit, related history, predecessor proposals, and later boundary-changing fixes.
-3. Review the instruction using that context. The solution and tests may inform the review, but Golden-specific implementation choices must not become instruction requirements.
-4. Start the base image without `/tests`, `/solution`, or validation mounts. Reproduce the instruction and inspect what the evaluated agent can actually access.
-5. Build a contract matrix and confirm that the instruction, base behavior, provenance, Oracle, and verifier describe the same problem.
-6. Review the Dockerfile, final image, Git objects, dependency lock, and caches for answer leakage and future information.
-7. Map every test to instruction behavior. Identify implementation coupling, hidden requirements, weak assertions, fake E2E, and special-caseable coverage.
-8. During review, run one complete base and Oracle trial when feasible. Confirm the recorded failure boundary, then report before editing.
-9. After approval, validate the review report and create a remediation matrix.
-10. Resolve every instruction finding with the user, confirm instruction choices, and freeze the final behavior contract and E2E boundary.
-11. In order, address Docker and environment issues, Oracle, tests and verifier, adversarial patches, and a correct alternative implementation. Do not enter the next stage while the current stage has a blocking finding, and do not weaken valid tests to make Oracle pass.
-12. Build or reuse the final image and complete isolation audits. Then run first-pass validation, post-change review, five-round stability checks, and Harbor.
-13. Refresh evidence from actual results. Completion requires every blocking finding to be closed and the staged diff to match the approved scope.
+The task statement must not mention `reproducer`, `reproduction`, `mock`, `fixture`, `reduced`, missing CPU/GPU resources, curation work, qualification checks, or the origin of supplied materials. Those belong in validation evidence, not in the user's problem.
+
+"Reproducible in the image" does not mean that every GPU- or model-related problem requires the actual GPU or model. A sufficiently capable solver may construct mocks in the environment and still reproduce the behavior. The image itself must not contain mock scripts or reproduction scripts, because they make the problem easier.
+
+## Gate 2: The environment looks like a real development environment
+
+Review the image only after the task statement is frozen. The image must allow the agent to investigate and fix the problem using only the task statement, source code, and components that would normally exist in the environment.
+
+Check each of the following:
+
+- Every real component required by the task statement is present. For example, if the task uses a particular tokenizer, provide that tokenizer. If an agent or CLI participates in the workflow, provide the real program. Model weights that are not needed may be omitted.
+- The source, dependencies, configuration, runtime assets, system tools, and resources are sufficient to reach the target code path.
+- Directories, filenames, environment variables, users, the workdir, and component installation paths look like a normal development environment. They must not expose the task name or curation markers such as `assets`, `reproducer`, `solution`, `tests`, or `validation`.
+- During the agent phase, tests, the Oracle, validation artifacts, evidence, reward logic, reproduction scripts, and mock scripts are not visible. No image layer may contain them either.
+- The repository checkout, Git history, dependencies, and all additional components are no newer than the cutoff. Remotes, remote refs, tags, reflogs, fetch metadata, and reachable or unreachable Git objects newer than the cutoff have been removed.
+- The base image, system packages, Python/npm/Rust dependencies, external binaries, tokenizers, model configuration, and other resources actually existed on the cutoff date, and their versions and hashes can be verified. Do not use packages or resources released after the cutoff to complete the environment.
+
+It is not enough for the environment to run the tests. It must be a normal development environment that a user could actually have created on the cutoff date.
+
+## Gate 3: The verifier fairly checks the task statement
+
+Once the task and image are fixed, verification must align with the task statement.
+
+First, the verifier must be independent of the details of the Oracle implementation. It must never depend on Oracle-specific implementation details, such as functions, variable names, or intermediate algorithm state. Otherwise, other correct solutions may fail simply because the task does not require a particular function or Oracle variable. The verifier must align with the task statement, not the other way around. Never address this problem by adding required function names, algorithm details, or similar implementation constraints to the task statement. Change the verifier instead.
+
+Second, the verifier must use behavioral tests rather than unit tests: it should use enough behavior-level cases related to the task to determine whether the described problem or requirement has been implemented correctly.
+
+Third, the verifier must include a real end-to-end test. Environmental limits may make a fully literal E2E impossible—for example, a CPU sandbox may not have model weights or a GPU—so the E2E may use mocks. Even then, it must remain as realistic as possible. To test whether a parser bug has been fixed without model weights or a GPU, for example, the test may mock the model's generated text while keeping every other part of the path real, including a real downstream agent such as OpenCode making the request. Reviewers must determine how the E2E can be made more realistic under the available constraints.
+
+Fourth, the verifier must include regression tests that protect existing behavior that the change might break. Fifth, the verifier must include hidden tests rather than testing only the cases described in the task statement, which could be special-cased.
+
+## Blocking findings
+
+Any violation of the principles in any of the three sections above is blocking. Assign P0, P1, or P2 based on the extent of validation and the severity of the issue.
 
 ## Review output
 
-Lead with the verdict, then report:
+Start with a conclusion on whether the task can be retained, then report:
 
-- provenance and discovery history with direct PR or issue links;
-- whether the instruction can remain, or what it leaks, omits, or invents;
-- verifier findings ordered by impact;
-- current base and Oracle results;
-- the real E2E boundary and its limitations;
-- concrete changes required before the task is valid.
+- The real user workflow represented by the task statement and validation evidence for every concrete detail.
+- Required image components, realistic paths, the cutoff audit, and leak prevention.
+- The line-by-line mapping between the task statement and verifier, behavioral tests, E2E, regressions, and hidden coverage.
+- Actual Base, Oracle, adversarial-control, and alternative-control results.
+- Blocking findings, reproducible counterexamples, and the artifacts that must change.
 
-Do not claim completion while final Harbor evidence or required integrity checks are missing.
-
-## Hardening output
-
-When hardening is complete, report:
-
-- the final status of every remediation-matrix finding;
-- the final instruction-verifier contract and E2E boundary;
-- actual base, Oracle, adversarial, alternative, and Harbor results;
-- image ID, retained state, isolation audit, and known limitations;
-- commit hash or the exact uncommitted state.
+After the user authorizes hardening, report the final status of every finding, hashes of the final executable artifacts, image identity, stability and Harbor results, and the exact uncommitted or commit/PR state. Do not claim completion while any blocking finding remains open or while evidence contains results that were not actually run.

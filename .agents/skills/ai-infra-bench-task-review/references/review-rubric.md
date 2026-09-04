@@ -1,627 +1,390 @@
 # Task Review Rubric
 
-Use this rubric for a read-only review. First determine whether the instruction and base environment form a real, solvable task. Then review provenance, Docker isolation, the verifier, and the recorded evidence. An Oracle pass alone does not make a task valid.
+Use this rubric to review ai-infra-bench tasks in this order: task statement, environment, verification. A task is valid only when all three hold: the task statement describes a real-world problem, the image resembles a normal development environment that could have been created on the cutoff date, and the verifier scores only the externally observable behavior promised by the task statement.
 
-## 1. Record the review scope
+## 1. Fix the review target
 
-Read the complete local task. Do not stop at file listings, partial previews, or prior summaries:
+Read all of the following in full:
 
-- `task.toml`
-- `instruction.md`
-- every file under `environment/`, including the Dockerfile, image manifest, lock inputs, lock output, and lock manifest
-- every file under `solution/`, including the solve script and Oracle patch
-- every file under `tests/`, including the test runner, behavior tests, E2E scripts, and integrity checks
-- every file under `validation/`, including all adversarial and alternative patches and the complete `e2e-evidence.json`
-- any other task-root file that affects building, execution, or publication
+- `task.toml` and `instruction.md`;
+- the Dockerfile, image manifest, dependency inputs, lock outputs, runtime asset manifest, and build scripts under `environment/`;
+- the solve script and Oracle patch under `solution/`;
+- the runner, behavioral tests, E2E tests, and integrity checks under `tests/`;
+- controls, the case manifest, the remediation matrix, and evidence under `validation/`;
+- any other files at the task root that affect the build, execution, or publication of the task.
 
-Read text, configuration, scripts, and patches in full. For binary or large runtime assets, inspect at least the type, size, hash, source, and license. Open or parse the content when the review depends on it.
+Read all text, configuration, code, and patches completely. For binaries and large resources, check at least the file type, size, and hash; inspect their contents when the review conclusion depends on them.
 
-The solution and tests are available for review, but they do not define the task by themselves:
+Record:
 
-- the solution is one reference implementation, not the only valid implementation;
-- the tests are the current scoring mechanism, not proof that every hidden requirement is fair;
-- the instruction, GitHub provenance, and observable behavior jointly define the contract;
-- one purpose of review is to find disagreement among the instruction, solution, and tests.
+- the absolute worktree path, branch, HEAD, and dirty state;
+- the task directory, `[task].name`, repository, Base commit, and cutoff;
+- candidate/instance identifiers, canonical image tag, and image ID.
 
-Record the current branch, worktree state, task directory, base commit, candidate ID, instance ID, canonical image tag, and image ID. Confirm whether the user authorized only review or also authorized changes.
+Existing tracked and untracked changes belong to the user. Do not clean them, overwrite them, or mix them into the target task. Focus only on the task currently under review.
 
-Run `git status --short`. Existing tracked and untracked changes belong to the user. Do not clean, overwrite, or mix them into later commits.
+Neither the solution nor the tests can define the contract on its own. The solution is only one reference implementation, and the tests are only the current scoring mechanism. The task statement, the real environment, and observable behavior define the contract together.
 
-## 2. Retrieve the complete GitHub context
+## 2. Check task identity and repository conventions first
 
-Use `task.toml` and the evidence file to identify the repository, base commit, PR, and issue. Read primary GitHub data rather than search-result summaries or secondary descriptions.
+### 2.1 Task name
 
-Read the complete current PR context:
+- The directory name must be a semantic lowercase kebab-case name.
+- The name must describe the workload, the user-visible symptom, or the capability being requested.
+- PR, issue, candidate, and instance numbers and temporary identifiers are forbidden. Invalid examples include `vllm-pr-12345`, `issue-456`, and `candidate-223`.
+- Use the repository's conventional project or workload prefix, followed by enough semantic detail to distinguish the task.
+- `[task].name` must equal the repository namespace plus the directory name, for example `ai-infra-bench/<task-directory>`.
+- `[task].description` must describe the user-visible problem or requested capability without revealing the solution.
 
-- title, body, state, author, creation time, and merge time;
-- base SHA, head SHA, merge commit, and every commit in the PR;
-- each commit message, its order, and its actual diff;
-- changed files and the complete PR diff;
-- linked issues, closing issues, and issues or PRs referenced in the body;
-- all ordinary comments;
-- all review summaries;
-- all inline review comments and replies;
-- timeline events such as cross-references, close/reopen events, force pushes, and replacement relationships;
-- proposals that review rejected, changed, or added.
+An invalid task name or directory, or a mismatch between the directory and task name, is a publication blocker.
 
-Useful entrypoints include:
+### 2.2 Directory layout and metadata
 
-```bash
-gh pr view "$pr" --repo "$repo" --json \
-  number,title,url,state,author,createdAt,mergedAt,body,baseRefOid,headRefOid,\
-commits,comments,reviews,files,closingIssuesReferences
-gh pr diff "$pr" --repo "$repo"
-gh api --paginate "repos/$repo/pulls/$pr/comments"
-gh api --paginate "repos/$repo/issues/$pr/timeline" \
-  -H 'Accept: application/vnd.github+json'
-```
+Compare the directory structure and metadata with the current CI, generator/template, and peer tasks. Check the schema, track, workload, subsystems, repository, source, publication metadata, required artifacts, and field names.
 
-Read every linked issue in full:
+Check every relevant field in `task.toml`:
 
-- the issue body in its current edited form;
-- all comments;
-- labels, state, close reason, and linked PRs;
-- commands, configuration, logs, hardware, and reproduction conditions supplied by users;
-- information maintainers requested and the user's later validation;
-- related discussions referenced in the issue timeline.
+- `base_commit` is a full immutable SHA and matches the Dockerfile, manifests, lock data, and evidence.
+- The cutoff and image digest match the actual artifacts.
+- Agent, verifier, and build timeouts, along with CPU, memory, storage, and OS resources, are sufficient to execute the contract.
+- The workdir is an absolute path that looks like a real development path.
+- Agent and environment network policies match unless the phases intentionally differ.
+- The accelerator is a runner class supported by the current CI.
+- CPU tasks do not declare a topology and request zero GPUs.
+- GPU tasks use an allowed runner topology, `gpus` matches the topology, and `gpu_types` explicitly includes the actual accelerator.
+- The accelerator and topology reflect the device semantics the correct behavior truly depends on, rather than simply copying the machine used in the original incident.
 
-Follow new URLs, issues, and PRs referenced by bodies or comments until the provenance chain closes. If there is no directly linked issue, state that explicitly. Do not substitute a superficially similar issue.
+Incorrect metadata is blocking when it selects the wrong runner, resources, Base, or image.
 
-Inspect relevant Git history:
+## 3. Gate 1: Task-statement authenticity
 
-- read every PR commit in chronological order;
-- inspect earlier commits affecting the relevant files and functions;
-- identify the feature commit or predecessor PR that introduced the problem;
-- inspect earlier proposals that the current PR replaced;
-- inspect later fixes that affect task boundaries without importing those fixes into the base;
-- use `git log -- <path>`, `git show <sha>`, and `git blame <base> -- <path>` when needed.
+### 3.1 Confirm that this is a real-world problem
 
-Write a timeline: how the problem arose, how it was observed, how it was narrowed, how review changed the proposal, what the final PR fixed, and what belongs to later work. Leave undocumented steps unknown.
+A valid task statement must correspond to a workflow that occurs in the real world. These workflows generally fall into two categories:
 
-## 3. Review the instruction in context
+- An ordinary user encounters unexpected behavior while deploying an inference service locally or in a private environment, training a model, invoking an agent or CLI, or processing inputs and outputs, or asks the infrastructure to support a reasonable capability.
+- An infrastructure practitioner develops, integrates, analyzes, or debugs a system, including work involving performance analysis, behavior analysis, resource scheduling, caching, communication, parsing, serialization, or observability.
 
-Use GitHub provenance, the solution, and the tests for different purposes:
+But not limited to this two categories, you can propose more interesting one.
 
-- GitHub provenance establishes facts, discovery history, and public scope.
-- The instruction defines what the evaluated agent receives.
-- The solution shows whether one reference fix satisfies the contract.
-- The tests show how the task is currently scored and whether scoring depends on the reference implementation.
+The task statement does not need to reproduce a public issue word for word, and no public incident report is required. It must not, however, be a collection of test conditions invented solely to match a patch. The reviewer should ask: who would actually perform these actions, why would they need this result, and do these product interfaces and workflows really exist? Does this read like an artificial exercise written around the Oracle patch rather than a real use case or requirement—something no one would actually do or say? If so, the task statement has a problem.
 
-Do not turn a helper, field, parameter, or code structure introduced by the solution into a required interface. Do not narrow the task to the one input currently used by tests.
+### 3.2 Establish evidence for every concrete detail
 
-### Choose the instruction's starting point
+Create a fact table:
 
-Break the GitHub timeline into stages:
+| Detail in the task statement | Type | How it was validated | Result in the pinned environment | Evidence location |
+|---|---|---|---|---|
+| Command or startup argument | Operation | Run the real parser/CLI | Exit status and resulting configuration | Run record |
+| Request/body/header | Input | Pass it through the real request-conversion path | Actual internal request | Run record |
+| Response/stream/log | Output | Produce it through the corresponding code path | Raw output and ordering | Run record |
+| Model or tokenizer behavior | Component | Run the image's real tokenizer/template | Token/text result | Run record |
+| Performance or resource figure | Metric | Measure repeatedly under fixed conditions | Raw samples and statistical method | Run record |
 
-- A: the normal job the user or developer originally wanted to perform;
-- B: the first observable failure, wrong output, slowdown, or missing capability;
-- C: an internal trace, narrowed subsystem, or numeric discrepancy found during investigation;
-- D: the root cause, design conclusion, and final fix.
+Requirements:
 
-The instruction should normally begin at A or B so the agent must diagnose the path from surface behavior to the internal cause. If the full timeline is A → B → C → D, beginning directly at C can remove most of the diagnostic work and disclose knowledge obtained only after the original investigation.
+- Every command, configuration, request, input, output, error, log, metric, and sequence of events must be validated by actual execution. Code reading alone is not enough to conclude that something is theoretically possible.
+- Logs must come from the real code path described by the task statement. Preserve their original format, fields, and values; do not assemble them by hand.
+- Requests must be accepted by the real entry point, and their arguments and values must conform to the schema at that version.
+- When deterministic input replaces an unavailable producer, the input must still pass through the first real target component and every relevant downstream stage.
+- Record substitution methods, temporary drivers, and limitations in evidence, not in the task statement.
+- The reviewer may build temporary machinery outside the container to validate facts, but reproduction or mock scripts must not be placed in the agent image.
 
-Do not mechanically choose the earliest chronological event. The starting point must:
+"It is plausible that this could happen" is not evidence. Neither is "the code path looks as though it would produce this output."
 
-- have support in public sources or a verifiable local run;
-- be executable in the available image, or come with sufficient authentic logs;
-- avoid unavailable private customer data, private prompts, missing weights, or nonexistent hardware;
-- avoid invented business stories, commands, numbers, or causal claims;
-- avoid expanding a local fix into a much larger product request;
-- retain enough signal to make the task solvable within its time limit.
+### 3.3 Keep the task statement in the user's perspective
 
-Starting at C is acceptable when:
+The task statement may include:
 
-- the problem was originally found during code review or new subsystem development and no user symptom is known;
-- A or B requires private data, unavailable hardware, or unavailable model assets, so moving earlier would require invention;
-- the instruction intentionally uses a developer-debugging perspective and C is the first evidence that developer actually had;
-- the early symptom cannot be aligned reliably with the current PR's fix boundary.
+- What the user is doing.
+- Which real public entry points, configurations, or inputs they use.
+- What unexpected behavior or missing capability they observe.
+- What result they expect.
+- Which existing behavior must remain intact.
+- What the user currently has, what their application is, and what actions they took.
+- What assignment an expert developer has been given and the background behind it.
+- What an expert developer is exploring experimentally and what part of the system they want to optimize.
+- What the user wants to build, what it should be able to do, and how it should behave.
+- ...
 
-When the task starts at C, explain in the review why A or B is not a suitable instruction boundary. Do not choose C merely because the existing verifier is written at C.
-
-Fine-grained verifier cases may operate at C, but the real E2E should enter through the A or B public boundary whenever feasible.
+The task statement must not include:
 
-For the instruction, identify:
+- `reproducer`, `reproduction`, or `reduced reproduction`;
+- `mock`, `fixture`, deterministic substitutes, or test-injection mechanisms;
+- environmental tradeoffs such as "the image has no GPU or weights" or "CPU sandbox";
+- the origin of supplied materials, qualification checks, Harbor, Base/Oracle, or curation conclusions;
+- Oracle helpers, function names, variable names, private fields, algorithm steps, or the case inventory;
+- internal requirements added only to make the existing verifier appear justified.
 
-- who is asking: end user, operator, library developer, reviewer, or subsystem engineer;
-- what operation they performed;
-- what they actually observed;
-- which statements are source-backed facts and which are user hypotheses;
-- what behavior they want changed;
-- what current behavior must remain unchanged;
-- whether they request explanation, a fix, a feature, or a combination;
-- whether the agent knows the workdir and available inputs.
+The task statement may include real logs and requests, but only as the user would see them. How they were obtained belongs in evidence.
 
-Flag an instruction that:
+### 3.4 Choose the right starting point
 
-- directly states the root cause, Golden solution, target field, algorithm, or Golden code structure;
-- rewrites post-merge understanding as knowledge the original user already had;
-- starts at C without a valid reason when the source timeline is A → B → C → D;
-- invents a user, business context, number, date, or log absent from public evidence;
-- presents a locally injected failure as an original production or CI log;
-- asks only to investigate, review, or inspect code while the verifier requires code changes;
-- says only "do not break existing behavior" while the verifier enforces specific undisclosed cases;
-- requires a model, dataset, command, or service that does not exist in the image.
+You may use the GitHub CLI to collect context for the task when such context exists. For example, if the task is based on a PR in a repository, use the CLI to retrieve the full PR context, including its title, body, all discussions, and related issues, so you understand the entire chain of events. If the CLI requires authentication, ask the user to sign in.
 
-The instruction may include logs, requests, responses, A/B comparisons, or developer traces, but the reviewer must enter the image and verify that the claims are accurate.
+Break the problem into:
 
-## 4. Reproduce the instruction in the base image
+- A: the user's normal workflow;
+- B: an observable failure or missing capability;
+- C: a trace, internal localization, or numeric discrepancy discovered during investigation;
+- D: the root cause and repair design.
 
-Reading the Dockerfile is not enough. Start the canonical base image with the same CPU, memory, user, workdir, and network policy used during the Harbor agent phase.
+Normally, start from A or B. Start from C only when an infrastructure practitioner's real work genuinely begins with a performance trace, behavioral analysis, or subsystem development. D must not appear in the task statement.
 
-Do not mount any of the following during this check:
+As a rule, the chain of events recovered from a PR should not simply become the task statement. The task statement may instead build a real scenario from the observed behavior, the bug itself, or the requested capability. Do not force it to mirror the same chain of events or tell the same story. If the scenario is too simple or superficial, consider how to make it more realistic, more interesting, and more difficult. The bug or requirement itself and the context you collected can guide that work. The goal is a scenario that is more realistic, more interesting, and harder.
 
-- `/tests`
-- `/solution`
-- `validation/`
-- the Oracle patch
-- curator reproduction or debug scripts
+The task statement also does not have to originate from a PR or issue; the only requirement is that the problem be real. When a task is based on a PR or issue, consider whether the same underlying bug is related to other bugs or produces additional user-visible behavior under the same operation. In that case, you may propose a more complex task statement. Its Oracle would no longer be the PR patch alone, but a solution to a more realistic and more complex problem. Such proposals are encouraged when the combined scenario is more realistic and meaningfully deeper. Do not propose combining unrelated bugs or requirements merely to add more work; that produces a bundle of separate tasks, not the kind of deeper task we want. This is optional. Raise the proposal only when you find a particularly suitable or interesting opportunity.
 
-Adapt the command to the task and host hardware:
+### 3.6 Task-statement gate
 
-```bash
-docker run --rm \
-  --network none \
-  --cpus 8 \
-  --memory 48g \
-  --workdir /workspace/vllm \
-  --entrypoint bash \
-  "$image_tag" \
-  -lc '<read-only reproduction command derived from the instruction>'
-```
+Any failure to follow the principles above is blocking. Examples include:
 
-From the instruction and public repository code, verify:
+- The scenario is not a realistic user or infrastructure workflow.
+- Any concrete technical detail has not been validated or does not hold in the pinned environment.
+- Logs, requests, or outputs were assembled by hand or came from the wrong code path.
+- The task statement reveals curation methods, mocks/reproducers, environmental limitations, or the solution.
+- The agent needs private information that the task statement does not provide and that cannot be discovered in the environment before it can begin.
 
-- commands, request paths, and files mentioned by the instruction exist;
-- required Python packages, system libraries, media, tokenizer metadata, configuration, and test models are available;
-- the network mode permits the operation the instruction asks for;
-- base exhibits the described failure instead of stopping earlier on an unrelated dependency, memory, CPU-backend, or argument error;
-- the described problem actually exists and matches the instruction;
-- process counts, APIs, fields, and error types in logs match the claim;
-- the agent can continue diagnosis without curator-only information.
+Assign P0, P1, or P2. Do not review the environment until the task statement passes and is frozen.
 
-Classify reproducibility:
+## 4. Gate 2: Environment authenticity
 
-1. Direct reproduction: normal user behavior reliably triggers the problem in base.
-2. Log-driven reproduction: the original issue is a rare race or private incident; base cannot trigger it naturally, but the instruction provides sufficient authentic logs and the verifier uses deterministic injection.
-3. Reduced reproduction: model weights, GPUs, a cluster, or a private prompt are unavailable; the image keeps the relevant real subsystem and supplies deterministic input at the unavailable boundary.
+### 4.1 Build a list of required components
 
-The second and third categories may still be valid, but evidence must state the limitation. The verifier must not inject a stronger fault than the Golden patch is expected to handle.
+Derive the list from the frozen task statement rather than reasoning backward from the existing Dockerfile:
 
-Apply the same user operation to Oracle and confirm that it produces the promised result. Do not generate instruction evidence with one scenario and score an unrelated helper test.
+| Object or operation in the task statement | What the image must contain | Boundary that may be omitted | How to check it |
+|---|---|---|---|
+| Named tokenizer/template | The real tokenizer, config, template, and invocation dependencies | Model weights unrelated to the bug | Actually tokenize/render |
+| Named agent/CLI | The real executable and its dependencies | Unrelated remote services | Actually start and invoke it |
+| Parser/stream bug | The real parser and upstream/downstream conversions | Model forward pass | Drive the path with valid generated output |
+| Kernel/collective bug | The target device, runtime, kernel/backend | Unrelated model layers | Execute on the target device |
 
-## 5. Build and verify the contract
+Many other cases will not appear in this table. The governing principle is that once the task statement has been fixed, the environment must provide the tools, packages, components, and other resources it requires to test the solver's ability. If the task statement says the user built an application, the image should contain that application's repository. If the user says they were running the OpenCode agent when the problem occurred, the image should contain OpenCode. Build an environment that resembles the user's real development environment, but never include scripts that reproduce or mock the bug.
 
-This is the central review. The instruction, verifier, Oracle, and E2E must describe the same observable behavior. The verifier must accept every implementation that satisfies the contract.
+A component must do more than exist as a file. It must work under the agent's user, workdir, network, and resource constraints.
 
-### 5.1 Define the role of each artifact
+### 4.2 Paths and environment must look natural
 
-- GitHub provenance explains the origin, original symptom, and actual PR scope.
-- The instruction defines what the agent receives and what behavior reward may require.
-- Base establishes which behavior is broken and which control paths already work.
-- Oracle supplies one reference implementation, not the only implementation.
-- The verifier converts instruction requirements into repeatable observations.
-- E2E proves that the fix resolves the instruction through a real entrypoint.
-- Hidden tests vary inputs and boundaries without adding undisclosed features.
+The image should resemble an ordinary user development environment:
 
-No artifact overrides all the others. In particular, the verifier must not require the helper, variable, parameter, or internal state used by Oracle.
+- The repository is in the project's normal working directory.
+- Dependencies are installed through the project's usual environment or system mechanism.
+- Tokenizers, model configurations, CLIs, and tools use their normal cache, configuration, or installation paths.
+- The username, HOME, workdir, PATH, environment variables, and file permissions are reasonable.
+- Commands in the task statement map directly to those real paths.
 
-### 5.2 Define the task-level contract
+Reject names and paths that reveal curation, including:
 
-| Field | Question |
-|---|---|
-| Surface problem | What can a user or developer actually observe? |
-| Instruction start | Which A/B/C/D stage is used, and why is it the earliest reasonable start? |
-| Reproduction | How can the agent confirm the problem in the base image? |
-| Desired result | Which public behavior must change? |
-| Regression boundary | Which currently correct behavior must remain? |
-| Negative behavior | Which invalid inputs or persistent failures must still fail? |
-| Scope | Which APIs, modes, backends, languages, layouts, or hardware paths are in scope? |
-| Environment | Which dependencies, metadata, media, tokenizer files, or services are required? |
-| Limitations | Which models, GPUs, clusters, networks, or private assets are unavailable? |
+- a task slug or candidate/instance ID in a path;
+- artificial resource directories such as `/assets`, `/task-assets`, `/reproducer`, `/fixtures`, or `/golden`;
+- environment variables or labels that suggest tests, the solution, the Oracle, reward logic, or validation;
+- a README, shell history, cache, or temporary file that reveals the direction of the fix.
 
-Fill this table from the instruction, base reproduction, PR discussion, Oracle, and verifier before interpreting individual test failures.
+When an external component must be preinstalled, place it where that component would normally live in a development environment, and retain verifiable source and version records. Do not expose it through curator-oriented naming.
 
-### 5.3 Map every rewarded behavior
+### 4.3 Forbid artifacts that make diagnosis easier
 
-List every verifier behavior that can affect reward:
+The agent image and all image layers must not contain:
 
-| ID | Instruction basis | Public observation | Base expectation | Oracle expectation | Hidden variation | Regression/negative protection | E2E entrypoint | Implementation-dependent? |
-|---|---|---|---|---|---|---|---|---|
+- tests, hidden tests, the solution, the Oracle patch, controls, evidence, reward logic, or validation artifacts;
+- task-specific reproduction scripts, mocks, fixture generators, trace injectors, or one-command trigger scripts;
+- answer comments, the fixing commit, future source, or a pre-applied patch;
+- any of the above copied in during the build and deleted later.
 
-For every row, check:
+A sufficiently capable agent can write temporary programs from the task statement and source. Preinstalling those programs reveals the investigation path and lowers the difficulty.
 
-- the instruction contains an explicit or reasonably implied basis;
-- the test observes user-visible output, public API behavior, or stable subsystem state rather than a Golden intermediate;
-- base fails because the behavior is missing;
-- Oracle passes at the same public boundary;
-- hidden cases vary data, scale, order, mode, or failure conditions rather than functionality;
-- existing correct behavior from PR discussion and base is protected;
-- a real E2E covers the same requirement;
-- a correct implementation with a different structure can pass.
+### 4.4 Audit the cutoff strictly
 
-Check both directions:
+The image must be defensible as an environment that could have been installed on the cutoff date. Audit:
 
-1. Instruction → verifier: every explicit requirement has behavior coverage.
-2. Verifier → instruction: every requirement capable of producing reward 0 lies within the instruction contract.
+- the repository Base commit and retained history;
+- the base image digest;
+- the OS repository snapshot and system packages;
+- Python wheels/sdists, npm packages, Rust crates/toolchains, and Java/Go dependencies;
+- external binaries, CLIs, agents, compilers, drivers, and runtimes;
+- tokenizers, chat templates, model configurations, metadata, media, and other runtime assets;
+- build caches, wheel caches, source caches, and pregenerated artifacts.
 
-### 5.4 Check implementation independence
+Record an immutable version or digest for each item and prove that it was released no later than the cutoff. The following are forbidden:
 
-The following should not affect reward unless the instruction defines them as public interfaces:
+- `latest`, floating branches, unpinned URLs, or newly resolved versions;
+- packages, binaries, model resources, or backports released after the cutoff, even if used only for testing;
+- versions introduced after the cutoff under the label of an override;
+- a future wheel shadowing the Base worktree;
+- additional components with no recorded source, version, or date.
 
-- whether a Golden-added helper, class, method, or parameter exists;
-- names of variables, fields, files, functions, or classes;
-- whether the agent modified the same file as Golden;
-- patch text, AST shape, or exact call graph;
-- private maps, counters, cursors, or cache structures;
-- exact internal transition timing;
-- helper call counts and ordering;
-- use of one particular retry, lock, namespace, buffer, reference-counting, or other algorithm.
+The repository must be checked out at the exact Base and stripped of:
 
-If observable behavior and all regression boundaries are correct, renaming helpers, inlining logic, reorganizing modules, adding abstractions, or using another algorithm must not fail.
+- Git remotes and remote refs;
+- tags, reflogs, `FETCH_HEAD`, `ORIG_HEAD`, and fetch metadata;
+- reachable or unreachable objects newer than the cutoff or Base;
+- packs, bundles, alternates, caches, or a second checkout that can restore a future commit.
 
-Create at least one correct alternative implementation that deliberately changes Golden's internal names or structure while satisfying the complete contract. If it does not receive full reward, fix the verifier.
+Keep normal history from before the Base when it helps investigation. Do not use future objects, and do not make the repository excessively shallow in a way that artificially raises or lowers the difficulty.
 
-Base failure must also be meaningful. If most failures are `ImportError`, `AttributeError`, missing Golden symbols, or test calls using parameters unavailable in base, the verifier is testing Golden shape rather than task behavior.
+### 4.5 Solvability and the real semantic boundary
 
-### 5.5 Check real E2E alignment
+Start the canonical image with the same user, workdir, CPU, memory, storage, GPU, and network settings used during the agent phase. Do not mount tests, the solution, or validation artifacts. Confirm that:
 
-Every task needs at least one E2E through the deepest feasible real boundary. It must enter through the user or developer path in the instruction rather than a Golden helper:
+- the agent can find the source and real components named by the task statement;
+- the Base reaches the target behavior before any missing dependency, invalid argument, wrong backend, or resource failure blocks it;
+- the agent can construct input and observe the symptom independently;
+- the subsystem being fixed actually executes;
+- the agent can substitute unavailable boundaries without changing the semantics of the bug.
 
-- CLI tasks use the real parser and configuration conversion.
-- API tasks use real HTTP or SDK requests, request schemas, and response lifecycles.
-- Media tasks execute real decoding, chunking, and public loading APIs.
-- Cache tasks execute real schedulers, connectors, block pools, completions, or persistence.
-- Distributed tasks start the relevant nodes, workers, placement, or channels.
-- GPU tasks execute the real kernel, graph, collective, memory, or serving path on GPU; CPU fallback or a mock GPU is not a complete E2E.
+The fact that the original problem involved a GPU, model, HTTP service, or multiple nodes does not automatically require the image to reproduce the full deployment:
 
-GPU E2E must ensure:
+- A model forward pass may be replaced for parser, serialization, routing, or device-independent orchestration issues.
+- Tokenizer issues must execute the real tokenizer.
+- When HTTP lifecycle semantics determine the result, the test must use the real HTTP/ASGI/SDK path.
+- When a kernel, CUDA Graph, collective, DMA, device placement, or backend selection determines the result, the test must use the target hardware and runtime.
+- When isolation, placement, or network timing determines the problem, preserve the real independent-process or node semantics.
 
-- tensors, model state, and target operations are actually on GPU;
-- the required backend is selected without silent fallback to CPU, eager mode, another attention backend, or a dummy implementation;
-- kernel tasks run the real kernel rather than only a Python wrapper or shape helper;
-- CUDA Graph tasks perform real capture and replay;
-- collective, TP, PP, or multi-GPU tasks establish real process groups and communication;
-- multi-node issues use real multi-node placement and network paths;
-- memory, offload, or DMA issues perform real allocation, transfer, events, and synchronization;
-- serving issues enter through a real engine or API request.
+### 4.6 Audit the image and its layers
 
-Do not prove GPU execution by checking that a Golden function was called. Use observable output, public logs, tensor devices, backend-selection results, communication state, or profiling without binding to private Golden names.
-
-E2E must prove:
-
-- base fails on the target problem;
-- Oracle succeeds in the same scenario;
-- fixed output, state, or continued operation matches the instruction;
-- explicitly preserved behavior remains correct;
-- the test reaches the target subsystem rather than failing earlier on unrelated setup.
-
-When model weights or private services are unavailable, deterministic outputs or fault injection may replace that boundary, but the real code path after the substituted boundary must run. A GPU-specific issue still requires real GPU execution. Evidence must identify every substituted layer.
-
-E2E must not only replay the single public instruction example. Add at least one input, mode, length, ordering, or repeated scenario absent from the instruction. The public example proves alignment; hidden E2E cases prevent special-casing.
-
-### 5.6 Check hidden-test coverage
-
-Hidden tests should vary contract-relevant dimensions rather than merely changing constants:
-
-- values, lengths, batch sizes, blocks, chunks, and prompt shapes;
-- streaming and non-streaming;
-- single and multiple processes or nodes;
-- cold, warm, hit, miss, and partial-hit paths;
-- eager, lazy, synchronous, asynchronous, and other stated modes;
-- languages, backends, layouts, parallel configurations, and tool calls;
-- valid input, transient failure, persistent failure, and malformed input;
-- first run, repeated run, concurrency, restart, and recovery;
-- values and combinations absent from the instruction example.
-
-Hide inputs, not requirements. A reasonable agent should know the behavior being evaluated after reading the instruction, but should not pass by hard-coding its example.
-
-Test data must be deterministic. Use fixed seeds and preserve failing generated data. Replace low-probability races with deterministic injection aligned to the fix boundary.
-
-### 5.7 Check regression and negative behavior
-
-Passing the target path is not enough. Use the instruction, PR review, and base behavior to identify controls that already work:
-
-- ordinary requests that do not trigger the bug;
-- another correct API or mode;
-- single-node, cold-cache, no-speculation, or no-reset controls;
-- currently supported backends, languages, layouts, or parallel settings;
-- correct streaming, non-streaming, or tool-call behavior;
-- requests after reset, retry, or error recovery;
-- state after restart, repeated calls, and concurrency.
-
-Preserve negative behavior:
-
-- genuinely missing, malformed, unsupported, or persistently corrupted inputs must still fail;
-- fixes must not swallow exceptions, return empty results, or succeed unconditionally;
-- old data, invalid cache, or failed transfers must not be reported as success;
-- fixes must not silently fall back to a forbidden backend;
-- the first call cannot work while later calls leak state, resources, or references.
-
-Regression tests must observe behavior rather than check whether the agent called a Golden guard function.
-
-### 5.8 Decide whether the task is aligned
-
-The task is misaligned when:
-
-- the instruction describes a user failure but the verifier checks an internal helper;
-- the verifier requires a completely unstated feature;
-- multiple implementations are allowed but tests accept only Golden structure;
-- Oracle passes while breaking a path the instruction says already works;
-- hidden tests hide functionality rather than inputs;
-- behavior tests pass but E2E never crosses the real entrypoint or target subsystem;
-- E2E and hidden tests only use public instruction examples;
-- regression coverage allows a patch to fix the example while breaking normal behavior;
-- a correct alternative implementation fails only because names, files, parameters, or structure differ;
-- base fails because tests depend on Golden symbols rather than broken product behavior.
-
-For every gap, state which behavior test must be added, removed, or rewritten. Sections 8, 9, and 10 provide additional implementation-independence, E2E, and anti-hack checks.
-
-## 6. Statically review the Dockerfile
-
-Read `environment/Dockerfile` line by line. A bootable final image is not sufficient.
-
-### Source and Git history
-
-- Pin the base commit with a full SHA.
-- Fetch only that SHA, not the PR head, branch tip, tags, or later refs.
-- Remove remotes, remote refs, tags, reflogs, `FETCH_HEAD`, and `ORIG_HEAD` after checkout.
-- Preserve useful parent history through the base commit.
-- Avoid a shallow boundary that breaks ordinary history inspection.
-- Verify during build that HEAD equals the task's base commit.
-
-### Build context and hidden files
-
-- The Dockerfile must build with an empty context.
-- Reject `COPY .`, `ADD .`, and copies of the whole task directory.
-- Tests, solution, validation, evidence, and curator logs must not enter any build stage.
-- Do not copy answers in one layer and delete them later; earlier layers remain recoverable.
-- Dockerfile text, labels, environment variables, and shell history must not disclose answers, secrets, credentials, or curator-only paths.
-
-### Dependencies and runtime assets
-
-- Pin base images by digest rather than floating tag.
-- Use a complete Python lock with resolver, Python platform, and cutoff metadata.
-- Enforce the task cutoff with `--exclude-newer` or equivalent.
-- Document every cutoff override.
-- Review system package sources as well; floating apt repositories break reproducibility.
-- Pin Rust toolchains, Cargo crates, and downloaded binaries; verify hashes where possible.
-- Do not install `latest`, a Git branch, or an unpinned URL.
-- Pin tokenizer, configuration, and media assets by immutable revision or SHA-256.
-- Record licenses and attribution.
-- Do not download model tensors when metadata is sufficient.
-- Verify that no other vLLM wheel is installed before the editable base checkout.
-
-### Build cache
-
-- Source-independent OCI layers and download caches may be shared.
-- Namespace compiler output, CMake FetchContent, and other source-derived caches by full base SHA and lock digest.
-- Do not import untrusted remote build caches.
-- Build ordering must not allow `.so`, wheel, or generated files from later source to override the base.
-- When the host already supplies TUN networking, do not bake proxy addresses or credentials into the Dockerfile.
-
-## 7. Dynamically review the final image and future-data leakage
-
-### Image metadata
+Inspect the Dockerfile, build context, final filesystem, and image history. At minimum, run:
 
 ```bash
 docker image inspect "$image_tag"
 docker history --no-trunc "$image_tag"
 ```
 
-Check image ID, size, labels, environment, entrypoint, workdir, and history. Base, cutoff, and cache-namespace labels must match task metadata. Environment variables must not contain tokens, proxy credentials, or answer paths.
-
-### Git objects
-
-Run read-only checks inside the image:
+Inside the container, check:
 
 ```bash
 git rev-parse HEAD
-git branch --show-current
 git remote -v
 git for-each-ref --format='%(refname)' refs/remotes refs/tags
 git reflog show --all
-git rev-list --all --not "$base_sha"
 git fsck --full --no-reflogs --unreachable --no-progress
-```
-
-Expected results:
-
-- HEAD exactly equals base.
-- There are no remotes, remote refs, tags, or reflogs.
-- There are no reachable commits outside base history.
-- There are no unreachable future commits, trees, or blobs.
-
-If the PR head or a later commit SHA is known, verify that the object is absent:
-
-```bash
 git cat-file -e "$future_sha^{commit}"
 ```
 
-The command must fail. Deleting refs is insufficient if future objects remain in `.git/objects` or pack files.
+The final command must fail. Also verify that installed packages match the lock, imports resolve to the Base worktree, editable-install metadata does not point to another source tree, and earlier image layers never contained forbidden artifacts.
 
-### Answers and verifier files
+### 4.7 Environment gate
 
-The final filesystem must not contain:
+Any failure to follow the principles above is blocking. Examples include:
 
-- `/solution`
-- `/tests`
-- task validation patches
-- E2E evidence
-- curator debug or reproduction directories
-- Golden patches, reward files, or hidden logs
+- A real component required by the task statement is missing or cannot be used under agent conditions.
+- A path, filename, environment variable, label, or cache reveals the task identity, curated resources, or the answer.
+- The image contains reproduction/mock scripts or test artifacts.
+- The Base cannot reach the target path before an unrelated failure.
+- The repository, any dependency, or any additional component is newer than the cutoff, or its source, version, or date cannot be verified.
+- A future Git object, remote, or recoverable future source remains available.
 
-Upstream tests shipped with the vLLM source may remain. The forbidden files are Harbor-mounted task tests and curator artifacts.
+Assign a P0, P1, or P2 priority. Do not review the verifier until the environment passes.
 
-If the Dockerfile contains suspicious copies or deletions, inspect image layers. Save the image into a directory created by `mktemp -d` and inspect layer tar files for solution, tests, or validation artifacts. Absence from the final filesystem does not prove absence from older layers.
+## 5. Gate 3: Align the verifier with the task statement
 
-### Installed packages and import paths
+The principles are as follows. First, the verifier must be independent of the details of the Oracle implementation. It must never depend on Oracle-specific implementation details such as functions, variable names, or intermediate algorithm state. Otherwise, other correct solutions may fail simply because the task does not require a particular function or Oracle variable. The verifier must align with the task statement, not the other way around. Never address this problem by adding required function names, algorithm details, or similar constraints to the task statement. Change the verifier instead. Second, the verifier must use behavioral tests rather than unit tests: it should use enough behavior-level cases related to the task to determine whether the described problem or requirement has been implemented correctly. Third, the verifier must include a real end-to-end test. Environmental limits may make a fully literal E2E impossible—for example, a CPU sandbox may not have model weights or a GPU—so the E2E may use mocks. Even then, it must remain as realistic as possible. To test whether a parser bug has been fixed without model weights or a GPU, for example, the test may mock the model's generated text while keeping every other part of the path real, including a real downstream agent such as OpenCode making the request. Reviewers must determine how the E2E can be made more realistic under the available constraints. Fourth, the verifier must include regression tests that protect existing behavior that the change might break. Fifth, the verifier must include hidden tests rather than testing only the cases described in the task statement, which could be special-cased.
 
-Inside the image, run:
+### 5.1 Check alignment in both directions
 
-```bash
-python -c 'from pathlib import Path; import vllm; print(Path(vllm.__file__).resolve())'
-python -m pip freeze
-python -m pip show vllm
+Every requirement and behavior in the task statement must be tested by the verifier.
+
+For every verifier test—especially every test that can cause `reward = 0`—ask whether the task statement contains the corresponding requirement. If it does not, determine whether that requirement follows directly from the task statement. Imagine the strongest human expert solving the task: would they reasonably understand that the verifier's requirement must be satisfied? If so, the test may remain. Otherwise, it is misaligned and should be removed from the verifier.
+
+### 5.2 The verifier must align with the task statement
+
+When tests depend on function names, algorithms, or internal structures that the task statement does not promise, change the tests. Do not "fix" this by:
+
+- requiring the Oracle helper in the task statement;
+- publishing variable names, private fields, file paths, or intermediate state in the task statement;
+- prescribing call order, buffer structure, cache keys, or a specific algorithm in the task statement;
+- copying the hidden-case inventory into the task statement.
+
+The task statement defines the user contract, and the verifier observes that contract. The verifier cannot dictate how the user must implement it.
+
+### 5.3 Behavioral tests, not Oracle unit tests
+
+Reward must be determined by real external behavior:
+
+- Enter through a public/stable API, CLI, service, protocol, or stable subsystem boundary that already existed before the fix.
+- Observe user-visible output, state, side effects, persistence, errors, or lifecycle behavior.
+- Small unit tests may help localize problems and speed up feedback, but private helpers, fields, intermediate structures, and call details must not determine reward.
+- Do not require a particular file to be changed, parse patch text or ASTs, or compare the implementation with the Oracle.
+- Correct implementations may use different algorithms, data representations, and repair locations.
+
+Unless they are themselves part of the public contract, none of the following may affect reward: helper/class/method/parameter names, variable and field names, file layout, private maps/cursors/counters, specific retries/locks/buffers, or unrelated call counts and internal ordering.
+
+### 5.4 A sufficiently realistic E2E
+
+Every task must include at least one E2E that genuinely traverses the user workflow. When the environment truly lacks model weights, a GPU, or an external service, the test may replace only that unavailable producer or boundary. The substituted data must be valid input to the next real component, and every other part of the path relevant to the task's outcome must run real code.
+
+For example, a parser task may substitute deterministic generated text for model execution, but it should still run the real tokenizer/template, serving conversion, parser, stream aggregation, and any real downstream agent or CLI named by the task statement. If the task statement says OpenCode consumes the result, the E2E should run real OpenCode rather than a hand-written fake consumer.
+
+Map the E2E path one stage at a time:
+
+```text
+real user entry point -> real upstream conversion -> [the only allowed substitution boundary]
+-> real target subsystem -> real downstream conversion -> real user observation
 ```
 
-Confirm:
+For each stage, ask:
 
-- vLLM imports from the base worktree under `/workspace/vllm`;
-- no future vLLM wheel is installed alongside the worktree;
-- installed versions match the lock;
-- `direct_url.json`, `.dist-info`, and editable metadata do not reference other source directories;
-- extra dependencies respect the cutoff or documented overrides;
-- runtime assets contain no hidden patches, tests, or future implementation.
+- Can this stage run for real under the image constraints?
+- If it is currently skipped, is it genuinely irrelevant to the bug?
+- Can a project-provided entry point replace a test-only helper?
+- Can the test retain real processes, ASGI, streaming, protocols, a CLI, or an agent while replacing only the model forward pass?
+- Do the Base and Oracle follow exactly the same path?
 
-Dependencies can also leak future behavior. Check Python packages, system packages, Cargo crates, and external tools, not only vLLM Git. Review lock-generation commands, versions, release cutoffs, and override reasons.
+The E2E must validate the final task outcome and behavior that must remain intact, not just an internal parser return value. Include at least one input, ordering, state, or repeated-request scenario that is not disclosed verbatim in the task statement.
 
-### Cache and rebuilds
+### 5.5 Regression, negative, and hidden tests
 
-The final image must not retain source compiler caches, download directories, or temporary wheels. BuildKit cache mounts normally stay outside layers; ordinary directories do not.
+Regression tests protect behavior adjacent to the fix that already works on the Base, including output the task statement explicitly says must remain unchanged. It is not enough to prove only that the primary failure disappears.
 
-Rebuild with the same Dockerfile and empty context:
+Negative tests cover malformed, unsupported, partial, or persistently failing input, failure recovery, empty results, exception propagation, and forbidden fallbacks. A fix must not pass by swallowing exceptions, returning a constant, or reporting unconditional success.
 
-- the first build may populate caches;
-- the second build should hit caches;
-- both final image digests should match;
-- source-derived caches from other base commits must not alter output.
+Hidden tests vary dimensions within the contract: values, length, batch, chunking, ordering, mode, language, backend, layout, concurrency, cold/warm state, first/repeated calls, end-of-stream flush, and recovery. They must not merely replace a task-statement fixture with an equivalent fixture, and they must not test undisclosed functionality.
 
-For stronger validation, compare a clean-cache build with a warm-cache build, including key binary hashes when useful.
+For delimiters, markers, frames, prefixes, or partial records, relevant cases generally include an unterminated prefix, similar prefixes in ordinary text, a complete marker split across deltas, end-of-stream flushing, consecutive requests, and state isolation.
 
-### Runtime network
+### 5.6 Base, Oracle, and controls
 
-Use the task's declared network mode. A `no-network` task must remain reproducible and solvable offline. The agent must not use Git remotes, package indexes, or external services to retrieve the PR head or answer.
+Base:
 
-## 8. Check verifier implementation independence
+- receives reward 0;
+- fails because of the target behavior in the task statement;
+- does not fail primarily because of an ImportError, a missing Oracle symbol, a missing dependency, an invalid argument, or unrelated hardware;
+- can still execute the normal regression paths.
 
-Build a requirement matrix:
+Oracle:
 
-| Instruction requirement | Public observation | Behavior test | Hidden variation | E2E coverage |
-|---|---|---|---|---|
+- receives reward 1 at the same entry point and boundary;
+- actually runs every behavioral, E2E, regression, negative, and hidden test;
+- has zero skips and zero errors;
+- does not modify tests, the verifier, or reward logic;
+- does not add behavior outside the task statement.
 
-Flag tests that:
+Controls:
 
-- import a class or helper introduced only by Golden;
-- call a Golden-added method or pass a Golden-added parameter;
-- inspect private maps, counters, cursors, or fields;
-- assert exact transition timing, call counts, or internal ordering when the instruction requires only final behavior;
-- require a function, variable, class, file, or parameter name absent from the instruction;
-- inspect static patch shape rather than behavior;
-- make base fail mainly because a Golden symbol is missing;
-- reject a behaviorally correct implementation with a different structure.
+- Adversarial controls should cover realistic incomplete strategies such as special-casing public examples, fixing only some paths, returning constant output, swallowing exceptions, using an incorrect fallback, or leaking state after the first successful call. They should receive reward 0.
+- At least one alternative control must use a semantically different correct implementation, preferably based on a validated workaround, revert, rejected approach, or independent design. It should receive reward 1.
+- The alternative must not merely rename an Oracle helper. It must differ in at least one of algorithm, data representation, or repair location.
+- The verifier must not read control patches. It may distinguish them only through behavior.
 
-Tests may import stable public entrypoints that existed before the fix. Ensure the agent cannot see verifier source; Harbor should mount task tests only during verification.
+### 5.7 Verifier gate
 
-## 9. Check the E2E boundary
+Any failure to follow the principles above is blocking. Examples include:
 
-Unit tests are not E2E. Use the deepest feasible real boundary:
+- Behavior explicitly required by the task statement is not tested.
+- Reward depends on functionality outside the task statement or on Oracle implementation details.
+- The primary tests call only private helpers or observe intermediate state.
+- No E2E reaches the real target subsystem and required downstream components.
+- A component that could run for real is mocked without justification, making the path unrealistic.
+- Required regression or hidden tests are missing.
+- An implementation that violates the task statement receives reward 1, or a behaviorally correct alternative receives reward 0.
+- The Base fails for an unrelated reason, or the Oracle passes by skipping tests.
 
-- CLI: real parser and configuration conversion;
-- serving: real HTTP or SDK request, request schema, and response lifecycle;
-- video or speech: real media decoding, chunking, and public serving API;
-- cache: real scheduler, connector, block pool, and completion lifecycle;
-- distributed transport: real Ray nodes, placement, and channels;
-- GPU kernel, CUDA Graph, collective, memory, or GPU serving: real GPU execution without CPU or mock fallback;
-- persistent cache: real filesystem, asynchronous work, and process restart.
+Assign a P0, P1, or P2 priority.
 
-Check that E2E:
+## 6. Review report format
 
-- uses a public entrypoint rather than a Golden helper;
-- executes the relevant real subsystem;
-- covers the primary success path and required regression path;
-- fails in base because of the target bug;
-- passes with Oracle;
-- reaches the target boundary before any unrelated failure.
+Start with a conclusion: whether the task passes review, needs hardening, or is currently invalid. Then report by gate:
 
-When model weights or private services are unavailable, deterministic output may replace that boundary, but the relevant real code afterward must run. GPU-specific behavior still requires real GPU execution. Evidence must identify every substituted layer.
-
-## 10. Check anti-hack strength
-
-Anti-hack review covers tests, images, and builds.
-
-### Tests
-
-- Vary values, lengths, chunks, ordering, modes, languages, layouts, errors, and repetitions.
-- Do not only replay the instruction example.
-- Check final state and downstream effects, not only one return value.
-- Require the exact collected test count, unique cases, zero failures, zero errors, and zero skips.
-- Make reward depend on unit, behavior, E2E, and integrity layers.
-- Reject fixed answers, unconditional success, swallowed errors, skipped code, and fabricated reward files.
-
-### Image
-
-- The agent cannot see tests, solution, validation, or evidence.
-- Git cannot read commits or blobs after base.
-- Installed packages do not contain a future fix.
-- Source-derived caches cannot reuse output from a future build.
-- Image layers do not contain deleted but recoverable answers.
-- Environment, labels, shell history, and runtime assets do not disclose curator information.
-- `no-network` prevents external answer retrieval.
-
-### Adversarial and positive controls
-
-Adversarial patches should cover distinct incomplete strategies, such as:
-
-- special-casing the instruction example;
-- fixing streaming but not non-streaming, or one API but not another;
-- always returning success or a fixed answer;
-- swallowing an error that must remain visible;
-- handling one call but leaking state across repetitions;
-- falling back to a forbidden backend;
-- omitting one cache group, block, worker, process, or completion direction.
-
-Also test at least one implementation with different internal names or structure but correct behavior. It must receive full reward.
-
-## 11. Recheck base, Oracle, and error boundaries
-
-During review, run at least one complete base trial and one complete Oracle trial when resources permit.
-
-For base, confirm:
-
-- reward is 0;
-- failure comes from the target behavior;
-- tests do not fail merely because they import a Golden helper;
-- failure is not caused by a missing dependency or unavailable required hardware;
-- failure is stable rather than an accidental race.
-
-For Oracle, confirm:
-
-- reward is 1;
-- all tests and E2E paths actually execute;
-- no test is skipped;
-- invalid inputs, persistent corruption, and other negative cases still fail as required;
-- Oracle introduces no behavior outside the instruction contract.
-
-Spot-check recorded repeated runs. If current output disagrees with evidence, the evidence is stale.
-
-## 12. Review evidence
-
-Verify evidence content rather than only JSON syntax:
-
-- source PR or issue, base commit, and scope boundary;
-- hashes for the instruction, Dockerfile, lock, Oracle, tests, and helper scripts;
-- image tag, ID, size, and retained status;
-- behavior-case count and actual JUnit collection;
-- base and Oracle pass counts and exit codes;
-- adversarial and alternative patch hashes and rewards;
-- real E2E entrypoint, output, and substituted boundary;
-- Harbor version, job ID, trial ID, input checksum, runtime, and errored trials;
-- Git, dependency, cache, network, and hidden-file isolation gates.
-
-Do not reuse stale numbers. Instruction-only edits change the instruction hash and task checksum. Decide whether to rerun Harbor based on whether publication evidence requires exact checksum identity.
-
-## 13. Report before modifying
-
-First state whether the task can remain unchanged. Then report:
-
-- whether the instruction is authentic, solvable, and reproducible;
-- provenance or scope errors;
-- Dockerfile and image leakage risks;
-- verifier implementation coupling;
-- missing behavior coverage;
-- weak or mislabeled E2E;
-- Oracle defects;
-- stale or inaccurate evidence;
-- current base and Oracle results.
-
-Do not modify a review-only task. After the user approves changes, read the validation playbook and implement the agreed fixes.
+1. Task statement: the real workflow, evidence for each concrete fact, fabrication or leakage risks, and whether there is a better proposal.
+2. Environment: required components, realistic paths, cutoff, Git/dependency/image-layer isolation, and task metadata.
+3. Verification: bidirectional contract mapping, behavioral entry points, the E2E path, regressions, hidden tests, and Base/Oracle/controls.
