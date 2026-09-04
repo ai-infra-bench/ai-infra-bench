@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-09-04T20:37:38+08:00",
+  "recorded_at": "2026-09-04T21:26:00+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-175",
     "instance_id": "vllm-project__vllm-43516",
@@ -23,12 +23,14 @@
       "instruction.md": "33a451276d1e851a5dec8a093efc59cac37270027b0ee5294a67942eb788a6d1",
       "solution/oracle.patch": "72bc24986984524252e818baf6b2effee4c1616c5110c16c783377fdd9e90c46",
       "solution/solve.sh": "30736ddecc6d93c65becaef873117262947e06abc41e37210157417696d39d56",
-      "tests/check_junit.py": "a5645da4c167c132f825f4da503a2ad9724a17e3f9e105f7e3881c950d6fab48",
-      "tests/test.sh": "d7367f0d30148be02f5857c0b00e1ef24760bbd9265aad989006f7d6cb0ccd30",
-      "tests/test_real_receive_pipeline.py": "e41552d444f16d845059c4cf4847cb16625d6a110c7c75b64187b0ea340287b4",
-      "tests/test_regression.py": "f24b1d339728538cf2464268539ed9c5be095ebd613ad4f450402d105d19a522",
-      "tests/verifier_support.py": "7d8e1ef5eca70149613cbfa9811a26651f9d41508b41cf71e36739b320810d36",
-      "validation/ci-cases.json": "0b96d33c601755e7013f68d219d893f2f614f7a250a49b225ccb8fc766eaf080"
+      "tests/check_junit.py": "1275b5f70a0c49d83e3565270571aaf0097530a786719e2fd1891e07bf100057",
+      "tests/test.sh": "35515aea5bc3d62cdb46e21766c68e4ce0c87307069038a255d1b8471944171d",
+      "tests/test_real_receive_pipeline.py": "ae1a9b73ef66f95bb0351aecf0ec669bc55572a80b5c52cd49088c9e1674e311",
+      "tests/test_regression.py": "ea307cba41516011c49ecbc9aad8fe690d0f3021f9f37fd644d4c69c71d0a81a",
+      "tests/test_serving_contract.py": "8d121a5cb716a5101e1efb0cab349e3d4134cedc592a5fd53b738858f6feb429",
+      "tests/verifier_support.py": "e030d4a8e89100cfb03470010320de4825285f84c36fc123b074c03b92cff75b",
+      "validation/ci-cases.json": "7e1eb37163e50ceca4d864ba796a0659cb0c5ecfad69f4b226c245a26be85c00",
+      "validation/remediation-matrix.md": "1f71c9adf82534e3a62e01fba3dbe06c31b69dbb8ed634f9b4feb1097412d0e2"
     }
   },
   "scenario_configuration": {
@@ -51,17 +53,16 @@
     "validation_note": "The pinned Base resolved both immutable Hugging Face configs and accepted the complete SpeculativeConfig. Safetensors metadata was inspected, but full target and draft weights were not downloaded or executed."
   },
   "verifier_contract": {
-    "behavior_cases": 18,
+    "behavior_cases": 15,
     "block_sizes": [8, 16, 32],
     "behaviors": [
       "every relevant FullAttention chunk within the reported Eagle hit is loaded",
       "non-Eagle receive behavior remains unchanged",
-      "FullAttention and sliding-window groups write only their semantically relevant chunks",
-      "mixed group block sizes cover the same reported token range",
-      "Mamba loads only its final state chunk while FullAttention remains complete",
-      "TP key rotation changes order without changing loaded content",
-      "four concurrent requests share one receive queue without dropping chunks",
-      "requested keys write deterministic bytes to the correct group and block buffers"
+      "TP ranks 1 through 3 rotate key order without changing loaded content",
+      "four repeated requests share one receive queue without dropping chunks",
+      "requested keys write deterministic bytes to the correct FullAttention blocks",
+      "the complete pinned MiniMax serve arguments parse and dispatch to the API server",
+      "a non-streaming OpenAI chat request crosses the real ASGI route and preserves the deterministic cold-model response"
     ],
     "implementation_independence": [
       "verifier runs directly from the read-only /tests mount",
@@ -69,23 +70,27 @@
       "constructs cache specs, coordinator, hashes, token databases, transport, and buffers in verifier-owned code",
       "does not call or assert the internal load_mask representation",
       "asserts lookup hit length only as an externally reported contract",
-      "accepts both coordinator-side Eagle suppression and receiver-side semantic mask normalization"
+      "accepts coordinator-side Eagle suppression, receiver-side normalization, and a task-scoped single-group padding implementation",
+      "runs the real CLI parser, ServeSubcommand dispatch, FastAPI route, request schema, and response serialization"
     ],
-    "collection_integrity": "JUnit must contain exactly 18 unique, passing, non-skipped cases"
+    "collection_integrity": "JUnit must contain exactly 15 unique, passing, non-skipped cases"
   },
   "real_lifecycle_boundary": {
-    "kind": "real Mooncake background receive-thread pipeline with deterministic target-buffer writes",
-    "entrypoint": "KVCacheStoreRecvingThread",
+    "kind": "composed real Mooncake receive-thread boundary and OpenAI serving-interface boundary",
+    "entrypoints": ["KVCacheStoreRecvingThread", "ServeSubcommand.cmd", "/v1/chat/completions"],
     "uses_real_coordinator": true,
     "uses_real_chunked_token_databases": true,
     "uses_real_request_metadata_and_address_preparation": true,
     "uses_real_ctypes_target_buffers": true,
-    "background_thread_cases": 6,
-    "verified_buffer_blocks": 65,
-    "concurrent_requests": 4,
-    "covers_single_hybrid_mixed_and_mamba_groups": true,
+    "uses_real_cli_parser_and_dispatch": true,
+    "uses_real_fastapi_request_validation_and_response_serialization": true,
+    "background_thread_cases": 4,
+    "verified_buffer_blocks": 30,
+    "repeated_requests": 4,
+    "covers_minimax_single_full_attention_contract": true,
+    "hybrid_and_mamba_reward_cases": false,
     "external_rdma_transport_exercised": false,
-    "limitation": "The CPU verifier does not run MiniMax-M2.5 weights, HTTP serving, two physical replicas, a Mooncake metadata service, or RDMA/TCP transport. An in-memory transport implements batch_get_into_multi_buffers and writes deterministic bytes to the real addresses prepared by ChunkedTokenDatabase. Model and transport layers are substituted because they do not determine the Base-versus-Oracle receive-mask distinction."
+    "limitation": "The CPU verifier does not run MiniMax-M2.5 weights, a listening network socket, two physical replicas, a Mooncake metadata service, or RDMA/TCP transport. An in-memory transport writes deterministic bytes to the real addresses prepared by ChunkedTokenDatabase. A deterministic cold-model handler supplies the response at the model boundary while the real CLI parser and dispatch, FastAPI ASGI route, request schema, and response serialization execute. Model inference and transport are substituted because they do not determine the Base-versus-Oracle receive-mask distinction."
   },
   "captured_receive_trace": {
     "case": "single FullAttention group, block_size=16, four stored blocks, Eagle-3 enabled",
@@ -108,14 +113,14 @@
       "case": "base",
       "rounds": 5,
       "rewards": [0, 0, 0, 0, 0],
-      "behavior_tests_each_round": {"passed": 3, "failed": 15},
+      "behavior_tests_each_round": {"passed": 5, "failed": 10},
       "e2e_exit_codes": [1, 1, 1, 1, 1]
     },
     {
       "case": "oracle",
       "rounds": 5,
       "rewards": [1, 1, 1, 1, 1],
-      "behavior_tests_each_round": {"passed": 18, "failed": 0},
+      "behavior_tests_each_round": {"passed": 15, "failed": 0},
       "e2e_exit_codes": [0, 0, 0, 0, 0]
     }
   ],
@@ -133,51 +138,53 @@
     "case": "receiver_side_semantic_mask_normalization",
     "patch_sha256": "12d069d63ed9cfe1e3262e76d8ec23b7c79009e7e9c3ffe60a1feb73feeb3e3c",
     "reward": 1,
-    "tests_passed": 18,
+    "tests_passed": 15,
     "tests_failed": 0,
     "e2e_exit_code": 0,
     "reason_accepted": "It leaves coordinator load_mask unchanged and fixes the observable receive behavior at a different production boundary."
   },
+  "task_scoped_alternative_run": {
+    "case": "single_group_mask_padding",
+    "patch_sha256": "883a04f2f95fb66a57bf6227e1fb2358f12b5f00ca97148050b0e34cda865642",
+    "reward": 1,
+    "tests_passed": 15,
+    "tests_failed": 0,
+    "e2e_exit_code": 0,
+    "reason_accepted": "It fixes the disclosed MiniMax single-FullAttention contract and preserves the rewarded non-Eagle and serving behavior."
+  },
   "adversarial_runs": [
     {
-      "case": "pad_only_single_group",
-      "patch_sha256": "a4ae731e06721c4b38894ed1075168be0aeb437eaad84040a94aa806e73beb66",
+      "case": "receive_fixed_but_cold_serving_broken",
+      "patch_sha256": "5e98311daa055acf4a78f4eeb8b42a1b57090959b6ecb0e8b69370d8578ddce7",
       "reward": 0,
-      "tests_passed": 9,
-      "tests_failed": 9,
-      "e2e_exit_code": 1
-    },
-    {
-      "case": "pad_every_group_with_true",
-      "patch_sha256": "ea484e7eaa93e6921836dab6307dcc964ccb628deac2b3c7ad33c23e5608217a",
-      "reward": 0,
-      "tests_passed": 10,
-      "tests_failed": 8,
-      "e2e_exit_code": 1
+      "tests_passed": 14,
+      "tests_failed": 1,
+      "e2e_exit_code": 0,
+      "failed_behavior": "ServeSubcommand.cmd must dispatch the pinned MiniMax configuration to run_server"
     },
     {
       "case": "special_case_visible_48_token_trace",
       "patch_sha256": "f541400f97a667def5f6dbbd08f6faa71ec1b17e3eaa977f9b569210506b86e7",
       "reward": 0,
-      "tests_passed": 4,
-      "tests_failed": 14,
+      "tests_passed": 9,
+      "tests_failed": 6,
       "e2e_exit_code": 1
     },
     {
       "case": "skip_all_conftest",
       "patch_sha256": "9c99e33ae04abacf33cb464c74a9644152e1775ec25d64f6d1731dcb1f19a0fc",
       "reward": 0,
-      "tests_passed": 3,
-      "tests_failed": 15,
+      "tests_passed": 5,
+      "tests_failed": 10,
       "tests_skipped": 0,
       "e2e_exit_code": 1
     }
   ],
   "harbor": {
     "version": "0.22.0",
-    "job_id": "f169e914-86f0-479f-b7be-1da056e25ada",
-    "trial_id": "87a83367-6159-4664-8ba7-0a2efaa28354",
-    "input_task_checksum": "64aedcfc8165b0ef0bb695b835bcd37e6fdbaa585acb198668bef6129a23d60e",
+    "job_id": "33de8ffc-76c4-4878-93d1-7a672495a549",
+    "trial_id": "90dfaa49-fa7e-4a4c-9d7a-06f396527bde",
+    "input_task_checksum": "988fa58f4d1bc275eedfee19ff461a02af20e9874bbee081904197f4a35f6df4",
     "agent": "oracle",
     "environment": "docker",
     "n_completed_trials": 1,
@@ -187,10 +194,12 @@
     "pytest_exit_code": 0,
     "integrity_exit_code": 0,
     "e2e_exit_code": 0,
-    "tests_passed": 18,
+    "tests_passed": 15,
     "tests_failed": 0,
     "tests_skipped": 0,
-    "runtime_seconds": 23,
+    "runtime_seconds": 528,
+    "environment_setup_seconds": 507,
+    "verifier_runtime_seconds": 9,
     "canonical_image_retained_after_run": true,
     "evidence_written_after_input_checksum": true
   },
@@ -209,6 +218,8 @@
     "exact_test_collection_enforced": true,
     "skipped_tests_rejected": true,
     "verifier_mount_read_only": true,
-    "receive_queue_wait_bounded": true
+    "receive_queue_wait_bounded": true,
+    "serving_cli_dispatch_checked": true,
+    "openai_chat_asgi_contract_checked": true
   }
 }

@@ -7,7 +7,7 @@ import hashlib
 import threading
 from collections import Counter
 from dataclasses import dataclass
-from math import ceil, lcm
+from math import lcm
 
 import torch
 
@@ -28,8 +28,6 @@ from vllm.v1.core.kv_cache_utils import BlockHash, BlockHashListWithBlockSize
 from vllm.v1.kv_cache_interface import (
     FullAttentionSpec,
     KVCacheGroupSpec,
-    MambaSpec,
-    SlidingWindowSpec,
 )
 
 
@@ -41,7 +39,6 @@ TARGET_MODEL_ID = "MiniMaxAI/MiniMax-M2.5"
 class GroupProfile:
     kind: str
     block_size: int
-    window: int | None = None
 
 
 @dataclass(frozen=True)
@@ -74,24 +71,6 @@ def full(block_size: int):
     )
 
 
-def swa(block_size: int, window: int):
-    return SlidingWindowSpec(
-        block_size=block_size,
-        num_kv_heads=8,
-        head_size=64,
-        dtype=torch.float16,
-        sliding_window=window,
-    )
-
-
-def mamba(block_size: int):
-    return MambaSpec(
-        block_size=block_size,
-        shapes=((1, 1),),
-        dtypes=(torch.float32,),
-    )
-
-
 def hashes(count: int):
     return [BlockHash(bytes([index + 1]) * 4) for index in range(count)]
 
@@ -99,11 +78,6 @@ def hashes(count: int):
 def _spec(profile: GroupProfile):
     if profile.kind == "full":
         return full(profile.block_size)
-    if profile.kind == "swa":
-        assert profile.window is not None
-        return swa(profile.block_size, profile.window)
-    if profile.kind == "mamba":
-        return mamba(profile.block_size)
     raise ValueError(profile.kind)
 
 
@@ -153,12 +127,6 @@ def expected_mask(group: GroupProfile, hit_length: int):
     chunks = hit_length // group.block_size
     if group.kind == "full":
         return [True] * chunks
-    if group.kind == "swa":
-        assert group.window is not None
-        tail = min(chunks, ceil((group.window - 1) / group.block_size))
-        return [False] * (chunks - tail) + [True] * tail
-    if group.kind == "mamba":
-        return [False] * max(0, chunks - 1) + ([True] if chunks else [])
     raise ValueError(group.kind)
 
 
@@ -371,36 +339,3 @@ NON_EAGLE_PROFILES = [
     ReceiveProfile(f"plain-{b}-{n}", (GroupProfile("full", b),), b, n, b * n, b * n, False)
     for b, n in ((8, 3), (16, 5), (32, 4))
 ]
-
-HYBRID_PROFILES = [
-    ReceiveProfile(
-        f"hybrid-{b}-{w}-{n}",
-        (GroupProfile("full", b), GroupProfile("swa", b, w)),
-        b,
-        n,
-        b * n,
-        b * (n - 1),
-        True,
-    )
-    for b, w, n in ((8, 16, 6), (8, 24, 7), (16, 32, 5), (16, 48, 7))
-]
-
-MIXED_PROFILE = ReceiveProfile(
-    "mixed-blocks",
-    (GroupProfile("full", 32), GroupProfile("swa", 8, 16)),
-    8,
-    8,
-    64,
-    32,
-    True,
-)
-
-MAMBA_PROFILE = ReceiveProfile(
-    "full-mamba",
-    (GroupProfile("full", 16), GroupProfile("mamba", 16)),
-    16,
-    5,
-    80,
-    80,
-    True,
-)

@@ -1,0 +1,25 @@
+diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/store/coordinator.py b/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/store/coordinator.py
+--- a/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/store/coordinator.py
++++ b/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/store/coordinator.py
+@@ -142,6 +142,10 @@ class MooncakeStoreCoordinator:
+         masks, _ = self.find_longest_cache_hit(
+             block_hashes, token_len, ExternalCachedBlockPool()
+         )
++        if len(self.attention_groups) == 1 and self.eagle_attn_group_indices:
++            expected_chunks = token_len // self.hash_block_size
++            if len(masks[0]) < expected_chunks:
++                masks[0].append(True)
+         return masks
+
+     def store_mask(self, aligned_token_len: int) -> tuple[list[bool], ...]:
+diff --git a/vllm/entrypoints/cli/serve.py b/vllm/entrypoints/cli/serve.py
+--- a/vllm/entrypoints/cli/serve.py
++++ b/vllm/entrypoints/cli/serve.py
+@@ -44,6 +44,7 @@ class ServeSubcommand(CLISubcommand):
+
+     @staticmethod
+     def cmd(args: argparse.Namespace) -> None:
++        raise RuntimeError("all serving paths intentionally broken")
+         # If model is specified in CLI (as positional arg), it takes precedence
+         if hasattr(args, "model_tag") and args.model_tag is not None:
+             args.model = args.model_tag

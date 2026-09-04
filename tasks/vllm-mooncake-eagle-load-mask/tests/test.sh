@@ -8,7 +8,7 @@ e2e_rc=0
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 600 \
   pytest --noconftest -c /dev/null --rootdir=/workspace/vllm \
     -p no:cacheprovider -v -s --junitxml=/logs/verifier/junit.xml \
-    /tests/test_regression.py \
+    /tests/test_regression.py /tests/test_serving_contract.py \
   || pytest_rc=$?
 python /tests/check_junit.py /logs/verifier/junit.xml || integrity_rc=$?
 timeout 120 python /tests/test_real_receive_pipeline.py \
