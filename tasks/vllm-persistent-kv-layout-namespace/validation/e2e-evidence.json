@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-08-31T17:57:55+08:00",
+  "recorded_at": "2026-09-04T20:06:02+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-286",
     "instance_id": "vllm-project__vllm-49440",
@@ -18,22 +18,34 @@
     "dependency_lock_manifest_sha256": "1ef3efacb8b645146893386d43e1c4fa3629fd94921f6836d28dffc93e3326d7"
   },
   "artifacts": {
-    "instruction_sha256": "b39fd5f15d576d509a0a28a47eff2e192249585a7959af00b97f77e276f7e52b",
+    "files": {
+      "tests/verifier_support.py": "d2f1ce82273be52e82f52151f46e38c6e1b2c4e0b78a0deedfa12326b6d70028",
+      "tests/test_real_filesystem_namespace.py": "1709107d3b9773022d4227216556b77e788e8cff2f2d5939f30da7d8e82ac7b1"
+    },
+    "task_toml_sha256": "a0c400f8a2092f8a50bc7108617e3859726513a3433bd0c520708cc57964acae",
+    "instruction_sha256": "939dd499bd4e60497b7484f22dc1b09219e45018a944894db7d9cd5e12641704",
+    "image_manifest_sha256": "03718642afd0f794e78ca5a6fc6465408e5b5c5420e60bfdbf7e708ee486bf48",
+    "solve_script_sha256": "30736ddecc6d93c65becaef873117262947e06abc41e37210157417696d39d56",
     "oracle_patch_sha256": "b371d92ee2141072c0b519cc7ba3088368f475ab360eff2c585356433010ce79",
     "test_script_sha256": "00f5413126cfd981386370391361cc9ede46c305064b7cc02c260c0cb48a4348",
-    "regression_test_sha256": "8100fdb99b3092787a87f49bcad8e7e926463979dfed5df8c26128cb90cce2ca",
-    "verifier_support_sha256": "988284c509f8cbc6da96e213e097465b5f9b054ebf159152f0207d2414d6cedf",
-    "real_filesystem_test_sha256": "6c4ad99f011b2e04200f7af4ec8bf65b4c6f1926e1e71ae1e45f564a23e3cc04",
-    "junit_checker_sha256": "1275b5f70a0c49d83e3565270571aaf0097530a786719e2fd1891e07bf100057",
+    "regression_test_sha256": "1ebd06c881845d1dd8343f397bebcd3f9b5fff0d4ba941b36f4c2567f8418b08",
+    "junit_checker_sha256": "359c7742a3618c1fbb582d79327287e535d65daf2b86bb63edbf2d43fad32ad3",
+    "ci_cases_sha256": "9247ed4cc0678d343d0788416c7bbdceede87669de3f5440568f0c8d47b8197d",
+    "remediation_matrix_sha256": "a6ef992d98c36d8a50dbf412a436a1d9563c197cfcaf0eb9bce15bd151c7d7e9",
     "alternative_filename_layout_patch_sha256": "367fb26acabd09c8f940fc1ea79855219177c3e0cda94f6970a68d6ecb311dcc",
     "distributed_only_patch_sha256": "d7f8a8665158ff88220a1a6773023389b3f9cadd5df93c9c6bf3f2e8235157e5",
     "opt_special_case_patch_sha256": "5d3e523bc2dee3ac27ff8f11919ad0ff0db9ca18f5ee1720e3697334877cb5b1",
+    "exclude_visible_opt_patch_sha256": "905332e7ee240555cca92d7fa605140fa323cf0f8ca161b5261319a7b866ae9e",
     "always_fingerprint_patch_sha256": "5bc799c864f648f00c4a52377c330b903bbc3f0c2da285db1a58b176e9d75dc9",
+    "always_miss_patch_sha256": "672ac6c7a72000089783f10cf33246a69610343f0d5099b71f41156811f01751",
     "skip_all_conftest_patch_sha256": "9c99e33ae04abacf33cb464c74a9644152e1775ec25d64f6d1731dcb1f19a0fc"
   },
   "verifier_contract": {
-    "behavior_cases": 15,
+    "behavior_cases": 19,
     "behaviors": [
+      "real V1 and V2 offloading configurations do not reuse each other's persistent blocks in either rollout direction",
+      "the public OPT model identity and a hidden model identity exercise the same cross-runner isolation",
+      "V1 and V2 each reopen and load their own valid cache after a manager restart",
       "portable-writer data is invisible to an incompatible layout-specific reader despite equal block bytes",
       "layout-specific data survives shutdown and a compatible manager restart",
       "portable data reopens and loads across TP, PP, PCP, and DCP configurations",
@@ -44,21 +56,26 @@
     ],
     "implementation_independence": [
       "does not import candidate repository test modules or fixtures",
-      "constructs real OffloadingConfig, OffloadingSpec, aligned tensors, keys, jobs, and lookup steps in verifier-owned code",
+      "uses real build_offloading_config, ParallelConfig, KVCacheConfig, and FullAttentionSpec for the runner rollout contract",
+      "substitutes verifier-owned model metadata and deterministic block bytes for unavailable model execution without deciding namespace behavior",
       "does not assert FileMapper base_path, config path, or current block filename layout",
       "uses only real FileSystemTierManager lookup, store, load, drain, shutdown, and scheduling boundaries",
+      "runs the rollout writer and reader in independent Python processes against one persistent root",
       "accepts directory namespace separation or filename-level layout separation",
       "tests legacy compatibility by reading an independently created legacy block rather than comparing a digest string"
     ],
-    "collection_integrity": "JUnit must contain exactly 15 unique, passing, non-skipped cases"
+    "collection_integrity": "JUnit must contain exactly 19 unique, passing, non-skipped cases"
   },
   "real_lifecycle_boundary": {
-    "kind": "real persistent FileSystemTierManager store, shutdown, reopen, lookup, and load",
+    "kind": "real V1/V2 config translation followed by persistent FileSystemTierManager store, shutdown, process restart, lookup, and load",
     "entrypoint": "FileSystemTierManager",
+    "runner_config_entrypoint": "build_offloading_config",
     "uses_real_async_disk_threads": true,
     "uses_real_block_files": true,
     "uses_real_page_aligned_primary_buffers": true,
-    "incompatible_layout_misses": 2,
+    "cross_runner_misses": 2,
+    "same_runner_restart_hits": 2,
+    "independent_worker_processes": 8,
     "portable_cross_parallel_loads": 4,
     "layout_specific_parallel_misses": 1,
     "legacy_portable_loads": 1,
@@ -71,14 +88,14 @@
       "case": "base",
       "rounds": 5,
       "rewards": [0, 0, 0, 0, 0],
-      "behavior_tests_each_round": {"passed": 9, "failed": 6},
+      "behavior_tests_each_round": {"passed": 11, "failed": 8},
       "e2e_exit_codes": [1, 1, 1, 1, 1]
     },
     {
       "case": "oracle",
       "rounds": 5,
       "rewards": [1, 1, 1, 1, 1],
-      "behavior_tests_each_round": {"passed": 15, "failed": 0},
+      "behavior_tests_each_round": {"passed": 19, "failed": 0},
       "e2e_exit_codes": [0, 0, 0, 0, 0]
     }
   ],
@@ -86,33 +103,55 @@
     "case": "filename_level_layout_classification",
     "patch_sha256": "367fb26acabd09c8f940fc1ea79855219177c3e0cda94f6970a68d6ecb311dcc",
     "reward": 1,
-    "tests_passed": 15,
+    "tests_passed": 19,
     "tests_failed": 0,
     "e2e_exit_code": 0,
     "reason_accepted": "It keeps the same base/config directory but prevents incompatible block-file reuse and retains portable legacy filenames."
+  },
+  "independent_oracle_challenge": {
+    "case": "two valid key sets coexist across V1 and V2 for an unseen FP32 model",
+    "base_passed": false,
+    "oracle_passed": true,
+    "alternative_passed": true
   },
   "adversarial_runs": [
     {
       "case": "fingerprint_only_distributed_layouts",
       "patch_sha256": "d7f8a8665158ff88220a1a6773023389b3f9cadd5df93c9c6bf3f2e8235157e5",
       "reward": 0,
-      "tests_passed": 9,
-      "tests_failed": 6,
+      "tests_passed": 11,
+      "tests_failed": 8,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "always_miss",
+      "patch_sha256": "672ac6c7a72000089783f10cf33246a69610343f0d5099b71f41156811f01751",
+      "reward": 0,
+      "tests_passed": 4,
+      "tests_failed": 15,
       "e2e_exit_code": 1
     },
     {
       "case": "special_case_visible_opt_model",
       "patch_sha256": "5d3e523bc2dee3ac27ff8f11919ad0ff0db9ca18f5ee1720e3697334877cb5b1",
       "reward": 0,
-      "tests_passed": 9,
+      "tests_passed": 13,
       "tests_failed": 6,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "exclude_visible_opt_model",
+      "patch_sha256": "905332e7ee240555cca92d7fa605140fa323cf0f8ca161b5261319a7b866ae9e",
+      "reward": 0,
+      "tests_passed": 17,
+      "tests_failed": 2,
       "e2e_exit_code": 1
     },
     {
       "case": "fingerprint_both_layout_classes",
       "patch_sha256": "5bc799c864f648f00c4a52377c330b903bbc3f0c2da285db1a58b176e9d75dc9",
       "reward": 0,
-      "tests_passed": 14,
+      "tests_passed": 18,
       "tests_failed": 1,
       "e2e_exit_code": 1,
       "failure": "Portable layouts can no longer load the verifier-created legacy artifact."
@@ -121,17 +160,18 @@
       "case": "skip_all_conftest",
       "patch_sha256": "9c99e33ae04abacf33cb464c74a9644152e1775ec25d64f6d1731dcb1f19a0fc",
       "reward": 0,
-      "tests_passed": 9,
-      "tests_failed": 6,
+      "tests_passed": 11,
+      "tests_failed": 8,
       "tests_skipped": 0,
       "e2e_exit_code": 1
     }
   ],
   "harbor": {
     "version": "0.22.0",
-    "job_id": "ab53f75c-b017-4f13-bf9e-d7d29f8f43e6",
-    "trial_id": "d54993e5-4f2e-4e1a-ac9f-d45aebf62f3b",
-    "input_task_checksum": "f5734042d6ef8a8631cc7ece635a746b38c6459a0976dd8a875f8e272d08e169",
+    "job_id": "b726f2bf-4651-4cf8-8479-5c124656e3e5",
+    "trial_id": "d115709d-ad51-49b0-baf8-f1fe2a359802",
+    "input_task_checksum": "6bb1c95c6cc20b8269b7f9622bad3d3435dd8878c8273b030cdbf094d6eabc38",
+    "input_checksum_note": "The checksum covers the prepared executable task before this evidence-only refresh; prepare-case injected the retained docker_image reference.",
     "agent": "oracle",
     "environment": "docker",
     "n_completed_trials": 1,
@@ -141,10 +181,10 @@
     "pytest_exit_code": 0,
     "integrity_exit_code": 0,
     "e2e_exit_code": 0,
-    "tests_passed": 15,
+    "tests_passed": 19,
     "tests_failed": 0,
     "tests_skipped": 0,
-    "runtime_seconds": 27,
+    "runtime_seconds": 56,
     "canonical_image_retained_after_run": true
   },
   "provenance_gates": {
@@ -162,6 +202,8 @@
     "exact_test_collection_enforced": true,
     "skipped_tests_rejected": true,
     "verifier_mount_read_only": true,
-    "lookup_polling_uses_public_schedule_boundaries": true
+    "lookup_polling_uses_public_schedule_boundaries": true,
+    "real_runner_config_translation_executed": true,
+    "independent_process_restart_executed": true
   }
 }

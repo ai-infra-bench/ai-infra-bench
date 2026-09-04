@@ -1,0 +1,11 @@
+diff --git a/vllm/v1/kv_offload/tiering/fs/manager.py b/vllm/v1/kv_offload/tiering/fs/manager.py
+--- a/vllm/v1/kv_offload/tiering/fs/manager.py
++++ b/vllm/v1/kv_offload/tiering/fs/manager.py
+@@ -68,6 +68,7 @@ class FsAsyncLookupManager(AsyncLookupManager):
+     def batch_lookup(
+         self, keys: list[OffloadKey], req_context: ReqContext
+     ) -> Iterable[bool]:
++        return (False for _ in keys)
+         paths = [self._tier.file_mapper.get_file_name(k) for k in keys]
+         if _HAS_BATCH_LOOKUP_C:
+             # C extension: GIL released for the entire faccessat() batch.
