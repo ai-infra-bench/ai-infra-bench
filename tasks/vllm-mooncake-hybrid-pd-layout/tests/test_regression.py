@@ -23,10 +23,12 @@ from verifier_support import (
     create_scheduler,
     make_hybrid_caches,
     make_hybrid_config,
+    make_mamba_cache,
     make_pure_attention_caches,
     make_pure_attention_config,
     make_vllm_config,
     make_worker_connector,
+    mamba_storage_bytes,
     patched_worker_runtime,
     shutdown_connectors,
     transfer_once,
@@ -90,13 +92,17 @@ def test_hybrid_transfer_preserves_group_payloads(attention_kind: str) -> None:
         )
         try:
             source_attention = source["model.layers.0.self_attn"]
-            source_gdn = source["model.layers.1.linear_attn"][0]
+            source_gdn = source["model.layers.1.linear_attn"]
             destination_attention = destination["model.layers.0.self_attn"]
-            destination_gdn = destination["model.layers.1.linear_attn"][0]
+            destination_gdn = destination["model.layers.1.linear_attn"]
+            source_gdn_conv, source_gdn_temporal = source_gdn
+            destination_gdn_conv, destination_gdn_temporal = destination_gdn
             source_attention[2].fill_(37)
-            source_gdn[4].fill_(19)
+            source_gdn_conv[4].fill_(19)
+            source_gdn_temporal[4].fill_(23)
             attention_neighbor = destination_attention[6].clone()
-            gdn_neighbor = destination_gdn[8].clone()
+            gdn_before = mamba_storage_bytes(destination_gdn).clone()
+            source_gdn_bytes = mamba_storage_bytes(source_gdn)
 
             finished = asyncio.run(
                 transfer_once(
@@ -110,9 +116,17 @@ def test_hybrid_transfer_preserves_group_payloads(attention_kind: str) -> None:
 
             assert finished[1] == {"decoder-request"}
             assert torch.equal(destination_attention[5], source_attention[2])
-            assert torch.equal(destination_gdn[7], source_gdn[4])
+            assert torch.equal(destination_gdn_conv[7], source_gdn_conv[4])
+            assert torch.equal(
+                destination_gdn_temporal[7], source_gdn_temporal[4]
+            )
             assert torch.equal(destination_attention[6], attention_neighbor)
-            assert torch.equal(destination_gdn[8], gdn_neighbor)
+            gdn_page_bytes = config.kv_cache_groups[1].kv_cache_spec.page_size_bytes
+            expected_gdn = gdn_before.clone()
+            expected_gdn[7 * gdn_page_bytes : 8 * gdn_page_bytes] = source_gdn_bytes[
+                4 * gdn_page_bytes : 5 * gdn_page_bytes
+            ]
+            assert torch.equal(mamba_storage_bytes(destination_gdn), expected_gdn)
         finally:
             shutdown_connectors(producer, consumer)
 
@@ -146,32 +160,32 @@ def test_shared_padded_storage_transfers_without_neighbor_corruption() -> None:
         )
         source_backing = torch.zeros((10, 160), dtype=torch.uint8)
         destination_backing = torch.full((10, 160), 203, dtype=torch.uint8)
+        mamba_spec = base_config.kv_cache_groups[1].kv_cache_spec
+        source_gdn = make_mamba_cache(mamba_spec, 10)
+        destination_gdn = make_mamba_cache(mamba_spec, 10)
         source = {
             "model.layers.0.self_attn": source_backing[:, :64],
             "model.layers.2.self_attn": source_backing[:, 80:144],
-            "model.layers.1.linear_attn": (
-                torch.zeros((10, 22), dtype=torch.float16),
-                torch.zeros((10, 4), dtype=torch.float16),
-            ),
+            "model.layers.1.linear_attn": source_gdn,
         }
         destination = {
             "model.layers.0.self_attn": destination_backing[:, :64],
             "model.layers.2.self_attn": destination_backing[:, 80:144],
-            "model.layers.1.linear_attn": (
-                torch.full((10, 22), 203, dtype=torch.float16),
-                torch.zeros((10, 4), dtype=torch.float16),
-            ),
+            "model.layers.1.linear_attn": destination_gdn,
         }
         try:
             producer.register_kv_caches(source)
             consumer.register_kv_caches(destination)
             source_backing[1, :64].fill_(41)
             source_backing[1, 80:144].fill_(73)
-            source_gdn = source["model.layers.1.linear_attn"][0]
-            destination_gdn = destination["model.layers.1.linear_attn"][0]
-            source_gdn[3].fill_(29)
+            source_gdn_conv, source_gdn_temporal = source_gdn
+            destination_gdn_conv, destination_gdn_temporal = destination_gdn
+            mamba_storage_bytes(destination_gdn).fill_(203)
+            source_gdn_conv[3].fill_(29)
+            source_gdn_temporal[3].fill_(47)
             untouched_before = destination_backing.clone()
-            gdn_before = destination_gdn.clone()
+            gdn_before = mamba_storage_bytes(destination_gdn).clone()
+            source_gdn_bytes = mamba_storage_bytes(source_gdn)
 
             finished = asyncio.run(
                 transfer_once(
@@ -188,14 +202,20 @@ def test_shared_padded_storage_transfers_without_neighbor_corruption() -> None:
             assert torch.equal(
                 destination_backing[6, 80:144], source_backing[1, 80:144]
             )
-            assert torch.equal(destination_gdn[8], source_gdn[3])
+            assert torch.equal(destination_gdn_conv[8], source_gdn_conv[3])
+            assert torch.equal(
+                destination_gdn_temporal[8], source_gdn_temporal[3]
+            )
             expected = untouched_before.clone()
             expected[6, :64] = source_backing[1, :64]
             expected[6, 80:144] = source_backing[1, 80:144]
             assert torch.equal(destination_backing, expected)
             expected_gdn = gdn_before.clone()
-            expected_gdn[8] = source_gdn[3]
-            assert torch.equal(destination_gdn, expected_gdn)
+            gdn_page_bytes = mamba_spec.page_size_bytes
+            expected_gdn[8 * gdn_page_bytes : 9 * gdn_page_bytes] = source_gdn_bytes[
+                3 * gdn_page_bytes : 4 * gdn_page_bytes
+            ]
+            assert torch.equal(mamba_storage_bytes(destination_gdn), expected_gdn)
         finally:
             shutdown_connectors(producer, consumer)
 

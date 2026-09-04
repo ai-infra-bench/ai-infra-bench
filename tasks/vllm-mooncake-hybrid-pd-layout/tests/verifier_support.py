@@ -8,6 +8,7 @@ import json
 import tempfile
 from dataclasses import dataclass
 from itertools import count
+from math import prod
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable
@@ -505,12 +506,50 @@ def make_hybrid_caches(
     attention = torch.zeros(
         (config.num_blocks * physical_ratio, row_bytes), dtype=torch.uint8
     )
-    conv = torch.zeros((config.num_blocks, 22), dtype=torch.float16)
-    ssm = torch.zeros((config.num_blocks, 4), dtype=torch.float16)
+    mamba_spec = config.kv_cache_groups[1].kv_cache_spec
+    assert isinstance(mamba_spec, MambaSpec)
+    mamba_cache = make_mamba_cache(mamba_spec, config.num_blocks)
     return {
         "model.layers.0.self_attn": attention,
-        "model.layers.1.linear_attn": (conv, ssm),
+        "model.layers.1.linear_attn": mamba_cache,
     }
+
+
+def make_mamba_cache(
+    spec: MambaSpec,
+    num_blocks: int,
+) -> tuple[torch.Tensor, ...]:
+    """Build production-shaped state views over one page-strided allocation."""
+    backing = torch.zeros(num_blocks * spec.page_size_bytes, dtype=torch.uint8)
+    state_tensors: list[torch.Tensor] = []
+    storage_offset_bytes = 0
+    for shape, dtype in zip(spec.shapes, spec.dtypes, strict=True):
+        element_size = torch.empty((), dtype=dtype).element_size()
+        assert spec.page_size_bytes % element_size == 0
+        assert storage_offset_bytes % element_size == 0
+        natural_stride = torch.empty(shape, dtype=dtype).stride()
+        state_tensors.append(
+            torch.as_strided(
+                backing.view(dtype),
+                size=(num_blocks, *shape),
+                stride=(spec.page_size_bytes // element_size, *natural_stride),
+                storage_offset=storage_offset_bytes // element_size,
+            )
+        )
+        storage_offset_bytes += prod(shape) * element_size
+    assert storage_offset_bytes <= spec.page_size_bytes
+    return tuple(state_tensors)
+
+
+def mamba_storage_bytes(cache: tuple[torch.Tensor, ...]) -> torch.Tensor:
+    """Expose the complete shared allocation for end-state comparisons."""
+    storage = cache[0].untyped_storage()
+    return torch.empty(0, dtype=torch.uint8).set_(
+        storage,
+        0,
+        (storage.nbytes(),),
+        (1,),
+    )
 
 
 def make_pure_attention_caches(
