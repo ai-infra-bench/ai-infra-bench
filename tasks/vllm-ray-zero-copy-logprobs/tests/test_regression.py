@@ -310,3 +310,63 @@ def test_completion_response_preserves_text_tokens_and_logprobs():
     assert no_logprobs_response.usage.completion_tokens == 1
     assert no_logprobs_response.usage.total_tokens == 2
     assert no_logprobs_metadata.final_usage_info == no_logprobs_response.usage
+
+
+def test_completion_response_preserves_zero_requested_logprobs():
+    output = CompletionOutput(
+        index=0,
+        text=" selected",
+        token_ids=[404],
+        cumulative_logprob=-0.25,
+        logprobs=[
+            {
+                404: Logprob(logprob=-0.25, rank=1),
+                405: Logprob(logprob=-1.5, rank=2),
+            }
+        ],
+        finish_reason="length",
+    )
+    final_result = RequestOutput(
+        request_id="completion-zero-logprobs",
+        prompt="Return one token.",
+        prompt_token_ids=[17],
+        prompt_logprobs=None,
+        outputs=[output],
+        finished=True,
+    )
+    request = CompletionRequest(
+        prompt="Return one token.",
+        max_tokens=1,
+        logprobs=0,
+        return_tokens_as_token_ids=True,
+        return_token_ids=True,
+    )
+    serving = object.__new__(OpenAIServingCompletion)
+    serving.enable_prompt_tokens_details = False
+    request_metadata = RequestResponseMetadata(
+        request_id="completion-zero-logprobs"
+    )
+
+    response = serving.request_output_to_completion_response(
+        [final_result],
+        request,
+        request_id="cmpl-zero-logprobs",
+        created_time=1234567892,
+        model_name="offline-model",
+        tokenizer=None,
+        request_metadata=request_metadata,
+    )
+
+    choice = response.choices[0]
+    assert choice.text == output.text
+    assert choice.token_ids == [404]
+    assert choice.finish_reason == "length"
+    assert choice.logprobs is not None
+    assert choice.logprobs.text_offset == [0]
+    assert choice.logprobs.tokens == ["token_id:404"]
+    assert choice.logprobs.token_logprobs == pytest.approx([-0.25])
+    assert choice.logprobs.top_logprobs == [{"token_id:404": -0.25}]
+    assert response.usage.prompt_tokens == 1
+    assert response.usage.completion_tokens == 1
+    assert response.usage.total_tokens == 2
+    assert request_metadata.final_usage_info == response.usage
