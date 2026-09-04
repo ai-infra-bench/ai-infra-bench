@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the async KV lifecycle across a scheduler/worker process boundary."""
+"""Run a reduced async KV lifecycle across a scheduler/worker process boundary."""
 
 from __future__ import annotations
 
@@ -146,7 +146,7 @@ def main() -> int:
             assert set(worker_summary) == set(matches)
             print(
                 {
-                    "entrypoint": "Scheduler + KVConnector worker contract",
+                    "entrypoint": "Scheduler + verifier connector process boundary",
                     "worker_process": process.pid,
                     "completed_requests": sorted(observed),
                     "copied_payload_checksums": len(worker_summary),

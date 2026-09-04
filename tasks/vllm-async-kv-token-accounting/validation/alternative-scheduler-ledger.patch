@@ -1,0 +1,52 @@
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -175,6 +175,7 @@ class Scheduler(SchedulerInterface):
+         # KV Connector: requests in process of async KV loading or recving
+         self.finished_recving_kv_req_ids: set[str] = set()
+         self.failed_recving_kv_req_ids: set[str] = set()
++        self.async_kv_num_computed_tokens: dict[str, int] = {}
+-
++
+         # Encoder-related.
+         # Calculate encoder cache size if applicable
+@@ -773,6 +774,9 @@ class Scheduler(SchedulerInterface):
+                     # into the WAITING_FOR_REMOTE_KV state.
+                     skipped_waiting_requests.prepend_request(request)
+                     request.status = RequestStatus.WAITING_FOR_REMOTE_KVS
++                    self.async_kv_num_computed_tokens[request.request_id] = (
++                        num_computed_tokens
++                    )
+                     continue
+-
++
+                 self.running.append(request)
+@@ -1739,7 +1743,8 @@ class Scheduler(SchedulerInterface):
+                     request.request_id not in self.finished_recving_kv_req_ids
+                 )
+                 self.finished_recving_kv_req_ids.discard(request.request_id)
+                 self.failed_recving_kv_req_ids.discard(request.request_id)
++                self.async_kv_num_computed_tokens.pop(request.request_id, None)
+-
++
+             request.status = finished_status
+             self._free_request(request, delay_free_blocks=delay_free_blocks)
+@@ -1991,13 +1996,13 @@ class Scheduler(SchedulerInterface):
+                 # There may be a local cache hit on retry.
+                 self.kv_cache_manager.free(request)
+-
++
+             self.failed_recving_kv_req_ids.remove(request.request_id)
++            self.async_kv_num_computed_tokens.pop(request.request_id, None)
+         else:
+             # Now that the blocks are ready, actually cache them.
+-            (block_ids,) = self.kv_cache_manager.get_block_ids(request.request_id)
+-            num_computed_tokens = len(block_ids) * self.block_size
+-            # Handle the case where num request tokens less than one block.
+-            num_computed_tokens = min(num_computed_tokens, request.num_tokens)
++            num_computed_tokens = self.async_kv_num_computed_tokens.pop(
++                request.request_id
++            )
+             if num_computed_tokens == request.num_tokens:
+                 num_computed_tokens -= 1
+             # This will cache the blocks iff caching is enabled.

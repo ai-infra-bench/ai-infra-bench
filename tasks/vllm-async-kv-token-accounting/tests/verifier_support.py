@@ -1,4 +1,4 @@
-"""Verifier-owned fixtures that exercise the public KV connector contract."""
+"""Verifier-owned support for a reduced KV connector lifecycle."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ class AsyncTransferMetadata(KVConnectorMetadata):
 
 
 class AsyncMemoryConnector(KVConnectorBase_V1):
-    """Hidden connector that performs an actual asynchronous memory copy."""
+    """Test connector that reports completion after an asynchronous byte copy."""
 
     def __init__(self, vllm_config, role, kv_cache_config=None):
         super().__init__(vllm_config, role, kv_cache_config)

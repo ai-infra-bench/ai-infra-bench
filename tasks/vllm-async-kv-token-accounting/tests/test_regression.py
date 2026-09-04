@@ -146,7 +146,7 @@ def test_block_aligned_async_hits_are_unchanged(
     )
 
 
-@pytest.mark.parametrize("prompt_tokens", [17, 70, 127])
+@pytest.mark.parametrize("prompt_tokens", [17, 64, 70, 127])
 def test_full_prompt_hits_recompute_one_token(tmp_path, prompt_tokens):
     case = ("full", prompt_tokens, prompt_tokens)
     scheduler, config, cache_config, _requests, initial = _start(tmp_path, [case])
