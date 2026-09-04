@@ -88,6 +88,11 @@ Harbor 0.22.0 reproduced reward 0 for Base and both controls with one completed,
 zero-error trial per case. The SDK fixture and Python control passed in every
 manual and Harbor execution.
 
+The pull-request workflow then rebuilt the image on an independent runner after
+the task cache tag missed, and repeated all three Harbor cases. The validation
+job completed successfully in 48 minutes 45 seconds; each case again completed
+without a framework error and returned its declared reward 0.
+
 ## Semantic boundary
 
 ```text
