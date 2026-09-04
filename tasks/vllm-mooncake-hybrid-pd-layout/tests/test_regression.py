@@ -1,0 +1,545 @@
+# SPDX-License-Identifier: Apache-2.0
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+import torch
+
+from vllm import SamplingParams
+from vllm.distributed.kv_transfer.kv_connector.v1.base import KVConnectorRole
+from vllm.distributed.kv_transfer.kv_connector.v1.mooncake.mooncake_connector import (
+    MooncakeConnector,
+)
+from vllm.distributed.kv_transfer.kv_connector.v1.nixl.connector import NixlConnector
+from vllm.v1.attention.backends.utils import NULL_BLOCK_ID
+from vllm.v1.kv_cache_interface import KVCacheConfig, KVCacheGroupSpec
+from vllm.v1.request import Request
+
+from verifier_support import (
+    MemoryTransport,
+    create_model_runner_output,
+    create_request,
+    create_scheduler,
+    make_hybrid_caches,
+    make_hybrid_config,
+    make_pure_attention_caches,
+    make_pure_attention_config,
+    make_vllm_config,
+    make_worker_connector,
+    patched_worker_runtime,
+    shutdown_connectors,
+    transfer_once,
+)
+
+
+LOGICAL_BLOCK_SIZE = 16
+
+
+def _register_pair(
+    config: KVCacheConfig,
+    *,
+    transport: MemoryTransport,
+    kernel_block_size: int,
+    physical_ratio: int = 1,
+):
+    producer = make_worker_connector(
+        "kv_producer", config, logical_block_size=LOGICAL_BLOCK_SIZE
+    )
+    consumer = make_worker_connector(
+        "kv_consumer", config, logical_block_size=LOGICAL_BLOCK_SIZE
+    )
+    producer_caches = make_hybrid_caches(config, physical_ratio=physical_ratio)
+    consumer_caches = make_hybrid_caches(config, physical_ratio=physical_ratio)
+    producer.register_kv_caches(producer_caches)
+    consumer.register_kv_caches(consumer_caches)
+    return producer, consumer, producer_caches, consumer_caches
+
+
+def test_hybrid_worker_initializes_and_registers_through_connector() -> None:
+    config = make_hybrid_config(logical_block_size=LOGICAL_BLOCK_SIZE)
+    transport = MemoryTransport()
+    with patched_worker_runtime(
+        transport, kernel_block_size=LOGICAL_BLOCK_SIZE
+    ):
+        connector = make_worker_connector(
+            "kv_consumer", config, logical_block_size=LOGICAL_BLOCK_SIZE
+        )
+        try:
+            caches = make_hybrid_caches(config)
+            connector.register_kv_caches(caches)
+            assert transport.regions
+        finally:
+            shutdown_connectors(connector)
+
+
+@pytest.mark.parametrize("attention_kind", ["full", "mla", "sliding_mla"])
+def test_hybrid_transfer_preserves_group_payloads(attention_kind: str) -> None:
+    config = make_hybrid_config(
+        logical_block_size=LOGICAL_BLOCK_SIZE,
+        attention_kind=attention_kind,
+    )
+    transport = MemoryTransport()
+    with patched_worker_runtime(
+        transport, kernel_block_size=LOGICAL_BLOCK_SIZE
+    ):
+        producer, consumer, source, destination = _register_pair(
+            config,
+            transport=transport,
+            kernel_block_size=LOGICAL_BLOCK_SIZE,
+        )
+        try:
+            source_attention = source["model.layers.0.self_attn"]
+            source_gdn = source["model.layers.1.linear_attn"][0]
+            destination_attention = destination["model.layers.0.self_attn"]
+            destination_gdn = destination["model.layers.1.linear_attn"][0]
+            source_attention[2].fill_(37)
+            source_gdn[4].fill_(19)
+            attention_neighbor = destination_attention[6].clone()
+            gdn_neighbor = destination_gdn[8].clone()
+
+            finished = asyncio.run(
+                transfer_once(
+                    producer,
+                    consumer,
+                    local_block_ids=[[2], [NULL_BLOCK_ID, 4]],
+                    remote_block_ids=[[5], [NULL_BLOCK_ID, 7]],
+                    transfer_id=f"transfer-{attention_kind}",
+                )
+            )
+
+            assert finished[1] == {"decoder-request"}
+            assert torch.equal(destination_attention[5], source_attention[2])
+            assert torch.equal(destination_gdn[7], source_gdn[4])
+            assert torch.equal(destination_attention[6], attention_neighbor)
+            assert torch.equal(destination_gdn[8], gdn_neighbor)
+        finally:
+            shutdown_connectors(producer, consumer)
+
+
+def test_shared_padded_storage_transfers_without_neighbor_corruption() -> None:
+    base_config = make_hybrid_config(
+        logical_block_size=LOGICAL_BLOCK_SIZE,
+        attention_kind="mla",
+        num_blocks=10,
+    )
+    config = KVCacheConfig(
+        num_blocks=base_config.num_blocks,
+        kv_cache_tensors=[],
+        kv_cache_groups=[
+            KVCacheGroupSpec(
+                ["model.layers.0.self_attn", "model.layers.2.self_attn"],
+                base_config.kv_cache_groups[0].kv_cache_spec,
+            ),
+            base_config.kv_cache_groups[1],
+        ],
+    )
+    transport = MemoryTransport()
+    with patched_worker_runtime(
+        transport, kernel_block_size=LOGICAL_BLOCK_SIZE
+    ):
+        producer = make_worker_connector(
+            "kv_producer", config, logical_block_size=LOGICAL_BLOCK_SIZE
+        )
+        consumer = make_worker_connector(
+            "kv_consumer", config, logical_block_size=LOGICAL_BLOCK_SIZE
+        )
+        source_backing = torch.zeros((10, 160), dtype=torch.uint8)
+        destination_backing = torch.full((10, 160), 203, dtype=torch.uint8)
+        source = {
+            "model.layers.0.self_attn": source_backing[:, :64],
+            "model.layers.2.self_attn": source_backing[:, 80:144],
+            "model.layers.1.linear_attn": (
+                torch.zeros((10, 22), dtype=torch.float16),
+                torch.zeros((10, 4), dtype=torch.float16),
+            ),
+        }
+        destination = {
+            "model.layers.0.self_attn": destination_backing[:, :64],
+            "model.layers.2.self_attn": destination_backing[:, 80:144],
+            "model.layers.1.linear_attn": (
+                torch.full((10, 22), 203, dtype=torch.float16),
+                torch.zeros((10, 4), dtype=torch.float16),
+            ),
+        }
+        try:
+            producer.register_kv_caches(source)
+            consumer.register_kv_caches(destination)
+            source_backing[1, :64].fill_(41)
+            source_backing[1, 80:144].fill_(73)
+            source_gdn = source["model.layers.1.linear_attn"][0]
+            destination_gdn = destination["model.layers.1.linear_attn"][0]
+            source_gdn[3].fill_(29)
+            untouched_before = destination_backing.clone()
+            gdn_before = destination_gdn.clone()
+
+            finished = asyncio.run(
+                transfer_once(
+                    producer,
+                    consumer,
+                    local_block_ids=[[1], [3]],
+                    remote_block_ids=[[6], [8]],
+                    transfer_id="shared-padded",
+                )
+            )
+
+            assert finished[1] == {"decoder-request"}
+            assert torch.equal(destination_backing[6, :64], source_backing[1, :64])
+            assert torch.equal(
+                destination_backing[6, 80:144], source_backing[1, 80:144]
+            )
+            assert torch.equal(destination_gdn[8], source_gdn[3])
+            expected = untouched_before.clone()
+            expected[6, :64] = source_backing[1, :64]
+            expected[6, 80:144] = source_backing[1, 80:144]
+            assert torch.equal(destination_backing, expected)
+            expected_gdn = gdn_before.clone()
+            expected_gdn[8] = source_gdn[3]
+            assert torch.equal(destination_gdn, expected_gdn)
+        finally:
+            shutdown_connectors(producer, consumer)
+
+
+@pytest.mark.parametrize("attention_kind", ["mla", "sliding_mla"])
+def test_physical_block_expansion_copies_only_requested_payload(
+    attention_kind: str,
+) -> None:
+    ratio = 4
+    config = make_hybrid_config(
+        logical_block_size=LOGICAL_BLOCK_SIZE,
+        attention_kind=attention_kind,
+        num_blocks=10,
+    )
+    transport = MemoryTransport()
+    with patched_worker_runtime(
+        transport, kernel_block_size=LOGICAL_BLOCK_SIZE // ratio
+    ):
+        producer, consumer, source, destination = _register_pair(
+            config,
+            transport=transport,
+            kernel_block_size=LOGICAL_BLOCK_SIZE // ratio,
+            physical_ratio=ratio,
+        )
+        try:
+            source_attention = source["model.layers.0.self_attn"]
+            destination_attention = destination["model.layers.0.self_attn"]
+            source_rows = slice(2 * ratio, 3 * ratio)
+            destination_rows = slice(5 * ratio, 6 * ratio)
+            for offset, row in enumerate(range(source_rows.start, source_rows.stop)):
+                source_attention[row].fill_(30 + offset)
+            before = destination_attention.clone()
+
+            finished = asyncio.run(
+                transfer_once(
+                    producer,
+                    consumer,
+                    local_block_ids=[[2], []],
+                    remote_block_ids=[[5], []],
+                    transfer_id=f"ratio-{attention_kind}",
+                )
+            )
+
+            assert finished[1] == {"decoder-request"}
+            assert torch.equal(
+                destination_attention[destination_rows], source_attention[source_rows]
+            )
+            expected = before.clone()
+            expected[destination_rows] = source_attention[source_rows]
+            assert torch.equal(destination_attention, expected)
+        finally:
+            shutdown_connectors(producer, consumer)
+
+
+def test_registration_failure_is_reported() -> None:
+    config = make_hybrid_config(logical_block_size=LOGICAL_BLOCK_SIZE)
+    transport = MemoryTransport(fail_registration=True)
+    with patched_worker_runtime(
+        transport, kernel_block_size=LOGICAL_BLOCK_SIZE
+    ):
+        connector = make_worker_connector(
+            "kv_consumer", config, logical_block_size=LOGICAL_BLOCK_SIZE
+        )
+        try:
+            with pytest.raises(RuntimeError, match="registration failed"):
+                connector.register_kv_caches(make_hybrid_caches(config))
+        finally:
+            shutdown_connectors(connector)
+
+
+def test_transfer_failure_is_not_reported_as_complete() -> None:
+    config = make_hybrid_config(logical_block_size=LOGICAL_BLOCK_SIZE)
+    transport = MemoryTransport()
+    with patched_worker_runtime(
+        transport, kernel_block_size=LOGICAL_BLOCK_SIZE
+    ):
+        producer, consumer, source, destination = _register_pair(
+            config,
+            transport=transport,
+            kernel_block_size=LOGICAL_BLOCK_SIZE,
+        )
+        try:
+            source["model.layers.0.self_attn"][1].fill_(51)
+            before = destination["model.layers.0.self_attn"].clone()
+            transport.fail_transfer = True
+            finished = asyncio.run(
+                transfer_once(
+                    producer,
+                    consumer,
+                    local_block_ids=[[1], []],
+                    remote_block_ids=[[4], []],
+                    transfer_id="failed-transfer",
+                )
+            )
+            assert finished[1] is None
+            assert torch.equal(destination["model.layers.0.self_attn"], before)
+        finally:
+            shutdown_connectors(producer, consumer)
+
+
+def test_pure_full_attention_transfer_is_unchanged() -> None:
+    config = make_pure_attention_config(logical_block_size=LOGICAL_BLOCK_SIZE)
+    transport = MemoryTransport()
+    with patched_worker_runtime(
+        transport,
+        kernel_block_size=LOGICAL_BLOCK_SIZE,
+        hybrid_backends=False,
+    ):
+        producer = make_worker_connector(
+            "kv_producer", config, logical_block_size=LOGICAL_BLOCK_SIZE
+        )
+        consumer = make_worker_connector(
+            "kv_consumer", config, logical_block_size=LOGICAL_BLOCK_SIZE
+        )
+        source = make_pure_attention_caches(config)
+        destination = make_pure_attention_caches(config)
+        try:
+            producer.register_kv_caches(source)
+            consumer.register_kv_caches(destination)
+            source_attention = source["model.layers.0.self_attn"]
+            destination_attention = destination["model.layers.0.self_attn"]
+            source_attention[2].fill_(91)
+            before = destination_attention.clone()
+            finished = asyncio.run(
+                transfer_once(
+                    producer,
+                    consumer,
+                    local_block_ids=[[2]],
+                    remote_block_ids=[[6]],
+                    transfer_id="pure-attention",
+                )
+            )
+            assert finished[1] == {"decoder-request"}
+            expected = before.clone()
+            expected[6] = source_attention[2]
+            assert torch.equal(destination_attention, expected)
+        finally:
+            shutdown_connectors(producer, consumer)
+
+
+def test_layout_mismatch_is_not_reported_as_complete() -> None:
+    producer_config = make_hybrid_config(logical_block_size=LOGICAL_BLOCK_SIZE)
+    consumer_config = KVCacheConfig(
+        num_blocks=producer_config.num_blocks,
+        kv_cache_tensors=[],
+        kv_cache_groups=list(reversed(producer_config.kv_cache_groups)),
+    )
+    transport = MemoryTransport()
+    with patched_worker_runtime(
+        transport, kernel_block_size=LOGICAL_BLOCK_SIZE
+    ):
+        producer = make_worker_connector(
+            "kv_producer",
+            producer_config,
+            logical_block_size=LOGICAL_BLOCK_SIZE,
+        )
+        consumer = make_worker_connector(
+            "kv_consumer",
+            consumer_config,
+            logical_block_size=LOGICAL_BLOCK_SIZE,
+        )
+        try:
+            producer.register_kv_caches(make_hybrid_caches(producer_config))
+            consumer.register_kv_caches(make_hybrid_caches(producer_config))
+            finished = asyncio.run(
+                transfer_once(
+                    producer,
+                    consumer,
+                    local_block_ids=[[1], [2]],
+                    remote_block_ids=[[3], [4]],
+                    transfer_id="layout-mismatch",
+                )
+            )
+            assert finished[1] is None
+            assert transport.transfers == []
+        finally:
+            shutdown_connectors(producer, consumer)
+
+
+def test_group_count_mismatch_is_not_reported_as_complete() -> None:
+    config = make_hybrid_config(logical_block_size=LOGICAL_BLOCK_SIZE)
+    transport = MemoryTransport()
+    with patched_worker_runtime(
+        transport, kernel_block_size=LOGICAL_BLOCK_SIZE
+    ):
+        producer, consumer, _source, _destination = _register_pair(
+            config,
+            transport=transport,
+            kernel_block_size=LOGICAL_BLOCK_SIZE,
+        )
+        try:
+            finished = asyncio.run(
+                transfer_once(
+                    producer,
+                    consumer,
+                    local_block_ids=[[1], [2]],
+                    remote_block_ids=[[3]],
+                    transfer_id="group-count-mismatch",
+                )
+            )
+            assert finished[1] is None
+            assert transport.transfers == []
+        finally:
+            shutdown_connectors(producer, consumer)
+
+
+def test_hybrid_remote_prefill_leaves_one_token_for_decode() -> None:
+    config = make_hybrid_config(logical_block_size=LOGICAL_BLOCK_SIZE)
+    vllm_config = make_vllm_config(
+        "kv_consumer", logical_block_size=LOGICAL_BLOCK_SIZE
+    )
+    connector = MooncakeConnector(vllm_config, KVConnectorRole.SCHEDULER, config)
+    request = create_request(
+        request_id=31,
+        block_size=LOGICAL_BLOCK_SIZE,
+        num_tokens=35,
+        do_remote_prefill=True,
+    )
+    matched, asynchronous = connector.get_num_new_matched_tokens(request, 0)
+    assert matched == 34
+    assert asynchronous is True
+
+
+def test_pure_attention_remote_prefill_keeps_full_prompt() -> None:
+    config = make_pure_attention_config(logical_block_size=LOGICAL_BLOCK_SIZE)
+    vllm_config = make_vllm_config(
+        "kv_consumer", logical_block_size=LOGICAL_BLOCK_SIZE
+    )
+    connector = MooncakeConnector(vllm_config, KVConnectorRole.SCHEDULER, config)
+    request = create_request(
+        request_id=32,
+        block_size=LOGICAL_BLOCK_SIZE,
+        num_tokens=35,
+        do_remote_prefill=True,
+    )
+    matched, asynchronous = connector.get_num_new_matched_tokens(request, 0)
+    assert matched == 35
+    assert asynchronous is True
+
+
+def test_nixl_hybrid_remote_prefill_behavior_is_unchanged() -> None:
+    config = make_hybrid_config(logical_block_size=LOGICAL_BLOCK_SIZE)
+    vllm_config = make_vllm_config(
+        "kv_consumer",
+        logical_block_size=LOGICAL_BLOCK_SIZE,
+        connector="NixlConnector",
+    )
+    connector = NixlConnector(vllm_config, KVConnectorRole.SCHEDULER, config)
+    request = create_request(
+        request_id=33,
+        block_size=LOGICAL_BLOCK_SIZE,
+        num_tokens=35,
+        do_remote_prefill=True,
+    )
+    matched, asynchronous = connector.get_num_new_matched_tokens(request, 0)
+    assert matched == 34
+    assert asynchronous is True
+
+
+def test_warm_full_prefix_remote_decode_remains_schedulable() -> None:
+    config = make_hybrid_config(
+        logical_block_size=LOGICAL_BLOCK_SIZE,
+        num_blocks=64,
+    )
+    vllm_config = make_vllm_config(
+        "kv_producer", logical_block_size=LOGICAL_BLOCK_SIZE
+    )
+    scheduler = create_scheduler(vllm_config, num_blocks=64, kv_cache_config=config)
+
+    warm = create_request(
+        request_id=41,
+        block_size=LOGICAL_BLOCK_SIZE,
+        num_tokens=LOGICAL_BLOCK_SIZE + 1,
+        common_prefix_len=LOGICAL_BLOCK_SIZE + 1,
+        max_tokens=1,
+    )
+    scheduler.add_request(warm)
+    output = scheduler.schedule()
+    scheduler.update_from_output(
+        output, create_model_runner_output([warm], use_eos=True)
+    )
+
+    repeated = create_request(
+        request_id=42,
+        block_size=LOGICAL_BLOCK_SIZE,
+        num_tokens=LOGICAL_BLOCK_SIZE + 1,
+        common_prefix_len=LOGICAL_BLOCK_SIZE + 1,
+        do_remote_decode=True,
+    )
+    scheduler.add_request(repeated)
+    output = scheduler.schedule()
+    assert output.num_scheduled_tokens[repeated.request_id] > 0
+    assert repeated.num_prompt_tokens == LOGICAL_BLOCK_SIZE
+
+
+def test_prompt_embeddings_remote_decode_remains_schedulable() -> None:
+    config = make_hybrid_config(
+        logical_block_size=LOGICAL_BLOCK_SIZE,
+        num_blocks=64,
+    )
+    vllm_config = make_vllm_config(
+        "kv_producer", logical_block_size=LOGICAL_BLOCK_SIZE
+    )
+    vllm_config.cache_config.enable_prefix_caching = False
+    scheduler = create_scheduler(vllm_config, num_blocks=64, kv_cache_config=config)
+    embeddings = torch.randn(LOGICAL_BLOCK_SIZE + 1, 8)
+    request = Request(
+        request_id="embedding-request",
+        prompt_token_ids=None,
+        prompt_embeds=embeddings,
+        sampling_params=SamplingParams(max_tokens=8),
+        pooling_params=None,
+        block_hasher=None,
+    )
+    request.kv_transfer_params = {
+        "do_remote_prefill": False,
+        "do_remote_decode": True,
+        "transfer_id": "embedding-transfer",
+    }
+    scheduler.add_request(request)
+    output = scheduler.schedule()
+    assert output.num_scheduled_tokens[request.request_id] > 0
+    assert request.num_prompt_tokens == LOGICAL_BLOCK_SIZE
+
+
+def test_scheduler_can_finish_cold_gdn_remote_decode() -> None:
+    config = make_hybrid_config(
+        logical_block_size=LOGICAL_BLOCK_SIZE,
+        num_blocks=64,
+    )
+    vllm_config = make_vllm_config(
+        "kv_producer", logical_block_size=LOGICAL_BLOCK_SIZE
+    )
+    scheduler = create_scheduler(vllm_config, num_blocks=64, kv_cache_config=config)
+    request = create_request(
+        request_id=51,
+        block_size=LOGICAL_BLOCK_SIZE,
+        num_tokens=35,
+        do_remote_decode=True,
+    )
+    scheduler.add_request(request)
+    output = scheduler.schedule()
+    assert output.num_scheduled_tokens[request.request_id] == 34
+    result = scheduler.update_from_output(
+        output, create_model_runner_output([request])
+    )
+    assert result[0].outputs[0].finish_reason is not None

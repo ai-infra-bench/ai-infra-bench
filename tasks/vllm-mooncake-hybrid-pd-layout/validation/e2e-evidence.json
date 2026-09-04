@@ -1,0 +1,246 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-04T22:34:49+08:00",
+  "source": {
+    "candidate_id": "vllm-cpu-300-240",
+    "instance_id": "vllm-project__vllm-46807",
+    "repository": "vllm-project/vllm",
+    "base_commit": "97b5ce5c3931173b3efebca58e597b8e58730cd3",
+    "reference_pr": "https://github.com/vllm-project/vllm/pull/46807",
+    "reference_merge_commit": "0feca7ffa8f626f51f5ea262eb586a3bbe704991",
+    "followup_fixes": [
+      {
+        "pull_request": "https://github.com/vllm-project/vllm/pull/53663",
+        "merge_commit": "f14369c7f9fcd5f29c33c3ff6753a59664db59e5",
+        "behavior": "prepare GDN remote-decode requests before local prefix-cache matching"
+      },
+      {
+        "pull_request": "https://github.com/vllm-project/vllm/pull/54272",
+        "merge_commit": "5cc32fbdfac44987bc2ece1d9ded7cb43acc2820",
+        "behavior": "scale contiguous attention transfer length after logical blocks expand to physical blocks"
+      }
+    ]
+  },
+  "fact_validation": {
+    "historical_observations": {
+      "qwen35": "The reference PR reports that the pre-existing Mooncake path could not initialize a hybrid full-attention plus GDN layout.",
+      "deepseek_v4_flash": "The reference PR discussion records standalone GSM8K accuracy of about 0.9507 and pre-existing 1P1D Mooncake accuracy of about 0.0485."
+    },
+    "base": {
+      "behavior_tests": {
+        "passed": 3,
+        "failed": 15,
+        "errors": 0,
+        "skipped": 0
+      },
+      "e2e_exit_code": 1,
+      "failure_boundary": "The mixed-layout worker reaches the real Mooncake worker constructor and fails when the GDN backend is treated as an ordinary attention cache. Scheduler cases also retain the wrong cache-only GDN prompt boundary."
+    },
+    "oracle": {
+      "behavior_tests": {
+        "passed": 18,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "e2e_exit_code": 0,
+      "e2e_output": "REAL_MOONCAKE_CPU_PD_OK ratio=8 descriptors=4"
+    }
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-mooncake-hybrid-pd-layout:base-97b5ce5c3931",
+    "image_id": "sha256:f99227b04f7000fb96ede3cb53e53f465566d6a1ac157ca84ebbd9d5de9faf51",
+    "size_bytes": 2812211246,
+    "dockerfile_sha256": "b0eb9d451b3727b292a2772b8fa61376a2e0456f35a8a63939aa14feab340aff",
+    "image_manifest_sha256": "a41f64fca6501e2a8e3bbc6bbe167bbfc3612bde1fb268923d513edbac9b3d5a",
+    "dependency_lock_sha256": "8bbdd18586742d39295cd38d624a7246f4caed21d59f11a56838d1910c7d216e",
+    "dependency_lock_manifest_sha256": "7f9c3e7f46ed6a77c9ffb557d440f43f6e54618429a61cea3e131384092328c0",
+    "cache_only_rebuild_image_id": "sha256:f99227b04f7000fb96ede3cb53e53f465566d6a1ac157ca84ebbd9d5de9faf51"
+  },
+  "artifacts": {
+    "files": {
+      "task.toml": {
+        "sha256": "683ba591a428f96e7666a6d4f174b15483c512e444c8ae91ee945133c3655ffd"
+      },
+      "instruction.md": {
+        "sha256": "3ed2b916a3799ded536798ce4b16da9f4ed195d9fb6933bfce6b04e296f8b4a1"
+      },
+      "solution/oracle.patch": {
+        "sha256": "b226978a520c520a0841dbc23495a435318660bfa7fdf0a31dfc5e07a5122618"
+      },
+      "solution/solve.sh": {
+        "sha256": "30736ddecc6d93c65becaef873117262947e06abc41e37210157417696d39d56"
+      },
+      "tests/test.sh": {
+        "sha256": "cb84ac59e1bee3daa3c4179993d5053c3be0fd04e2aa51c1c79519bac7c87db3"
+      },
+      "tests/check_junit.py": {
+        "sha256": "757a924e18efaf695283bf2a0880d20cd1dd639112d4106dfeed2b86feb1acb9"
+      },
+      "tests/test_regression.py": {
+        "sha256": "dccd79181dff1eb3cc79cc6024a13c23224230a82df99da2f72b8ad4ae67482a"
+      },
+      "tests/verifier_support.py": {
+        "sha256": "5c9f0c30cfde19eb3aa69eeb8c6c050bd4c9d143954fed44449e072d06307798"
+      },
+      "tests/test_real_inmemory_pd_transfer.py": {
+        "sha256": "71e1fe757d5f1e7855cb81f677dac0254264aa96e885ee88decd5cbe23b465e8"
+      },
+      "validation/ci-cases.json": {
+        "sha256": "b5009779a4ce70fd05e755952f4b09155d13b036c2ca38a66711b37c3566f7a1"
+      },
+      "validation/remediation-matrix.md": {
+        "sha256": "9d894a356c140aac90e1e422b0dbdf07c8aa24755d3d395c15b0c403f7ec7397"
+      }
+    }
+  },
+  "verifier_contract": {
+    "behavior_cases": 18,
+    "collection_integrity": "JUnit contains exactly 18 unique, passing, non-skipped cases for full reward.",
+    "asserts_private_implementation_structure": false,
+    "imports_oracle_helpers": false,
+    "behaviors": [
+      "mixed full-attention and GDN workers initialize through the existing connector interface",
+      "full-attention, MLA, sliding-window MLA, and GDN payloads reach their matching destination blocks",
+      "null state placeholders are ignored and unrequested bytes remain unchanged",
+      "padded and shared-storage views stay within valid registered memory",
+      "logical-to-physical block ratios greater than one do not overlap or corrupt neighboring blocks",
+      "registration, transfer, group-count, and producer-consumer layout failures are not reported as successful",
+      "cache-only GDN remote prefill and decode preserve the final-token recomputation boundary for token IDs and prompt embeddings",
+      "cold and fully cached warm requests remain schedulable and the prefill engine remains healthy",
+      "pure full-attention Mooncake transfer and NIXL remote-prefill behavior remain compatible"
+    ]
+  },
+  "e2e_boundary": {
+    "path": "hybrid KV configuration and P/D request metadata -> real Mooncake worker construction and registration -> real metadata encoding/decoding, group-aware transfer planning, and producer send lifecycle -> pointer-based copy into consumer CPU tensors and completion status",
+    "scheduler_composition": "Separate behavior cases enter through the real Scheduler.add_request, Scheduler.schedule, and Scheduler.update_from_output lifecycle for cold, warm-prefix, token-ID, and prompt-embedding requests.",
+    "substitution": "Deterministic CPU tensors replace model forward passes. An in-memory engine replaces native Mooncake RDMA and validates registered ranges before performing the exact pointer-based copies requested by production connector code. A loopback socket replaces ZMQ transport while retaining production message encoding and response handling.",
+    "preserved_semantics": "Cache group cardinality and order, logical and physical block identities, byte strides and payloads, null placeholders, registration ranges, failure codes, request ordering, and cold/warm lifecycle state are preserved.",
+    "limitations": "The verifier does not execute GPU kernels, model weights, native Mooncake RDMA/NVLink, multi-node transport, or full-model accuracy evaluation. It does not claim coverage for Mamba variants other than GDN."
+  },
+  "independent_challenge": {
+    "case": "An unpublished ratio-three MLA plus GDN transfer with non-contiguous logical blocks.",
+    "oracle": "passed",
+    "alternative_python_block_expansion": "passed"
+  },
+  "repeated_runs": [
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "behavior_tests_each_round": {
+        "passed": 3,
+        "failed": 15,
+        "errors": 0,
+        "skipped": 0
+      },
+      "e2e_exit_codes": [1, 1, 1, 1, 1]
+    },
+    {
+      "case": "oracle",
+      "rounds": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "behavior_tests_each_round": {
+        "passed": 18,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "e2e_exit_codes": [0, 0, 0, 0, 0]
+    }
+  ],
+  "controls": [
+    {
+      "case": "alternative-python-block-expansion",
+      "patch_sha256": "92275b86615909675f185e5196b16f47b682ff5ff5a1afdbf692edbfb819f9a3",
+      "expected_reward": 1,
+      "actual_reward": 1,
+      "tests_passed": 18,
+      "tests_failed": 0,
+      "e2e_exit_code": 0
+    },
+    {
+      "case": "late-prefix-preparation",
+      "patch_sha256": "e305aa3b7b7b094844cd182eb5442dcc1d4d9ddcdf6883d774f8ed9df1d76ecd",
+      "expected_reward": 0,
+      "actual_reward": 0,
+      "tests_passed": 17,
+      "tests_failed": 1,
+      "e2e_exit_code": 0
+    },
+    {
+      "case": "unscaled-physical-transfer",
+      "patch_sha256": "04e5a141f97eacc02fc58b147e0d673550f929ee6584628f5fde578a269cb86d",
+      "expected_reward": 0,
+      "actual_reward": 0,
+      "tests_passed": 18,
+      "tests_failed": 0,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "flattened-cache-groups",
+      "patch_sha256": "1fe51cf456aa2600df07456e716150b36f700a3d92326501746d3245538f441f",
+      "expected_reward": 0,
+      "actual_reward": 0,
+      "tests_passed": 12,
+      "tests_failed": 6,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "break-pure-attention",
+      "patch_sha256": "b038fe3617a5771979aa64b8a3398e4ec35fe7526e9114fd5d8778aab2e2b58a",
+      "expected_reward": 0,
+      "actual_reward": 0,
+      "tests_passed": 17,
+      "tests_failed": 1,
+      "e2e_exit_code": 0
+    },
+    {
+      "case": "transfer-null-placeholders",
+      "patch_sha256": "dfc32772d62c32b84d2af500e88f344de33dd526cde3c1656a8f197fd7a86db5",
+      "expected_reward": 0,
+      "actual_reward": 0,
+      "tests_passed": 18,
+      "tests_failed": 0,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "swallow-transfer-failure",
+      "patch_sha256": "d6fd99906384c900b6fe9807ad0f0be43636e9b8ff1f9e494c498ff785f4eab3",
+      "expected_reward": 0,
+      "actual_reward": 0,
+      "tests_passed": 17,
+      "tests_failed": 1,
+      "e2e_exit_code": 0
+    }
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "verifier_environment_mode": "shared",
+    "job_id": "692cc40c-2a9b-483f-b241-2828369012ad",
+    "trial_id": "28dea92d-cf8c-4811-9b16-6190b1c14b0b",
+    "input_task_checksum": "8cb8a75521b55100233ad0577751050e747cd1a5241245218c6620206e652837",
+    "reward": 1,
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "command_exit_code": 0,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "pipeline_exit_code": 0,
+    "runtime_seconds": 28
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "future_reference_commits_absent": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_validation_and_reward_absent_from_agent_image": true,
+    "tests_available_only_during_verification": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "cache_only_rebuild_digest_stable": true,
+    "build_context_empty": true,
+    "runtime_network_disabled": true,
+    "canonical_image_retained": true
+  }
+}

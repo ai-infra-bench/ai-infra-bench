@@ -1,0 +1,11 @@
+Mooncake already supports PD disaggregated transfer for pure full-attention models. Extend it to support the cache layouts used by Qwen3.5 and DeepSeek V4 Flash. Qwen3.5 combines full-attention KV cache with GDN recurrent state represented by `MambaSpec`, and the current Mooncake path cannot initialize that layout. DeepSeek V4 Flash starts, but a 1-prefiller/1-decoder GSM8K run produced about 0.0485 accuracy while the same model produced about 0.9507 in standalone execution.
+
+Implement Mooncake P/D transfer for mixed full-attention and GDN cache groups, and for MLA and sliding-window MLA caches that use padded layouts or shared storage. Hybrid models must initialize successfully, and the state visible to the decode worker after transfer must match local execution.
+
+Preserve each cache group's block identity and layout semantics throughout registration and transfer. Requested full-attention pages and GDN state slots must arrive in their corresponding destination blocks, null state placeholders must not be transferred as real state, and unrequested data must remain unchanged. Padded or shared-storage views must not cause invalid or conflicting memory registration.
+
+Transfers must remain correct when one logical attention block maps to multiple physical blocks. Every requested payload must match the source after transfer, and no transfer may overlap or corrupt neighboring blocks.
+
+Mooncake P/D transfers cache state rather than prefill logits. For GDN remote decode, leave the final prompt token for the decoder to recompute locally, for both token IDs and prompt embeddings. Cold requests and repeated requests with a fully populated producer-side prefix cache must complete successfully, and the prefill engine must remain healthy.
+
+Existing pure full-attention Mooncake transfer and NIXL P/D behavior must remain compatible. Layout mismatches and memory-registration or transfer failures must continue to surface as errors rather than silently succeeding. Mamba variants other than GDN are outside the scope of this task.
