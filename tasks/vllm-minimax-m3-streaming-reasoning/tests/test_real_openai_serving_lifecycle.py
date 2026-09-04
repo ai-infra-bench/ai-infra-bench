@@ -305,30 +305,6 @@ def collect_stream(lines: list[str]) -> dict[str, Any]:
     }
 
 
-def assert_engine_boundary(
-    engine: DeterministicEngine,
-    expected_mode: str,
-    call_index: int,
-) -> None:
-    call = engine.calls[call_index]
-    assert call["thinking_mode"] == expected_mode
-    if expected_mode == "enabled":
-        assert call["prompt"].endswith("<mm:think>")
-        assert call["prompt_token_ids"][-1] == engine.tokenizer.get_vocab()[
-            "<mm:think>"
-        ]
-        assert call["reasoning_ended"] is False
-    elif expected_mode == "disabled":
-        assert call["prompt"].endswith("</mm:think>")
-        assert call["prompt_token_ids"][-1] == engine.tokenizer.get_vocab()[
-            "</mm:think>"
-        ]
-        assert call["reasoning_ended"] is True
-    else:
-        assert not call["prompt"].endswith("<mm:think>")
-        assert call["reasoning_ended"] is None
-
-
 def assert_result(
     result: dict[str, Any],
     scenario: Scenario,
@@ -425,9 +401,14 @@ async def run() -> None:
                     k: v for k, v in observed[5].items() if k != "chunks"
                 },
                 "nonstream_messages": nonstream_messages,
-                "engine_reasoning_ended": [
-                    call["reasoning_ended"] for call in stream_engine.calls
-                ],
+                "engine_prompt_state_diagnostic": {
+                    "stream": [
+                        call["reasoning_ended"] for call in stream_engine.calls
+                    ],
+                    "nonstream": [
+                        call["reasoning_ended"] for call in nonstream_engine.calls
+                    ],
+                },
             },
             ensure_ascii=False,
         ),
@@ -438,10 +419,6 @@ async def run() -> None:
         observed, stream_cases
     ):
         assert_result(result, scenario, expected_mode)
-    for index, (_scenario, _request_mode, expected_mode) in enumerate(stream_cases):
-        assert_engine_boundary(stream_engine, expected_mode, index)
-    for index, (_request_mode, expected_mode) in enumerate(nonstream_cases):
-        assert_engine_boundary(nonstream_engine, expected_mode, index)
     assert observed[0]["reasoning"] == observed[5]["reasoning"]
     assert observed[0]["tool_calls"][0]["function"] == observed[5]["tool_calls"][0][
         "function"

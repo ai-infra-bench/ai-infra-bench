@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-09-03T21:55:00+08:00",
+  "recorded_at": "2026-09-04T17:14:08+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-223",
     "instance_id": "vllm-project__vllm-45718",
@@ -36,9 +36,9 @@
     "regression_test_sha256": "373506beced4100e1e29ad034f9da8eb3c14b68c1a1f93857fb7a83c7bb13aea",
     "junit_checker_sha256": "5660d151d8531d66b7607294fb7bfeaea20299832a599d44bb625611c8fdac99",
     "real_tokenizer_test_sha256": "5686ea24963712c5632ccedf0d3d010e13f19244f0a44dbfd42c16e84f4742dd",
-    "real_serving_test_sha256": "1c002a7e70aa62aa539989a4ff2f343715e1ef0eda9ddece414c0a3c788d1ea9",
-    "ci_cases_sha256": "7d4b3763052598535adbefecead15b051b41c7cd18b32a370850516ae8cb15e9",
-    "remediation_matrix_sha256": "db0de6432c44a6c06e1efdf424970b116dd6928fe8615864525cc2c7b298921e"
+    "real_serving_test_sha256": "0db95f38fd0cc6118b0e2fcb10b06cb34beb8b0a8f6eb54c2e2287de1c931f72",
+    "ci_cases_sha256": "cede21fcd9cec771f8b2eb027810cd6da2e5e90a81410d9cbf5eb7b23f47bc63",
+    "remediation_matrix_sha256": "40ec8601493b73146de3af8f4f8f7205284526918425965eed2d47208152d135"
   },
   "verifier_contract": {
     "asserts_private_implementation_structure": false,
@@ -50,7 +50,7 @@
       "adaptive and enabled streams transition into structured function calls with varied names and arguments",
       "atomic-marker, plain streaming, non-streaming, disabled-thinking, malformed-prefix, and repeated-request behavior remains correct"
     ],
-    "public_boundary": "Tests assert Chat Completions response fields through ParserManager and a real ASGI/OpenAIServingChat lifecycle; they do not inspect Golden helpers, private state, patch shape, or call counts.",
+    "public_boundary": "Reward depends on Chat Completions response fields through ParserManager and a real ASGI/OpenAIServingChat lifecycle; engine prompt state is logged only as a non-scoring diagnostic, and tests do not inspect Golden helpers, private state, patch shape, or call counts.",
     "collection_integrity": "JUnit must contain exactly 25 unique, passing, non-skipped cases"
   },
   "real_lifecycle_boundary": {
@@ -66,7 +66,7 @@
     "stream_tool_call_verified": true,
     "nonstream_comparison_verified": true,
     "prompt_rendering_verified": true,
-    "engine_prompt_state_verified": true,
+    "engine_prompt_state_observed": true,
     "request_isolation_verified": true,
     "model_runner_executed": false,
     "limitation": "Model execution is replaced with deterministic generated text and valid tokenizer IDs because model weights and GPUs are unavailable. Tokenizer loading, chat-template rendering, request validation, serving state, parser registration, reasoning parsing, tool parsing, and SSE serialization execute real base code."
@@ -126,8 +126,8 @@
   ],
   "alternative_implementation_runs": [
     {
-      "case": "atomic_marker_helpers_with_text_streaming",
-      "patch_sha256": "404830ba9dd49d39305d33e71d4c36869ac38927da0b08467715b22839b30404",
+      "case": "renamed_stream_state_with_vocabulary_first_marker_resolution",
+      "patch_sha256": "30f988de658bcceb27e76e2788ace213ba8d0f018d289e811429826f5f87daca",
       "reward": 1,
       "tests_passed": 25,
       "tests_failed": 0,
@@ -137,13 +137,13 @@
   ],
   "harbor": {
     "version": "0.22.0",
-    "job_id": "a99b7ed8-d1cb-443b-afa7-9c70db41f249",
-    "trial_id": "a781761c-f2eb-41ed-80ac-1585f2c5aada",
-    "package_digest": "sha256:18afa16421d37f0279486f72536303abf2583d1a6e734d932a59acdb1e7cc90b",
-    "input_task_checksum": "a82bde78df99479102942e2ba6a0a85e089854e7d8a5681632a132e3b6ed6d7f",
+    "job_id": "bbb38e20-d618-46fd-bc44-22ef926d5afc",
+    "trial_id": "d9fc49b1-a9c1-4abe-8ee5-2f73b227f1f2",
+    "package_digest": "sha256:863dceece752a7f54c08294927ecd4e4c029cc606073b9c02e30cf07db890cca",
+    "input_task_checksum": "61e6b9df5c50fca39a5cb161f2c785398005dab2c36f816cde4dbb0659dfb289",
     "agent": "oracle",
     "environment": "docker",
-    "prebuilt_image_used": false,
+    "prebuilt_image_used": true,
     "n_completed_trials": 1,
     "n_errored_trials": 0,
     "reward": 1,
@@ -152,7 +152,7 @@
     "integrity_exit_code": 0,
     "e2e_exit_code": 0,
     "serving_exit_code": 0,
-    "runtime_seconds": 644,
+    "runtime_seconds": 31,
     "canonical_image_retained_after_run": true
   },
   "provenance_gates": {

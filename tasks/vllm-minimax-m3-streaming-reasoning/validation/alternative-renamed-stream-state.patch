@@ -1,5 +1,5 @@
 diff --git a/vllm/reasoning/minimax_m3_reasoning_parser.py b/vllm/reasoning/minimax_m3_reasoning_parser.py
-index ec75ce78b..d069a10e4 100644
+index ec75ce78b..a17a7e00 100644
 --- a/vllm/reasoning/minimax_m3_reasoning_parser.py
 +++ b/vllm/reasoning/minimax_m3_reasoning_parser.py
 @@ -19,10 +19,12 @@ class MiniMaxM3ReasoningParser(BaseThinkingReasoningParser):
@@ -19,37 +19,40 @@ index ec75ce78b..d069a10e4 100644
      """
 
      @property
-@@ -35,9 +37,145 @@ class MiniMaxM3ReasoningParser(BaseThinkingReasoningParser):
+@@ -35,9 +37,148 @@ class MiniMaxM3ReasoningParser(BaseThinkingReasoningParser):
 
      def __init__(self, tokenizer, *args, **kwargs):
          super().__init__(tokenizer, *args, **kwargs)
-+        self._start_token_ids = self._encode_marker(self.start_token)
-+        self._end_token_ids = self._encode_marker(self.end_token)
++        self._opening_ids = self._canonical_marker_ids(self.start_token)
++        self._closing_ids = self._canonical_marker_ids(self.end_token)
          chat_kwargs = kwargs.get("chat_template_kwargs", {}) or {}
 -        self._initial_in_reasoning = chat_kwargs.get("thinking_mode") == "enabled"
-+        self._thinking_mode = chat_kwargs.get("thinking_mode", "adaptive")
-+        self._initial_in_reasoning = self._thinking_mode == "enabled"
++        self._initial_in_reasoning = chat_kwargs.get("thinking_mode") == "enabled"
++        self._prompt_boundary_reasoning_ended = {
++            "disabled": True,
++            "enabled": False,
++        }.get(chat_kwargs.get("thinking_mode", "adaptive"))
 -        self._at_response_start = True
-+        self._reasoning_ended_streaming = False
-+        self._reasoning_active_streaming = self._initial_in_reasoning
-+        self._pending_marker_streaming = False
-+        self._pending_marker_text = ""
-+        self._last_streaming_delta_token_ids: tuple[int, ...] | None = None
-+        self._last_streaming_content_token_ids: list[int] | None = None
++        self._stream_closed = False
++        self._stream_in_reasoning = self._initial_in_reasoning
++        self._stream_has_pending_marker = False
++        self._stream_pending_text = ""
++        self._transition_delta_ids: tuple[int, ...] | None = None
++        self._transition_content_ids: list[int] | None = None
 +
-+    def _encode_text(self, text: str) -> list[int]:
++    def _tokenize_without_specials(self, text: str) -> list[int]:
 +        try:
 +            return list(self.model_tokenizer.encode(text, add_special_tokens=False))
 +        except TypeError:
 +            return list(self.model_tokenizer.encode(text))
 +
-+    def _encode_marker(self, marker: str) -> tuple[int, ...]:
++    def _canonical_marker_ids(self, marker: str) -> tuple[int, ...]:
 +        marker_id = self.model_tokenizer.get_vocab().get(marker)
 +        if marker_id is not None:
 +            return (marker_id,)
-+        return tuple(self._encode_text(marker))
++        return tuple(self._tokenize_without_specials(marker))
 +
-+    def _decode_text(self, token_ids: Sequence[int]) -> str:
++    def _decode_ids(self, token_ids: Sequence[int]) -> str:
 +        try:
 +            return self.model_tokenizer.decode(
 +                list(token_ids), skip_special_tokens=False
@@ -57,7 +60,7 @@ index ec75ce78b..d069a10e4 100644
 +        except TypeError:
 +            return self.model_tokenizer.decode(list(token_ids))
 +
-+    def _content_suffix_token_ids(
++    def _content_ids_from_delta(
 +        self,
 +        delta_text: str,
 +        delta_token_ids: Sequence[int],
@@ -70,12 +73,12 @@ index ec75ce78b..d069a10e4 100644
 +        if delta_text.endswith(content):
 +            prefix_text = delta_text[: len(delta_text) - len(content)]
 +            for index in range(len(delta_token_ids) + 1):
-+                if self._decode_text(delta_token_ids[:index]) == prefix_text:
++                if self._decode_ids(delta_token_ids[:index]) == prefix_text:
 +                    return list(delta_token_ids[index:])
-+        return self._encode_text(content)
++        return self._tokenize_without_specials(content)
 +
 +    @staticmethod
-+    def _contains_token_sequence(
++    def _sequence_present(
 +        token_ids: Sequence[int], marker_ids: Sequence[int]
 +    ) -> bool:
 +        if not marker_ids or len(marker_ids) > len(token_ids):
@@ -87,7 +90,7 @@ index ec75ce78b..d069a10e4 100644
 +        )
 +
 +    @staticmethod
-+    def _rfind_token_sequence(
++    def _last_sequence_offset(
 +        token_ids: Sequence[int], marker_ids: Sequence[int]
 +    ) -> int:
 +        if not marker_ids or len(marker_ids) > len(token_ids):
@@ -99,7 +102,7 @@ index ec75ce78b..d069a10e4 100644
 +        return -1
 +
 +    @staticmethod
-+    def _ends_with_token_sequence_prefix(
++    def _ends_in_marker_id_prefix(
 +        token_ids: Sequence[int], marker_ids: Sequence[int]
 +    ) -> bool:
 +        if not marker_ids:
@@ -111,7 +114,7 @@ index ec75ce78b..d069a10e4 100644
 +        return False
 +
 +    @staticmethod
-+    def _partial_marker_suffix(text: str, marker: str) -> str:
++    def _trailing_marker_fragment(text: str, marker: str) -> str:
 +        max_len = min(len(text), len(marker) - 1)
 +        for suffix_len in range(max_len, 0, -1):
 +            if marker.startswith(text[-suffix_len:]):
@@ -119,12 +122,12 @@ index ec75ce78b..d069a10e4 100644
 +        return ""
 +
 +    @classmethod
-+    def _strip_partial_marker_suffix(cls, text: str, marker: str) -> str:
-+        suffix = cls._partial_marker_suffix(text, marker)
++    def _strip_trailing_marker_fragment(cls, text: str, marker: str) -> str:
++        suffix = cls._trailing_marker_fragment(text, marker)
 +        return text[: -len(suffix)] if suffix else text
 +
 +    @staticmethod
-+    def _visible_delta(previous: str | None, current: str | None) -> str | None:
++    def _new_projection_text(previous: str | None, current: str | None) -> str | None:
 +        if not current:
 +            return None
 +        if not previous:
@@ -134,7 +137,7 @@ index ec75ce78b..d069a10e4 100644
 +            return delta or None
 +        return current
 +
-+    def _visible_segments(self, text: str) -> tuple[str | None, str | None]:
++    def _project_visible_text(self, text: str) -> tuple[str | None, str | None]:
 +        if not text:
 +            return None, None
 +
@@ -150,11 +153,11 @@ index ec75ce78b..d069a10e4 100644
 +            reasoning, end, content = text.partition(self.end_token)
 +            if end:
 +                return reasoning or None, content or None
-+            reasoning = self._strip_partial_marker_suffix(reasoning, self.end_token)
++            reasoning = self._strip_trailing_marker_fragment(reasoning, self.end_token)
 +            return reasoning or None, None
 +
 +        if self.start_token not in text:
-+            content = self._strip_partial_marker_suffix(text, self.start_token)
++            content = self._strip_trailing_marker_fragment(text, self.start_token)
 +            return None, content or None
 +
 +        content_before, _, after_start = text.partition(self.start_token)
@@ -162,36 +165,36 @@ index ec75ce78b..d069a10e4 100644
 +        if end:
 +            return reasoning or None, (content_before + content_after) or None
 +
-+        reasoning = self._strip_partial_marker_suffix(reasoning, self.end_token)
++        reasoning = self._strip_trailing_marker_fragment(reasoning, self.end_token)
 +        return reasoning or None, content_before or None
 
      def extract_reasoning(
          self,
-@@ -69,26 +207,46 @@ class MiniMaxM3ReasoningParser(BaseThinkingReasoningParser):
+@@ -69,26 +210,46 @@ class MiniMaxM3ReasoningParser(BaseThinkingReasoningParser):
      def is_reasoning_end_streaming(
          self, input_ids: Sequence[int], delta_ids: Iterable[int]
      ) -> bool:
-+        if self._reasoning_ended_streaming:
++        if self._stream_closed:
 +            return True
 +
-+        if self._reasoning_active_streaming or self._pending_marker_streaming:
++        if self._stream_in_reasoning or self._stream_has_pending_marker:
 +            return False
 +
          delta_ids = tuple(delta_ids)
 -        if self.end_token_id in delta_ids:
-+        if self._contains_token_sequence(delta_ids, self._end_token_ids):
++        if self._sequence_present(delta_ids, self._closing_ids):
              return True
 -        if self.end_token_id in input_ids:
-+        if self._contains_token_sequence(input_ids, self._end_token_ids):
++        if self._sequence_present(input_ids, self._closing_ids):
              return True
          if self._initial_in_reasoning:
              return False
 -        if self.start_token_id not in input_ids:
-+        if self._ends_with_token_sequence_prefix(input_ids, self._start_token_ids):
++        if self._ends_in_marker_id_prefix(input_ids, self._opening_ids):
 +            return False
-+        if self._ends_with_token_sequence_prefix(input_ids, self._end_token_ids):
++        if self._ends_in_marker_id_prefix(input_ids, self._closing_ids):
 +            return False
-+        if not self._contains_token_sequence(input_ids, self._start_token_ids):
++        if not self._sequence_present(input_ids, self._opening_ids):
              return bool(input_ids)
          return False
 
@@ -200,20 +203,20 @@ index ec75ce78b..d069a10e4 100644
 -            end_index = len(input_ids) - 1 - input_ids[::-1].index(self.end_token_id)
 -            return input_ids[end_index + 1 :]
 +        if (
-+            self._last_streaming_delta_token_ids == tuple(input_ids)
-+            and self._last_streaming_content_token_ids is not None
++            self._transition_delta_ids == tuple(input_ids)
++            and self._transition_content_ids is not None
 +        ):
-+            content_ids = self._last_streaming_content_token_ids
-+            self._last_streaming_delta_token_ids = None
-+            self._last_streaming_content_token_ids = None
++            content_ids = self._transition_content_ids
++            self._transition_delta_ids = None
++            self._transition_content_ids = None
 +            return list(content_ids)
 
 -        if self._initial_in_reasoning and self.start_token_id not in input_ids:
-+        end_index = self._rfind_token_sequence(input_ids, self._end_token_ids)
++        end_index = self._last_sequence_offset(input_ids, self._closing_ids)
 +        if end_index >= 0:
-+            return input_ids[end_index + len(self._end_token_ids) :]
++            return input_ids[end_index + len(self._closing_ids) :]
 +
-+        has_start = self._contains_token_sequence(input_ids, self._start_token_ids)
++        has_start = self._sequence_present(input_ids, self._opening_ids)
 +        if self._initial_in_reasoning and not has_start:
              return []
 
@@ -222,7 +225,7 @@ index ec75ce78b..d069a10e4 100644
              return input_ids
          return []
 
-@@ -104,68 +262,104 @@ class MiniMaxM3ReasoningParser(BaseThinkingReasoningParser):
+@@ -104,68 +265,104 @@ class MiniMaxM3ReasoningParser(BaseThinkingReasoningParser):
          if not delta_text:
              return None
 
@@ -267,15 +270,15 @@ index ec75ce78b..d069a10e4 100644
 -                reasoning=reasoning_text or None,
 -                content=content or None,
 +        if not previous_text:
-+            self._reasoning_ended_streaming = False
-+            self._reasoning_active_streaming = self._initial_in_reasoning
-+            self._pending_marker_streaming = False
-+            self._pending_marker_text = ""
-+            self._last_streaming_delta_token_ids = None
-+            self._last_streaming_content_token_ids = None
-+        previous_reasoning, previous_content = self._visible_segments(previous_text)
-+        current_reasoning, current_content = self._visible_segments(current_text)
-+        pending_marker_text = self._partial_marker_suffix(
++            self._stream_closed = False
++            self._stream_in_reasoning = self._initial_in_reasoning
++            self._stream_has_pending_marker = False
++            self._stream_pending_text = ""
++            self._transition_delta_ids = None
++            self._transition_content_ids = None
++        previous_reasoning, previous_content = self._project_visible_text(previous_text)
++        current_reasoning, current_content = self._project_visible_text(current_text)
++        pending_marker_text = self._trailing_marker_fragment(
 +            current_text, self.start_token
 +        )
 +        if (
@@ -286,20 +289,20 @@ index ec75ce78b..d069a10e4 100644
 +        ):
 +            pending_marker_text = max(
 +                pending_marker_text,
-+                self._partial_marker_suffix(current_text, self.end_token),
++                self._trailing_marker_fragment(current_text, self.end_token),
 +                key=len,
 +            )
 +        if self.end_token in current_text or (
 +            current_content is not None and not pending_marker_text
 +        ):
-+            self._reasoning_ended_streaming = True
-+            self._reasoning_active_streaming = False
-+            self._pending_marker_streaming = False
-+            self._pending_marker_text = ""
++            self._stream_closed = True
++            self._stream_in_reasoning = False
++            self._stream_has_pending_marker = False
++            self._stream_pending_text = ""
 +        else:
-+            self._last_streaming_delta_token_ids = None
-+            self._last_streaming_content_token_ids = None
-+            self._reasoning_active_streaming = (
++            self._transition_delta_ids = None
++            self._transition_content_ids = None
++            self._stream_in_reasoning = (
 +                self._initial_in_reasoning
 +                or self.start_token in current_text
 +                or current_reasoning is not None
@@ -310,13 +313,13 @@ index ec75ce78b..d069a10e4 100644
 -            return DeltaMessage(reasoning=reasoning) if reasoning else None
 -
 -        return DeltaMessage(reasoning=delta_text)
-+            self._pending_marker_streaming = bool(pending_marker_text)
-+            self._pending_marker_text = pending_marker_text
-+        reasoning = self._visible_delta(previous_reasoning, current_reasoning)
-+        content = self._visible_delta(previous_content, current_content)
-+        if self._reasoning_ended_streaming:
-+            self._last_streaming_delta_token_ids = tuple(delta_token_ids)
-+            self._last_streaming_content_token_ids = self._content_suffix_token_ids(
++            self._stream_has_pending_marker = bool(pending_marker_text)
++            self._stream_pending_text = pending_marker_text
++        reasoning = self._new_projection_text(previous_reasoning, current_reasoning)
++        content = self._new_projection_text(previous_content, current_content)
++        if self._stream_closed:
++            self._transition_delta_ids = tuple(delta_token_ids)
++            self._transition_content_ids = self._content_ids_from_delta(
 +                delta_text, delta_token_ids, content
 +            )
 +        if reasoning is None and content is None:
@@ -326,11 +329,11 @@ index ec75ce78b..d069a10e4 100644
 +    def get_streaming_fallback_content(
 +        self, _previous_text: str, _request
 +    ) -> str | None:
-+        if self._reasoning_active_streaming or not self._pending_marker_streaming:
++        if self._stream_in_reasoning or not self._stream_has_pending_marker:
 +            return None
-+        pending = self._pending_marker_text
-+        self._pending_marker_streaming = False
-+        self._pending_marker_text = ""
++        pending = self._stream_pending_text
++        self._stream_has_pending_marker = False
++        self._stream_pending_text = ""
 +        return pending or None
 
      def count_reasoning_tokens(self, token_ids: Sequence[int]) -> int:
@@ -344,19 +347,19 @@ index ec75ce78b..d069a10e4 100644
 +        depth = 1 if self._initial_in_reasoning else 0
 +        i = 0
 +        while i < len(token_ids):
-+            if tuple(token_ids[i : i + len(self._start_token_ids)]) == (
-+                self._start_token_ids
++            if tuple(token_ids[i : i + len(self._opening_ids)]) == (
++                self._opening_ids
 +            ):
                  depth += 1
-+                i += len(self._start_token_ids)
++                i += len(self._opening_ids)
                  continue
 -            if token_id == self.end_token_id:
-+            if tuple(token_ids[i : i + len(self._end_token_ids)]) == (
-+                self._end_token_ids
++            if tuple(token_ids[i : i + len(self._closing_ids)]) == (
++                self._closing_ids
 +            ):
                  if depth > 0:
                      depth -= 1
-+                i += len(self._end_token_ids)
++                i += len(self._closing_ids)
                  continue
              if depth > 0:
                  count += 1
@@ -364,8 +367,8 @@ index ec75ce78b..d069a10e4 100644
          return count
 +
 +    def is_reasoning_end(self, input_ids: Sequence[int]) -> bool:
-+        start_index = self._rfind_token_sequence(input_ids, self._start_token_ids)
-+        end_index = self._rfind_token_sequence(input_ids, self._end_token_ids)
++        start_index = self._last_sequence_offset(input_ids, self._opening_ids)
++        end_index = self._last_sequence_offset(input_ids, self._closing_ids)
 +        if end_index < 0:
 +            return False
 +        if start_index < 0:
@@ -375,11 +378,12 @@ index ec75ce78b..d069a10e4 100644
 +    def is_reasoning_end_from_prompt(
 +        self, _prompt_token_ids: Sequence[int]
 +    ) -> bool | None:
-+        if self._thinking_mode == "disabled":
++        state = self._prompt_boundary_reasoning_ended
++        if state is None:
++            return None
++        if state:
 +            return True
-+        if self._thinking_mode == "enabled":
-+            return False
-+        return None
++        return False
 diff --git a/vllm/reasoning/abs_reasoning_parsers.py b/vllm/reasoning/abs_reasoning_parsers.py
 --- a/vllm/reasoning/abs_reasoning_parsers.py
 +++ b/vllm/reasoning/abs_reasoning_parsers.py
