@@ -56,6 +56,7 @@ class Harness:
     scheduler: Scheduler
     connector: object
     gpu_pool: object
+    cpu_pool: object
     lazy: bool
     worker_count: int
 
@@ -64,6 +65,8 @@ class Harness:
 class TransferHandle:
     kind: str
     token: int | str
+    gpu_block_ids: tuple[int, ...]
+    cpu_block_ids: tuple[int, ...]
 
 
 def _tiny_model(path: Path) -> Path:
@@ -170,6 +173,7 @@ def make_harness(
         scheduler=scheduler,
         connector=scheduler.connector,
         gpu_pool=scheduler.kv_cache_manager.block_pool,
+        cpu_pool=scheduler.connector.scheduler_manager.cpu_block_pool,
         lazy=lazy,
         worker_count=worker_count,
     )
@@ -269,7 +273,12 @@ def _start_eager_store(harness: Harness, request: Request, num_blocks: int):
         )
     )
     harness.gpu_pool.free_blocks(blocks)
-    return TransferHandle("store", metadata.store_event)
+    return TransferHandle(
+        "store",
+        metadata.store_event,
+        tuple(metadata.store_gpu_blocks),
+        tuple(metadata.store_cpu_blocks),
+    )
 
 
 def _start_lazy_store(harness: Harness, request: Request, num_blocks: int):
@@ -279,7 +288,12 @@ def _start_lazy_store(harness: Harness, request: Request, num_blocks: int):
     fillers = harness.gpu_pool.get_new_blocks(filler_count)
     metadata = harness.connector.build_connector_meta(_scheduler_output({}))
     harness.gpu_pool.free_blocks(fillers)
-    return TransferHandle("store", metadata.store_event)
+    return TransferHandle(
+        "store",
+        metadata.store_event,
+        tuple(metadata.store_gpu_blocks),
+        tuple(metadata.store_cpu_blocks),
+    )
 
 
 def start_store(harness: Harness, request: Request, num_blocks: int):
@@ -334,7 +348,16 @@ def start_load(harness: Harness, source: Request, request_id: str):
         )
     )
     harness.gpu_pool.free_blocks(blocks)
-    return loading, TransferHandle("load", loading.request_id), metadata
+    return (
+        loading,
+        TransferHandle(
+            "load",
+            loading.request_id,
+            tuple(metadata.load_gpu_blocks),
+            tuple(metadata.load_cpu_blocks),
+        ),
+        metadata,
+    )
 
 
 def reset(harness: Harness, *, reset_connector=True):

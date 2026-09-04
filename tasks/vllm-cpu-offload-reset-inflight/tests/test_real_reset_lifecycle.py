@@ -36,6 +36,22 @@ def _complete_via_process(commands, completions, harness, name, transfer):
     complete_transfer(harness, transfer)
 
 
+def _assert_transfer_owned_blocks_stay_reserved(pool, owned_block_ids):
+    available = pool.get_new_blocks(pool.get_num_free_blocks())
+    try:
+        assert pool.get_num_free_blocks() == 0
+        allocated_ids = {block.block_id for block in available}
+        assert allocated_ids.isdisjoint(owned_block_ids)
+        try:
+            pool.get_new_blocks(1)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("transfer-owned block became allocatable")
+    finally:
+        pool.free_blocks(available)
+
+
 def _run_mode(lazy, model_dir, commands, completions):
     harness = make_harness(model_dir, lazy=lazy)
     old_store = make_request(
@@ -44,6 +60,12 @@ def _run_mode(lazy, model_dir, commands, completions):
     store_transfer = start_store(harness, old_store, 3)
     commands.put({"name": "store", "delay": 0.15})
     assert reset(harness) is False
+    _assert_transfer_owned_blocks_stay_reserved(
+        harness.gpu_pool, store_transfer.gpu_block_ids
+    )
+    _assert_transfer_owned_blocks_stay_reserved(
+        harness.cpu_pool, store_transfer.cpu_block_ids
+    )
     assert completions.get(timeout=10) == "store"
     complete_transfer(harness, store_transfer)
     assert reset(harness) is True
@@ -66,6 +88,14 @@ def _run_mode(lazy, model_dir, commands, completions):
     )
     late_store_transfer = start_store(harness, late_store, 1)
     assert reset(harness) is False
+    _assert_transfer_owned_blocks_stay_reserved(
+        harness.gpu_pool,
+        (*load_transfer.gpu_block_ids, *late_store_transfer.gpu_block_ids),
+    )
+    _assert_transfer_owned_blocks_stay_reserved(
+        harness.cpu_pool,
+        (*load_transfer.cpu_block_ids, *late_store_transfer.cpu_block_ids),
+    )
     _complete_via_process(
         commands, completions, harness, "load", load_transfer
     )
@@ -96,6 +126,7 @@ def main():
                 "worker_process": worker.pid,
                 "entrypoint": "Scheduler.reset_prefix_cache(reset_connector=True)",
                 "store_and_load_overlap": True,
+                "transfer_owned_blocks_remained_unavailable": True,
                 "old_cache_hits_after_reset": 0,
                 "post_reset_store_and_hit": True,
             },

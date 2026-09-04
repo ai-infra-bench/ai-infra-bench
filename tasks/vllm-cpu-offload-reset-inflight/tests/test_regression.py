@@ -44,6 +44,54 @@ def _assert_waits_then_succeeds(harness, completion):
     assert reset(harness) is True
 
 
+def _assert_transfer_owned_blocks_stay_reserved(pool, owned_block_ids):
+    available = pool.get_new_blocks(pool.get_num_free_blocks())
+    try:
+        assert pool.get_num_free_blocks() == 0
+        allocated_ids = {block.block_id for block in available}
+        assert allocated_ids.isdisjoint(owned_block_ids)
+        with pytest.raises(ValueError, match="Cannot get 1 free blocks"):
+            pool.get_new_blocks(1)
+    finally:
+        pool.free_blocks(available)
+
+
+@pytest.mark.parametrize("lazy", [False, True], ids=["eager", "lazy"])
+@pytest.mark.parametrize("kind", ["store", "load"])
+def test_reset_keeps_transfer_owned_blocks_unavailable_until_completion(
+    tmp_path, lazy, kind
+):
+    harness = make_harness(
+        tmp_path / f"ownership-{kind}-{lazy}",
+        lazy=lazy,
+        num_cpu_blocks=12,
+        num_gpu_blocks=20,
+    )
+    source = make_request(
+        f"ownership-{kind}-{lazy}", num_blocks=3, token_seed=90000
+    )
+    if kind == "store":
+        transfer = start_store(harness, source, 3)
+    else:
+        populate_cache(harness, source, 3)
+        _loading, transfer, _metadata = start_load(
+            harness, source, f"ownership-load-{lazy}"
+        )
+
+    assert reset(harness) is False
+    _assert_transfer_owned_blocks_stay_reserved(
+        harness.gpu_pool, transfer.gpu_block_ids
+    )
+    _assert_transfer_owned_blocks_stay_reserved(
+        harness.cpu_pool, transfer.cpu_block_ids
+    )
+
+    complete_transfer(harness, transfer)
+    assert reset(harness) is True
+    assert observed_hit(harness, source, f"ownership-old-{kind}-{lazy}")[0] == 0
+    assert_fresh_store_works(harness, 95000 + int(lazy))
+
+
 @pytest.mark.parametrize("lazy", [False, True], ids=["eager", "lazy"])
 @pytest.mark.parametrize("num_blocks", [1, 3], ids=["short", "long"])
 def test_idle_reset_clears_old_entries_and_is_idempotent(
