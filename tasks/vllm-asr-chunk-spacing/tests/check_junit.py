@@ -4,7 +4,7 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-EXPECTED_TESTS = 22
+EXPECTED_TESTS = 24
 
 def main() -> int:
     root = ET.parse(Path(sys.argv[1])).getroot()

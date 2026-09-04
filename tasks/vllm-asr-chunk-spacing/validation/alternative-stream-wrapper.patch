@@ -1,0 +1,100 @@
+diff --git a/vllm/entrypoints/openai/speech_to_text/speech_to_text.py b/vllm/entrypoints/openai/speech_to_text/speech_to_text.py
+index e0a3cf0..3ae60f6 100644
+--- a/vllm/entrypoints/openai/speech_to_text/speech_to_text.py
++++ b/vllm/entrypoints/openai/speech_to_text/speech_to_text.py
+@@ -486,13 +486,56 @@ class OpenAISpeechToText(OpenAIServing):
+
+             list_result_generator.append(generator)
+
++        output_language = request.language
++        if self.task_type == "translate":
++            output_language = request.to_language or "en"
++        separator = (
++            ""
++            if output_language
++            and output_language.lower()
++            in getattr(self.model_cls, "no_space_languages", {"ja", "zh"})
++            else " "
++        )
++
+         if request.stream:
++            emitted_text = False
++            previous_ends_in_space = False
++
++            async def add_chunk_boundary(
++                result_generator: AsyncGenerator[RequestOutput, None],
++            ) -> AsyncGenerator[RequestOutput, None]:
++                nonlocal emitted_text, previous_ends_in_space
++                at_chunk_start = True
++                async for result in result_generator:
++                    output = result.outputs[0]
++                    if output.text:
++                        if (
++                            at_chunk_start
++                            and emitted_text
++                            and separator
++                            and not previous_ends_in_space
++                            and not output.text[0].isspace()
++                        ):
++                            output.text = separator + output.text
++                        at_chunk_start = False
++                        emitted_text = True
++                        previous_ends_in_space = output.text[-1].isspace()
++                    yield result
++
++            separated_generators = [
++                add_chunk_boundary(result_generator)
++                for result_generator in list_result_generator
++            ]
+             return stream_generator_method(
+-                request, list_result_generator, request_id, request_metadata, duration_s
++                request,
++                separated_generators,
++                request_id,
++                request_metadata,
++                duration_s,
+             )
+         # Non-streaming response.
+         total_segments = []
+-        text_parts = []
++        chunk_texts: list[str] = []
+         try:
+             assert list_result_generator is not None
+             segments_types: dict[str, type[SpeechToTextSegment]] = {
+@@ -507,6 +550,7 @@ class OpenAISpeechToText(OpenAIServing):
+                     "`max_audio_clip_s` is set to None, audio cannot be chunked"
+                 )
+             for idx, result_generator in enumerate(list_result_generator):
++                chunk_text_parts: list[str] = []
+                 start_time = (
+                     float(idx * chunk_size_in_s) if chunk_size_in_s is not None else 0.0
+                 )
+@@ -524,11 +568,25 @@ class OpenAISpeechToText(OpenAIServing):
+                         )
+
+                         total_segments.extend(segments)
+-                        text_parts.extend([seg.text for seg in segments])
++                        chunk_text_parts.extend(seg.text for seg in segments)
+                     else:
+                         raw_text = op.outputs[0].text
+-                        text_parts.append(self.model_cls.post_process_output(raw_text))
+-            text = "".join(text_parts)
++                        chunk_text_parts.append(
++                            self.model_cls.post_process_output(raw_text)
++                        )
++                chunk_texts.append("".join(chunk_text_parts))
++
++            for chunk_text in chunk_texts:
++                if not chunk_text:
++                    continue
++                if (
++                    text
++                    and separator
++                    and not text[-1].isspace()
++                    and not chunk_text[0].isspace()
++                ):
++                    text += separator
++                text += chunk_text
+             if self.task_type == "transcribe":
+                 final_response: ResponseType
+                 # add usage in TranscriptionResponse.

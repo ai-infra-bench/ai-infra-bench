@@ -1,31 +1,64 @@
 diff --git a/vllm/entrypoints/openai/speech_to_text/serving.py b/vllm/entrypoints/openai/speech_to_text/serving.py
-index 28e798a..bacd6d7 100644
+index 28e798a98..bacd6d794 100644
 --- a/vllm/entrypoints/openai/speech_to_text/serving.py
 +++ b/vllm/entrypoints/openai/speech_to_text/serving.py
-@@ -88,0 +89 @@ class OpenAIServingTranscription(OpenAISpeechToText):
+@@ -86,6 +86,7 @@ class OpenAIServingTranscription(OpenAISpeechToText):
+         request_id: str,
+         request_metadata: RequestResponseMetadata,
+         audio_duration_s: float,
 +        separator: str,
-@@ -98,0 +100 @@ class OpenAIServingTranscription(OpenAISpeechToText):
+     ) -> AsyncGenerator[str, None]:
+         generator = self._speech_to_text_stream_generator(
+             request=request,
+@@ -96,6 +97,7 @@ class OpenAIServingTranscription(OpenAISpeechToText):
+             chunk_object_type="transcription.chunk",
+             response_stream_choice_class=TranscriptionResponseStreamChoice,
+             stream_response_class=TranscriptionStreamResponse,
 +            separator=separator,
-@@ -159,0 +162 @@ class OpenAIServingTranslation(OpenAISpeechToText):
+         )
+         async for chunk in generator:
+             yield chunk
+@@ -157,6 +159,7 @@ class OpenAIServingTranslation(OpenAISpeechToText):
+         request_id: str,
+         request_metadata: RequestResponseMetadata,
+         audio_duration_s: float,
 +        separator: str,
-@@ -169,0 +173 @@ class OpenAIServingTranslation(OpenAISpeechToText):
+     ) -> AsyncGenerator[str, None]:
+         generator = self._speech_to_text_stream_generator(
+             request=request,
+@@ -167,6 +170,7 @@ class OpenAIServingTranslation(OpenAISpeechToText):
+             chunk_object_type="translation.chunk",
+             response_stream_choice_class=TranslationResponseStreamChoice,
+             stream_response_class=TranslationStreamResponse,
 +            separator=separator,
+         )
+         async for chunk in generator:
+             yield chunk
 diff --git a/vllm/entrypoints/openai/speech_to_text/speech_to_text.py b/vllm/entrypoints/openai/speech_to_text/speech_to_text.py
-index e0a3cf0..e7cc128 100644
+index e0a3cf0dc..d597918d0 100644
 --- a/vllm/entrypoints/openai/speech_to_text/speech_to_text.py
 +++ b/vllm/entrypoints/openai/speech_to_text/speech_to_text.py
-@@ -8 +8 @@ import zlib
+@@ -5,7 +5,7 @@ import io
+ import math
+ import time
+ import zlib
 -from collections.abc import AsyncGenerator, Callable
 +from collections.abc import AsyncGenerator, Callable, Set
-@@ -71,0 +72,18 @@ logger = init_logger(__name__)
-+def asr_inter_chunk_separator(
+ from functools import cached_property
+ from typing import Final, Literal, TypeAlias, TypeVar, cast
+
+@@ -69,6 +69,24 @@ ResponseType: TypeAlias = (
+ logger = init_logger(__name__)
+
+
++def choose_audio_chunk_separator(
 +    language: str | None, no_space_languages: Set[str]
 +) -> str:
 +    """Return the separator used between audio-chunk transcripts."""
 +    return "" if language and language.lower() in no_space_languages else " "
 +
 +
-+def _join_asr_chunk_text(left: str, right: str, separator: str) -> str:
++def merge_audio_chunk_text(left: str, right: str, separator: str) -> str:
 +    """Join adjacent audio chunks without duplicating existing whitespace."""
 +    if not left:
 +        return right
@@ -36,16 +69,23 @@ index e0a3cf0..e7cc128 100644
 +    return left + separator + right
 +
 +
-@@ -488,0 +507,8 @@ class OpenAISpeechToText(OpenAIServing):
+ class OpenAISpeechToText(OpenAIServing):
+     """Base class for speech-to-text operations like transcription and
+     translation."""
+@@ -486,13 +504,26 @@ class OpenAISpeechToText(OpenAIServing):
+
+             list_result_generator.append(generator)
+
 +        output_language = request.language
 +        if self.task_type == "translate":
 +            output_language = request.to_language or "en"
-+        separator = asr_inter_chunk_separator(
++        separator = choose_audio_chunk_separator(
 +            output_language,
 +            getattr(self.model_cls, "no_space_languages", {"ja", "zh"}),
 +        )
 +
-@@ -491 +517,6 @@ class OpenAISpeechToText(OpenAIServing):
+         if request.stream:
+             return stream_generator_method(
 -                request, list_result_generator, request_id, request_metadata, duration_s
 +                request,
 +                list_result_generator,
@@ -53,57 +93,114 @@ index e0a3cf0..e7cc128 100644
 +                request_metadata,
 +                duration_s,
 +                separator,
-@@ -495 +526 @@ class OpenAISpeechToText(OpenAIServing):
+             )
+         # Non-streaming response.
+         total_segments = []
 -        text_parts = []
 +        text = ""
-@@ -503 +533,0 @@ class OpenAISpeechToText(OpenAIServing):
+         try:
+             assert list_result_generator is not None
+             segments_types: dict[str, type[SpeechToTextSegment]] = {
+@@ -500,13 +531,13 @@ class OpenAISpeechToText(OpenAIServing):
+                 "translate": TranslationSegment,
+             }
+             segment_class: type[SpeechToTextSegment] = segments_types[self.task_type]
 -            text = ""
-@@ -509,0 +540 @@ class OpenAISpeechToText(OpenAIServing):
+             chunk_size_in_s = self.asr_config.max_audio_clip_s
+             if chunk_size_in_s is None:
+                 assert len(list_result_generator) == 1, (
+                     "`max_audio_clip_s` is set to None, audio cannot be chunked"
+                 )
+             for idx, result_generator in enumerate(list_result_generator):
 +                chunk_text_parts: list[str] = []
-@@ -527 +558 @@ class OpenAISpeechToText(OpenAIServing):
+                 start_time = (
+                     float(idx * chunk_size_in_s) if chunk_size_in_s is not None else 0.0
+                 )
+@@ -524,11 +555,15 @@ class OpenAISpeechToText(OpenAIServing):
+                         )
+
+                         total_segments.extend(segments)
 -                        text_parts.extend([seg.text for seg in segments])
 +                        chunk_text_parts.extend(seg.text for seg in segments)
-@@ -530,2 +561,6 @@ class OpenAISpeechToText(OpenAIServing):
+                     else:
+                         raw_text = op.outputs[0].text
 -                        text_parts.append(self.model_cls.post_process_output(raw_text))
 -            text = "".join(text_parts)
 +                        chunk_text_parts.append(
 +                            self.model_cls.post_process_output(raw_text)
 +                        )
-+                text = _join_asr_chunk_text(
++                text = merge_audio_chunk_text(
 +                    text, "".join(chunk_text_parts), separator
 +                )
-@@ -583,0 +619 @@ class OpenAISpeechToText(OpenAIServing):
+             if self.task_type == "transcribe":
+                 final_response: ResponseType
+                 # add usage in TranscriptionResponse.
+@@ -581,6 +616,7 @@ class OpenAISpeechToText(OpenAIServing):
+         | type[TranslationResponseStreamChoice],
+         stream_response_class: type[TranscriptionStreamResponse]
+         | type[TranslationStreamResponse],
 +        separator: str,
-@@ -598,0 +635 @@ class OpenAISpeechToText(OpenAIServing):
+     ) -> AsyncGenerator[str, None]:
+         created_time = int(time.time())
+         model_name = request.model
+@@ -596,7 +632,9 @@ class OpenAISpeechToText(OpenAIServing):
+         )
+
+         try:
 +            previous_text = ""
-@@ -599,0 +637 @@ class OpenAISpeechToText(OpenAIServing):
+             for result_generator in list_result_generator:
 +                beginning_of_chunk = True
-@@ -615,0 +654,9 @@ class OpenAISpeechToText(OpenAIServing):
+                 async for res in result_generator:
+                     # On first result.
+                     if res.prompt_token_ids is not None:
+@@ -613,12 +651,21 @@ class OpenAISpeechToText(OpenAIServing):
+                     # Just one output (n=1) supported.
+                     assert len(res.outputs) == 1
+                     output = res.outputs[0]
 +                    output_text = output.text
 +                    if output_text and beginning_of_chunk:
-+                        merged = _join_asr_chunk_text(
++                        merged = merge_audio_chunk_text(
 +                            previous_text[-1:], output_text, separator
 +                        )
 +                        output_text = merged[len(previous_text[-1:]) :]
 +                        beginning_of_chunk = False
 +                    if output_text:
 +                        previous_text = output_text
-@@ -621 +668 @@ class OpenAISpeechToText(OpenAIServing):
+
+                     # TODO: For models that output structured formats (e.g.,
+                     # Qwen3-ASR with "language X<asr_text>" prefix), streaming
+                     # would need buffering to strip the prefix properly since
+                     # deltas may split the tag across chunks.
 -                    delta_message = DeltaMessage(content=output.text)
 +                    delta_message = DeltaMessage(content=output_text)
+                     completion_tokens += len(output.token_ids)
+
+                     if output.finish_reason is None:
 diff --git a/vllm/model_executor/models/cohere_asr.py b/vllm/model_executor/models/cohere_asr.py
-index 1cebea5..42206c1 100644
+index 1cebea56a..42206c11c 100644
 --- a/vllm/model_executor/models/cohere_asr.py
 +++ b/vllm/model_executor/models/cohere_asr.py
-@@ -2009,0 +2010 @@ class CohereAsrForConditionalGeneration(
+@@ -2007,6 +2007,7 @@ class CohereAsrForConditionalGeneration(
+     supports_transcription_only = True
+     supported_languages = ISO639_1_SUPPORTED_LANGS
+     skip_warmup_audio_preprocessing = True
 +    no_space_languages = {"ja", "zh"}
+
+     @classmethod
+     def validate_language(cls, language: str | None) -> str | None:
 diff --git a/vllm/model_executor/models/interfaces.py b/vllm/model_executor/models/interfaces.py
-index 1f1d574..323fb5f 100644
+index 1f1d57493..323fb5f52 100644
 --- a/vllm/model_executor/models/interfaces.py
 +++ b/vllm/model_executor/models/interfaces.py
-@@ -1100,0 +1101,5 @@ class SupportsTranscription(Protocol):
+@@ -1098,6 +1098,11 @@ class SupportsTranscription(Protocol):
+     :meth:`get_language_token_ids`.
+     """
+
 +    no_space_languages: ClassVar[set[str]] = {"ja", "zh"}
 +    """
 +    Languages whose text is normally written without spaces between words.
 +    """
 +
+     def __init_subclass__(cls, **kwargs):
+         super().__init_subclass__(**kwargs)
+         # language codes in supported_languages

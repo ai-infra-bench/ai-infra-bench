@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 
-from speech_harness import run_public_speech_request
+from speech_harness import StubQwen3Model, run_public_speech_request
 
 
 async def run():
@@ -23,7 +23,11 @@ async def run():
         "translation",
         False,
         "zh",
-        [("The service",), ("is healthy",)],
+        [
+            ("language English<asr_text>The service",),
+            ("language English<asr_text>is healthy",),
+        ],
+        model_cls=StubQwen3Model,
     )
     chinese = await run_public_speech_request(
         "translation",

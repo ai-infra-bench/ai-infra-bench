@@ -22,6 +22,7 @@ from vllm.entrypoints.openai.speech_to_text.serving import (
 )
 from vllm.inputs import TokensPrompt
 from vllm.model_executor.models.interfaces import SupportsTranscription
+from vllm.model_executor.models.qwen3_asr import Qwen3ASRForConditionalGeneration
 from vllm.outputs import CompletionOutput, RequestOutput
 
 
@@ -67,6 +68,12 @@ class StubTranscriptionModel(SupportsTranscription):
     @classmethod
     def post_process_output(cls, text):
         return text
+
+
+class StubQwen3Model(StubTranscriptionModel):
+    @classmethod
+    def post_process_output(cls, text):
+        return Qwen3ASRForConditionalGeneration.post_process_output(text)
 
 
 class StubRenderer:
@@ -160,6 +167,7 @@ async def run_public_speech_request(
     language: str | None,
     chunks: list[tuple[str, ...]],
     to_language: str | None = None,
+    model_cls: type[StubTranscriptionModel] = StubTranscriptionModel,
 ) -> SpeechResult:
     outputs = iter(chunks)
     renderer = StubRenderer()
@@ -182,7 +190,7 @@ async def run_public_speech_request(
 
     with patch(
         "vllm.model_executor.model_loader.get_model_cls",
-        return_value=StubTranscriptionModel,
+        return_value=model_cls,
     ):
         if api == "transcription":
             serving = OpenAIServingTranscription(engine, models, request_logger=None)

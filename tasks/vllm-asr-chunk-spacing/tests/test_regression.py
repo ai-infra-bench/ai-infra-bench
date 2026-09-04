@@ -1,6 +1,6 @@
 import pytest
 
-from speech_harness import run_public_speech_request
+from speech_harness import StubQwen3Model, run_public_speech_request
 
 
 @pytest.mark.asyncio
@@ -116,6 +116,23 @@ async def test_public_multichunk_speech_behavior(
             "transcription.chunk" if api == "transcription" else "translation.chunk"
         )
         assert all(item["object"] == expected_object for item in result.sse_objects)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("api", ["transcription", "translation"])
+async def test_qwen3_nonstreaming_structured_chunks_preserve_word_boundaries(api):
+    result = await run_public_speech_request(
+        api,
+        False,
+        "en",
+        [
+            ("language English<asr_text>boundary",),
+            ("language English<asr_text>spacing",),
+        ],
+        model_cls=StubQwen3Model,
+    )
+
+    assert result.text == "boundary spacing"
 
 
 @pytest.mark.asyncio
