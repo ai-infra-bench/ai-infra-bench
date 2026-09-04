@@ -46,7 +46,7 @@ Check every relevant field in `task.toml`:
 
 - `base_commit` is a full immutable SHA and matches the Dockerfile, manifests, lock data, and evidence.
 - The cutoff and image digest match the actual artifacts.
-- Agent, verifier, and build timeouts, along with CPU, memory, storage, and OS resources, are sufficient to execute the contract.
+- The agent timeout is exactly 10 hours: `[agent].timeout_sec = 36000`. Verifier and build timeouts, along with CPU, memory, storage, and OS resources, are sufficient to execute the contract.
 - The workdir is an absolute path that looks like a real development path.
 - Agent and environment network policies match unless the phases intentionally differ.
 - The accelerator is a runner class supported by the current CI.
@@ -66,6 +66,8 @@ A valid task statement must correspond to a workflow that occurs in the real wor
 - An infrastructure practitioner develops, integrates, analyzes, or debugs a system, including work involving performance analysis, behavior analysis, resource scheduling, caching, communication, parsing, serialization, or observability.
 
 But not limited to this two categories, you can propose more interesting one.
+
+Desired directions include GPU kernel engineering, model serving, distributed systems, training, profiling, agent-harness features, agent-harness bug fixes, and multi-agent design. Treat them as idea areas for realistic tasks, not as a closed taxonomy or a reason to combine unrelated work.
 
 The task statement does not need to reproduce a public issue word for word, and no public incident report is required. It must not, however, be a collection of test conditions invented solely to match a patch. The reviewer should ask: who would actually perform these actions, why would they need this result, and do these product interfaces and workflows really exist? Does this read like an artificial exercise written around the Oracle patch rather than a real use case or requirement—something no one would actually do or say? If so, the task statement has a problem.
 

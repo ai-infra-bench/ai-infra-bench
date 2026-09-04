@@ -20,6 +20,7 @@ from typing import Any
 import tomllib
 
 TIMEOUT = 120
+AGENT_TIMEOUT = 10 * 60 * 60
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)+$")
 RAW_ID = re.compile(r"(?:^|-)(?:pr|issue|candidate|instance)-[a-z0-9]+(?:-|$)")
 REQUIRED_FILES = (
@@ -136,6 +137,7 @@ def check_task(task: Path, config: dict[str, Any], repo: Path, audit: Audit) -> 
     audit.require(not RAW_ID.search(slug), f"task slug contains a raw ID: {slug}")
 
     task_data = mapping(config.get("task"))
+    agent = mapping(config.get("agent"))
     metadata = mapping(config.get("metadata"))
     audit.require(
         task_data.get("name") == f"ai-infra-bench/{slug}",
@@ -164,6 +166,10 @@ def check_task(task: Path, config: dict[str, Any], repo: Path, audit: Audit) -> 
             re.fullmatch(r"sha256:[0-9a-f]{64}", str(metadata.get("image_digest", "")))
         ),
         "[metadata].image_digest is not a SHA-256 digest",
+    )
+    audit.require(
+        agent.get("timeout_sec") == AGENT_TIMEOUT,
+        f"[agent].timeout_sec must be {AGENT_TIMEOUT} (10 hours)",
     )
     validator = repo / ".github/scripts/task_ci.py"
     if audit.require(validator.is_file(), "repository task validator is missing"):

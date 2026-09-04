@@ -9,7 +9,7 @@ Work through the same three gates in order: task statement, environment, verifie
 - Continue from the reviewed version in the same isolated worktree.
 - Preserve unrelated tracked and untracked changes.
 - Turn the review findings into a short working checklist. A separate remediation matrix is unnecessary unless the repository requires one.
-- Before changing task behavior, confirm that the task name, directory, `task.toml`, accelerator, topology, resources, and repository conventions are correct.
+- Before changing task behavior, confirm that the task name, directory, `task.toml`, 10-hour agent timeout (`36000` seconds), accelerator, topology, resources, and repository conventions are correct.
 
 Commit, push, or create a PR only with explicit user authorization.
 
@@ -23,6 +23,7 @@ Commit, push, or create a PR only with explicit user authorization.
 - Keep only the user's context, observable behavior, expected outcome, and behavior that must remain intact.
 - Remove curation details, mocks, reproducers, environmental tradeoffs, test hints, and Oracle implementation details.
 - Use PR or issue context as background and inspiration rather than copying its story into the task statement.
+- Consider GPU kernels, model serving, distributed systems, training, profiling, agent-harness features, agent-harness bug fixes, and multi-agent design when proposing stronger task ideas.
 - If a stronger related scenario would make the problem more realistic and meaningfully deeper, present it to the user as a proposal before expanding the task. Do not combine unrelated bugs, unrelated features, or completely unrelated material merely to add more work.
 
 Freeze the task statement before changing the environment or verifier. If the verifier does not match the task statement, change the verifier.

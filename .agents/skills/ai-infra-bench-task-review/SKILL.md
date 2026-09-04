@@ -21,6 +21,8 @@ For every review, read [references/review-rubric.md](references/review-rubric.md
 
 The problem must be real, and every detail must be factual. It may come from an ordinary user's day-to-day work, such as deploying an inference service locally, training a model locally, encountering unexpected behavior, or needing the infrastructure to support something new. It may also come from an infrastructure practitioner, in which case it can be more specialized, such as conducting an investigation or building tools for performance or behavior analysis.
 
+Desired task directions include GPU kernels, model serving, distributed systems, training, profiling, agent-harness features, agent-harness bug fixes, and multi-agent design. This list is not exhaustive. Use these as sources of task ideas when they lead to a real workflow and a factual problem, not as a reason to combine unrelated requirements.
+
 Check each of the following:
 
 - The user's actions match the real semantics of the product and project.
@@ -45,6 +47,7 @@ Check each of the following:
 - During the agent phase, tests, the Oracle, validation artifacts, evidence, reward logic, reproduction scripts, and mock scripts are not visible. No image layer may contain them either.
 - The repository checkout, Git history, dependencies, and all additional components are no newer than the cutoff. Remotes, remote refs, tags, reflogs, fetch metadata, and reachable or unreachable Git objects newer than the cutoff have been removed.
 - The base image, system packages, Python/npm/Rust dependencies, external binaries, tokenizers, model configuration, and other resources actually existed on the cutoff date, and their versions and hashes can be verified. Do not use packages or resources released after the cutoff to complete the environment.
+- Every task has a 10-hour agent budget. `[agent].timeout_sec` must be exactly `36000`.
 
 It is not enough for the environment to run the tests. It must be a normal development environment that a user could actually have created on the cutoff date.
 
