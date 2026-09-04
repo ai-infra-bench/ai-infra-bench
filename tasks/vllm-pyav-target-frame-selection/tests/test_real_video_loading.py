@@ -9,6 +9,8 @@ from pathlib import Path
 from video_verifier_support import (
     assert_numbered_targets,
     assert_public_parity,
+    expected_dynamic_indices,
+    expected_uniform_indices,
     load_video,
     numbered_h264,
 )
@@ -20,6 +22,7 @@ def main() -> int:
         sintel_frames, sintel_targets = assert_public_parity(
             public, num_frames=8, max_mae=2.0
         )
+        assert sintel_targets == expected_uniform_indices(public, num_frames=8)
 
         generated = numbered_h264(109, 25, 41, 112, 80, 2)
 
@@ -28,6 +31,7 @@ def main() -> int:
                 generated, backend="pyav", num_frames=sampled
             )
             targets = list(metadata["frames_indices"])
+            assert targets == expected_uniform_indices(generated, num_frames=sampled)
             assert_numbered_targets(frames, targets)
             return sampled, targets
 
@@ -41,6 +45,9 @@ def main() -> int:
             fps=3,
             max_duration=2,
         )
+        assert dynamic_targets == expected_dynamic_indices(
+            generated, fps=3, max_duration=2
+        )
         assert_numbered_targets(dynamic_frames, dynamic_targets)
 
         nemotron_frames, nemotron_targets = assert_public_parity(
@@ -48,6 +55,7 @@ def main() -> int:
             loader_name="nemotron_vl",
             num_frames=9,
         )
+        assert nemotron_targets == expected_uniform_indices(generated, num_frames=9)
         assert_numbered_targets(nemotron_frames, nemotron_targets)
         print(
             {

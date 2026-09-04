@@ -72,6 +72,65 @@ def load_video(data: bytes, *, loader_name="opencv", backend, **kwargs):
     return loader.load_bytes(data, backend=backend, **kwargs)
 
 
+def _pyav_source_metadata(data: bytes) -> tuple[int, float, float]:
+    with av.open(io.BytesIO(data)) as container:
+        stream = container.streams.video[0]
+        total_frames = stream.frames or 0
+        source_fps = float(stream.average_rate) if stream.average_rate else 0.0
+        duration = (
+            float(stream.duration * stream.time_base) if stream.duration else 0.0
+        )
+    if total_frames == 0 and duration > 0 and source_fps > 0:
+        total_frames = int(duration * source_fps)
+    return total_frames, source_fps, duration
+
+
+def expected_uniform_indices(
+    data: bytes, *, num_frames: int = -1, fps: int = -1
+) -> list[int]:
+    """Compute the existing uniform-sampling contract independently."""
+    total_frames, _, duration = _pyav_source_metadata(data)
+    sample_count = total_frames
+    if num_frames > 0:
+        sample_count = min(num_frames, total_frames)
+    if fps > 0:
+        sample_count = min(sample_count, math.floor(duration * fps))
+    sample_count = max(1, sample_count)
+    if sample_count == total_frames:
+        return list(range(sample_count))
+    return np.linspace(0, total_frames - 1, sample_count, dtype=int).tolist()
+
+
+def expected_dynamic_indices(
+    data: bytes, *, fps: int, max_duration: int
+) -> list[int]:
+    """Compute the existing duration-aware sampling contract independently."""
+    total_frames, source_fps, duration = _pyav_source_metadata(data)
+    max_frame_idx = total_frames - 1
+    if not duration and source_fps > 0:
+        duration = round(max_frame_idx / source_fps) + 1
+
+    if duration <= max_duration:
+        sample_count = math.floor(duration * fps)
+        return sorted(
+            {
+                min(max_frame_idx, math.ceil(i * source_fps / fps))
+                for i in range(sample_count)
+            }
+        )
+
+    sample_count = max_duration * fps
+    if sample_count >= total_frames:
+        return list(range(total_frames))
+    target_seconds = np.linspace(0, duration, sample_count, endpoint=True)
+    return sorted(
+        {
+            min(max_frame_idx, math.ceil(second * source_fps))
+            for second in target_seconds
+        }
+    )
+
+
 def assert_public_parity(data: bytes, *, loader_name="opencv", max_mae=2.0, **kwargs):
     opencv_frames, opencv_metadata = load_video(
         data, loader_name=loader_name, backend="opencv", **kwargs
@@ -117,15 +176,7 @@ def _assert_metadata(data: bytes, metadata: dict, *, expected_backend, loader_na
     }
     assert required <= metadata.keys()
 
-    with av.open(io.BytesIO(data)) as container:
-        stream = container.streams.video[0]
-        expected_total = stream.frames or 0
-        expected_fps = float(stream.average_rate) if stream.average_rate else 0.0
-        pyav_duration = (
-            float(stream.duration * stream.time_base) if stream.duration else 0.0
-        )
-    if expected_total == 0 and pyav_duration > 0 and expected_fps > 0:
-        expected_total = int(pyav_duration * expected_fps)
+    expected_total, expected_fps, pyav_duration = _pyav_source_metadata(data)
 
     expected_duration = pyav_duration
     if expected_backend.startswith("opencv") and expected_fps > 0:

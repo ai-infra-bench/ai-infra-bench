@@ -15,6 +15,8 @@ import pytest
 from video_verifier_support import (
     assert_numbered_targets,
     assert_public_parity,
+    expected_dynamic_indices,
+    expected_uniform_indices,
     load_video,
     numbered_h264,
 )
@@ -43,7 +45,7 @@ def test_sintel_public_loader_returns_matching_moments(num_frames):
         _public_video(), num_frames=num_frames, max_mae=2.0
     )
     assert len(frames) == len(targets) == num_frames
-    assert targets == sorted(targets)
+    assert targets == expected_uniform_indices(_public_video(), num_frames=num_frames)
 
 
 @pytest.mark.parametrize(
@@ -59,6 +61,7 @@ def test_numbered_h264_uniform_sampling_through_public_loader(profile):
     num_frames, fps, gop, width, height, max_b_frames, sampled = profile
     data = numbered_h264(num_frames, fps, gop, width, height, max_b_frames)
     frames, targets = assert_public_parity(data, num_frames=sampled)
+    assert targets == expected_uniform_indices(data, num_frames=sampled)
     assert_numbered_targets(frames, targets)
 
 
@@ -78,7 +81,9 @@ def test_dynamic_loader_fps_and_duration_paths(profile, sample_fps, max_duration
         fps=sample_fps,
         max_duration=max_duration,
     )
-    assert targets == sorted(set(targets))
+    assert targets == expected_dynamic_indices(
+        data, fps=sample_fps, max_duration=max_duration
+    )
     assert_numbered_targets(frames, targets)
 
 
@@ -96,7 +101,9 @@ def test_uniform_loader_combines_frame_and_fps_limits(num_frames, sample_fps):
     frames, targets = assert_public_parity(
         data, num_frames=num_frames, fps=sample_fps
     )
-    assert 1 <= len(targets) <= num_frames
+    assert targets == expected_uniform_indices(
+        data, num_frames=num_frames, fps=sample_fps
+    )
     assert_numbered_targets(frames, targets)
 
 
@@ -107,6 +114,7 @@ def test_concurrent_public_pyav_decodes_do_not_share_state():
         frames, metadata = load_video(data, backend="pyav", num_frames=sampled)
         targets = list(metadata["frames_indices"])
         assert metadata["video_backend"] == "pyav"
+        assert targets == expected_uniform_indices(data, num_frames=sampled)
         assert_numbered_targets(frames, targets)
         return sampled, targets
 
@@ -122,7 +130,7 @@ def test_nemotron_public_loader_returns_matching_moments_and_metadata():
         data, loader_name="nemotron_vl", num_frames=10
     )
     assert len(frames) == len(targets) == 10
-    assert targets == sorted(targets)
+    assert targets == expected_uniform_indices(data, num_frames=10)
 
 
 @pytest.mark.parametrize(
