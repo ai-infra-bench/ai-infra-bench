@@ -10,9 +10,7 @@ We will evaluate Claude Opus 5, GPT-5.6, Hunyuan 4 Preview, Qwen 3.8 Max, Kimi K
 
 ## Timeline
 
-- August 16: workload analysis and 200 PR candidates
-- August 21: five validated Harbor tasks
-- Week of August 29: continue building and reviewing the 100-task benchmark
+- Now: drafting and reviewing tasks
 - Week of September 7: begin evaluation
 
 ## License
