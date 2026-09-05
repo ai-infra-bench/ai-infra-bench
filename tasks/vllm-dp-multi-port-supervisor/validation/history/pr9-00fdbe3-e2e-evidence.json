@@ -1,0 +1,118 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-05T19:47:07+08:00",
+  "status": "final-validated",
+  "source": {
+    "repository": "vllm-project/vllm",
+    "base_commit": "9b9d5dbaab852a1c615fe83a7f92881d353503db"
+  },
+  "artifacts": {
+    "files": {
+      ".dockerignore": "fe57c1ef2dcfcb5ceaa20f0582985984061600f14d404fd7f1ef5de91a710cc8",
+      "README.md": "d48b71c3836d0aec1bf1f34ed6a7dfc642a8aa75b0889becc39f95f7124ba3d5",
+      "environment/Dockerfile": "79cc7416c9f34a940b219a1f0e90029b2cd9dfb98e154a4d3227aff47b63550c",
+      "environment/image-manifest.json": "92264128aa95847206d6f9dbf6b685f8c8250955ed95a4ae017cd3a8a7abde81",
+      "environment/lock/README.md": "d76e66be7086eb7602d241547322f883a298ad34ef0e7160d00f7e369171e3a4",
+      "environment/lock/manifest.json": "d754a8ad4e07b66a014a2f288aa21147a4c80f8892df9ae829e52f83441a17b0",
+      "environment/lock/requirements.txt": "cb3b63dd4ccb3861651fb63081183ffaf801162ccf99830a8e71179c1fdb88cb",
+      "instruction.md": "32fe951dc5b1704e87d06ce97ca392841cf57d698bdee002474bae5c02dd512d",
+      "solution/oracle.patch": "7e11ade300c0991810ba59cf89e67574964d545a90adc82d37f768ae2a3a11d7",
+      "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+      "task.toml": "4ecaafd62e9399dee9729204eb08f22a11267ed62a492621e82f25bdb5cd92ab",
+      "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+      "tests/test.sh": "e70c8fdb4959ab59703c451f64b1a3bf2ff03b061786b41affc67392314d4c17",
+      "tests/verify_dp_supervisor.py": "1253c5adb3f1db29000de80f6b77e86eaf01a0c76a42494324258aef56f2a209",
+      "validation/alternative-agent-implementation.patch": "c79b191f63269b417ce292c73c2ade9b0169b21aa5de6480faec85230a2d15f9",
+      "validation/ci-cases.json": "71f106a23b0b37c0b4f36f3086a682bdac5efe908689304d0a71941b91dbe255",
+      "validation/docker-build.md": "5a25d3b9567915ecaee9a2d456eff97595a729c6385aa49879ac10adb73352fe",
+      "validation/incomplete-agent-implementation.patch": "e4df85a9e8b9d4a4d9864448be02d9cff0be4116b391c4852e992ed8498241ce",
+      "validation/remediation-matrix.md": "bb4a2af343caa7e4d568bf150f613116c64b19d3cbc3cbdc86793c928b2b63a4",
+      "validation/tp-only-device-slice-incomplete.patch": "646b918010ae82964da32899bd45118eb01743fbcc5bbbea075173eda9740779"
+    }
+  },
+  "e2e_boundary": {
+    "path": "public vllm serve CLI -> node-local DP supervisor -> real child processes, HTTP health, signals, and sockets",
+    "substitution": "Heavyweight model serving is replaced by verifier-owned HTTP handlers; public CLI parsing, supervisor orchestration, multiprocessing, probing, signal, and socket behavior remain real.",
+    "preserved_semantics": "Heavyweight model serving is replaced by verifier-owned HTTP handlers; public CLI parsing, supervisor orchestration, multiprocessing, probing, signal, and socket behavior remain real."
+  },
+  "validation": {
+    "executable_snapshot_frozen": true,
+    "static_review": "Python verifier syntax check passed; direct Docker matrix and Harbor Oracle were rerun after review fixes.",
+    "base": {
+      "reward": 0,
+      "execution_status": "passed-direct-docker-final-image",
+      "image_id": "sha256:9b807c8871706ca07900ba1f959e5a47006c8ee553ff77d921de65d21b3b0699"
+    },
+    "oracle": {
+      "reward": 1,
+      "execution_status": "passed-direct-docker-final-image",
+      "image_id": "sha256:9b807c8871706ca07900ba1f959e5a47006c8ee553ff77d921de65d21b3b0699"
+    },
+    "controls": [
+      {
+        "name": "incomplete-agent-implementation",
+        "expected_reward": 0,
+        "reward": 0,
+        "execution_status": "passed-direct-docker-final-image",
+        "reason": "Uses the wrong public CLI flags, so the required vLLM serve mode is absent."
+      },
+      {
+        "name": "tp-only-device-slice-incomplete",
+        "expected_reward": 0,
+        "reward": 0,
+        "execution_status": "passed-direct-docker-final-image",
+        "reason": "Reaches the public CLI/HTTP path but assigns only tensor-parallel devices; the TP=2, PP=2 case observes 0,1 instead of 0,1,2,3 for the first local rank."
+      }
+    ],
+    "correct_alternatives": [
+      {
+        "name": "alternative-agent-implementation",
+        "expected_reward": 1,
+        "reward": 1,
+        "execution_status": "passed-direct-docker-final-image",
+        "reason": "Uses a different supervisor implementation, accepts non-zero fault exits, and assigns tensor-parallel times pipeline-parallel device slices."
+      }
+    ],
+    "repeated_runs": [],
+    "harbor": {
+      "version": "0.22.0",
+      "job_id": "5b129b95-3014-4a0d-978e-ad41ee1d8cd3",
+      "trial_id": "973c52f6-4131-47b7-acb9-3f08e1ac8a50",
+      "trial_name": "vllm-dp-multi-port-supervisor__a7JEAhb",
+      "job_directory": "/root/workspace/dxz-workspace/ai-infra-bench-data/pr9-review-fix-20260905-harbor/pr9-review-fix-oracle",
+      "input_task_checksum": "90bca2f00bb9d0b6c0f58f40681469ababc4e98d08b4a1fcb4469988d82f2e9d",
+      "agent": "oracle",
+      "environment": "docker",
+      "n_completed_trials": 1,
+      "n_errored_trials": 0,
+      "reward": 1,
+      "command_exit_code": 0,
+      "started_at": "2026-09-05T11:44:40.017699Z",
+      "finished_at": "2026-09-05T11:47:07.106616Z",
+      "canonical_image_tag": "ai-infra-bench/vllm-dp-multi-port-supervisor:base-9b9d5dbaab85",
+      "canonical_image_id_at_run": "sha256:9b807c8871706ca07900ba1f959e5a47006c8ee553ff77d921de65d21b3b0699"
+    },
+    "note": "All five direct cases were rerun after the review fix: Base=0, Oracle=1, correct alternative=1, wrong-CLI incomplete=0, TP-only device-slice incomplete=0. Harbor Oracle was rerun on the final task files and produced reward 1 with zero errored trials."
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-dp-multi-port-supervisor:base-9b9d5dbaab85",
+    "image_id": "sha256:9b807c8871706ca07900ba1f959e5a47006c8ee553ff77d921de65d21b3b0699",
+    "size_bytes": 27108187341,
+    "created": "2026-09-04T15:14:52.520272826Z",
+    "repo_digests": [],
+    "dockerfile_sha256": "79cc7416c9f34a940b219a1f0e90029b2cd9dfb98e154a4d3227aff47b63550c",
+    "dependency_lock_sha256": "cb3b63dd4ccb3861651fb63081183ffaf801162ccf99830a8e71179c1fdb88cb",
+    "dependency_lock_manifest_sha256": "d754a8ad4e07b66a014a2f288aa21147a4c80f8892df9ae829e52f83441a17b0"
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "future_reference_commit_absent": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_validation_absent_from_image": true,
+    "worktree_clean_at_container_start": true,
+    "runtime_network_disabled": true,
+    "verifier_mount_read_only": true,
+    "local_image_has_no_repo_digest_until_registry_push": true
+  }
+}

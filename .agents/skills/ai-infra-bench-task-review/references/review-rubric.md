@@ -316,6 +316,15 @@ substitute for completing the subsystem lifecycle. Include a still-live case
 where retention is required. When hashing or caching is part of the contract,
 callback counts or sentinel results alone do not establish real cache behavior.
 
+For resource-cleanup contracts, observe the resources that must be released.
+Service unreachability does not establish cleanup: an HTTP timeout or failed
+health probe cannot prove that a listening socket closed or a process exited.
+Check listener state and relevant process identities separately when both are
+required. Retain identities before shutdown so reparented children remain
+observable. Apply the same distinction to other resources only when in scope.
+Include an applicable incorrect control that stops responding while retaining
+resources, and verify cleanup after both successful and failing checks.
+
 ### 5.3 Regressions, hidden cases, and controls
 
 Protect adjacent behavior that already works, especially results the statement

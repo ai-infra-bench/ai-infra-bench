@@ -367,12 +367,18 @@ def result_reward(result_path: Path) -> tuple[int, int, list[float]]:
     stats = result.get("stats", {})
     completed = stats.get("n_completed_trials")
     errored = stats.get("n_errored_trials")
-    rewards = [
-        metric["reward"]
-        for evaluation in stats.get("evals", {}).values()
-        for metric in evaluation.get("metrics", [])
-        if "reward" in metric
-    ]
+    rewards: list[float] = []
+    for evaluation in stats.get("evals", {}).values():
+        for metric in evaluation.get("metrics", []):
+            if "reward" in metric:
+                rewards.append(float(metric["reward"]))
+            elif evaluation.get("n_trials") == 1 and "mean" in metric:
+                rewards.append(float(metric["mean"]))
+        if rewards:
+            continue
+        reward_stats = evaluation.get("reward_stats", {}).get("reward", {})
+        for reward, trials in reward_stats.items():
+            rewards.extend(float(reward) for _ in trials)
     return completed, errored, rewards
 
 

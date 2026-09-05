@@ -1,0 +1,46 @@
+schema_version = "1.4"
+artifacts = ["/workspace/repo/vllm"]
+
+[task]
+name = "ai-infra-bench/vllm-dp-multi-port-supervisor"
+version = "1.0.0"
+description = "Implement a node-local supervisor for multi-port data-parallel API servers."
+authors = [{ name = "AI Infra Bench Curators" }]
+keywords = ["vllm", "data-parallel", "supervisor", "multiprocessing", "health-check"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+track = "representative"
+source_ids = ["vllm__pr__40841"]
+repository = "vllm-project/vllm"
+base_commit = "9b9d5dbaab852a1c615fe83a7f92881d353503db"
+image_digest = "sha256:9b807c8871706ca07900ba1f959e5a47006c8ee553ff77d921de65d21b3b0699"
+oracle_commit = "d5ed61238528c4b753bceb761db91318b0d442fb"
+workload_type = "feature_fix"
+subsystems = ["serving", "data_parallel", "process_lifecycle"]
+dependency_cutoff = "2026-05-21T14:28:34Z"
+environment_template = "vllm-cutoff-pinned"
+publication_state = "hardening-pending-validation"
+difficulty = "hard"
+grader_kind = "correctness"
+
+[agent]
+timeout_sec = 36000
+user = "agent"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 600.0
+environment_mode = "separate"
+user = "root"
+network_mode = "no-network"
+
+[environment]
+docker_image = "ai-infra-bench/vllm-dp-multi-port-supervisor:base-9b9d5dbaab85"
+network_mode = "no-network"
+build_timeout_sec = 14400.0
+accelerator = "CPU"
+cpus = 4
+memory_mb = 16384
+storage_mb = 24576
+workdir = "/workspace/repo"

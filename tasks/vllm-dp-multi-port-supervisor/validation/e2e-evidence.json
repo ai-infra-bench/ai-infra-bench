@@ -1,0 +1,60 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-06",
+  "status": "hardening-pending-validation",
+  "source": {
+    "repository": "vllm-project/vllm",
+    "base_commit": "9b9d5dbaab852a1c615fe83a7f92881d353503db"
+  },
+  "artifacts": {
+    "files": {
+      ".dockerignore": "fe57c1ef2dcfcb5ceaa20f0582985984061600f14d404fd7f1ef5de91a710cc8",
+      "README.md": "3a980be0a652a3cf3f3352a8f293b61851802af648d4429a4b79899b8816b6d5",
+      "environment/Dockerfile": "79cc7416c9f34a940b219a1f0e90029b2cd9dfb98e154a4d3227aff47b63550c",
+      "environment/image-manifest.json": "92264128aa95847206d6f9dbf6b685f8c8250955ed95a4ae017cd3a8a7abde81",
+      "environment/lock/README.md": "d76e66be7086eb7602d241547322f883a298ad34ef0e7160d00f7e369171e3a4",
+      "environment/lock/manifest.json": "d754a8ad4e07b66a014a2f288aa21147a4c80f8892df9ae829e52f83441a17b0",
+      "environment/lock/requirements.txt": "cb3b63dd4ccb3861651fb63081183ffaf801162ccf99830a8e71179c1fdb88cb",
+      "instruction.md": "32fe951dc5b1704e87d06ce97ca392841cf57d698bdee002474bae5c02dd512d",
+      "solution/oracle.patch": "7e11ade300c0991810ba59cf89e67574964d545a90adc82d37f768ae2a3a11d7",
+      "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+      "task.toml": "4ecaafd62e9399dee9729204eb08f22a11267ed62a492621e82f25bdb5cd92ab",
+      "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+      "tests/test.sh": "e70c8fdb4959ab59703c451f64b1a3bf2ff03b061786b41affc67392314d4c17",
+      "tests/verify_dp_supervisor.py": "d1dcc5cd3dcd0fe41cb869f0b44126c925ce8af0995f325b188addb696c8263a",
+      "validation/alternative-agent-implementation.patch": "c79b191f63269b417ce292c73c2ade9b0169b21aa5de6480faec85230a2d15f9",
+      "validation/ci-cases.json": "71f106a23b0b37c0b4f36f3086a682bdac5efe908689304d0a71941b91dbe255",
+      "validation/docker-build.md": "5a25d3b9567915ecaee9a2d456eff97595a729c6385aa49879ac10adb73352fe",
+      "validation/history/pr9-00fdbe3-e2e-evidence.json": "07afcca056ad5e6e5d4375c4f2dd6aa4d44534777c66d6ab1ea6ceb05794d60c",
+      "validation/incomplete-agent-implementation.patch": "e4df85a9e8b9d4a4d9864448be02d9cff0be4116b391c4852e992ed8498241ce",
+      "validation/remediation-matrix.md": "3ac0a1787ac2af7f37df39e8fd99dc54c0a129385edd7e2c90ba288249083a68",
+      "validation/tp-only-device-slice-incomplete.patch": "646b918010ae82964da32899bd45118eb01743fbcc5bbbea075173eda9740779"
+    }
+  },
+  "e2e_boundary": {
+    "path": "public vllm serve CLI -> node-local DP supervisor -> real child processes, HTTP health, signals, and sockets",
+    "substitution": "Heavyweight model serving is replaced by verifier-owned HTTP handlers; public CLI parsing, supervisor orchestration, multiprocessing, probing, signal, and socket behavior remain real.",
+    "preserved_semantics": "Heavyweight model serving is replaced by verifier-owned HTTP handlers; public CLI parsing, supervisor orchestration, multiprocessing, probing, signal, and socket behavior remain real."
+  },
+  "validation": {
+    "executable_snapshot_frozen": false,
+    "static_review": "Python source parsed successfully; skill and whitespace checks are recorded in the upstream PR.",
+    "execution_status": "not-rerun-at-user-request",
+    "note": "TCP refusal and retained-process cleanup assertions have changed. Prior task CI, direct Docker, controls and Harbor results do not validate this verifier revision. No new runtime pass is claimed. The nonresponsive-listener control and final scoring matrix remain pending."
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-dp-multi-port-supervisor:base-9b9d5dbaab85",
+    "image_id": "sha256:9b807c8871706ca07900ba1f959e5a47006c8ee553ff77d921de65d21b3b0699",
+    "size_bytes": 27108187341,
+    "created": "2026-09-04T15:14:52.520272826Z",
+    "repo_digests": [],
+    "dockerfile_sha256": "79cc7416c9f34a940b219a1f0e90029b2cd9dfb98e154a4d3227aff47b63550c",
+    "dependency_lock_sha256": "cb3b63dd4ccb3861651fb63081183ffaf801162ccf99830a8e71179c1fdb88cb",
+    "dependency_lock_manifest_sha256": "d754a8ad4e07b66a014a2f288aa21147a4c80f8892df9ae829e52f83441a17b0"
+  },
+  "historical_evidence": {
+    "path": "validation/history/pr9-00fdbe3-e2e-evidence.json",
+    "source_commit": "00fdbe35fec3eee9fa8bc68c654dbb7aa75e33df",
+    "note": "Previous direct Docker and Harbor results apply to the pre-cleanup-change verifier only."
+  }
+}

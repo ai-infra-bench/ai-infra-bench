@@ -109,6 +109,11 @@ Keep these artifacts out of the agent image. Distinguish function-level probes
 from final grading runs and re-run affected cases and controls after fixes;
 an earlier reward of 1 does not certify a control's correctness.
 
+For cleanup fixes, record direct resource-state observations and the outcome of
+an applicable nonresponsive-but-resource-retaining control. Confirm that the
+verifier's own teardown removes test processes/resources after a failed check;
+teardown after an assertion must not be mistaken for candidate cleanup success.
+
 Base must receive 0 because of the target behavior. Oracle and correct
 alternatives must receive 1 with no skips or errors. Incorrect controls must
 receive 0 through behavior alone.

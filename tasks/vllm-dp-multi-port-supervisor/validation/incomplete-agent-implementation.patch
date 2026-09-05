@@ -1,0 +1,511 @@
+diff --git a/vllm/entrypoints/cli/serve.py b/vllm/entrypoints/cli/serve.py
+index 6d6cfa6..e721046 100644
+--- a/vllm/entrypoints/cli/serve.py
++++ b/vllm/entrypoints/cli/serve.py
+@@ -55,6 +55,13 @@ class ServeSubcommand(CLISubcommand):
+             uvloop.run(serve_grpc(args))
+             return
+ 
++        # Check for multi-port DP mode
++        if getattr(args, "data_parallel_multiport", False):
++            from vllm.entrypoints.serve.multiport_dp import run_multiport_dp_deployment
++
++            run_multiport_dp_deployment(args)
++            return
++
+         if args.headless:
+             if args.api_server_count is not None and args.api_server_count > 0:
+                 raise ValueError(
+diff --git a/vllm/entrypoints/openai/cli_args.py b/vllm/entrypoints/openai/cli_args.py
+index 3ebdec3..5d78bc5 100644
+--- a/vllm/entrypoints/openai/cli_args.py
++++ b/vllm/entrypoints/openai/cli_args.py
+@@ -367,6 +367,22 @@ def make_arg_parser(parser: FlexibleArgumentParser) -> FlexibleArgumentParser:
+         help="Launch a gRPC server instead of the HTTP OpenAI-compatible "
+         "server. Requires: pip install vllm[grpc].",
+     )
++    parser.add_argument(
++        "--data-parallel-multiport",
++        action="store_true",
++        default=False,
++        help="Enable node-local multi-port data-parallel deployment. "
++        "Launches one API endpoint per local data-parallel rank on separate "
++        "ports behind an external load balancer. A separate health endpoint "
++        "reports group readiness. Requires data_parallel_size_local > 1.",
++    )
++    parser.add_argument(
++        "--multiport-dp-health-port",
++        type=int,
++        default=0,
++        help="Port for the health/readiness endpoint in multi-port DP mode. "
++        "Defaults to 0 (auto-allocate). Only used with --data-parallel-multiport.",
++    )
+     parser = FrontendArgs.add_cli_args(parser)
+     parser = AsyncEngineArgs.add_cli_args(parser)
+ 
+diff --git a/vllm/entrypoints/serve/multiport_dp.py b/vllm/entrypoints/serve/multiport_dp.py
+new file mode 100644
+index 0000000..b4d91b9
+--- /dev/null
++++ b/vllm/entrypoints/serve/multiport_dp.py
+@@ -0,0 +1,460 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""
++Node-local multi-port data-parallel deployment.
++
++This module implements a supervisor process that launches one API endpoint per
++local data-parallel rank, each on a separate port, behind an external load
++balancer. A separate health endpoint reports the readiness of the entire group.
++"""
++
++import argparse
++import multiprocessing
++import signal
++import socket
++import threading
++import time
++import weakref
++from collections.abc import Sequence
++from multiprocessing.process import BaseProcess
++from typing import Any
++
++import uvloop
++
++import vllm
++import vllm.envs as envs
++from vllm.entrypoints.openai.api_server import run_server, setup_server
++from vllm.logger import init_logger
++from vllm.usage.usage_lib import UsageContext
++from vllm.utils.network_utils import get_open_port
++from vllm.utils.system_utils import kill_process_tree
++from vllm.v1.engine.utils import CoreEngineProcManager, launch_core_engines
++from vllm.v1.executor import Executor
++from vllm.v1.metrics.prometheus import setup_multiprocess_prometheus
++
++logger = init_logger(__name__)
++
++
++class MultiPortDPProcessManager:
++    """Manages multiple API servers, one per local data-parallel rank.
++
++    Each API server runs on a separate port and connects to its assigned
++    data-parallel rank. A separate health endpoint monitors the group.
++    """
++
++    def __init__(
++        self,
++        args: argparse.Namespace,
++        vllm_config: Any,
++        executor_class: type,
++        log_stats: bool,
++        base_port: int,
++        health_port: int,
++    ):
++        self.args = args
++        self.vllm_config = vllm_config
++        self.executor_class = executor_class
++        self.log_stats = log_stats
++        self.base_port = base_port
++        self.health_port = health_port
++
++        parallel_config = vllm_config.parallel_config
++        self.local_dp_size = parallel_config.data_parallel_size_local
++        self.dp_rank_start = parallel_config.data_parallel_rank
++
++        if self.local_dp_size <= 0:
++            raise ValueError(
++                f"data_parallel_size_local must be > 0, got {self.local_dp_size}"
++            )
++
++        self.api_server_processes: list[BaseProcess] = []
++        self.health_server_process: BaseProcess | None = None
++        self.engine_manager_obj: Any = None
++        self.coordinator: Any = None
++        self.engine_context: Any = None
++
++        self._finalizer = weakref.finalize(self, self._cleanup_processes)
++
++    def start(self) -> None:
++        """Launch all API servers and the health endpoint."""
++        setup_multiprocess_prometheus()
++
++        # Allocate ports for each API server
++        ports = self._allocate_ports()
++        logger.info(
++            "Allocated ports for %d local data-parallel ranks: %s",
++            self.local_dp_size,
++            ports,
++        )
++
++        # Setup engine configuration
++        from vllm.v1.engine.utils import get_engine_zmq_addresses
++
++        addresses = get_engine_zmq_addresses(self.vllm_config, self.local_dp_size)
++
++        # Launch core engines
++        self.engine_context = launch_core_engines(
++            self.vllm_config,
++            self.executor_class,
++            self.log_stats,
++            addresses,
++            self.local_dp_size,
++        )
++        result = self.engine_context.__enter__()
++        local_engine_manager, coordinator, addresses, tensor_queue = result
++
++        self.engine_manager_obj = local_engine_manager
++        self.coordinator = coordinator
++
++        stats_update_address = (
++            coordinator.get_stats_publish_address() if coordinator else None
++        )
++
++        # Launch API servers
++        spawn_context = multiprocessing.get_context("spawn")
++
++        for i, port in enumerate(ports):
++            # Create per-rank arguments
++            rank_args = argparse.Namespace(**vars(self.args))
++            rank_args.port = port
++            rank_args.host = self.args.host or "127.0.0.1"
++
++            # Setup server socket
++            sock = self._create_listening_socket(rank_args.host, port)
++            listen_address = f"{rank_args.host}:{port}"
++
++            # Engine client configuration
++            client_config = {
++                "input_address": addresses.inputs[i],
++                "output_address": addresses.outputs[i],
++                "client_count": self.local_dp_size,
++                "client_index": i,
++            }
++            if stats_update_address is not None:
++                client_config["stats_update_address"] = stats_update_address
++            if tensor_queue is not None:
++                client_config["tensor_queue"] = tensor_queue
++
++            proc = spawn_context.Process(
++                target=_run_api_server_for_rank,
++                name=f"ApiServer_DP{self.dp_rank_start + i}",
++                args=(listen_address, sock, rank_args, client_config, i),
++            )
++            self.api_server_processes.append(proc)
++            proc.start()
++            logger.info(
++                "Started API server for DP rank %d on port %d (PID: %d)",
++                self.dp_rank_start + i,
++                port,
++                proc.pid,
++            )
++
++        # Launch health server
++        health_proc = spawn_context.Process(
++            target=_run_health_server,
++            name="HealthServer",
++            args=(self.args.host or "127.0.0.1", self.health_port, ports),
++        )
++        self.health_server_process = health_proc
++        health_proc.start()
++        logger.info(
++            "Started health server on port %d (PID: %d)",
++            self.health_port,
++            health_proc.pid,
++        )
++
++    def _allocate_ports(self) -> list[int]:
++        """Allocate consecutive ports starting from base_port."""
++        ports = []
++        current_port = self.base_port
++
++        for i in range(self.local_dp_size):
++            if current_port == 0:
++                # Auto-allocate
++                port = get_open_port()
++            else:
++                port = current_port + i
++                # Verify port is available
++                if not self._is_port_available(port):
++                    raise RuntimeError(
++                        f"Port {port} is not available for DP rank {i}. "
++                        "Ensure the port range is free or use --port=0 for auto-allocation."
++                    )
++            ports.append(port)
++
++        return ports
++
++    def _is_port_available(self, port: int) -> bool:
++        """Check if a port is available."""
++        try:
++            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
++                s.bind(("", port))
++                return True
++        except OSError:
++            return False
++
++    def _create_listening_socket(self, host: str, port: int) -> socket.socket:
++        """Create a listening socket for the given host and port."""
++        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
++        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
++        sock.bind((host, port))
++        sock.listen(128)
++        return sock
++
++    def wait(self) -> None:
++        """Wait for any process to exit."""
++        from vllm.v1.utils import wait_for_completion_or_failure
++
++        # Monitor all processes
++        all_processes = self.api_server_processes.copy()
++        if self.health_server_process:
++            all_processes.append(self.health_server_process)
++
++        while True:
++            # Check if any process has exited
++            for proc in all_processes:
++                if not proc.is_alive():
++                    exitcode = proc.exitcode
++                    logger.error(
++                        "Process %s (PID: %d) exited with code %s",
++                        proc.name,
++                        proc.pid,
++                        exitcode,
++                    )
++                    return
++
++            # Check engine health
++            if self.engine_manager_obj:
++                try:
++                    if not self.engine_manager_obj.is_alive():
++                        logger.error("Engine manager is no longer alive")
++                        return
++                except Exception as e:
++                    logger.error("Error checking engine manager: %s", e)
++                    return
++
++            time.sleep(1.0)
++
++    def shutdown(self, timeout: float | None = None) -> None:
++        """Shutdown all processes."""
++        if self._finalizer.detach() is None:
++            return
++
++        if timeout is None:
++            timeout = 5.0
++
++        logger.info("Shutting down multi-port DP deployment...")
++
++        # Terminate all processes
++        all_processes = self.api_server_processes.copy()
++        if self.health_server_process:
++            all_processes.append(self.health_server_process)
++
++        for proc in all_processes:
++            if proc.is_alive():
++                try:
++                    proc.terminate()
++                except Exception as e:
++                    logger.warning("Error terminating %s: %s", proc.name, e)
++
++        # Wait for graceful shutdown
++        deadline = time.monotonic() + timeout
++        for proc in all_processes:
++            remaining = deadline - time.monotonic()
++            if remaining <= 0:
++                break
++            if proc.is_alive():
++                proc.join(timeout=remaining)
++
++        # Force kill any remaining processes
++        for proc in all_processes:
++            if proc.is_alive() and proc.pid:
++                logger.warning("Force killing %s (PID: %d)", proc.name, proc.pid)
++                kill_process_tree(proc.pid)
++
++        # Shutdown engines
++        if self.engine_manager_obj:
++            try:
++                self.engine_manager_obj.shutdown(timeout=timeout)
++            except Exception as e:
++                logger.warning("Error shutting down engine manager: %s", e)
++
++        if self.coordinator:
++            try:
++                self.coordinator.shutdown(timeout=timeout)
++            except Exception as e:
++                logger.warning("Error shutting down coordinator: %s", e)
++
++        logger.info("Multi-port DP deployment shutdown complete")
++
++    def _cleanup_processes(self) -> None:
++        """Cleanup processes on garbage collection."""
++        self.shutdown(timeout=5.0)
++
++
++def _run_api_server_for_rank(
++    listen_address: str,
++    sock: socket.socket,
++    args: argparse.Namespace,
++    client_config: dict,
++    rank_index: int,
++) -> None:
++    """Run an API server for a specific data-parallel rank."""
++    from vllm.utils.system_utils import decorate_logs, set_process_title
++
++    set_process_title("APIServer", f"DP{rank_index}")
++    decorate_logs()
++
++    # Import here to avoid issues with multiprocessing
++    from vllm.entrypoints.openai.api_server import run_server_worker
++
++    uvloop.run(run_server_worker(listen_address, sock, args, client_config))
++
++
++def _run_health_server(host: str, port: int, api_ports: list[int]) -> None:
++    """Run a health server that monitors all API servers."""
++    from vllm.utils.system_utils import decorate_logs, set_process_title
++
++    set_process_title("HealthServer", "")
++    decorate_logs()
++
++    import asyncio
++    import aiohttp
++    from fastapi import FastAPI
++    from fastapi.responses import JSONResponse
++    import uvicorn
++
++    app = FastAPI()
++
++    @app.get("/health")
++    async def health():
++        """Health check for the entire group."""
++        return JSONResponse({"status": "ok"}, status_code=200)
++
++    @app.get("/ready")
++    async def ready():
++        """Readiness check - all API servers must be ready."""
++        all_ready = True
++        status_details = []
++
++        async with aiohttp.ClientSession() as session:
++            for api_port in api_ports:
++                try:
++                    async with session.get(
++                        f"http://{host}:{api_port}/health",
++                        timeout=aiohttp.ClientTimeout(total=2.0),
++                    ) as response:
++                        is_ready = response.status == 200
++                        status_details.append({
++                            "port": api_port,
++                            "ready": is_ready,
++                            "status_code": response.status,
++                        })
++                        if not is_ready:
++                            all_ready = False
++                except Exception as e:
++                    status_details.append({
++                        "port": api_port,
++                        "ready": False,
++                        "error": str(e),
++                    })
++                    all_ready = False
++
++        if all_ready:
++            return JSONResponse(
++                {"status": "ready", "endpoints": status_details},
++                status_code=200,
++            )
++        else:
++            return JSONResponse(
++                {"status": "not_ready", "endpoints": status_details},
++                status_code=503,
++            )
++
++    # Run the health server
++    uvloop.run(
++        uvicorn.Server(
++            uvicorn.Config(
++                app=app,
++                host=host,
++                port=port,
++                log_level="info",
++            )
++        ).serve()
++    )
++
++
++def run_multiport_dp_deployment(args: argparse.Namespace) -> None:
++    """Entry point for node-local multi-port data-parallel deployment."""
++    # Validate configuration
++    engine_args = vllm.AsyncEngineArgs.from_cli_args(args)
++    usage_context = UsageContext.OPENAI_API_SERVER
++    vllm_config = engine_args.create_engine_config(usage_context=usage_context)
++
++    parallel_config = vllm_config.parallel_config
++
++    if not parallel_config.local_engines_only:
++        raise ValueError(
++            "Multi-port DP deployment requires local_engines_only mode. "
++            "This mode is for node-local deployments only."
++        )
++
++    if parallel_config.data_parallel_size_local <= 1:
++        raise ValueError(
++            "Multi-port DP deployment requires data_parallel_size_local > 1. "
++            f"Got {parallel_config.data_parallel_size_local}."
++        )
++
++    # Get ports
++    base_port = args.port
++    health_port = getattr(args, "multiport_dp_health_port", 0)
++
++    if health_port == 0:
++        health_port = get_open_port()
++
++    executor_class = Executor.get_class(vllm_config)
++    log_stats = not engine_args.disable_log_stats
++
++    # Setup signal handling
++    shutdown_requested = False
++
++    def signal_handler(signum, frame):
++        nonlocal shutdown_requested
++        logger.info("Received signal %d, initiating shutdown...", signum)
++        if not shutdown_requested:
++            shutdown_requested = True
++            raise SystemExit
++
++    signal.signal(signal.SIGTERM, signal_handler)
++    signal.signal(signal.SIGINT, signal_handler)
++
++    # Create and start the manager
++    manager = MultiPortDPProcessManager(
++        args=args,
++        vllm_config=vllm_config,
++        executor_class=executor_class,
++        log_stats=log_stats,
++        base_port=base_port,
++        health_port=health_port,
++    )
++
++    try:
++        manager.start()
++        logger.info(
++            "Multi-port DP deployment started successfully. "
++            "Health endpoint: http://%s:%d/ready",
++            args.host or "127.0.0.1",
++            health_port,
++        )
++        manager.wait()
++    except SystemExit:
++        logger.info("Shutdown signal received")
++    except Exception as e:
++        logger.error("Error in multi-port DP deployment: %s", e, exc_info=True)
++    finally:
++        timeout = None
++        if shutdown_requested:
++            timeout = vllm_config.shutdown_timeout
++            logger.info("Waiting up to %d seconds for processes to exit", timeout)
++        manager.shutdown(timeout=timeout)
++        logger.info("Multi-port DP deployment terminated")

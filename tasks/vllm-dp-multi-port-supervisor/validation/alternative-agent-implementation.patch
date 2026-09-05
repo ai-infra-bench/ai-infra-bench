@@ -1,0 +1,626 @@
+diff --git a/vllm/entrypoints/cli/serve.py b/vllm/entrypoints/cli/serve.py
+index 6d6cfa6..2e69865 100644
+--- a/vllm/entrypoints/cli/serve.py
++++ b/vllm/entrypoints/cli/serve.py
+@@ -55,6 +55,12 @@ class ServeSubcommand(CLISubcommand):
+             uvloop.run(serve_grpc(args))
+             return
+ 
++        if getattr(args, "data_parallel_multi_port_external_lb", False):
++            from vllm.entrypoints.openai.dp_supervisor import run_dp_supervisor
++
++            run_dp_supervisor(args)
++            return
++
+         if args.headless:
+             if args.api_server_count is not None and args.api_server_count > 0:
+                 raise ValueError(
+diff --git a/vllm/entrypoints/openai/cli_args.py b/vllm/entrypoints/openai/cli_args.py
+index 3ebdec3..3f583c7 100644
+--- a/vllm/entrypoints/openai/cli_args.py
++++ b/vllm/entrypoints/openai/cli_args.py
+@@ -367,6 +367,38 @@ def make_arg_parser(parser: FlexibleArgumentParser) -> FlexibleArgumentParser:
+         help="Launch a gRPC server instead of the HTTP OpenAI-compatible "
+         "server. Requires: pip install vllm[grpc].",
+     )
++    parser.add_argument(
++        "--data-parallel-multi-port-external-lb",
++        action="store_true",
++        default=False,
++        help="Run a node-local supervisor for external-load-balancer data "
++        "parallel serving. The supervisor launches one API server per local "
++        "data-parallel rank, each on its own port derived from --port, and "
++        "exposes an aggregate health/readiness endpoint on "
++        "--data-parallel-supervisor-port. This is a node-local launch mode "
++        "only; the external load balancer distributes requests across the "
++        "per-rank ports.",
++    )
++    parser.add_argument(
++        "--data-parallel-supervisor-port",
++        type=int,
++        default=None,
++        help="Port for the node-local supervisor to aggregate health and "
++        "readiness across all local data-parallel API servers. Required when "
++        "--data-parallel-multi-port-external-lb is set.",
++    )
++    parser.add_argument(
++        "--dp-supervisor-probe-interval-s", type=float, default=5.0,
++        help="Seconds between child-health probes.",
++    )
++    parser.add_argument(
++        "--dp-supervisor-probe-timeout-s", type=float, default=5.0,
++        help="Timeout in seconds for each child-health probe.",
++    )
++    parser.add_argument(
++        "--dp-supervisor-probe-failure-threshold", type=int, default=60,
++        help="Consecutive failed probes before the whole group stops.",
++    )
+     parser = FrontendArgs.add_cli_args(parser)
+     parser = AsyncEngineArgs.add_cli_args(parser)
+ 
+@@ -387,6 +419,15 @@ def validate_parsed_serve_args(args: argparse.Namespace):
+     if args.enable_log_outputs and not args.enable_log_requests:
+         raise TypeError("Error: --enable-log-outputs requires --enable-log-requests")
+ 
++    if getattr(args, "data_parallel_multi_port_external_lb", False):
++        # Fail fast on incompatible launch configurations before we spawn any
++        # child processes or bind any ports.
++        from vllm.entrypoints.openai.dp_supervisor import (
++            validate_multi_port_external_lb_args,
++        )
++
++        validate_multi_port_external_lb_args(args)
++
+ 
+ def create_parser_for_docs() -> FlexibleArgumentParser:
+     parser_for_docs = FlexibleArgumentParser(
+diff --git a/vllm/entrypoints/openai/dp_supervisor.py b/vllm/entrypoints/openai/dp_supervisor.py
+new file mode 100644
+index 0000000..6cb4300
+--- /dev/null
++++ b/vllm/entrypoints/openai/dp_supervisor.py
+@@ -0,0 +1,544 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Node-local supervisor for multi-port external-load-balancer data parallel.
++
++In external-load-balancer (external LB) data-parallel serving each data
++parallel (DP) rank runs its own API server on its own port, and an external
++load balancer distributes requests across those ports. This module provides a
++*node-local* supervisor that owns the local slice of DP ranks on a single node:
++
++* It validates that the requested launch configuration is internally
++  consistent (see :func:`validate_multi_port_external_lb_args`).
++* It derives, for each local DP rank, a distinct serving port (offset from the
++  base ``--port``) and the corresponding *global* DP rank (offset from
++  ``--data-parallel-start-rank`` / inferred from ``--node-rank``), reusing the
++  existing single-server external-LB CLI contract
++  (see :func:`_build_vllm_dp_server_args`).
++* It assigns each child the correct device slice via the platform device
++  control environment variable.
++* It launches each per-rank API server in a separate spawned process.
++* It runs a small HTTP service on ``--data-parallel-supervisor-port`` that
++  aggregates health and readiness across every child: it only reports ready
++  once every child is healthy.
++* It monitors children; a child exit or sustained health failure tears down the
++  whole local group -- forwarding termination to the survivors, waiting for a
++  graceful exit, force-killing stragglers, stopping the HTTP service, and
++  releasing all ports.
++* SIGINT and SIGTERM trigger the same clean teardown, so no orphan child
++  processes are left behind.
++
++Kubernetes integration, cross-node routing, and the inference path itself are
++out of scope: this component only supervises the API server processes that live
++on one node.
++"""
++
++import argparse
++import copy
++import http.client
++import signal
++import threading
++import time
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
++
++from vllm.entrypoints.openai.api_server import run_server
++from vllm.logger import init_logger
++from vllm.platforms import current_platform
++from vllm.utils.system_utils import kill_process_tree
++
++logger = init_logger(__name__)
++
++# Time budget (seconds) for a child to exit gracefully after being asked to
++# terminate before we escalate to a forced kill of its process tree.
++GRACEFUL_SHUTDOWN_TIMEOUT = 30.0
++
++# How often the supervisor polls each child's health endpoint.
++HEALTH_POLL_INTERVAL = 5.0
++
++# Per-request timeout when probing a child's /health endpoint.
++HEALTH_PROBE_TIMEOUT = 5.0
++
++# How long a child may continuously fail health checks before the supervisor
++# considers it unrecoverable and tears the group down. This tolerates the slow
++# model-loading window during startup (children report 503 until ready) while
++# still catching a wedged child.
++HEALTH_FAILURE_GRACE = 300.0
++
++
++def validate_multi_port_external_lb_args(args: argparse.Namespace) -> None:
++    """Validate launch configuration for the multi-port external LB supervisor.
++
++    Raises ``ValueError`` for any incompatible combination of flags so that we
++    fail fast, before any child process is spawned or any port is bound.
++    """
++    if not getattr(args, "data_parallel_multi_port_external_lb", False):
++        return
++
++    # The supervisor is a node-local API-server launcher. It is fundamentally
++    # incompatible with modes that either start no API servers (headless) or
++    # replace the HTTP server (gRPC).
++    if getattr(args, "headless", False):
++        raise ValueError(
++            "--data-parallel-multi-port-external-lb cannot be used with "
++            "--headless: the supervisor exists to launch API servers, but "
++            "headless mode starts none."
++        )
++    if getattr(args, "grpc", False):
++        raise ValueError(
++            "--data-parallel-multi-port-external-lb cannot be used with "
++            "--grpc: the supervisor manages OpenAI-compatible HTTP servers."
++        )
++
++    # This mode *is* external LB; the other DP LB modes conflict with it.
++    if getattr(args, "data_parallel_hybrid_lb", False):
++        raise ValueError(
++            "--data-parallel-multi-port-external-lb cannot be combined with "
++            "--data-parallel-hybrid-lb: choose one data-parallel load "
++            "balancing mode."
++        )
++    if getattr(args, "data_parallel_external_lb", False):
++        raise ValueError(
++            "--data-parallel-multi-port-external-lb already implies external "
++            "load balancing; do not also pass --data-parallel-external-lb."
++        )
++    if getattr(args, "data_parallel_rank", None) is not None:
++        raise ValueError(
++            "--data-parallel-rank selects a single external-LB rank and "
++            "cannot be used with --data-parallel-multi-port-external-lb, "
++            "which owns a contiguous range of local ranks. Use "
++            "--data-parallel-start-rank (or --node-rank) to place the local "
++            "range instead."
++        )
++
++    supervisor_port = getattr(args, "data_parallel_supervisor_port", None)
++    if supervisor_port is None:
++        raise ValueError(
++            "--data-parallel-supervisor-port is required when "
++            "--data-parallel-multi-port-external-lb is set."
++        )
++
++    dp_size = getattr(args, "data_parallel_size", 1) or 1
++    local_size = _local_dp_size(args)
++    if local_size < 1:
++        raise ValueError(
++            "--data-parallel-size-local must be >= 1 for "
++            "--data-parallel-multi-port-external-lb "
++            f"(got {getattr(args, 'data_parallel_size_local', None)})."
++        )
++
++    start_rank = _global_start_rank(args)
++    if start_rank < 0:
++        raise ValueError(
++            f"Derived data-parallel start rank {start_rank} is negative; "
++            "check --data-parallel-start-rank and --node-rank."
++        )
++    if start_rank + local_size > dp_size:
++        raise ValueError(
++            f"The local data-parallel range [{start_rank}, "
++            f"{start_rank + local_size}) does not fit within "
++            f"--data-parallel-size={dp_size}. Reduce "
++            "--data-parallel-size-local or adjust the start rank."
++        )
++
++    base_port = getattr(args, "port", 8000)
++    # The supervisor port must not collide with any child serving port.
++    child_ports = range(base_port, base_port + local_size)
++    if supervisor_port in child_ports:
++        raise ValueError(
++            f"--data-parallel-supervisor-port={supervisor_port} collides with "
++            f"a child serving port in {list(child_ports)}. Pick a port "
++            "outside the child range."
++        )
++
++    if getattr(args, "uds", None):
++        raise ValueError(
++            "--uds (Unix domain socket) is incompatible with "
++            "--data-parallel-multi-port-external-lb, which assigns a distinct "
++            "TCP port to each local rank."
++        )
++
++
++def _local_dp_size(args: argparse.Namespace) -> int:
++    """Number of DP ranks this node serves locally."""
++    local = getattr(args, "data_parallel_size_local", None)
++    if local is None:
++        # Default to the full DP size (single-node deployment).
++        return getattr(args, "data_parallel_size", 1) or 1
++    return local
++
++
++def _global_start_rank(args: argparse.Namespace) -> int:
++    """Global DP rank of this node's first local rank.
++
++    Mirrors the single-server external-LB contract: an explicit
++    ``--data-parallel-start-rank`` wins; otherwise it is inferred from
++    ``--node-rank`` and the local DP size (contiguous per-node blocks).
++    """
++    start = getattr(args, "data_parallel_start_rank", None)
++    if start is not None:
++        return start
++    node_rank = getattr(args, "node_rank", 0) or 0
++    return node_rank * _local_dp_size(args)
++
++
++def _build_vllm_dp_server_args(
++    args: argparse.Namespace, local_index: int
++) -> argparse.Namespace:
++    """Derive the per-child serve args for ``local_index`` in [0, local_size).
++
++    The returned namespace uses the existing single-server external-LB CLI
++    contract: ``--data-parallel-external-lb`` with an explicit
++    ``--data-parallel-rank`` and ``--data-parallel-size-local 1``, on a port
++    offset from the supervisor's base ``--port``.
++    """
++    child = copy.deepcopy(args)
++
++    # Distinct serving port per local rank, offset from the base port.
++    child.port = getattr(args, "port", 8000) + local_index
++
++    # Translate this local index into a global DP rank and pin the child to it
++    # via the single-rank external-LB contract.
++    child.data_parallel_rank = _global_start_rank(args) + local_index
++    child.data_parallel_start_rank = None
++    child.data_parallel_size_local = 1
++    child.data_parallel_external_lb = True
++    child.data_parallel_hybrid_lb = False
++
++    # This is a plain per-rank API server, not another supervisor.
++    child.data_parallel_multi_port_external_lb = False
++    child.data_parallel_supervisor_port = None
++
++    # A child runs exactly one API server in its own process.
++    child.api_server_count = 1
++    child.headless = False
++
++    return child
++
++
++def _child_device_env(args: argparse.Namespace, local_index: int) -> dict[str, str]:
++    """Compute the device-control env var slice for one local child.
++
++    Each local rank owns ``tensor_parallel_size * pipeline_parallel_size``
++    contiguous devices. We map logical device ids through the platform helper
++    so an already-restricted device view (e.g. an outer
++    ``CUDA_VISIBLE_DEVICES``) is respected.
++    """
++    tp_size = getattr(args, "tensor_parallel_size", 1) or 1
++    pp_size = getattr(args, "pipeline_parallel_size", 1) or 1
++    devices_per_rank = tp_size * pp_size
++    env_var = current_platform.device_control_env_var
++    if env_var == "VLLM_DEVICE_CONTROL_ENV_VAR_PLACEHOLDER":
++        # Platform does not use a device-control env var (e.g. CPU). Nothing
++        # to assign; children inherit the parent environment.
++        return {}
++
++    start = local_index * devices_per_rank
++    physical_ids = [
++        str(current_platform.device_id_to_physical_device_id(i))
++        for i in range(start, start + devices_per_rank)
++    ]
++    return {env_var: ",".join(physical_ids)}
++
++
++def _run_child_server(args: argparse.Namespace, env: dict[str, str]) -> None:
++    """Entrypoint for a spawned child API-server process."""
++    import os
++
++    import uvloop
++
++    os.environ.update(env)
++    uvloop.run(run_server(args))
++
++
++class _Child:
++    """Bookkeeping for a single supervised API-server process."""
++
++    def __init__(self, proc, host: str, port: int, dp_rank: int):
++        self.proc = proc
++        self.host = host
++        self.port = port
++        self.dp_rank = dp_rank
++        # First monotonic time we observed a health failure (reset on success).
++        self._unhealthy_since: float | None = None
++        self._was_healthy = False
++
++    @property
++    def name(self) -> str:
++        return f"dp_rank={self.dp_rank}(port={self.port})"
++
++    def is_alive(self) -> bool:
++        return self.proc.is_alive()
++
++    def probe_health(self) -> bool:
++        """Return True if the child's /health endpoint reports 200."""
++        conn = None
++        try:
++            probe_host = "127.0.0.1" if self.host in ("", "0.0.0.0") else self.host
++            conn = http.client.HTTPConnection(
++                probe_host, self.port, timeout=HEALTH_PROBE_TIMEOUT
++            )
++            conn.request("GET", "/health")
++            resp = conn.getresponse()
++            resp.read()
++            return resp.status == 200
++        except (OSError, http.client.HTTPException):
++            return False
++        finally:
++            if conn is not None:
++                conn.close()
++
++    def record_health(self, healthy: bool, now: float) -> None:
++        if healthy:
++            self._was_healthy = True
++            self._unhealthy_since = None
++        elif self._was_healthy and self._unhealthy_since is None:
++            self._unhealthy_since = now
++
++    def unhealthy_for(self, now: float) -> float:
++        if self._unhealthy_since is None:
++            return 0.0
++        return now - self._unhealthy_since
++
++
++class DPSupervisor:
++    """Node-local supervisor for multi-port external-LB DP serving."""
++
++    def __init__(
++        self,
++        args: argparse.Namespace,
++        child_target=_run_child_server,
++        mp_context=None,
++    ):
++        validate_multi_port_external_lb_args(args)
++        self.args = args
++        self.host = getattr(args, "host", None) or "0.0.0.0"
++        self.supervisor_port = args.data_parallel_supervisor_port
++        self.local_size = _local_dp_size(args)
++        # Injectable for testing with light loopback children; production uses
++        # a spawned real API server.
++        self._child_target = child_target
++        self._mp_context = mp_context
++        self.children: list[_Child] = []
++        self._httpd: ThreadingHTTPServer | None = None
++        self._http_thread: threading.Thread | None = None
++        # Signals the monitor loop to stop; set by teardown / signal handlers.
++        self._stop = threading.Event()
++        self._shutdown_lock = threading.Lock()
++        self._shutting_down = False
++
++    # -- lifecycle ---------------------------------------------------------
++
++    def run(self) -> None:
++        """Start children and the aggregate endpoint, then monitor until exit."""
++        self._install_signal_handlers()
++        try:
++            self._start_http_service()
++            self._start_children()
++            logger.info(
++                "DP supervisor managing %d local API server(s) on ports "
++                "%d-%d; aggregate health on port %d",
++                self.local_size,
++                self.args.port,
++                self.args.port + self.local_size - 1,
++                self.supervisor_port,
++            )
++            self._monitor_loop()
++        finally:
++            self._teardown()
++
++    def _install_signal_handlers(self) -> None:
++        def handler(signum, _frame):
++            logger.info("DP supervisor received signal %d; shutting down.", signum)
++            self._stop.set()
++
++        signal.signal(signal.SIGINT, handler)
++        signal.signal(signal.SIGTERM, handler)
++
++    def _start_children(self) -> None:
++        import multiprocessing
++
++        spawn = self._mp_context or multiprocessing.get_context("spawn")
++        for local_index in range(self.local_size):
++            child_args = _build_vllm_dp_server_args(self.args, local_index)
++            env = _child_device_env(self.args, local_index)
++            proc = spawn.Process(
++                target=self._child_target,
++                name=f"DPServer_{child_args.data_parallel_rank}",
++                args=(child_args, env),
++                daemon=False,
++            )
++            proc.start()
++            self.children.append(
++                _Child(
++                    proc,
++                    host=self.host,
++                    port=child_args.port,
++                    dp_rank=child_args.data_parallel_rank,
++                )
++            )
++            logger.info(
++                "Started API server for %s (pid=%s)",
++                self.children[-1].name,
++                proc.pid,
++            )
++
++    def _start_http_service(self) -> None:
++        supervisor = self
++
++        class _Handler(BaseHTTPRequestHandler):
++            protocol_version = "HTTP/1.1"
++
++            def log_message(self, *args):  # noqa: D401 - silence default logging
++                pass
++
++            def _respond(self, status: int, body: bytes) -> None:
++                self.send_response(status)
++                self.send_header("Content-Type", "text/plain")
++                self.send_header("Content-Length", str(len(body)))
++                self.end_headers()
++                self.wfile.write(body)
++
++            def do_GET(self):  # noqa: N802 - required by BaseHTTPRequestHandler
++                if self.path.rstrip("/") in ("/health", "/ready", "/readyz", ""):
++                    ready, detail = supervisor.aggregate_readiness()
++                    status = 200 if ready else 503
++                    self._respond(status, detail.encode())
++                else:
++                    self._respond(404, b"not found")
++
++        self._httpd = ThreadingHTTPServer((self.host, self.supervisor_port), _Handler)
++        self._httpd.daemon_threads = True
++        self._http_thread = threading.Thread(
++            target=self._httpd.serve_forever,
++            name="DPSupervisorHTTP",
++            daemon=True,
++        )
++        self._http_thread.start()
++
++    # -- readiness aggregation --------------------------------------------
++
++    def aggregate_readiness(self) -> tuple[bool, str]:
++        """Aggregate health across all children.
++
++        Ready only when every child process is alive *and* its /health probe
++        reports healthy. Returns (ready, human-readable detail).
++        """
++        now = time.monotonic()
++        statuses: list[str] = []
++        all_ready = len(self.children) == self.local_size
++        if not all_ready:
++            statuses.append(
++                f"starting children: {len(self.children)}/{self.local_size}"
++            )
++        for child in self.children:
++            if not child.is_alive():
++                all_ready = False
++                child.record_health(False, now)
++                statuses.append(f"{child.name}: dead")
++                continue
++            healthy = child.probe_health()
++            child.record_health(healthy, now)
++            if not healthy:
++                all_ready = False
++            statuses.append(f"{child.name}: {'healthy' if healthy else 'unhealthy'}")
++        prefix = "ready" if all_ready else "not ready"
++        return all_ready, prefix + "\n" + "\n".join(statuses) + "\n"
++
++    # -- monitoring & teardown --------------------------------------------
++
++    def _monitor_loop(self) -> None:
++        """Poll children until one exits, stays unhealthy, or we're stopped."""
++        while not self._stop.is_set():
++            now = time.monotonic()
++            for child in self.children:
++                if not child.is_alive():
++                    logger.error(
++                        "Child %s exited (code=%s); shutting down local group.",
++                        child.name,
++                        child.proc.exitcode,
++                    )
++                    return
++                healthy = child.probe_health()
++                child.record_health(healthy, now)
++                unhealthy_for = child.unhealthy_for(now)
++                if unhealthy_for > HEALTH_FAILURE_GRACE:
++                    logger.error(
++                        "Child %s unhealthy for %.0fs (> %.0fs); shutting down "
++                        "local group.",
++                        child.name,
++                        unhealthy_for,
++                        HEALTH_FAILURE_GRACE,
++                    )
++                    return
++            self._stop.wait(HEALTH_POLL_INTERVAL)
++
++    def _teardown(self) -> None:
++        """Terminate children, stop the HTTP service, and release all ports."""
++        with self._shutdown_lock:
++            if self._shutting_down:
++                return
++            self._shutting_down = True
++
++        self._stop.set()
++
++        # Stop accepting/serving on the supervisor port first so the aggregate
++        # endpoint stops reporting while children are torn down.
++        if self._httpd is not None:
++            with _suppress():
++                self._httpd.shutdown()
++            with _suppress():
++                self._httpd.server_close()
++            self._httpd = None
++        if self._http_thread is not None:
++            self._http_thread.join(timeout=5.0)
++            self._http_thread = None
++
++        # Ask every surviving child to terminate.
++        for child in self.children:
++            if child.is_alive():
++                with _suppress():
++                    child.proc.terminate()
++
++        # Wait for graceful exit within a shared deadline.
++        deadline = time.monotonic() + GRACEFUL_SHUTDOWN_TIMEOUT
++        for child in self.children:
++            remaining = deadline - time.monotonic()
++            if remaining <= 0:
++                break
++            if child.is_alive():
++                with _suppress():
++                    child.proc.join(remaining)
++
++        # Force-kill any straggler process trees.
++        for child in self.children:
++            if child.is_alive() and child.proc.pid is not None:
++                logger.warning(
++                    "Force-killing straggler child %s (pid=%s).",
++                    child.name,
++                    child.proc.pid,
++                )
++                with _suppress():
++                    kill_process_tree(child.proc.pid)
++                with _suppress():
++                    child.proc.join(5.0)
++
++        logger.info("DP supervisor shut down; all ports released.")
++
++
++class _suppress:
++    """Tiny context manager that swallows exceptions during teardown."""
++
++    def __enter__(self):
++        return self
++
++    def __exit__(self, exc_type, exc, tb):
++        return True
++
++
++def run_dp_supervisor(args: argparse.Namespace) -> None:
++    """Validate, launch, and supervise the node-local DP API-server group."""
++    global HEALTH_POLL_INTERVAL, HEALTH_PROBE_TIMEOUT, HEALTH_FAILURE_GRACE
++    HEALTH_POLL_INTERVAL = max(args.dp_supervisor_probe_interval_s, 0.01)
++    HEALTH_PROBE_TIMEOUT = max(args.dp_supervisor_probe_timeout_s, 0.01)
++    threshold = max(args.dp_supervisor_probe_failure_threshold, 1)
++    HEALTH_FAILURE_GRACE = HEALTH_POLL_INTERVAL * threshold
++    DPSupervisor(args).run()
