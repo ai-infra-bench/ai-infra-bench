@@ -27,6 +27,15 @@ semantic components and run for real. Only model generation is substituted by
 a deterministic engine. The substitute preserves output blocks, delta
 fragmentation, ordering, finish reasons, usage, and request lifecycle.
 
+The renderer/tokenizer are the production Rust backends loaded from the frozen
+Qwen3.6 assets, with text-only processing and explicit `enable_thinking=false` /
+`preserve_thinking=true` defaults. Output scripts are encoded using that real
+tokenizer and fragmented by token count. Existing-route controls compare the
+actual prompt text and token IDs to independent Python Jinja/HF tokenizers.
+Grammar checks execute the pinned guidance compiler/matcher on captured engine
+constraints. Model weights, GPU generation, and positive image preprocessing
+are outside the measured boundary.
+
 ## Why an implementation is reconstructable
 
 The pinned source contains all required non-Anthropic components:
@@ -71,6 +80,16 @@ incomplete control.
    SDK-visible result and the semantic request received at the engine boundary.
 4. **Regression path.** Existing Rust OpenAI endpoints and health behavior run
    against the same server process.
+5. **Production backend and mutation controls.** Seven OpenAI/tokenize cases
+   qualify real Qwen rendering, exact token IDs, tool history, Unicode streaming,
+   JSON constraints, and stop processing. Mutations replace tokens with bytes,
+   replace Jinja with serialized requests, or discard constraints; these must
+   fail otherwise-passing checks. This is partial-boundary positive evidence,
+   not a complete alternative Anthropic implementation.
+
+The extended Python measurements are in `python-compatibility.md`. Request-side
+HTTP probes, converter-only probes, and SDK-fixture-only behavior have distinct
+labels; a field being accepted does not prove its semantics are implemented.
 
 Python behavior is not normative for cases where it disagrees with SDK 1.3.0.
 IDs, timestamps, and model-generated text are checked by invariant rather than

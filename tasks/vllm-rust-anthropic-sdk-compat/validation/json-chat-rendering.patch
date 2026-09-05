@@ -1,0 +1,15 @@
+diff --git a/rust/src/chat/src/renderer/hf/mod.rs b/rust/src/chat/src/renderer/hf/mod.rs
+--- a/rust/src/chat/src/renderer/hf/mod.rs
++++ b/rust/src/chat/src/renderer/hf/mod.rs
+@@ -197,7 +197,10 @@
+ 
+ impl ChatRenderer for HfChatRenderer {
+     fn render(&self, request: &ChatRequest) -> Result<RenderedPrompt> {
+-        self.apply_chat_template(request)
++        Ok(RenderedPrompt {
++            prompt: Prompt::Text(serde_json::to_string(request).unwrap()),
++            effective_template_kwargs: request.chat_options.template_kwargs.clone(),
++        })
+     }
+ }
+ 

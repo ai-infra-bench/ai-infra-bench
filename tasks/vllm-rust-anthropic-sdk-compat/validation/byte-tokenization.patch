@@ -1,0 +1,23 @@
+diff --git a/rust/src/tokenizer/src/hf.rs b/rust/src/tokenizer/src/hf.rs
+--- a/rust/src/tokenizer/src/hf.rs
++++ b/rust/src/tokenizer/src/hf.rs
+@@ -140,17 +140,8 @@
+ 
+ impl Tokenizer for HuggingFaceTokenizer {
+     fn encode(&self, text: &str, add_special_tokens: bool) -> Result<Vec<u32>> {
+-        match &self.backend {
+-            Backend::Hf(t) => {
+-                let encoding = t
+-                    .encode(text, add_special_tokens)
+-                    .map_err(|error| tokenizer_error!("encoding failed: {}", error.as_report()))?;
+-                Ok(encoding.get_ids().to_vec())
+-            }
+-            Backend::Fastokens(t) | Backend::FastokensByteLevel(t) => t
+-                .encode_with_special_tokens(text, add_special_tokens)
+-                .map_err(|error| tokenizer_error!("encoding failed: {}", error.as_report())),
+-        }
++        let _ = add_special_tokens;
++        Ok(text.bytes().map(u32::from).collect())
+     }
+ 
+     fn decode(&self, token_ids: &[u32], skip_special_tokens: bool) -> Result<String> {

@@ -59,8 +59,9 @@ resolved Python lock.
 
 Pass within the documented no-solution boundary.
 
-The rewarded path contains 106 pytest cases: 35 official-SDK protocol controls
-and 71 candidate Rust HTTP cases. Ten additional checks execute the official
+The rewarded path contains 115 pytest cases: 35 official-SDK protocol controls
+and 80 Rust HTTP cases, including seven production-backend positive controls.
+Ten additional checks execute the official
 SDK against the pinned Python vLLM server on the adapter's measured compatible
 subset. Reward 1 requires the exact case counts with no failure, error, or skip,
 and all ten Python checks.
@@ -72,27 +73,44 @@ usage fields, citations, and the SDK 1.3 hosted web, code, editor, tool-search,
 and container-upload response unions.
 
 The Rust cases start the real Axum router over TCP and exercise request parsing,
-validation, chat rendering, tokenization, the engine-client boundary, output
-processing, SSE framing, and official SDK parsing. Only generated model output
-is deterministic. Tests assert public SDK results and semantic engine input,
-not candidate file names or helper names.
+validation, production Qwen3.6 Jinja rendering and tokenization, the engine-client
+boundary, output processing, SSE framing, and official SDK parsing. This corrects
+the earlier harness, which replaced rendering with JSON and tokenization with
+bytes. An observer now delegates to the production backend and records the real
+prompt/token IDs separately. Generated output is deterministic and is encoded
+with the real tokenizer before entering the engine output path. The backend is
+text-only; weights, GPU execution, and positive multimodal preprocessing are not
+part of this reduced serving boundary.
 
-Five frozen Base runs were identical: the SDK fixture passed 35/35, the Python
-control passed 10/10, and the Rust matrix passed the existing OpenAI/health
-regression while all 70 Anthropic cases failed. A direct
-`VLLM_USE_RUST_FRONTEND=1 vllm serve` run independently returned 200 for health
-and OpenAI chat and 404 for both missing Anthropic paths.
+The initial revised Base run passed the SDK fixture 35/35, Python controls 10/10,
+and all eight existing-route checks; 72 Anthropic cases failed on the missing
+routes, with no errors or skips. Final frozen repetitions and Harbor identities
+are recorded in `e2e-evidence.json`. The unchanged canonical image also runs
+`VLLM_USE_RUST_FRONTEND=1 vllm serve`: health and OpenAI chat return 200, and both
+missing Anthropic paths return 404.
 
-The two declared partial controls both received reward 0 and passed only the
-existing OpenAI/health regression:
+The two original partial controls expose static JSON or a fixed token count.
+Three added mutations break production tokenization, substitute JSON for Jinja
+rendering, or drop a structured-output constraint. Their verification must fail
+checks that pass on unmodified Base; reward 0 from missing Anthropic routes alone
+does not qualify these mutations. Per-case failure names and final Harbor results
+are recorded in `e2e-evidence.json`.
 
-- fixed JSON endpoints passed one Rust case and failed 70;
-- a fixed count-tokens-only implementation passed one Rust case and failed 70
-  because it performed no observable tokenizer work.
+Count-token checks now compare with actual generation input IDs and allow cache
+reuse. Structured-output checks run the pinned engine grammar compiler/matcher
+on the constraint captured from the engine request, accepting equivalent grammar
+representations and rejecting wrong types or missing required fields. Stops are
+tested through real output termination instead of requiring sampling options in
+prompt text. The official SDK accepts both empty content arrays and empty text
+blocks, so empty-response tests now permit both while checking zero output tokens
+and normal termination.
 
-Harbor 0.22.0 reproduced reward 0 for Base and both controls with one completed,
-zero-error trial per case. The SDK fixture and Python control passed in every
-manual and Harbor execution.
+The diagnostic Python audit measured 29 passing and 15 incompatible request/client
+probes, plus eight passing and two incompatible converter probes. These are
+explicitly scoped measurements, not a claim that Python passed the Rust matrix.
+`python-compatibility.md` explains dropped/unsupported fields, older error-envelope
+and stop-metadata defects, and the original verifier's overly strict empty-stream
+predicate. Failures are not automatically attributed to SDK 1.3 additions.
 
 ## Semantic boundary
 
@@ -100,7 +118,7 @@ manual and Harbor execution.
 anthropic 1.3.0 SDK
 -> real TCP HTTP or SSE
 -> Rust build_router and endpoint validation
--> ChatRequest rendering and tokenization
+-> production Qwen3.6 Jinja rendering and tokenizer
 -> real engine-client request boundary
 -> deterministic model output only
 -> real Rust output processors and Anthropic event translation
@@ -110,7 +128,9 @@ anthropic 1.3.0 SDK
 The independent HTTP/SSE fixture is a positive control for SDK 1.3.0 wire
 semantics, not a replacement for the Rust server. The Python frontend is a
 positive control only for the subset it actually accepts. Neither is described
-as a complete implementation Oracle.
+as a complete implementation Oracle. Extended response unions and all HTTP
+status mappings exercised only by that fixture are SDK-control coverage, not
+candidate Rust coverage.
 
 ## Remaining limitation
 

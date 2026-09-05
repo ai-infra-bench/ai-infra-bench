@@ -12,6 +12,8 @@ from pydantic import BaseModel
 
 from verifier_support import (
     RustServer,
+    assert_count_matches_generation,
+    assert_json_constraint,
     minimax_parallel_tool_calls,
     minimax_tool_call,
 )
@@ -107,9 +109,7 @@ def test_sync_nonstream_raw_and_streaming_response(tmp_path: Path) -> None:
         assert raw.status_code == 200
         assert raw.parse().content[0].type == "text"
 
-        with sdk.messages.with_streaming_response.create(
-            **create_kwargs()
-        ) as response:
+        with sdk.messages.with_streaming_response.create(**create_kwargs()) as response:
             assert response.status_code == 200
             assert response.parse().content[0].type == "text"
 
@@ -182,16 +182,9 @@ def test_stream_helper_event_order_and_accumulation(tmp_path: Path) -> None:
 def test_count_tokens_is_stable_sensitive_and_generation_free(tmp_path: Path) -> None:
     with RustServer(tmp_path, ["unused generation"]) as server:
         sdk = client(server.base_url)
+
         def count_with_tokenizer_observation(**kwargs: Any) -> int:
-            before = len(server.tokenizer_captures())
-            count = sdk.messages.count_tokens(**kwargs).input_tokens
-            observed = [
-                capture["token_count"]
-                for capture in server.tokenizer_captures()[before:]
-            ]
-            assert observed
-            assert count in observed or count == sum(observed)
-            return count
+            return assert_count_matches_generation(sdk, server, **kwargs)
 
         short = count_with_tokenizer_observation(
             model=MODEL, messages=[{"role": "user", "content": "short"}]
@@ -210,7 +203,6 @@ def test_count_tokens_is_stable_sensitive_and_generation_free(tmp_path: Path) ->
         assert short > 0
         assert repeated == short
         assert long > short
-        assert server.captures() == []
 
 
 class Weather(BaseModel):
@@ -228,6 +220,7 @@ def test_parse_structured_output(tmp_path: Path) -> None:
         block = message.content[0]
         assert block.type == "text"
         assert block.parsed_output == Weather(city="Paris", temperature=21)
+        assert_json_constraint(server.captures()[-1], Weather.model_json_schema())
 
 
 @pytest.mark.parametrize(
@@ -258,8 +251,7 @@ def test_tool_choice_request_semantics(
         message = client(server.base_url).messages.create(
             **create_kwargs(tools=[tool_definition()], tool_choice=tool_choice)
         )
-        capture = server.captures()[-1]["prompt"]
-        semantic_request = json.loads(capture)
+        semantic_request = server.render_captures()[-1]["chat_request"]
         serialized_choice = json.dumps(semantic_request["tool_choice"])
         assert expected_choice in serialized_choice.lower()
         assert semantic_request["parallel_tool_calls"] is expected_parallel
@@ -360,6 +352,19 @@ def test_finish_reason_mapping(
         assert result.stop_sequence == expected_sequence
 
 
+@pytest.mark.parametrize("marker", ["FIRST_STOP", "SECOND_STOP"])
+def test_requested_stop_sequence_is_applied(tmp_path: Path, marker: str) -> None:
+    with RustServer(
+        tmp_path, [f"visible{marker}hidden"], chunk_sizes=[1] * 128
+    ) as server:
+        message = client(server.base_url).messages.create(
+            **create_kwargs(stop_sequences=["FIRST_STOP", "SECOND_STOP"])
+        )
+        assert message.content[0].text == "visible"
+        assert message.stop_reason == "stop_sequence"
+        assert message.stop_sequence == marker
+
+
 @pytest.mark.parametrize("stream", [False, True], ids=["nonstream", "stream"])
 def test_engine_error_uses_anthropic_error_surface(
     tmp_path: Path, stream: bool
@@ -428,7 +433,6 @@ def test_rich_history_reaches_semantic_engine_input(tmp_path: Path) -> None:
             "Berlin",
             "HISTORY_TOOL_RESULT_SENTINEL",
             "FINAL_USER_SENTINEL",
-            "STOP_SENTINEL",
         ):
             assert sentinel in prompt
 
@@ -454,7 +458,9 @@ def test_anthropic_validation_error_envelope(tmp_path: Path) -> None:
 
 def test_x_api_key_authentication_and_rejection(tmp_path: Path) -> None:
     with RustServer(tmp_path, ["authenticated"], api_key="secret-key") as server:
-        message = client(server.base_url, "secret-key").messages.create(**create_kwargs())
+        message = client(server.base_url, "secret-key").messages.create(
+            **create_kwargs()
+        )
         assert message.content[0].type == "text"
         bearer = httpx2.post(
             f"{server.base_url}/v1/messages",
@@ -472,7 +478,9 @@ def test_x_api_key_authentication_and_rejection(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_concurrent_requests_have_isolated_content_and_ids(tmp_path: Path) -> None:
+async def test_concurrent_requests_have_isolated_content_and_ids(
+    tmp_path: Path,
+) -> None:
     outputs = [f"concurrent-{index}" for index in range(8)]
     with RustServer(tmp_path, outputs) as server:
         async with anthropic.AsyncAnthropic(

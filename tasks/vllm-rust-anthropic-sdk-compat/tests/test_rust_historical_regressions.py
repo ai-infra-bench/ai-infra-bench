@@ -61,28 +61,33 @@ def test_stream_message_start_has_required_type_and_role(tmp_path: Path) -> None
             timeout=20,
         ) as response:
             assert response.status_code == 200
-            data_lines = [line for line in response.iter_lines() if line.startswith("data: ")]
+            data_lines = [
+                line for line in response.iter_lines() if line.startswith("data: ")
+            ]
         first = json.loads(data_lines[0][len("data: ") :])
         assert first["type"] == "message_start"
         assert first["message"]["type"] == "message"
         assert first["message"]["role"] == "assistant"
 
 
-def test_empty_nonstream_has_one_text_block(tmp_path: Path) -> None:
+def test_empty_nonstream_has_no_generated_content(tmp_path: Path) -> None:
     with RustServer(tmp_path, [""]) as server:
         message = sdk(server.base_url).messages.create(**kwargs())
-    assert len(message.content) == 1
-    assert message.content[0].type == "text"
-    assert message.content[0].text == ""
+    assert all(block.type == "text" and block.text == "" for block in message.content)
+    assert message.stop_reason == "end_turn"
+    assert message.usage.output_tokens == 0
 
 
-def test_empty_stream_has_one_text_block(tmp_path: Path) -> None:
+def test_empty_stream_has_no_generated_content(tmp_path: Path) -> None:
     with RustServer(tmp_path, [""]) as server:
         with sdk(server.base_url).messages.stream(**kwargs()) as stream:
+            events = list(stream)
             final = stream.get_final_message()
-    assert len(final.content) == 1
-    assert final.content[0].type == "text"
-    assert final.content[0].text == ""
+    assert events[0].type == "message_start"
+    assert events[-1].type == "message_stop"
+    assert all(block.type == "text" and block.text == "" for block in final.content)
+    assert final.stop_reason == "end_turn"
+    assert final.usage.output_tokens == 0
 
 
 def mixed_output() -> str:
@@ -164,10 +169,14 @@ def test_streamed_arguments_equal_nonstream_without_duplication(tmp_path: Path) 
             streamed = stream.get_final_message().content[0]
     assert complete.type == "tool_use"
     assert streamed.type == "tool_use"
-    assert streamed.input == complete.input == {
-        "city": "Reykjavik",
-        "note": "exactly-once",
-    }
+    assert (
+        streamed.input
+        == complete.input
+        == {
+            "city": "Reykjavik",
+            "note": "exactly-once",
+        }
+    )
 
 
 @pytest.mark.parametrize(
@@ -177,7 +186,7 @@ def test_streamed_arguments_equal_nonstream_without_duplication(tmp_path: Path) 
         [1, 7, 2, 13, 3, 5] * 64,
         [19, 1, 1, 2, 31, 3] * 32,
     ],
-    ids=["one-byte", "mixed-small", "delimiter-boundaries"],
+    ids=["one-token", "mixed-small", "mixed-large"],
 )
 def test_tool_stream_chunk_boundaries_do_not_leak_markers(
     tmp_path: Path, chunk_sizes: list[int]
@@ -202,9 +211,7 @@ def test_tool_stream_chunk_boundaries_do_not_leak_markers(
             events = list(stream)
             final = stream.get_final_message()
     calls = [block for block in final.content if block.type == "tool_use"]
-    text = "".join(
-        block.text for block in final.content if block.type == "text"
-    )
+    text = "".join(block.text for block in final.content if block.type == "text")
     assert len(calls) == 1
     assert calls[0].input["note"] == "boundary-sensitive"
     assert "minimax:tool_call" not in text

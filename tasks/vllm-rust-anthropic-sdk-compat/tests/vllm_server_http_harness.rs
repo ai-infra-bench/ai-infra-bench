@@ -5,10 +5,11 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use vllm_chat::load_model_backends;
 use vllm_chat::{
-    ChatBackend, ChatLlm, ChatRenderer, ChatRequest, ChatTextBackend, DefaultChatOutputProcessor,
-    DynChatOutputProcessor, DynChatRenderer, NewChatOutputProcessorOptions, ParserSelection,
-    RenderedPrompt,
+    ChatBackend, ChatLlm, ChatRenderer, ChatRequest, ChatTextBackend, DynChatBackend,
+    DynChatOutputProcessor, DynChatRenderer, LoadModelBackendsOptions,
+    NewChatOutputProcessorOptions, ParserSelection, RenderedPrompt,
 };
 use vllm_engine_core_client::protocol::output::{
     EngineCoreFinishReason, EngineCoreOutput, EngineCoreOutputs, StopReason,
@@ -18,8 +19,9 @@ use vllm_engine_core_client::protocol::stats::PrefillStats;
 use vllm_engine_core_client::test_utils::{IpcNamespace, spawn_mock_engine_task};
 use vllm_engine_core_client::{EngineCoreClient, EngineCoreClientConfig};
 use vllm_llm::Llm;
-use vllm_text::tokenizer::{DynTokenizer, Tokenizer};
-use vllm_text::{Prompt, TextBackend};
+use vllm_text::backend::SamplingHints;
+use vllm_text::tokenizer::DynTokenizer;
+use vllm_text::{DynTextBackend, TextBackend};
 use zeromq::prelude::{SocketRecv, SocketSend};
 use zeromq::{DealerSocket, PushSocket, ZmqMessage};
 
@@ -73,70 +75,43 @@ impl Drop for MockEngineTask {
     }
 }
 
-#[derive(Clone, Debug)]
-struct DeterministicBackend {
+// Observation only: rendering, tokenization, sampling defaults, and output
+// processing delegate to the production backend loaded from the frozen assets.
+struct ObservedBackend {
     model_id: String,
+    text: DynTextBackend,
+    chat: DynChatBackend,
+    render_capture: String,
 }
 
-#[derive(Debug)]
-struct ByteTokenizer;
-
-impl Tokenizer for ByteTokenizer {
-    fn encode(
-        &self,
-        text: &str,
-        _add_special_tokens: bool,
-    ) -> vllm_text::tokenizer::Result<Vec<u32>> {
-        let token_ids = text.bytes().map(u32::from).collect::<Vec<_>>();
-        if let Ok(capture_path) = std::env::var("AI_INFRA_SERVER_TOKENIZER_CAPTURE_FILE") {
-            let mut capture = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(capture_path)
-                .expect("open tokenizer capture file");
-            writeln!(
-                capture,
-                "{}",
-                serde_json::json!({"token_count": token_ids.len()})
-            )
-            .expect("write tokenizer capture");
-        }
-        Ok(token_ids)
-    }
-
-    fn decode(
-        &self,
-        token_ids: &[u32],
-        _skip_special_tokens: bool,
-    ) -> vllm_text::tokenizer::Result<String> {
-        Ok(
-            String::from_utf8_lossy(&token_ids.iter().map(|id| *id as u8).collect::<Vec<_>>())
-                .into_owned(),
-        )
-    }
-
-    fn token_to_id(&self, token: &str) -> Option<u32> {
-        token.bytes().next().map(u32::from)
-    }
-
-    fn id_to_token(&self, id: u32) -> Option<String> {
-        char::from_u32(id).map(|value| value.to_string())
-    }
-}
-
-impl TextBackend for DeterministicBackend {
+impl TextBackend for ObservedBackend {
     fn tokenizer(&self) -> DynTokenizer {
-        Arc::new(ByteTokenizer)
+        self.text.tokenizer()
     }
 
     fn model_id(&self) -> &str {
         &self.model_id
     }
+
+    fn sampling_hints(&self) -> vllm_text::Result<SamplingHints> {
+        self.text.sampling_hints()
+    }
+
+    fn model_vocab_size(&self) -> usize {
+        self.text.model_vocab_size()
+    }
+
+    fn is_moe(&self) -> bool {
+        self.text.is_moe()
+    }
 }
 
-impl ChatBackend for DeterministicBackend {
+impl ChatBackend for ObservedBackend {
     fn chat_renderer(&self) -> DynChatRenderer {
-        Arc::new(self.clone())
+        Arc::new(ObservedRenderer {
+            inner: self.chat.chat_renderer(),
+            capture_path: self.render_capture.clone(),
+        })
     }
 
     fn new_chat_output_processor(
@@ -144,24 +119,40 @@ impl ChatBackend for DeterministicBackend {
         request: &mut ChatRequest,
         options: NewChatOutputProcessorOptions<'_>,
     ) -> vllm_chat::Result<DynChatOutputProcessor> {
-        Ok(Box::new(DefaultChatOutputProcessor::new(
-            request,
-            self.model_id(),
-            self.tokenizer(),
-            options.tool_call_parser,
-            options.reasoning_parser,
-        )?))
+        self.chat.new_chat_output_processor(request, options)
     }
 }
 
-impl ChatRenderer for DeterministicBackend {
+struct ObservedRenderer {
+    inner: DynChatRenderer,
+    capture_path: String,
+}
+
+impl ChatRenderer for ObservedRenderer {
     fn render(&self, request: &ChatRequest) -> vllm_chat::Result<RenderedPrompt> {
-        Ok(RenderedPrompt {
-            prompt: Prompt::Text(
-                serde_json::to_string(request).expect("serialize semantic chat request"),
-            ),
-            effective_template_kwargs: request.chat_options.template_kwargs.clone(),
-        })
+        let rendered = self.inner.render(request)?;
+        let prompt = rendered
+            .prompt
+            .clone()
+            .into_text()
+            .expect("Qwen text prompt");
+        let mut capture = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.capture_path)
+            .expect("open renderer capture");
+        writeln!(
+            capture,
+            "{}",
+            serde_json::json!({
+                "request_id": request.request_id,
+                "chat_request": request,
+                "prompt": prompt,
+                "template_kwargs": rendered.effective_template_kwargs,
+            })
+        )
+        .expect("write renderer capture");
+        Ok(rendered)
     }
 }
 
@@ -207,18 +198,17 @@ fn request_output(
     }
 }
 
-fn split_text(text: &str, sizes: &[usize]) -> Vec<String> {
+fn split_tokens(tokens: &[u32], sizes: &[usize]) -> Vec<Vec<u32>> {
     if sizes.is_empty() {
-        return vec![text.to_string()];
+        return vec![tokens.to_vec()];
     }
-    let characters = text.chars().collect::<Vec<_>>();
     let mut chunks = Vec::new();
     let mut offset = 0;
     let mut size_index = 0;
-    while offset < characters.len() {
+    while offset < tokens.len() {
         let size = sizes.get(size_index).copied().unwrap_or(1).max(1);
-        let end = (offset + size).min(characters.len());
-        chunks.push(characters[offset..end].iter().collect());
+        let end = (offset + size).min(tokens.len());
+        chunks.push(tokens[offset..end].to_vec());
         offset = end;
         size_index += 1;
     }
@@ -227,22 +217,15 @@ fn split_text(text: &str, sizes: &[usize]) -> Vec<String> {
 
 fn outputs_for_request(
     request_id: &str,
-    text: &str,
+    tokens: &[u32],
     chunk_sizes: &[usize],
     terminal_reason: EngineCoreFinishReason,
     stop_text: Option<String>,
     cached_tokens: u32,
 ) -> EngineCoreOutputs {
-    let mut outputs = split_text(text, chunk_sizes)
+    let mut outputs = split_tokens(tokens, chunk_sizes)
         .into_iter()
-        .map(|chunk| {
-            request_output(
-                request_id,
-                chunk.bytes().map(u32::from).collect(),
-                None,
-                None,
-            )
-        })
+        .map(|chunk| request_output(request_id, chunk, None, None))
         .collect::<Vec<_>>();
     if let Some(first) = outputs.first_mut()
         && cached_tokens > 0
@@ -319,6 +302,29 @@ async fn ai_infra_anthropic_http_server() {
         &std::env::var("AI_INFRA_SERVER_REASONING_PARSER").unwrap_or_else(|_| "none".to_string()),
     );
 
+    let loaded = load_model_backends(
+        "/opt/models/qwen-template",
+        LoadModelBackendsOptions {
+            language_model_only: true,
+            default_chat_template_kwargs: std::collections::HashMap::from([
+                ("enable_thinking".to_string(), serde_json::json!(false)),
+                ("preserve_thinking".to_string(), serde_json::json!(true)),
+            ]),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("load production Qwen template and tokenizer");
+    let tokenizer = loaded.text_backend.tokenizer();
+    let response_tokens = response_script
+        .iter()
+        .map(|text| {
+            tokenizer
+                .encode(text, false)
+                .expect("encode deterministic output with Qwen")
+        })
+        .collect::<Vec<_>>();
+
     let ipc = IpcNamespace::new().expect("create IPC namespace");
     let handshake_address = ipc.handshake_endpoint();
     let capture_path = capture_file.clone();
@@ -335,16 +341,10 @@ async fn ai_infra_anthropic_http_server() {
                     }
                     let request: EngineCoreRequest =
                         rmp_serde::from_slice(&frames[1]).expect("decode engine request");
-                    let prompt = request
-                        .prompt_token_ids
-                        .as_deref()
-                        .map(|ids| {
-                            String::from_utf8_lossy(
-                                &ids.iter().map(|id| *id as u8).collect::<Vec<_>>(),
-                            )
-                            .into_owned()
-                        })
-                        .unwrap_or_default();
+                    let prompt_ids = request.prompt_token_ids.as_deref().unwrap_or_default();
+                    let prompt = tokenizer
+                        .decode(prompt_ids, false)
+                        .expect("decode actual engine prompt with Qwen");
                     let mut capture = std::fs::OpenOptions::new()
                         .create(true)
                         .append(true)
@@ -356,10 +356,13 @@ async fn ai_infra_anthropic_http_server() {
                         serde_json::json!({
                             "request_id": request.request_id,
                             "prompt": prompt,
+                            "prompt_token_ids": prompt_ids,
+                            "sampling_params": request.sampling_params,
+                            "reasoning_parser_kwargs": request.reasoning_parser_kwargs,
                         })
                     )
                     .expect("write capture");
-                    let response = &response_script[response_index % response_script.len()];
+                    let response = &response_tokens[response_index % response_tokens.len()];
                     response_index += 1;
                     send_outputs(
                         push,
@@ -388,8 +391,12 @@ async fn ai_infra_anthropic_http_server() {
     )
     .await
     .expect("connect engine client");
-    let backend: Arc<dyn ChatTextBackend> = Arc::new(DeterministicBackend {
+    let backend: Arc<dyn ChatTextBackend> = Arc::new(ObservedBackend {
         model_id: model_id.clone(),
+        text: loaded.text_backend,
+        chat: loaded.chat_backend,
+        render_capture: std::env::var("AI_INFRA_SERVER_RENDER_CAPTURE_FILE")
+            .expect("renderer capture file"),
     });
     let chat = ChatLlm::from_shared_backend(
         Llm::new(client).with_request_id_randomization(false),

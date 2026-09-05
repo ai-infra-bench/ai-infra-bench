@@ -7,6 +7,7 @@ import signal
 import subprocess
 import tempfile
 import time
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,7 @@ class RustServer:
         *,
         model: str = "local-model",
         chunk_sizes: list[int] | None = None,
-        tool_parser: str = "none",
+        tool_parser: str = "qwen3_coder",
         reasoning_parser: str = "none",
         finish_reason: str = "stop",
         stop_text: str | None = None,
@@ -28,7 +29,7 @@ class RustServer:
     ) -> None:
         self.stop_file = root / "stop-rust-server"
         self.capture_file = root / "engine-capture.jsonl"
-        self.tokenizer_capture_file = root / "tokenizer-capture.jsonl"
+        self.render_capture_file = root / "renderer-capture.jsonl"
         environment = os.environ.copy()
         environment.update(
             {
@@ -39,9 +40,7 @@ class RustServer:
                 "AI_INFRA_SERVER_REASONING_PARSER": reasoning_parser,
                 "AI_INFRA_SERVER_FINISH_REASON": finish_reason,
                 "AI_INFRA_SERVER_CAPTURE_FILE": str(self.capture_file),
-                "AI_INFRA_SERVER_TOKENIZER_CAPTURE_FILE": str(
-                    self.tokenizer_capture_file
-                ),
+                "AI_INFRA_SERVER_RENDER_CAPTURE_FILE": str(self.render_capture_file),
                 "AI_INFRA_SERVER_STOP_FILE": str(self.stop_file),
                 "AI_INFRA_SERVER_CACHED_TOKENS": str(cached_tokens),
             }
@@ -107,12 +106,12 @@ class RustServer:
             if line.strip()
         ]
 
-    def tokenizer_captures(self) -> list[dict[str, Any]]:
-        if not self.tokenizer_capture_file.exists():
+    def render_captures(self) -> list[dict[str, Any]]:
+        if not self.render_capture_file.exists():
             return []
         return [
             json.loads(line)
-            for line in self.tokenizer_capture_file.read_text().splitlines()
+            for line in self.render_capture_file.read_text().splitlines()
             if line.strip()
         ]
 
@@ -133,6 +132,112 @@ class RustServer:
 
 def temporary_root(prefix: str) -> tempfile.TemporaryDirectory[str]:
     return tempfile.TemporaryDirectory(prefix=prefix)
+
+
+@lru_cache(maxsize=1)
+def reference_tokenizer():
+    # Independent HF tokenizers implementation; Rust uses fastokens on the same
+    # immutable vocabulary. No model tensors or network are involved.
+    from tokenizers import Tokenizer
+
+    return Tokenizer.from_file("/opt/models/qwen-template/tokenizer.json")
+
+
+def assert_engine_token_ids(capture: dict[str, Any]) -> None:
+    expected = (
+        reference_tokenizer().encode(capture["prompt"], add_special_tokens=False).ids
+    )
+    assert capture["prompt_token_ids"] == expected
+
+
+def assert_count_matches_generation(sdk, server: RustServer, **kwargs: Any) -> int:
+    before = len(server.captures())
+    count = sdk.messages.count_tokens(**kwargs).input_tokens
+    assert len(server.captures()) == before, "count_tokens submitted generation"
+    assert count > 0
+    # Repeated requests may legitimately reuse cached tokenization.
+    assert sdk.messages.count_tokens(**kwargs).input_tokens == count
+    assert len(server.captures()) == before
+    sdk.messages.create(**kwargs, max_tokens=64)
+    capture = server.captures()[-1]
+    assert_engine_token_ids(capture)
+    assert count == len(capture["prompt_token_ids"])
+    return count
+
+
+def assert_json_constraint(capture: dict[str, Any], schema: dict[str, Any]) -> None:
+    import llguidance
+    from vllm.sampling_params import StructuredOutputsParams
+    from vllm.v1.structured_output.backend_guidance import serialize_guidance_grammar
+    from vllm.v1.structured_output.request import get_structured_output_key
+
+    structured = capture["sampling_params"].get("structured_outputs")
+    assert structured, "JSON schema never reached the engine"
+    params = StructuredOutputsParams(
+        **{key: value for key, value in structured.items() if not key.startswith("_")}
+    )
+    kind, specification = get_structured_output_key(params)
+    grammar = serialize_guidance_grammar(
+        kind,
+        specification,
+        params.disable_any_whitespace,
+        params.disable_additional_properties,
+    )
+    # Execute the pinned engine's grammar compiler/matcher. Equivalent JSON,
+    # regex, or grammar representations may pass; field names/schema layout
+    # chosen by a candidate are not the correctness criterion.
+    valid = {
+        key: 21 if value["type"] == "integer" else "Paris 世界"
+        for key, value in schema["properties"].items()
+    }
+    probes = [
+        (valid, True),
+        (
+            {
+                **valid,
+                **{
+                    key: -7 if value["type"] == "integer" else "Oslo"
+                    for key, value in schema["properties"].items()
+                },
+            },
+            True,
+        ),
+    ]
+    for key, value in schema["properties"].items():
+        probes.append(
+            ({**valid, key: "wrong-type" if value["type"] == "integer" else 7}, False)
+        )
+    for key in schema.get("required", []):
+        probes.append(
+            ({name: value for name, value in valid.items() if name != key}, False)
+        )
+    if schema.get("additionalProperties") is False:
+        probes.append(({**valid, "unexpected_property": True}, False))
+    for value, expected in probes:
+        matcher = llguidance.LLMatcher(guidance_tokenizer(), grammar)
+        assert not matcher.get_error(), matcher.get_error()
+        ids = (
+            reference_tokenizer()
+            .encode(json.dumps(value, ensure_ascii=False), add_special_tokens=False)
+            .ids
+        )
+        accepted = matcher.consume_tokens(ids) and matcher.is_accepting()
+        assert accepted is expected, {
+            "value": value,
+            "expected": expected,
+            "structured_outputs": structured,
+        }
+
+
+@lru_cache(maxsize=1)
+def guidance_tokenizer():
+    from llguidance.hf import from_tokenizer
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        "/opt/models/qwen-template", local_files_only=True
+    )
+    return from_tokenizer(tokenizer, len(tokenizer))
 
 
 def minimax_tool_call(name: str, arguments: list[tuple[str, str]]) -> str:

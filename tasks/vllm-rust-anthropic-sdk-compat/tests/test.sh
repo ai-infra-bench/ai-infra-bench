@@ -45,8 +45,9 @@ if [ "$compile_rc" -eq 0 ]; then
       --junitxml=/logs/verifier/rust_sdk_matrix.xml \
       /tests/test_rust_sdk_matrix.py \
       /tests/test_rust_request_matrix.py \
-      /tests/test_rust_historical_regressions.py || rust_matrix_rc=$?
-  python /tests/check_junit.py /logs/verifier/rust_sdk_matrix.xml 71 \
+      /tests/test_rust_historical_regressions.py \
+      /tests/test_real_qwen_backend.py || rust_matrix_rc=$?
+  python /tests/check_junit.py /logs/verifier/rust_sdk_matrix.xml 80 \
     || rust_integrity_rc=$?
 else
   rust_matrix_rc=1
