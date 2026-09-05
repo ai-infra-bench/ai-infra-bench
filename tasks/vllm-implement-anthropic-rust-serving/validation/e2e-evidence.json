@@ -58,22 +58,22 @@
   },
   "artifacts": {
     "instruction_sha256": "cf519e7f50cd5d2b1b3b466e04412267063aa2c43a26454fbba45994d787f4b2",
-    "task_toml_sha256": "31d89d6871b66748dda6ea0d0680b3952c2746191570b532c7126c4d4d37fb45",
+    "task_toml_sha256": "9f35b948f2afac404c384e352d3f610fa5d66b284d795581a9734d7ea29d4112",
     "test_script_sha256": "7b49645ed7f313677f173a2f798511e878636d824e0e4f60bf064c4b960f047b",
     "tests_tree_sha256": "d53750c0e36a20e5b42533e3a5ee20c9f3ea94a836347d0f3f16bdda1492ca98",
-    "image_manifest_sha256": "e4dd3c7810f74eead7e2e1ca2ca99a5460918c094517acadb5ea285766330071",
+    "image_manifest_sha256": "75e2d510368359d80e7738737c9d4c1e65dc5aeb0c5bb514cb41a154ffc57537",
     "validation_cases_sha256": "7a2c6ac80e96baddc6bd16beb6cf903253c87204cddfb4778427855d5ecbc3c2",
     "static_json_control_sha256": "60358658916d5cea5e75011d82382517a413d3c82aa2d1a7a321889b04fa7e9b",
     "count_tokens_control_sha256": "b460169dd3b37d17f71d33e4dbda8097170e09b3a442cf9e8e4e660de19fb55c",
     "tests_tree_hash_scheme": "SHA256 of compact sorted-key JSON mapping tests-relative paths to their file SHA256 values",
     "files": {
       "environment/Dockerfile": "09898be17068f866d71465bf17f0694053f3c649e58928b09836853562f4057f",
-      "environment/image-manifest.json": "e4dd3c7810f74eead7e2e1ca2ca99a5460918c094517acadb5ea285766330071",
+      "environment/image-manifest.json": "75e2d510368359d80e7738737c9d4c1e65dc5aeb0c5bb514cb41a154ffc57537",
       "environment/lock/extras.in": "a45be47e70c28b66fd2c3a9778ddc0943c954706e80d13f3d79a5c5171866f13",
       "environment/lock/manifest.json": "3b47db96962f269156ac850e8e85fd6697f4b02408aad762468430b96b08a202",
       "environment/lock/requirements.txt": "66381ea1f3066b95f59db73fdcfe60c30dfc7bc9f7c321012f3f2fc757b402cf",
       "instruction.md": "cf519e7f50cd5d2b1b3b466e04412267063aa2c43a26454fbba45994d787f4b2",
-      "task.toml": "31d89d6871b66748dda6ea0d0680b3952c2746191570b532c7126c4d4d37fb45",
+      "task.toml": "9f35b948f2afac404c384e352d3f610fa5d66b284d795581a9734d7ea29d4112",
       "tests/check_junit.py": "4bd8e2e55a39eee612804f308b4d34d95b0d4b821ccd2b4eec54e28b60bb22bb",
       "tests/protocol_fixture.py": "30412096b3967f5249242af525ddcd3c255616bfac0a2aac0243fc46daef139f",
       "tests/python_frontend_control.py": "0ecb8a2cbe85b879e29e2268df013979bc7bcc8f0e4da7d6ee22fe629076e079",
@@ -101,11 +101,11 @@
     }
   },
   "commands": {
-    "build": "docker buildx build --load --provenance=false --file tasks/vllm-rust-anthropic-sdk-compat/environment/Dockerfile --tag ai-infra-bench/vllm-rust-anthropic-sdk-compat:base-e196268bade5 tasks/vllm-rust-anthropic-sdk-compat/environment",
-    "image_audit": "python3 .github/scripts/task_ci.py image-check --task vllm-rust-anthropic-sdk-compat --image ai-infra-bench/vllm-rust-anthropic-sdk-compat:base-e196268bade5",
-    "hardware_audit": "python3 .github/scripts/task_ci.py hardware-check --task vllm-rust-anthropic-sdk-compat",
+    "build": "docker buildx build --load --provenance=false --file tasks/vllm-implement-anthropic-rust-serving/environment/Dockerfile --tag ai-infra-bench/vllm-rust-anthropic-sdk-compat:base-e196268bade5 tasks/vllm-implement-anthropic-rust-serving/environment",
+    "image_audit": "python3 .github/scripts/task_ci.py image-check --task vllm-implement-anthropic-rust-serving --image ai-infra-bench/vllm-rust-anthropic-sdk-compat:base-e196268bade5",
+    "hardware_audit": "python3 .github/scripts/task_ci.py hardware-check --task vllm-implement-anthropic-rust-serving",
     "base_verifier": "docker run --rm --network=none -v $TASK/tests:/tests:ro -v $LOGS:/logs/verifier ai-infra-bench/vllm-rust-anthropic-sdk-compat:base-e196268bade5 bash -lc /tests/test.sh",
-    "control_preparation": "python3 .github/scripts/task_ci.py prepare-case --task vllm-rust-anthropic-sdk-compat --image ai-infra-bench/vllm-rust-anthropic-sdk-compat:base-e196268bade5 --case $CASE --output $CASE_DIR",
+    "control_preparation": "python3 .github/scripts/task_ci.py prepare-case --task vllm-implement-anthropic-rust-serving --image ai-infra-bench/vllm-rust-anthropic-sdk-compat:base-e196268bade5 --case $CASE --output $CASE_DIR",
     "harbor": "harbor run --path $CASE_DIR --agent $AGENT --env docker --jobs-dir $JOBS --job-name $JOB --n-concurrent 1 --cpus ignore --memory ignore --delete --yes",
     "real_rust_cli": "VLLM_USE_RUST_FRONTEND=1 vllm serve /tmp/rust-cli-model --host 127.0.0.1 --port 8019 --served-model-name local-model --chat-template /tmp/rust-cli-model/chat_template.jinja --load-format dummy --dtype float32 --max-model-len 1024 --max-num-batched-tokens 1024 --max-num-seqs 8 --enforce-eager",
     "harbor_base": "harbor run --config /tmp/pr48-final-verifier.w3k3rdtc/base-job-config.json --delete --yes",
@@ -788,5 +788,35 @@
     },
     "script_sha256": "a4c879391415a010f12447d70a9bf24bca6c7039f5ba482cd61255cc694083b8",
     "log_sha256": "99ce0fd8118c96e526180848bf540256efc8123e9f7068987a9f7d68b001782e"
+  },
+  "metadata_rename": {
+    "recorded_at": "2026-09-05T07:23:30.733103+00:00",
+    "from": "ai-infra-bench/vllm-rust-anthropic-sdk-compat",
+    "to": "ai-infra-bench/vllm-implement-anthropic-rust-serving",
+    "previous_commit": "9c521934d0b4a3a4d7f5dcfcd06871c179887eae",
+    "behavior_changed": false,
+    "tests_tree_sha256": "d53750c0e36a20e5b42533e3a5ee20c9f3ea94a836347d0f3f16bdda1492ca98",
+    "note": "Directory and logical task identity changed. All test, instruction, Dockerfile, dependency and control contents remain unchanged. Existing image addresses, historical source links, run IDs and executed snapshot checksums are retained as recorded. Commands above use the current task path; behavioral results were measured before this metadata-only rename.",
+    "validation": {
+      "repository_contract": "passed",
+      "hardware": "CPU x86_64",
+      "environment_key_unchanged": "4c10e10503df4a924d3ce872014d87fb5b159b9179d553202cbc84c473613d0e",
+      "prepared_case_task": "ai-infra-bench/vllm-implement-anthropic-rust-serving",
+      "image_check": {
+        "image": "ai-infra-bench/vllm-rust-anthropic-sdk-compat:base-e196268bade5",
+        "image_id": "sha256:535bb97cac5f23043e7874dfde5037c1fee6d76d180d1da2e6e8217ca161d125",
+        "base_commit": "e196268bade5291c3fd80906bf9cd8c64851b21b"
+      },
+      "strict_artifact_audit": {
+        "executable_files_verified": 31,
+        "test_files_verified": 11,
+        "harbor_trials": 10,
+        "base_stability_rounds": 5,
+        "python_cases_passed": 77,
+        "python_cpu_checks_passed": 10,
+        "errors": 0
+      },
+      "strict_audit_script_sha256": "b0b14def3972bfd17b2ba0a83cca845cacb913d080a08d27ec7f5e8fdd1adf57"
+    }
   }
 }
