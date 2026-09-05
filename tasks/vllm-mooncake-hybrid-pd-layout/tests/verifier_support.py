@@ -58,6 +58,7 @@ EOS_TOKEN_ID = 50256
 _request_ids = count(1)
 _none_hash_initialized = False
 _model_dir: str | None = None
+_mla_model_dir: str | None = None
 
 
 def local_model_dir() -> str:
@@ -83,19 +84,54 @@ def local_model_dir() -> str:
     return _model_dir
 
 
+def local_mla_model_dir() -> str:
+    global _mla_model_dir
+    if _mla_model_dir is None:
+        directory = Path(tempfile.mkdtemp(prefix="vllm-mla-config-"))
+        (directory / "config.json").write_text(
+            json.dumps(
+                {
+                    "architectures": ["DeepseekV4ForCausalLM"],
+                    "model_type": "deepseek_v4",
+                    "hidden_size": 64,
+                    "intermediate_size": 128,
+                    "num_attention_heads": 2,
+                    "num_hidden_layers": 2,
+                    "vocab_size": 128,
+                    "max_position_embeddings": 10000,
+                    "kv_lora_rank": 16,
+                    "qk_rope_head_dim": 8,
+                    "qk_nope_head_dim": 16,
+                    "v_head_dim": 16,
+                    "head_dim": 24,
+                    "n_routed_experts": 4,
+                    "n_shared_experts": 1,
+                    "num_experts_per_tok": 2,
+                    "moe_intermediate_size": 32,
+                }
+            )
+        )
+        _mla_model_dir = str(directory)
+    return _mla_model_dir
+
+
 def create_vllm_config(
     *,
     logical_block_size: int,
     connector: str,
     role: str,
     max_num_batched_tokens: int = 64,
+    mla_model: bool = False,
 ) -> VllmConfig:
     model_config = ModelConfig(
-        model=local_model_dir(),
+        model=local_mla_model_dir() if mla_model else local_model_dir(),
         trust_remote_code=True,
         dtype="float16",
         seed=42,
         hf_overrides={},
+    )
+    assert model_config.use_mla == mla_model, (
+        "fixture model must select its real topology"
     )
     scheduler_config = SchedulerConfig(
         max_num_seqs=16,
@@ -194,7 +230,9 @@ def create_model_runner_output(
     token = EOS_TOKEN_ID if use_eos else 0
     return ModelRunnerOutput(
         req_ids=request_ids,
-        req_id_to_index={request_id: index for index, request_id in enumerate(request_ids)},
+        req_id_to_index={
+            request_id: index for index, request_id in enumerate(request_ids)
+        },
         sampled_token_ids=[[token] for _ in request_ids],
         logprobs=None,
         prompt_logprobs_dict={},
@@ -210,6 +248,21 @@ class GDNLayoutBackend:
     @staticmethod
     def get_kv_cache_shape(*_args, **_kwargs):
         raise NotImplementedError("GDN cache shape is described by MambaSpec")
+
+
+class MLALayoutBackend:
+    @staticmethod
+    def get_name() -> str:
+        return "MLA_LAYOUT_TEST"
+
+    @staticmethod
+    def get_kv_cache_shape(
+        num_blocks: int,
+        block_size: int,
+        num_kv_heads: int,
+        head_size: int,
+    ) -> tuple[int, ...]:
+        return (num_blocks, block_size, head_size)
 
 
 class AttentionLayoutBackend:
@@ -246,9 +299,7 @@ class MemoryTransport:
         for index, (start, size) in enumerate(new_regions):
             end = start + size
             other_regions = (
-                self.regions
-                + new_regions[:index]
-                + new_regions[index + 1 :]
+                self.regions + new_regions[:index] + new_regions[index + 1 :]
             )
             if any(
                 start < other_start + other_size and other_start < end
@@ -260,7 +311,9 @@ class MemoryTransport:
 
     def _contains(self, address: int, length: int) -> bool:
         end = address + length
-        return any(start <= address and end <= start + size for start, size in self.regions)
+        return any(
+            start <= address and end <= start + size for start, size in self.regions
+        )
 
     def copy(self, sources, destinations, lengths) -> int:
         if self.fail_transfer:
@@ -365,7 +418,9 @@ def patched_worker_runtime(
     *,
     kernel_block_size: int,
     hybrid_backends: bool = True,
+    mla_backend: bool = False,
 ):
+    assert not (hybrid_backends and mla_backend)
     engine_factory = lambda: InMemoryMooncakeEngine(transport)
     pp_group = SimpleNamespace(rank_in_group=0)
     first_backend = GDNLayoutBackend if hybrid_backends else AttentionLayoutBackend
@@ -374,13 +429,14 @@ def patched_worker_runtime(
         if hybrid_backends
         else [AttentionLayoutBackend]
     )
+    if mla_backend:
+        first_backend = MLALayoutBackend
+        all_backends = [MLALayoutBackend]
     with (
         patch.object(mooncake, "TransferEngine", side_effect=engine_factory),
         patch.object(mooncake, "get_ip", return_value="127.0.0.1"),
         patch.object(mooncake, "get_tensor_model_parallel_rank", return_value=0),
-        patch.object(
-            mooncake, "get_tensor_model_parallel_world_size", return_value=1
-        ),
+        patch.object(mooncake, "get_tensor_model_parallel_world_size", return_value=1),
         patch.object(mooncake, "get_pp_group", return_value=pp_group),
         patch.object(mooncake, "should_launch_bootstrap_server", return_value=False),
         patch.object(
@@ -417,11 +473,13 @@ def make_vllm_config(
     *,
     logical_block_size: int,
     connector: str = "MooncakeConnector",
+    mla_model: bool = False,
 ):
     config = create_vllm_config(
         logical_block_size=logical_block_size,
         connector=connector,
         role=role,
+        mla_model=mla_model,
     )
     config.kv_transfer_config.engine_id = f"{role}-engine"
     config.kv_transfer_config.kv_connector_extra_config["num_workers"] = 1
@@ -474,9 +532,61 @@ def make_hybrid_config(
         kv_cache_tensors=[],
         kv_cache_groups=[
             KVCacheGroupSpec(["model.layers.0.self_attn"], attention_spec),
-            KVCacheGroupSpec(["model.layers.1.linear_attn"], make_gdn_spec(logical_block_size)),
+            KVCacheGroupSpec(
+                ["model.layers.1.linear_attn"], make_gdn_spec(logical_block_size)
+            ),
         ],
     )
+
+
+def make_mla_config(
+    *,
+    logical_block_size: int = 24,
+    num_blocks: int = 11,
+    attention_kind: str = "mla",
+) -> KVCacheConfig:
+    hybrid = make_hybrid_config(
+        logical_block_size=logical_block_size,
+        num_blocks=num_blocks,
+        attention_kind=attention_kind,
+    )
+    spec = hybrid.kv_cache_groups[0].kv_cache_spec
+    assert isinstance(spec, (MLAAttentionSpec, SlidingWindowMLASpec))
+    return KVCacheConfig(
+        num_blocks=num_blocks,
+        kv_cache_tensors=[],
+        kv_cache_groups=[
+            KVCacheGroupSpec(
+                ["model.layers.0.self_attn", "model.layers.1.self_attn"], spec
+            )
+        ],
+    )
+
+
+def make_mla_caches(
+    config: KVCacheConfig,
+    *,
+    physical_ratio: int = 1,
+    gap_bytes: int = 16,
+) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
+    spec = config.kv_cache_groups[0].kv_cache_spec
+    assert not config.has_mamba_layers
+    assert isinstance(spec, (MLAAttentionSpec, SlidingWindowMLASpec))
+    payload_bytes = spec.page_size_bytes // physical_ratio
+    kernel_block_size = spec.block_size // physical_ratio
+    row_bytes = 2 * (payload_bytes + gap_bytes)
+    backing = torch.zeros(
+        (config.num_blocks * physical_ratio, row_bytes), dtype=torch.uint8
+    )
+    caches = {
+        layer_name: backing[
+            :,
+            index * (payload_bytes + gap_bytes) : index * (payload_bytes + gap_bytes)
+            + payload_bytes,
+        ].view(config.num_blocks * physical_ratio, kernel_block_size, -1)
+        for index, layer_name in enumerate(config.kv_cache_groups[0].layer_names)
+    }
+    return caches, backing
 
 
 def make_pure_attention_config(
@@ -617,7 +727,13 @@ def make_worker_connector(
     *,
     logical_block_size: int,
 ) -> MooncakeConnector:
-    vllm_config = make_vllm_config(role, logical_block_size=logical_block_size)
+    mla_model = all(
+        isinstance(group.kv_cache_spec, (MLAAttentionSpec, SlidingWindowMLASpec))
+        for group in config.kv_cache_groups
+    )
+    vllm_config = make_vllm_config(
+        role, logical_block_size=logical_block_size, mla_model=mla_model
+    )
     with set_current_vllm_config(vllm_config):
         return MooncakeConnector(vllm_config, KVConnectorRole.WORKER, config)
 

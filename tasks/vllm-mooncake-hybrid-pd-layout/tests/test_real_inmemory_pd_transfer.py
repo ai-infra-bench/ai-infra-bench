@@ -12,6 +12,8 @@ from verifier_support import (
     make_cross_group_shared_caches,
     make_hybrid_caches,
     make_hybrid_config,
+    make_mla_caches,
+    make_mla_config,
     make_worker_connector,
     mamba_storage_bytes,
     patched_worker_runtime,
@@ -77,6 +79,76 @@ def run_cross_group_shared_transfer() -> int:
             assert torch.equal(destination_attention[6], source_attention[1])
             assert torch.equal(destination_gdn[0][8], source_gdn[0][3])
             assert torch.equal(destination_gdn[1][8], source_gdn[1][3])
+            assert torch.equal(destination_backing, expected)
+        finally:
+            shutdown_connectors(producer, consumer)
+    return len(transport.transfers)
+
+
+def run_non_gdn_mla_transfer(attention_kind: str) -> int:
+    logical_block_size = 32
+    physical_ratio = 4
+    config = make_mla_config(
+        logical_block_size=logical_block_size,
+        num_blocks=13,
+        attention_kind=attention_kind,
+    )
+    transport = MemoryTransport()
+    with patched_worker_runtime(
+        transport,
+        kernel_block_size=logical_block_size // physical_ratio,
+        hybrid_backends=False,
+        mla_backend=True,
+    ):
+        producer = make_worker_connector(
+            "kv_producer", config, logical_block_size=logical_block_size
+        )
+        consumer = make_worker_connector(
+            "kv_consumer", config, logical_block_size=logical_block_size
+        )
+        source, source_backing = make_mla_caches(
+            config, physical_ratio=physical_ratio, gap_bytes=24
+        )
+        destination, destination_backing = make_mla_caches(
+            config, physical_ratio=physical_ratio, gap_bytes=24
+        )
+        source_backing.copy_(
+            torch.arange(source_backing.numel(), dtype=torch.int64)
+            .mul(7)
+            .remainder(199)
+            .to(torch.uint8)
+            .reshape_as(source_backing)
+        )
+        destination_backing.fill_(229)
+        expected = destination_backing.clone()
+        page_bytes = (
+            config.kv_cache_groups[0].kv_cache_spec.page_size_bytes // physical_ratio
+        )
+        for source_block, destination_block in ((2, 6), (3, 7), (5, 10)):
+            source_rows = slice(
+                source_block * physical_ratio, (source_block + 1) * physical_ratio
+            )
+            destination_rows = slice(
+                destination_block * physical_ratio,
+                (destination_block + 1) * physical_ratio,
+            )
+            for start in (0, page_bytes + 24):
+                expected[destination_rows, start : start + page_bytes] = source_backing[
+                    source_rows, start : start + page_bytes
+                ]
+        try:
+            producer.register_kv_caches(source)
+            consumer.register_kv_caches(destination)
+            finished = asyncio.run(
+                transfer_once(
+                    producer,
+                    consumer,
+                    local_block_ids=[[1, 2, 3, 5]],
+                    remote_block_ids=[[6, 7, 10]],
+                    transfer_id=f"e2e-non-gdn-{attention_kind}",
+                )
+            )
+            assert finished[1] == {"decoder-request"}
             assert torch.equal(destination_backing, expected)
         finally:
             shutdown_connectors(producer, consumer)
@@ -157,13 +229,9 @@ def main() -> None:
                 source_attention[3 * physical_ratio : 4 * physical_ratio]
             )
             assert torch.equal(destination_gdn_conv[4], source_gdn_conv[2])
-            assert torch.equal(
-                destination_gdn_temporal[4], source_gdn_temporal[2]
-            )
+            assert torch.equal(destination_gdn_temporal[4], source_gdn_temporal[2])
             assert torch.equal(destination_gdn_conv[8], source_gdn_conv[5])
-            assert torch.equal(
-                destination_gdn_temporal[8], source_gdn_temporal[5]
-            )
+            assert torch.equal(destination_gdn_temporal[8], source_gdn_temporal[5])
             gdn_page_bytes = config.kv_cache_groups[1].kv_cache_spec.page_size_bytes
             expected_gdn = gdn_before.clone()
             expected_gdn[4 * gdn_page_bytes : 5 * gdn_page_bytes] = source_gdn_bytes[
@@ -179,10 +247,14 @@ def main() -> None:
             shutdown_connectors(producer, consumer)
 
     shared_descriptors = run_cross_group_shared_transfer()
+    mla_descriptors = run_non_gdn_mla_transfer("mla")
+    sliding_mla_descriptors = run_non_gdn_mla_transfer("sliding_mla")
     print(
         "REAL_MOONCAKE_CPU_PD_OK "
         f"ratio={physical_ratio} descriptors={len(transport.transfers)} "
-        f"cross_group_descriptors={shared_descriptors}"
+        f"cross_group_descriptors={shared_descriptors} "
+        f"non_gdn_mla_descriptors={mla_descriptors} "
+        f"non_gdn_sliding_mla_descriptors={sliding_mla_descriptors}"
     )
 
 

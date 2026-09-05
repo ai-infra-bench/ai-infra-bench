@@ -26,6 +26,8 @@ from verifier_support import (
     make_hybrid_caches,
     make_hybrid_config,
     make_mamba_cache,
+    make_mla_caches,
+    make_mla_config,
     make_pure_attention_caches,
     make_pure_attention_config,
     make_vllm_config,
@@ -38,6 +40,75 @@ from verifier_support import (
 
 
 LOGICAL_BLOCK_SIZE = 16
+
+
+@pytest.mark.parametrize("attention_kind", ["mla", "sliding_mla"])
+@pytest.mark.parametrize("physical_ratio", [1, 3])
+def test_non_gdn_mla_shared_storage_preserves_payload_and_neighbors(
+    attention_kind: str,
+    physical_ratio: int,
+) -> None:
+    logical_block_size = 24
+    config = make_mla_config(
+        logical_block_size=logical_block_size,
+        attention_kind=attention_kind,
+    )
+    transport = MemoryTransport()
+    with patched_worker_runtime(
+        transport,
+        kernel_block_size=logical_block_size // physical_ratio,
+        hybrid_backends=False,
+        mla_backend=True,
+    ):
+        producer = make_worker_connector(
+            "kv_producer", config, logical_block_size=logical_block_size
+        )
+        consumer = make_worker_connector(
+            "kv_consumer", config, logical_block_size=logical_block_size
+        )
+        source, source_backing = make_mla_caches(config, physical_ratio=physical_ratio)
+        destination, destination_backing = make_mla_caches(
+            config, physical_ratio=physical_ratio
+        )
+        source_backing.copy_(
+            torch.arange(source_backing.numel(), dtype=torch.int64)
+            .remainder(197)
+            .to(torch.uint8)
+            .reshape_as(source_backing)
+        )
+        destination_backing.fill_(239)
+        expected = destination_backing.clone()
+        payload_bytes = (
+            config.kv_cache_groups[0].kv_cache_spec.page_size_bytes // physical_ratio
+        )
+        for source_block, destination_block in ((4, 7), (2, 9)):
+            source_rows = slice(
+                source_block * physical_ratio, (source_block + 1) * physical_ratio
+            )
+            destination_rows = slice(
+                destination_block * physical_ratio,
+                (destination_block + 1) * physical_ratio,
+            )
+            for start in (0, payload_bytes + 16):
+                expected[destination_rows, start : start + payload_bytes] = (
+                    source_backing[source_rows, start : start + payload_bytes]
+                )
+        try:
+            producer.register_kv_caches(source)
+            consumer.register_kv_caches(destination)
+            finished = asyncio.run(
+                transfer_once(
+                    producer,
+                    consumer,
+                    local_block_ids=[[1, 4, 2]],
+                    remote_block_ids=[[7, 9]],
+                    transfer_id=f"non-gdn-{attention_kind}-{physical_ratio}",
+                )
+            )
+            assert finished[1] == {"decoder-request"}
+            assert torch.equal(destination_backing, expected)
+        finally:
+            shutdown_connectors(producer, consumer)
 
 
 def _register_pair(
@@ -63,9 +134,7 @@ def _register_pair(
 def test_hybrid_worker_initializes_and_registers_through_connector() -> None:
     config = make_hybrid_config(logical_block_size=LOGICAL_BLOCK_SIZE)
     transport = MemoryTransport()
-    with patched_worker_runtime(
-        transport, kernel_block_size=LOGICAL_BLOCK_SIZE
-    ):
+    with patched_worker_runtime(transport, kernel_block_size=LOGICAL_BLOCK_SIZE):
         connector = make_worker_connector(
             "kv_consumer", config, logical_block_size=LOGICAL_BLOCK_SIZE
         )
@@ -84,9 +153,7 @@ def test_hybrid_transfer_preserves_group_payloads(attention_kind: str) -> None:
         attention_kind=attention_kind,
     )
     transport = MemoryTransport()
-    with patched_worker_runtime(
-        transport, kernel_block_size=LOGICAL_BLOCK_SIZE
-    ):
+    with patched_worker_runtime(transport, kernel_block_size=LOGICAL_BLOCK_SIZE):
         producer, consumer, source, destination = _register_pair(
             config,
             transport=transport,
@@ -119,9 +186,7 @@ def test_hybrid_transfer_preserves_group_payloads(attention_kind: str) -> None:
             assert finished[1] == {"decoder-request"}
             assert torch.equal(destination_attention[5], source_attention[2])
             assert torch.equal(destination_gdn_conv[7], source_gdn_conv[4])
-            assert torch.equal(
-                destination_gdn_temporal[7], source_gdn_temporal[4]
-            )
+            assert torch.equal(destination_gdn_temporal[7], source_gdn_temporal[4])
             assert torch.equal(destination_attention[6], attention_neighbor)
             gdn_page_bytes = config.kv_cache_groups[1].kv_cache_spec.page_size_bytes
             expected_gdn = gdn_before.clone()
@@ -151,9 +216,7 @@ def test_shared_padded_storage_transfers_without_neighbor_corruption() -> None:
         ],
     )
     transport = MemoryTransport()
-    with patched_worker_runtime(
-        transport, kernel_block_size=LOGICAL_BLOCK_SIZE
-    ):
+    with patched_worker_runtime(transport, kernel_block_size=LOGICAL_BLOCK_SIZE):
         producer = make_worker_connector(
             "kv_producer", config, logical_block_size=LOGICAL_BLOCK_SIZE
         )
@@ -205,9 +268,7 @@ def test_shared_padded_storage_transfers_without_neighbor_corruption() -> None:
                 destination_backing[6, 80:144], source_backing[1, 80:144]
             )
             assert torch.equal(destination_gdn_conv[8], source_gdn_conv[3])
-            assert torch.equal(
-                destination_gdn_temporal[8], source_gdn_temporal[3]
-            )
+            assert torch.equal(destination_gdn_temporal[8], source_gdn_temporal[3])
             expected = untouched_before.clone()
             expected[6, :64] = source_backing[1, :64]
             expected[6, 80:144] = source_backing[1, 80:144]
@@ -229,9 +290,7 @@ def test_cross_group_shared_backing_preserves_all_transfer_regions() -> None:
         attention_kind="full",
     )
     transport = MemoryTransport()
-    with patched_worker_runtime(
-        transport, kernel_block_size=LOGICAL_BLOCK_SIZE
-    ):
+    with patched_worker_runtime(transport, kernel_block_size=LOGICAL_BLOCK_SIZE):
         producer = make_worker_connector(
             "kv_producer", config, logical_block_size=LOGICAL_BLOCK_SIZE
         )
@@ -293,9 +352,7 @@ def test_partial_prefix_transfers_requested_suffix_per_group() -> None:
         attention_kind="full",
     )
     transport = MemoryTransport()
-    with patched_worker_runtime(
-        transport, kernel_block_size=LOGICAL_BLOCK_SIZE
-    ):
+    with patched_worker_runtime(transport, kernel_block_size=LOGICAL_BLOCK_SIZE):
         producer, consumer, source, destination = _register_pair(
             config,
             transport=transport,
@@ -397,9 +454,7 @@ def test_physical_block_expansion_copies_only_requested_payload(
 def test_transfer_failure_is_not_reported_as_complete() -> None:
     config = make_hybrid_config(logical_block_size=LOGICAL_BLOCK_SIZE)
     transport = MemoryTransport()
-    with patched_worker_runtime(
-        transport, kernel_block_size=LOGICAL_BLOCK_SIZE
-    ):
+    with patched_worker_runtime(transport, kernel_block_size=LOGICAL_BLOCK_SIZE):
         producer, consumer, source, destination = _register_pair(
             config,
             transport=transport,
@@ -472,9 +527,7 @@ def test_layout_mismatch_is_not_reported_as_complete() -> None:
         kv_cache_groups=list(reversed(producer_config.kv_cache_groups)),
     )
     transport = MemoryTransport()
-    with patched_worker_runtime(
-        transport, kernel_block_size=LOGICAL_BLOCK_SIZE
-    ):
+    with patched_worker_runtime(transport, kernel_block_size=LOGICAL_BLOCK_SIZE):
         producer = make_worker_connector(
             "kv_producer",
             producer_config,
@@ -506,9 +559,7 @@ def test_layout_mismatch_is_not_reported_as_complete() -> None:
 def test_group_count_mismatch_is_not_reported_as_complete() -> None:
     config = make_hybrid_config(logical_block_size=LOGICAL_BLOCK_SIZE)
     transport = MemoryTransport()
-    with patched_worker_runtime(
-        transport, kernel_block_size=LOGICAL_BLOCK_SIZE
-    ):
+    with patched_worker_runtime(transport, kernel_block_size=LOGICAL_BLOCK_SIZE):
         producer, consumer, _source, _destination = _register_pair(
             config,
             transport=transport,
@@ -532,9 +583,7 @@ def test_group_count_mismatch_is_not_reported_as_complete() -> None:
 
 def test_hybrid_remote_prefill_leaves_one_token_for_decode() -> None:
     config = make_hybrid_config(logical_block_size=LOGICAL_BLOCK_SIZE)
-    vllm_config = make_vllm_config(
-        "kv_consumer", logical_block_size=LOGICAL_BLOCK_SIZE
-    )
+    vllm_config = make_vllm_config("kv_consumer", logical_block_size=LOGICAL_BLOCK_SIZE)
     connector = MooncakeConnector(vllm_config, KVConnectorRole.SCHEDULER, config)
     request = create_request(
         request_id=31,
@@ -662,9 +711,7 @@ def test_prompt_embeddings_remote_prefill_uses_remote_state_then_resumes() -> No
         logical_block_size=LOGICAL_BLOCK_SIZE,
         num_blocks=64,
     )
-    vllm_config = make_vllm_config(
-        "kv_consumer", logical_block_size=LOGICAL_BLOCK_SIZE
-    )
+    vllm_config = make_vllm_config("kv_consumer", logical_block_size=LOGICAL_BLOCK_SIZE)
     connector = MooncakeConnector(vllm_config, KVConnectorRole.SCHEDULER, config)
     partial_request = make_request("partial-embedding-request")
     assert connector.get_num_new_matched_tokens(partial_request, 3) == (5, True)
@@ -709,9 +756,7 @@ def test_prompt_embeddings_remote_prefill_uses_remote_state_then_resumes() -> No
 
 def test_pure_attention_remote_prefill_keeps_full_prompt() -> None:
     config = make_pure_attention_config(logical_block_size=LOGICAL_BLOCK_SIZE)
-    vllm_config = make_vllm_config(
-        "kv_consumer", logical_block_size=LOGICAL_BLOCK_SIZE
-    )
+    vllm_config = make_vllm_config("kv_consumer", logical_block_size=LOGICAL_BLOCK_SIZE)
     connector = MooncakeConnector(vllm_config, KVConnectorRole.SCHEDULER, config)
     request = create_request(
         request_id=32,
@@ -748,9 +793,7 @@ def test_warm_full_prefix_remote_decode_remains_schedulable() -> None:
         logical_block_size=LOGICAL_BLOCK_SIZE,
         num_blocks=64,
     )
-    vllm_config = make_vllm_config(
-        "kv_producer", logical_block_size=LOGICAL_BLOCK_SIZE
-    )
+    vllm_config = make_vllm_config("kv_producer", logical_block_size=LOGICAL_BLOCK_SIZE)
     scheduler = create_scheduler(vllm_config, num_blocks=64, kv_cache_config=config)
 
     warm = create_request(
@@ -802,9 +845,7 @@ def test_prompt_embeddings_remote_decode_remains_schedulable() -> None:
         logical_block_size=LOGICAL_BLOCK_SIZE,
         num_blocks=64,
     )
-    vllm_config = make_vllm_config(
-        "kv_producer", logical_block_size=LOGICAL_BLOCK_SIZE
-    )
+    vllm_config = make_vllm_config("kv_producer", logical_block_size=LOGICAL_BLOCK_SIZE)
     vllm_config.cache_config.enable_prefix_caching = False
     scheduler = create_scheduler(vllm_config, num_blocks=64, kv_cache_config=config)
     embeddings = torch.arange(
@@ -829,9 +870,7 @@ def test_prompt_embeddings_remote_decode_remains_schedulable() -> None:
     assert output.num_scheduled_tokens[request.request_id] > 0
     assert request.num_prompt_tokens == LOGICAL_BLOCK_SIZE
     assert torch.equal(request.prompt_embeds, original_embeddings[:-1])
-    result = scheduler.update_from_output(
-        output, create_model_runner_output([request])
-    )
+    result = scheduler.update_from_output(output, create_model_runner_output([request]))
     assert result[0].outputs[0].finish_reason is not None
 
 
@@ -840,9 +879,7 @@ def test_scheduler_can_finish_cold_gdn_remote_decode() -> None:
         logical_block_size=LOGICAL_BLOCK_SIZE,
         num_blocks=64,
     )
-    vllm_config = make_vllm_config(
-        "kv_producer", logical_block_size=LOGICAL_BLOCK_SIZE
-    )
+    vllm_config = make_vllm_config("kv_producer", logical_block_size=LOGICAL_BLOCK_SIZE)
     scheduler = create_scheduler(vllm_config, num_blocks=64, kv_cache_config=config)
     request = create_request(
         request_id=51,
@@ -855,7 +892,5 @@ def test_scheduler_can_finish_cold_gdn_remote_decode() -> None:
     output = scheduler.schedule()
     assert output.num_scheduled_tokens[request.request_id] == 34
     assert request.prompt_token_ids == original_prompt_token_ids[:-1]
-    result = scheduler.update_from_output(
-        output, create_model_runner_output([request])
-    )
+    result = scheduler.update_from_output(output, create_model_runner_output([request]))
     assert result[0].outputs[0].finish_reason is not None

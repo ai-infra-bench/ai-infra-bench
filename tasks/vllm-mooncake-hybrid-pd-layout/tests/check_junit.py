@@ -31,7 +31,12 @@ required = {
     "test_warm_full_prefix_remote_decode_remains_schedulable",
     "test_prompt_embeddings_remote_decode_remains_schedulable",
 }
-assert tests == 23, f"expected exactly 23 tests, got {tests}"
+required.update(
+    f"test_non_gdn_mla_shared_storage_preserves_payload_and_neighbors[{ratio}-{kind}]"
+    for ratio in (1, 3)
+    for kind in ("mla", "sliding_mla")
+)
+assert tests == 27, f"expected exactly 27 tests, got {tests}"
 assert failures == 0 and errors == 0 and skipped == 0
 assert len(names) == tests, "test case names must be unique"
 assert required <= names, f"missing required tests: {required - names}"
