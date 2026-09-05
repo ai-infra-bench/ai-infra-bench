@@ -26,6 +26,7 @@ class RustServer:
         stop_text: str | None = None,
         api_key: str | None = None,
         cached_tokens: int = 0,
+        enable_thinking: bool = False,
     ) -> None:
         self.stop_file = root / "stop-rust-server"
         self.capture_file = root / "engine-capture.jsonl"
@@ -43,6 +44,7 @@ class RustServer:
                 "AI_INFRA_SERVER_RENDER_CAPTURE_FILE": str(self.render_capture_file),
                 "AI_INFRA_SERVER_STOP_FILE": str(self.stop_file),
                 "AI_INFRA_SERVER_CACHED_TOKENS": str(cached_tokens),
+                "AI_INFRA_SERVER_ENABLE_THINKING": str(enable_thinking).lower(),
             }
         )
         if stop_text is not None:

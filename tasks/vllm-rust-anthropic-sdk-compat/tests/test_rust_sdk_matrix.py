@@ -85,8 +85,6 @@ def tool_definition() -> dict[str, Any]:
             "required": ["city"],
         },
         "strict": True,
-        "eager_input_streaming": True,
-        "input_examples": [{"city": "Paris", "unit": "c"}],
     }
 
 
@@ -304,25 +302,6 @@ def test_parallel_tool_calls_stream_with_fragmented_arguments(tmp_path: Path) ->
         assert [event.index for event in starts] == [0, 1]
 
 
-def test_reasoning_then_text_stream(tmp_path: Path) -> None:
-    with RustServer(
-        tmp_path,
-        ["<think>reasoning sentinel</think>answer sentinel"],
-        reasoning_parser="qwen3",
-        chunk_sizes=[1, 2, 5, 3],
-    ) as server:
-        with client(server.base_url).messages.stream(
-            **create_kwargs(
-                max_tokens=2048,
-                thinking={"type": "enabled", "budget_tokens": 1024},
-            )
-        ) as stream:
-            final = stream.get_final_message()
-        assert [block.type for block in final.content] == ["thinking", "text"]
-        assert final.content[0].thinking == "reasoning sentinel"
-        assert final.content[1].text == "answer sentinel"
-
-
 @pytest.mark.parametrize(
     ("finish_reason", "stop_text", "expected_reason", "expected_sequence"),
     [
@@ -363,21 +342,6 @@ def test_requested_stop_sequence_is_applied(tmp_path: Path, marker: str) -> None
         assert message.content[0].text == "visible"
         assert message.stop_reason == "stop_sequence"
         assert message.stop_sequence == marker
-
-
-@pytest.mark.parametrize("stream", [False, True], ids=["nonstream", "stream"])
-def test_engine_error_uses_anthropic_error_surface(
-    tmp_path: Path, stream: bool
-) -> None:
-    with RustServer(tmp_path, [""], finish_reason="error") as server:
-        sdk = client(server.base_url)
-        with pytest.raises(anthropic.APIStatusError) as caught:
-            response = sdk.messages.create(**create_kwargs(stream=stream))
-            if stream:
-                list(response)
-    assert caught.value.status_code in (200, 500)
-    assert caught.value.body["type"] == "error"
-    assert caught.value.body["error"]["type"] == "api_error"
 
 
 def test_rich_history_reaches_semantic_engine_input(tmp_path: Path) -> None:
@@ -421,7 +385,6 @@ def test_rich_history_reaches_semantic_engine_input(tmp_path: Path) -> None:
             tool_choice={"type": "auto", "disable_parallel_tool_use": False},
             stop_sequences=["STOP_SENTINEL"],
             metadata={"user_id": "metadata-sentinel"},
-            user_profile_id="profile-sentinel",
         )
         prompt = server.captures()[-1]["prompt"]
         for sentinel in (
@@ -435,46 +398,6 @@ def test_rich_history_reaches_semantic_engine_input(tmp_path: Path) -> None:
             "FINAL_USER_SENTINEL",
         ):
             assert sentinel in prompt
-
-
-def test_anthropic_validation_error_envelope(tmp_path: Path) -> None:
-    with RustServer(tmp_path, ["unused"]) as server:
-        response = httpx2.post(
-            f"{server.base_url}/v1/messages",
-            headers={
-                "content-type": "application/json",
-                "x-api-key": "test-key",
-                "anthropic-version": "2023-06-01",
-            },
-            json={"model": MODEL, "messages": []},
-            timeout=20,
-        )
-        assert response.status_code == 400
-        body = response.json()
-        assert body["type"] == "error"
-        assert body["error"]["type"] == "invalid_request_error"
-        assert body["error"]["message"]
-
-
-def test_x_api_key_authentication_and_rejection(tmp_path: Path) -> None:
-    with RustServer(tmp_path, ["authenticated"], api_key="secret-key") as server:
-        message = client(server.base_url, "secret-key").messages.create(
-            **create_kwargs()
-        )
-        assert message.content[0].type == "text"
-        bearer = httpx2.post(
-            f"{server.base_url}/v1/messages",
-            headers={
-                "authorization": "Bearer secret-key",
-                "content-type": "application/json",
-                "anthropic-version": "2023-06-01",
-            },
-            json=create_kwargs(),
-            timeout=20,
-        )
-        assert bearer.status_code == 200
-        with pytest.raises(anthropic.AuthenticationError):
-            client(server.base_url, "wrong-key").messages.create(**create_kwargs())
 
 
 @pytest.mark.asyncio

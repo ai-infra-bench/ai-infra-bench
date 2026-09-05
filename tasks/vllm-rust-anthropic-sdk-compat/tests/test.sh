@@ -31,7 +31,7 @@ PYTHONPATH=/tests PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 300 \
     -p no:cacheprovider -p pytest_asyncio.plugin -v -s \
     --junitxml=/logs/verifier/sdk_fixture.xml \
     /tests/test_sdk_fixture.py || fixture_rc=$?
-python /tests/check_junit.py /logs/verifier/sdk_fixture.xml 35 \
+python /tests/check_junit.py /logs/verifier/sdk_fixture.xml 21 \
   || fixture_integrity_rc=$?
 
 timeout 360 python /tests/python_frontend_control.py \
@@ -47,7 +47,7 @@ if [ "$compile_rc" -eq 0 ]; then
       /tests/test_rust_request_matrix.py \
       /tests/test_rust_historical_regressions.py \
       /tests/test_real_qwen_backend.py || rust_matrix_rc=$?
-  python /tests/check_junit.py /logs/verifier/rust_sdk_matrix.xml 80 \
+  python /tests/check_junit.py /logs/verifier/rust_sdk_matrix.xml 56 \
     || rust_integrity_rc=$?
 else
   rust_matrix_rc=1

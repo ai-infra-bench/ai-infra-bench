@@ -164,6 +164,33 @@ def test_qwen_stream_decodes_real_token_fragments(tmp_path: Path) -> None:
         assert_engine_token_ids(server.captures()[-1])
 
 
+def test_qwen_reasoning_uses_enabled_template(tmp_path: Path) -> None:
+    output = "reasoning sentinel</think>answer sentinel"
+    with RustServer(
+        tmp_path,
+        [output],
+        reasoning_parser="qwen3",
+        enable_thinking=True,
+        chunk_sizes=[1, 2, 5, 3],
+    ) as server:
+        response = httpx2.post(
+            f"{server.base_url}/v1/chat/completions",
+            json={
+                "model": "local-model",
+                "messages": [{"role": "user", "content": "Think then answer"}],
+                "max_tokens": 64,
+            },
+            timeout=20,
+        )
+        assert response.status_code == 200, response.text
+        message = response.json()["choices"][0]["message"]
+        assert message["reasoning"] == "reasoning sentinel"
+        assert message["content"] == "answer sentinel"
+        capture = server.captures()[-1]
+        assert capture["prompt"].endswith("<think>\n")
+        assert_engine_token_ids(capture)
+
+
 def test_qwen_structured_constraint_reaches_engine(tmp_path: Path) -> None:
     schema = {
         "type": "object",

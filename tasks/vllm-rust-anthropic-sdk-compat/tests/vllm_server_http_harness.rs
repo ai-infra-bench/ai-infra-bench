@@ -307,7 +307,13 @@ async fn ai_infra_anthropic_http_server() {
         LoadModelBackendsOptions {
             language_model_only: true,
             default_chat_template_kwargs: std::collections::HashMap::from([
-                ("enable_thinking".to_string(), serde_json::json!(false)),
+                (
+                    "enable_thinking".to_string(),
+                    serde_json::json!(
+                        std::env::var("AI_INFRA_SERVER_ENABLE_THINKING")
+                            .is_ok_and(|value| value == "true")
+                    ),
+                ),
                 ("preserve_thinking".to_string(), serde_json::json!(true)),
             ]),
             ..Default::default()

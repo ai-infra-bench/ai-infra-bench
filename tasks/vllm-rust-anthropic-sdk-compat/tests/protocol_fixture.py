@@ -10,14 +10,8 @@ from typing import Any
 ERROR_CASES: dict[str, tuple[int, str, str]] = {
     "error_400": (400, "invalid_request_error", "fixture rejected request"),
     "error_401": (401, "authentication_error", "fixture authentication failed"),
-    "error_403": (403, "permission_error", "fixture permission denied"),
     "error_404": (404, "not_found_error", "fixture model not found"),
-    "error_409": (409, "invalid_request_error", "fixture conflict"),
-    "error_413": (413, "request_too_large", "fixture request too large"),
-    "error_422": (422, "invalid_request_error", "fixture request unprocessable"),
-    "error_429": (429, "rate_limit_error", "fixture rate limited"),
     "error_500": (500, "api_error", "fixture internal error"),
-    "error_529": (529, "overloaded_error", "fixture overloaded"),
 }
 
 
@@ -27,12 +21,6 @@ def _usage(*, input_tokens: int = 19, output_tokens: int = 7) -> dict[str, Any]:
         "output_tokens": output_tokens,
         "cache_creation_input_tokens": 3,
         "cache_read_input_tokens": 5,
-        "cache_creation": {
-            "ephemeral_5m_input_tokens": 2,
-            "ephemeral_1h_input_tokens": 1,
-        },
-        "output_tokens_details": {"thinking_tokens": 2},
-        "service_tier": "standard",
     }
 
 
@@ -40,7 +28,6 @@ def _message(body: dict[str, Any], case: str) -> dict[str, Any]:
     content: list[dict[str, Any]]
     stop_reason = "end_turn"
     stop_sequence: str | None = None
-    stop_details: dict[str, Any] | None = None
     if case == "parallel_tools":
         content = [
             {"type": "text", "text": "I will check both cities."},
@@ -69,142 +56,6 @@ def _message(body: dict[str, Any], case: str) -> dict[str, Any]:
             },
             {"type": "text", "text": "fixture answer"},
         ]
-    elif case == "redacted":
-        content = [
-            {"type": "redacted_thinking", "data": "opaque-fixture-data"},
-            {"type": "text", "text": "fixture answer"},
-        ]
-    elif case == "server_tool":
-        content = [
-            {
-                "type": "server_tool_use",
-                "id": "srvtoolu_fixture",
-                "name": "web_search",
-                "input": {"query": "vLLM"},
-            }
-        ]
-        stop_reason = "pause_turn"
-    elif case == "citations":
-        content = [
-            {
-                "type": "text",
-                "text": "Cited fixture text",
-                "citations": [
-                    {
-                        "type": "char_location",
-                        "cited_text": "fixture",
-                        "document_index": 0,
-                        "document_title": "Fixture document",
-                        "start_char_index": 6,
-                        "end_char_index": 13,
-                    }
-                ],
-            }
-        ]
-    elif case == "hosted_web":
-        content = [
-            {
-                "type": "server_tool_use",
-                "id": "srvtoolu_search_fixture",
-                "name": "web_search",
-                "input": {"query": "vLLM"},
-                "caller": {"type": "direct"},
-            },
-            {
-                "type": "web_search_tool_result",
-                "tool_use_id": "srvtoolu_search_fixture",
-                "caller": {"type": "direct"},
-                "content": [
-                    {
-                        "type": "web_search_result",
-                        "url": "https://example.invalid/vllm",
-                        "title": "vLLM fixture result",
-                        "encrypted_content": "encrypted-search-fixture",
-                        "page_age": "1 day",
-                    }
-                ],
-            },
-            {
-                "type": "web_fetch_tool_result",
-                "tool_use_id": "srvtoolu_fetch_fixture",
-                "caller": {"type": "direct"},
-                "content": {
-                    "type": "web_fetch_result",
-                    "url": "https://example.invalid/document",
-                    "retrieved_at": "2026-09-01T00:00:00Z",
-                    "content": {
-                        "type": "document",
-                        "title": "Fetched fixture",
-                        "source": {
-                            "type": "text",
-                            "media_type": "text/plain",
-                            "data": "fetched fixture body",
-                        },
-                    },
-                },
-            },
-        ]
-    elif case == "hosted_code":
-        content = [
-            {
-                "type": "code_execution_tool_result",
-                "tool_use_id": "srvtoolu_code_fixture",
-                "content": {
-                    "type": "code_execution_result",
-                    "return_code": 0,
-                    "stdout": "code fixture output",
-                    "stderr": "",
-                    "content": [
-                        {
-                            "type": "code_execution_output",
-                            "file_id": "file_code_fixture",
-                        }
-                    ],
-                },
-            },
-            {
-                "type": "bash_code_execution_tool_result",
-                "tool_use_id": "srvtoolu_bash_fixture",
-                "content": {
-                    "type": "bash_code_execution_result",
-                    "return_code": 0,
-                    "stdout": "bash fixture output",
-                    "stderr": "",
-                    "content": [
-                        {
-                            "type": "bash_code_execution_output",
-                            "file_id": "file_bash_fixture",
-                        }
-                    ],
-                },
-            },
-            {
-                "type": "text_editor_code_execution_tool_result",
-                "tool_use_id": "srvtoolu_editor_fixture",
-                "content": {
-                    "type": "text_editor_code_execution_view_result",
-                    "file_type": "text",
-                    "content": "editor fixture output",
-                    "start_line": 1,
-                    "num_lines": 1,
-                    "total_lines": 1,
-                },
-            },
-        ]
-    elif case == "tool_search_upload":
-        content = [
-            {
-                "type": "tool_search_tool_result",
-                "tool_use_id": "srvtoolu_tool_search_fixture",
-                "content": {
-                    "type": "tool_search_tool_search_result",
-                    "tool_references": [
-                        {"type": "tool_reference", "tool_name": "get_weather"}
-                    ],
-                },
-            },
-            {"type": "container_upload", "file_id": "file_upload_fixture"},
-        ]
     elif case == "stop_sequence":
         content = [{"type": "text", "text": "stopped"}]
         stop_reason = "stop_sequence"
@@ -212,17 +63,6 @@ def _message(body: dict[str, Any], case: str) -> dict[str, Any]:
     elif case == "max_tokens":
         content = [{"type": "text", "text": "truncated"}]
         stop_reason = "max_tokens"
-    elif case == "refusal":
-        content = [{"type": "text", "text": ""}]
-        stop_reason = "refusal"
-        stop_details = {
-            "type": "refusal",
-            "category": "cyber",
-            "explanation": "fixture refusal",
-        }
-    elif case == "context_limit":
-        content = [{"type": "text", "text": "partial"}]
-        stop_reason = "model_context_window_exceeded"
     elif case == "parse":
         content = [
             {
@@ -240,7 +80,6 @@ def _message(body: dict[str, Any], case: str) -> dict[str, Any]:
         "content": content,
         "stop_reason": stop_reason,
         "stop_sequence": stop_sequence,
-        "stop_details": stop_details,
         "usage": _usage(),
     }
 
@@ -269,7 +108,6 @@ def _stream(body: dict[str, Any], case: str) -> bytes:
                         "output_tokens": 0,
                         "cache_creation_input_tokens": 0,
                         "cache_read_input_tokens": 0,
-                        "service_tier": "standard",
                     },
                 },
             },
@@ -282,8 +120,8 @@ def _stream(body: dict[str, Any], case: str) -> bytes:
                 {
                     "type": "error",
                     "error": {
-                        "type": "overloaded_error",
-                        "message": "fixture stream overloaded",
+                        "type": "api_error",
+                        "message": "fixture stream failed",
                     },
                 },
             )
@@ -519,9 +357,6 @@ def _stream(body: dict[str, Any], case: str) -> bytes:
                         "output_tokens": output_tokens,
                         "cache_creation_input_tokens": 0,
                         "cache_read_input_tokens": 0,
-                        "output_tokens_details": {
-                            "thinking_tokens": 3 if case == "stream_thinking" else 0
-                        },
                     },
                 },
             ),
@@ -559,7 +394,9 @@ class FixtureServer(AbstractContextManager["FixtureServer"]):
                     {
                         "method": "POST",
                         "path": self.path,
-                        "headers": {key.lower(): value for key, value in self.headers.items()},
+                        "headers": {
+                            key.lower(): value for key, value in self.headers.items()
+                        },
                         "body": body,
                         "case": case,
                     }

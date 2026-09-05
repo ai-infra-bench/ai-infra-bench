@@ -1,0 +1,651 @@
+{
+  "source_commit": "e962733e08d10f7ca65dac4df99e116460b8b174",
+  "records": [
+    {
+      "case": "test_anthropic_validation_error_envelope",
+      "request": {
+        "model": "local-model",
+        "messages": []
+      },
+      "status": 400,
+      "response": {
+        "error": {
+          "message": "1 validation error:\n  {'type': 'missing', 'loc': 'body.max_tokens', 'msg': 'Field required', 'input': '<dict of 2 items>'}",
+          "type": "Bad Request",
+          "param": "body.max_tokens",
+          "code": 400
+        }
+      },
+      "generation_submitted": false,
+      "prompt": null
+    },
+    {
+      "case": "invalid_request[missing_max_tokens]",
+      "request": {
+        "model": "local-model",
+        "messages": [
+          {
+            "role": "user",
+            "content": "x"
+          }
+        ]
+      },
+      "status": 400,
+      "response": {
+        "error": {
+          "message": "1 validation error:\n  {'type': 'missing', 'loc': 'body.max_tokens', 'msg': 'Field required', 'input': '<dict of 2 items>'}",
+          "type": "Bad Request",
+          "param": "body.max_tokens",
+          "code": 400
+        }
+      },
+      "generation_submitted": false,
+      "prompt": null
+    },
+    {
+      "case": "invalid_request[empty_messages]",
+      "request": {
+        "model": "local-model",
+        "max_tokens": 8,
+        "messages": []
+      },
+      "status": 400,
+      "response": {
+        "type": "error",
+        "error": {
+          "type": "BadRequestError",
+          "message": "Cannot apply chat template to an empty conversation. Provide at least one message."
+        }
+      },
+      "generation_submitted": false,
+      "prompt": null
+    },
+    {
+      "case": "invalid_request[invalid_role]",
+      "request": {
+        "model": "local-model",
+        "max_tokens": 8,
+        "messages": [
+          {
+            "role": "developer",
+            "content": "x"
+          }
+        ]
+      },
+      "status": 400,
+      "response": {
+        "error": {
+          "message": "1 validation error:\n  {'type': 'literal_error', 'loc': 'body.messages.0.role', 'msg': \"Input should be 'user', 'assistant' or 'system'\", 'input': 'developer', 'ctx': {'expected': \"'user', 'assistant' or 'system'\"}}",
+          "type": "Bad Request",
+          "param": "body.messages.0.role",
+          "code": 400
+        }
+      },
+      "generation_submitted": false,
+      "prompt": null
+    },
+    {
+      "case": "invalid_request[unknown_content_block]",
+      "request": {
+        "model": "local-model",
+        "max_tokens": 8,
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "unknown",
+                "value": "x"
+              }
+            ]
+          }
+        ]
+      },
+      "status": 400,
+      "response": {
+        "error": {
+          "message": "2 validation errors:\n  {'type': 'string_type', 'loc': 'body.messages.0.content', 'msg': 'Input should be a valid string', 'input': '<list of 1 items>'}\n  {'type': 'literal_error', 'loc': 'body.messages.0.content.0.type', 'msg': \"Input should be 'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\", 'input': 'unknown', 'ctx': {'expected': \"'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\"}}",
+          "type": "Bad Request",
+          "param": "body.messages.0.content",
+          "code": 400
+        }
+      },
+      "generation_submitted": false,
+      "prompt": null
+    },
+    {
+      "case": "unsupported_media[base64_image]",
+      "request": {
+        "model": "local-model",
+        "max_tokens": 8,
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image",
+                "source": {
+                  "type": "base64",
+                  "media_type": "image/png",
+                  "data": "iVBORw0KGgo="
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "status": 400,
+      "response": {
+        "type": "error",
+        "error": {
+          "type": "BadRequestError",
+          "message": "local-model is not a multimodal model"
+        }
+      },
+      "generation_submitted": false,
+      "prompt": null
+    },
+    {
+      "case": "unsupported_media[url_image]",
+      "request": {
+        "model": "local-model",
+        "max_tokens": 8,
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image",
+                "source": {
+                  "type": "url",
+                  "url": "https://example.invalid/image.png"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "status": 400,
+      "response": {
+        "type": "error",
+        "error": {
+          "type": "BadRequestError",
+          "message": "local-model is not a multimodal model"
+        }
+      },
+      "generation_submitted": false,
+      "prompt": null
+    },
+    {
+      "case": "unsupported_media[base64_document]",
+      "request": {
+        "model": "local-model",
+        "max_tokens": 8,
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "document",
+                "source": {
+                  "type": "base64",
+                  "media_type": "application/pdf",
+                  "data": "JVBERi0xLjQ="
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "status": 400,
+      "response": {
+        "error": {
+          "message": "2 validation errors:\n  {'type': 'string_type', 'loc': 'body.messages.0.content', 'msg': 'Input should be a valid string', 'input': '<list of 1 items>'}\n  {'type': 'literal_error', 'loc': 'body.messages.0.content.0.type', 'msg': \"Input should be 'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\", 'input': 'document', 'ctx': {'expected': \"'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\"}}",
+          "type": "Bad Request",
+          "param": "body.messages.0.content",
+          "code": 400
+        }
+      },
+      "generation_submitted": false,
+      "prompt": null
+    },
+    {
+      "case": "request_variant[tool_result_tool_reference]",
+      "request": {
+        "model": "local-model",
+        "max_tokens": 64,
+        "messages": [
+          {
+            "role": "user",
+            "content": "Start the requested task."
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_reference",
+                "name": "matrix_tool",
+                "input": {
+                  "value": "x"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "tool_result",
+                "tool_use_id": "toolu_reference",
+                "content": [
+                  {
+                    "type": "tool_reference",
+                    "tool_name": "TOOL_REFERENCE_SENTINEL"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "status": 400,
+      "response": {
+        "type": "error",
+        "error": {
+          "type": "BadRequestError",
+          "message": "Unexpected item type in content."
+        }
+      },
+      "generation_submitted": false,
+      "prompt": null
+    },
+    {
+      "case": "request_variant[search_result_input]",
+      "request": {
+        "model": "local-model",
+        "max_tokens": 64,
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "search_result",
+                "source": "https://example.invalid/search",
+                "title": "SEARCH_RESULT_TITLE_SENTINEL",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "SEARCH_RESULT_TEXT_SENTINEL"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "status": 400,
+      "response": {
+        "error": {
+          "message": "3 validation errors:\n  {'type': 'string_type', 'loc': 'body.messages.0.content', 'msg': 'Input should be a valid string', 'input': '<list of 1 items>'}\n  {'type': 'literal_error', 'loc': 'body.messages.0.content.0.type', 'msg': \"Input should be 'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\", 'input': 'search_result', 'ctx': {'expected': \"'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\"}}\n  {'type': 'dict_type', 'loc': 'body.messages.0.content.0.source', 'msg': 'Input should be a valid dictionary', 'input': 'https://example.invalid/search'}",
+          "type": "Bad Request",
+          "param": "body.messages.0.content",
+          "code": 400
+        }
+      },
+      "generation_submitted": false,
+      "prompt": null
+    },
+    {
+      "case": "request_variant[custom_tool_all_fields]",
+      "request": {
+        "model": "local-model",
+        "max_tokens": 64,
+        "messages": [
+          {
+            "role": "user",
+            "content": "MATRIX_BASE_USER"
+          }
+        ],
+        "tools": [
+          {
+            "type": "custom",
+            "name": "matrix_tool",
+            "description": "MATRIX_TOOL_DESCRIPTION",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "value"
+              ]
+            },
+            "strict": true,
+            "eager_input_streaming": true,
+            "defer_loading": false,
+            "input_examples": [
+              {
+                "value": "TOOL_EXAMPLE_SENTINEL"
+              }
+            ],
+            "allowed_callers": [
+              "direct"
+            ],
+            "cache_control": {
+              "type": "ephemeral",
+              "ttl": "5m"
+            }
+          }
+        ],
+        "tool_choice": {
+          "type": "auto",
+          "disable_parallel_tool_use": false
+        }
+      },
+      "status": 200,
+      "response": {
+        "id": "chatcmpl-ba9fe76903174f83",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "matrix accepted"
+          }
+        ],
+        "model": "local-model",
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 281,
+          "output_tokens": 2,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      },
+      "generation_submitted": true,
+      "prompt": "<|im_start|>system\n# Tools\n\nYou have access to the following functions:\n\n<tools>\n{\"type\": \"function\", \"function\": {\"name\": \"matrix_tool\", \"description\": \"MATRIX_TOOL_DESCRIPTION\", \"parameters\": {\"type\": \"object\", \"properties\": {\"value\": {\"type\": \"string\"}}, \"required\": [\"value\"]}, \"strict\": true, \"defer_loading\": false}}\n</tools>\n\nIf you choose to call a function ONLY reply in the following format with NO suffix:\n\n<tool_call>\n<function=example_function_name>\n<parameter=example_parameter_1>\nvalue_1\n</parameter>\n<parameter=example_parameter_2>\nThis is the value for the second parameter\nthat can span\nmultiple lines\n</parameter>\n</function>\n</tool_call>\n\n<IMPORTANT>\nReminder:\n- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags\n- Required parameters MUST be specified\n- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after\n- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls\n</IMPORTANT><|im_end|>\n<|im_start|>user\nMATRIX_BASE_USER<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    },
+    {
+      "case": "request_variant[server_tool_use_history]",
+      "request": {
+        "model": "local-model",
+        "max_tokens": 64,
+        "messages": [
+          {
+            "role": "user",
+            "content": "SERVER_TOOL_USER"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "server_tool_use",
+                "id": "srvtoolu_search",
+                "name": "web_search",
+                "input": {
+                  "query": "SERVER_TOOL_QUERY_SENTINEL"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": "SERVER_TOOL_CONTINUE"
+          }
+        ]
+      },
+      "status": 400,
+      "response": {
+        "error": {
+          "message": "2 validation errors:\n  {'type': 'string_type', 'loc': 'body.messages.1.content', 'msg': 'Input should be a valid string', 'input': '<list of 1 items>'}\n  {'type': 'literal_error', 'loc': 'body.messages.1.content.0.type', 'msg': \"Input should be 'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\", 'input': 'server_tool_use', 'ctx': {'expected': \"'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\"}}",
+          "type": "Bad Request",
+          "param": "body.messages.1.content",
+          "code": 400
+        }
+      },
+      "generation_submitted": false,
+      "prompt": null
+    },
+    {
+      "case": "request_variant[web_search_result_history]",
+      "request": {
+        "model": "local-model",
+        "max_tokens": 64,
+        "messages": [
+          {
+            "role": "user",
+            "content": "Start the requested task."
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "server_tool_use",
+                "id": "srvtoolu_web_search",
+                "name": "web_search",
+                "input": {
+                  "query": "q"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "web_search_tool_result",
+                "tool_use_id": "srvtoolu_web_search",
+                "content": {
+                  "type": "web_search_tool_result_error",
+                  "error_code": "query_too_long"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "status": 400,
+      "response": {
+        "error": {
+          "message": "6 validation errors:\n  {'type': 'string_type', 'loc': 'body.messages.1.content', 'msg': 'Input should be a valid string', 'input': '<list of 1 items>'}\n  {'type': 'literal_error', 'loc': 'body.messages.1.content.0.type', 'msg': \"Input should be 'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\", 'input': 'server_tool_use', 'ctx': {'expected': \"'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\"}}\n  {'type': 'string_type', 'loc': 'body.messages.2.content', 'msg': 'Input should be a valid string', 'input': '<list of 1 items>'}\n  {'type': 'literal_error', 'loc': 'body.messages.2.content.0.type', 'msg': \"Input should be 'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\", 'input': 'web_search_tool_result', 'ctx': {'expected': \"'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\"}}\n  {'type': 'string_type', 'loc': 'body.messages.2.content.0.content', 'msg': 'Input should be a valid string', 'input': '<dict of 2 items>'}\n  {'type': 'list_type', 'loc': 'body.messages.2.content.0.content', 'msg': 'Input should be a valid list', 'input': '<dict of 2 items>'}",
+          "type": "Bad Request",
+          "param": "body.messages.1.content",
+          "code": 400
+        }
+      },
+      "generation_submitted": false,
+      "prompt": null
+    },
+    {
+      "case": "request_variant[web_fetch_and_code_execution_results]",
+      "request": {
+        "model": "local-model",
+        "max_tokens": 64,
+        "messages": [
+          {
+            "role": "user",
+            "content": "Start the requested task."
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "server_tool_use",
+                "id": "srvtoolu_fetch",
+                "name": "web_fetch",
+                "input": {
+                  "url": "https://example.invalid"
+                }
+              },
+              {
+                "type": "server_tool_use",
+                "id": "srvtoolu_code",
+                "name": "code_execution",
+                "input": {
+                  "code": "print(1)"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "web_fetch_tool_result",
+                "tool_use_id": "srvtoolu_fetch",
+                "content": {
+                  "type": "web_fetch_tool_result_error",
+                  "error_code": "url_not_accessible"
+                }
+              },
+              {
+                "type": "code_execution_tool_result",
+                "tool_use_id": "srvtoolu_code",
+                "content": {
+                  "type": "code_execution_tool_result_error",
+                  "error_code": "execution_time_exceeded"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "status": 400,
+      "response": {
+        "error": {
+          "message": "10 validation errors:\n  {'type': 'string_type', 'loc': 'body.messages.1.content', 'msg': 'Input should be a valid string', 'input': '<list of 2 items>'}\n  {'type': 'literal_error', 'loc': 'body.messages.1.content.0.type', 'msg': \"Input should be 'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\", 'input': 'server_tool_use', 'ctx': {'expected': \"'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\"}}\n  {'type': 'literal_error', 'loc': 'body.messages.1.content.1.type', 'msg': \"Input should be 'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\", 'input': 'server_tool_use', 'ctx': {'expected': \"'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\"}}\n  {'type': 'string_type', 'loc': 'body.messages.2.content', 'msg': 'Input should be a valid string', 'input': '<list of 2 items>'}\n  {'type': 'literal_error', 'loc': 'body.messages.2.content.0.type', 'msg': \"Input should be 'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\", 'input': 'web_fetch_tool_result', 'ctx': {'expected': \"'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\"}}\n  {'type': 'string_type', 'loc': 'body.messages.2.content.0.content', 'msg': 'Input should be a valid string', 'input': '<dict of 2 items>'}\n  {'type': 'list_type', 'loc': 'body.messages.2.content.0.content', 'msg': 'Input should be a valid list', 'input': '<dict of 2 items>'}\n  {'type': 'literal_error', 'loc': 'body.messages.2.content.1.type', 'msg': \"Input should be 'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\", 'input': 'code_execution_tool_result', 'ctx': {'expected': \"'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\"}}\n  {'type': 'string_type', 'loc': 'body.messages.2.content.1.content', 'msg': 'Input should be a valid string', 'input': '<dict of 2 items>'}\n  {'type': 'list_type', 'loc': 'body.messages.2.content.1.content', 'msg': 'Input should be a valid list', 'input': '<dict of 2 items>'}",
+          "type": "Bad Request",
+          "param": "body.messages.1.content",
+          "code": 400
+        }
+      },
+      "generation_submitted": false,
+      "prompt": null
+    },
+    {
+      "case": "request_variant[bash_and_text_editor_results]",
+      "request": {
+        "model": "local-model",
+        "max_tokens": 64,
+        "messages": [
+          {
+            "role": "user",
+            "content": "Start the requested task."
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "server_tool_use",
+                "id": "srvtoolu_bash",
+                "name": "bash_code_execution",
+                "input": {
+                  "command": "false"
+                }
+              },
+              {
+                "type": "server_tool_use",
+                "id": "srvtoolu_editor",
+                "name": "text_editor_code_execution",
+                "input": {
+                  "path": "/tmp/missing"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "bash_code_execution_tool_result",
+                "tool_use_id": "srvtoolu_bash",
+                "content": {
+                  "type": "bash_code_execution_tool_result_error",
+                  "error_code": "output_file_too_large"
+                }
+              },
+              {
+                "type": "text_editor_code_execution_tool_result",
+                "tool_use_id": "srvtoolu_editor",
+                "content": {
+                  "type": "text_editor_code_execution_tool_result_error",
+                  "error_code": "file_not_found",
+                  "error_message": "EDITOR_RESULT_SENTINEL"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "status": 400,
+      "response": {
+        "error": {
+          "message": "10 validation errors:\n  {'type': 'string_type', 'loc': 'body.messages.1.content', 'msg': 'Input should be a valid string', 'input': '<list of 2 items>'}\n  {'type': 'literal_error', 'loc': 'body.messages.1.content.0.type', 'msg': \"Input should be 'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\", 'input': 'server_tool_use', 'ctx': {'expected': \"'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\"}}\n  {'type': 'literal_error', 'loc': 'body.messages.1.content.1.type', 'msg': \"Input should be 'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\", 'input': 'server_tool_use', 'ctx': {'expected': \"'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\"}}\n  {'type': 'string_type', 'loc': 'body.messages.2.content', 'msg': 'Input should be a valid string', 'input': '<list of 2 items>'}\n  {'type': 'literal_error', 'loc': 'body.messages.2.content.0.type', 'msg': \"Input should be 'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\", 'input': 'bash_code_execution_tool_result', 'ctx': {'expected': \"'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\"}}\n  {'type': 'string_type', 'loc': 'body.messages.2.content.0.content', 'msg': 'Input should be a valid string', 'input': '<dict of 2 items>'}\n  {'type': 'list_type', 'loc': 'body.messages.2.content.0.content', 'msg': 'Input should be a valid list', 'input': '<dict of 2 items>'}\n  {'type': 'literal_error', 'loc': 'body.messages.2.content.1.type', 'msg': \"Input should be 'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\", 'input': 'text_editor_code_execution_tool_result', 'ctx': {'expected': \"'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\"}}\n  {'type': 'string_type', 'loc': 'body.messages.2.content.1.content', 'msg': 'Input should be a valid string', 'input': '<dict of 3 items>'}\n  {'type': 'list_type', 'loc': 'body.messages.2.content.1.content', 'msg': 'Input should be a valid list', 'input': '<dict of 3 items>'}",
+          "type": "Bad Request",
+          "param": "body.messages.1.content",
+          "code": 400
+        }
+      },
+      "generation_submitted": false,
+      "prompt": null
+    },
+    {
+      "case": "request_variant[tool_search_and_container_upload]",
+      "request": {
+        "model": "local-model",
+        "max_tokens": 64,
+        "messages": [
+          {
+            "role": "user",
+            "content": "Start the requested task."
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "server_tool_use",
+                "id": "srvtoolu_tool_search",
+                "name": "tool_search_tool_regex",
+                "input": {
+                  "pattern": "weather"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "tool_search_tool_result",
+                "tool_use_id": "srvtoolu_tool_search",
+                "content": {
+                  "type": "tool_search_tool_result_error",
+                  "error_code": "unavailable",
+                  "error_message": "TOOL_SEARCH_RESULT_SENTINEL"
+                }
+              },
+              {
+                "type": "container_upload",
+                "file_id": "CONTAINER_UPLOAD_FILE_SENTINEL"
+              }
+            ]
+          }
+        ]
+      },
+      "status": 400,
+      "response": {
+        "error": {
+          "message": "7 validation errors:\n  {'type': 'string_type', 'loc': 'body.messages.1.content', 'msg': 'Input should be a valid string', 'input': '<list of 1 items>'}\n  {'type': 'literal_error', 'loc': 'body.messages.1.content.0.type', 'msg': \"Input should be 'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\", 'input': 'server_tool_use', 'ctx': {'expected': \"'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\"}}\n  {'type': 'string_type', 'loc': 'body.messages.2.content', 'msg': 'Input should be a valid string', 'input': '<list of 2 items>'}\n  {'type': 'literal_error', 'loc': 'body.messages.2.content.0.type', 'msg': \"Input should be 'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\", 'input': 'tool_search_tool_result', 'ctx': {'expected': \"'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\"}}\n  {'type': 'string_type', 'loc': 'body.messages.2.content.0.content', 'msg': 'Input should be a valid string', 'input': '<dict of 3 items>'}\n  {'type': 'list_type', 'loc': 'body.messages.2.content.0.content', 'msg': 'Input should be a valid list', 'input': '<dict of 3 items>'}\n  {'type': 'literal_error', 'loc': 'body.messages.2.content.1.type', 'msg': \"Input should be 'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\", 'input': 'container_upload', 'ctx': {'expected': \"'text', 'image', 'tool_use', 'tool_result', 'tool_reference', 'thinking' or 'redacted_thinking'\"}}",
+          "type": "Bad Request",
+          "param": "body.messages.1.content",
+          "code": 400
+        }
+      },
+      "generation_submitted": false,
+      "prompt": null
+    }
+  ]
+}

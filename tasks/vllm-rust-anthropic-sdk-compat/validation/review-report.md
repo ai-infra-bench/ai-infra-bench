@@ -1,141 +1,98 @@
 # Task review report
 
-## Decision
+Retain the task under the repository's existing `verifier_only` policy and the
+user's explicit selective-coverage decision. The original broad Messages and
+token-counting instruction remains. Scoring covers the selected successful
+serving paths; it does not establish full SDK compatibility or acceptance of
+all hosted-tool types. No complete Rust solution or Oracle has been executed.
 
-Ready for staged use under the repository's `verifier_only` policy. The review
-found no unresolved P0 or P1 issue in the instruction, environment, Base
-boundary, verifier integrity, or declared controls.
+## Task and environment
 
-This decision does not claim an Oracle pass. No complete correct Rust
-implementation was available or executed. The first conforming implementation
-must be treated as an additional verifier-validation event rather than as
-evidence that already exists.
+The task asks for Rust frontend parity through existing vLLM serving primitives,
+consistent with the public Anthropic Rust RFC and Rust parity roadmap. The
+pinned July 1 Base has a working Rust OpenAI frontend but no Rust Anthropic routes.
+The solver has its Rust routing/chat/engine primitives, the older Python adapter,
+upstream tests and the installed official `anthropic==1.3.0` SDK.
 
-## Gate 1: authentic task
+The canonical image remains
+`sha256:535bb97cac5f23043e7874dfde5037c1fee6d76d180d1da2e6e8217ca161d125`,
+with Base `e196268bade5291c3fd80906bf9cd8c64851b21b`. The image retains the Rust
+frontend/toolchain, offline dependencies and immutable Qwen3.6 configuration,
+chat template and tokenizer. It contains no model tensors or task tests,
+solution, validation artifacts or recoverable future Git source. The agent has
+a 36,000-second budget and network-disabled runtime. Environment inputs did not
+change; current isolation checks and asset hashes are in the evidence.
 
-Pass.
+The latest Python comparison uses a separate image built from a complete newer
+upstream archive. Neither that source nor its adapter enters the canonical image.
 
-- The requested endpoints and Rust parity work are tracked in vLLM's public
-  Anthropic Rust frontend RFC, issue 47753, and the broader Rust parity roadmap,
-  issue 44280.
-- The pinned Base predates the RFC and the later partial implementation. It has
-  a working Rust OpenAI frontend and Python Anthropic adapter but no Rust
-  Anthropic route.
-- The instruction states the observable compatibility target, the SDK version,
-  the two in-scope interfaces, and the hosted-tool boundary. It does not name a
-  proposed Rust module, helper, or patch structure.
-- The installed SDK and the older Python adapter are intentional protocol
-  references available to the solver. The later Rust pull request and its Git
-  objects are absent from the image.
-
-## Gate 2: environment
-
-Pass.
-
-- The image contains vLLM at
-  `e196268bade5291c3fd80906bf9cd8c64851b21b`, a required and executable
-  `vllm-rs`, Rust 1.95 with rustfmt and clippy, protoc 34.2, and an exact Python
-  dependency lock containing `anthropic==1.3.0`.
-- The dependency cutoff is September 1, 2026, matching the SDK release date;
-  the source Base remains July 1, 2026.
-- Runtime model assets are restricted to the pinned Qwen configuration,
-  tokenizer, tokenizer configuration, and chat template. No model tensor is
-  included.
-- `/tests`, `/solution`, and `/validation` are absent from the agent image.
-  Remotes, tags, reflogs, unreachable objects, the later partial PR commit, and
-  test sentinel strings are absent.
-- The task has a 36,000-second agent budget and network-disabled runtime.
-- A warm-cache rebuild using the canonical no-provenance build mode reproduced
-  image ID
-  `sha256:535bb97cac5f23043e7874dfde5037c1fee6d76d180d1da2e6e8217ca161d125`.
-
-The Dockerfile is a task-scoped hardened expansion of the shared vLLM template.
-The differences pin the system snapshot and download hashes, require packaging
-the Rust frontend, install protoc before the Rust build, retain the Rust
-development tools, vendor Cargo dependencies for offline use, and embed the
-resolved Python lock.
-
-## Gate 3: verifier
-
-Pass within the documented no-solution boundary.
-
-The rewarded path contains 115 pytest cases: 35 official-SDK protocol controls
-and 80 Rust HTTP cases, including seven production-backend positive controls.
-Ten additional checks execute the official
-SDK against the pinned Python vLLM server on the adapter's measured compatible
-subset. Reward 1 requires the exact case counts with no failure, error, or skip,
-and all ten Python checks.
-
-The expanded SDK controls cover every explicit HTTP status mapping used by the
-Messages client, plus ping filtering, stream error events, terminal stream
-reasons, Unicode and escaped tool JSON fragmentation, cache and service-tier
-usage fields, citations, and the SDK 1.3 hosted web, code, editor, tool-search,
-and container-upload response unions.
-
-The Rust cases start the real Axum router over TCP and exercise request parsing,
-validation, production Qwen3.6 Jinja rendering and tokenization, the engine-client
-boundary, output processing, SSE framing, and official SDK parsing. This corrects
-the earlier harness, which replaced rendering with JSON and tokenization with
-bytes. An observer now delegates to the production backend and records the real
-prompt/token IDs separately. Generated output is deterministic and is encoded
-with the real tokenizer before entering the engine output path. The backend is
-text-only; weights, GPU execution, and positive multimodal preprocessing are not
-part of this reduced serving boundary.
-
-The initial revised Base run passed the SDK fixture 35/35, Python controls 10/10,
-and all eight existing-route checks; 72 Anthropic cases failed on the missing
-routes, with no errors or skips. Final frozen repetitions and Harbor identities
-are recorded in `e2e-evidence.json`. The unchanged canonical image also runs
-`VLLM_USE_RUST_FRONTEND=1 vllm serve`: health and OpenAI chat return 200, and both
-missing Anthropic paths return 404.
-
-The two original partial controls expose static JSON or a fixed token count.
-Three added mutations break production tokenization, substitute JSON for Jinja
-rendering, or drop a structured-output constraint. Their verification must fail
-checks that pass on unmodified Base; reward 0 from missing Anthropic routes alone
-does not qualify these mutations. Per-case failure names and final Harbor results
-are recorded in `e2e-evidence.json`.
-
-Count-token checks now compare with actual generation input IDs and allow cache
-reuse. Structured-output checks run the pinned engine grammar compiler/matcher
-on the constraint captured from the engine request, accepting equivalent grammar
-representations and rejecting wrong types or missing required fields. Stops are
-tested through real output termination instead of requiring sampling options in
-prompt text. The official SDK accepts both empty content arrays and empty text
-blocks, so empty-response tests now permit both while checking zero output tokens
-and normal termination.
-
-The diagnostic Python audit measured 29 passing and 15 incompatible request/client
-probes, plus eight passing and two incompatible converter probes. These are
-explicitly scoped measurements, not a claim that Python passed the Rust matrix.
-`python-compatibility.md` explains dropped/unsupported fields, older error-envelope
-and stop-metadata defects, and the original verifier's overly strict empty-stream
-predicate. Failures are not automatically attributed to SDK 1.3 additions.
-
-## Semantic boundary
+## Scored boundary and coverage
 
 ```text
-anthropic 1.3.0 SDK
--> real TCP HTTP or SSE
--> Rust build_router and endpoint validation
--> production Qwen3.6 Jinja rendering and tokenizer
--> real engine-client request boundary
--> deterministic model output only
--> real Rust output processors and Anthropic event translation
--> official SDK typed object, stream accumulator, or exception
+Official Anthropic SDK -> TCP HTTP/SSE -> real Rust router
+-> production Qwen Jinja renderer/tokenizer -> real engine-client IPC
+-> deterministic Qwen token outputs -> real output processing/conversion
+-> official SDK objects and stream accumulation
 ```
 
-The independent HTTP/SSE fixture is a positive control for SDK 1.3.0 wire
-semantics, not a replacement for the Rust server. The Python frontend is a
-positive control only for the subset it actually accepts. Neither is described
-as a complete implementation Oracle. Extended response unions and all HTTP
-status mappings exercised only by that fixture are SDK-control coverage, not
-candidate Rust coverage.
+Rendering, tokenization, output parsers, transport and request lifecycle run for
+real. Deterministic generation replaces model computation. The harness captures
+actual rendered prompts and engine request IDs/constraints; JSON serialization
+never substitutes for the model prompt. Count checks compare with actual prompt
+IDs and independent HF tokenization while allowing caches. Schema constraints
+execute in the real guidance matcher, including invalid JSON examples.
 
-## Remaining limitation
+The final suite collects 77 pytest cases: 21 SDK fixture controls and 56 server
+cases. The latter comprise 47 Anthropic behavior cases, eight native Qwen backend
+controls and one existing OpenAI/health regression. Ten additional Python
+controls run a real CPU model with dummy weights. Reward 1 requires exact counts,
+no failures/errors/skips and all ten Python controls.
 
-The verifier has not awarded reward 1 to a complete implementation. This is the
-explicit limitation of `verifier_only` publication: protocol expectations,
-client behavior, the real Base boundary, collection integrity, and incomplete
-solution rejection are measured, while full positive-candidate validation is
-deferred until such an implementation exists.
+The retained cases cover sync/async/raw/streaming modes, text/system/multi-turn
+history, ordinary custom tools and results, tool choice and parallel tools,
+fragmented tool JSON, structured output, real token counting, stops, usage,
+empty output and concurrent request isolation. A native OpenAI reasoning control
+explicitly enables thinking in the real template.
+
+At the user's request, candidate tests omit unsupported search/hosted/reference
+content and tool/cloud options, thinking signatures, engine-error propagation,
+error-envelope format, authentication and media rejection. Fixture-only protocol
+or error cases do not establish candidate coverage for those omissions. The
+user retained the broader instruction with this coverage gap explicitly known.
+
+## Validation and evidence
+
+The latest Python reference `32601ef7a1ce8aaa6d777778435ec499248906fb` passes
+77/77 cases and 10/10 real CPU controls. All ten final Harbor trials complete
+without framework errors: five Base runs consistently pass nine server cases
+and fail the 47 absent-route cases. Static/count-only controls produce 9/47,
+byte tokenization 1/55, JSON rendering 5/51, and dropped constraints 8/48.
+The latter mutations fail eight, four and one native checks respectively.
+
+Current results, final hashes and exact Harbor input/trial identities are recorded
+in `e2e-evidence.json`. The final suite is compared without changed assertions
+against the latest pinned Python application in `latest_python/results.json`.
+That adapter replaces EngineCore generation/transport; real frontend, template,
+tokenizer, parsers and HTTP/SSE execute. Its separate CPU controls use real dummy
+weights. A Python pass is reference evidence, not a Rust solution Oracle.
+
+Five Base repetitions and five deliberately incomplete controls exercise the
+verifier through Harbor. Base must fail at the missing Anthropic paths. Static
+responses and fixed counts must remain insufficient. Byte-tokenization,
+JSON-rendering and dropped-constraint mutations must also fail native checks
+that pass on unmodified Base, so their rejection does not depend solely on the
+missing Anthropic routes.
+
+The original 115-case audit, 20 latest-Python failures and older Python component
+probes are preserved under `history/f4163bc/`. They explain how coverage was
+selected and must not be reported as current failures or current full coverage.
+
+The repository validator supports `verifier_only`. The newer generic skill audit
+script still unconditionally requires Oracle files and cannot directly validate
+this authorized mode; exact executable hashes, manifest/control identities,
+collection integrity, image isolation and actual Harbor results are checked
+separately. No Oracle result is synthesized to satisfy that script.
+
+No complete correct Rust implementation or semantically different complete
+alternative has earned reward 1. Full positive-candidate validation remains
+unmeasured, and a full score would still cover only the selected test subset.

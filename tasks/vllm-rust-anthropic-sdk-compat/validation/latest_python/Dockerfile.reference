@@ -1,0 +1,26 @@
+FROM ai-infra-bench/vllm-rust-anthropic-sdk-compat:base-e196268bade5
+
+# A separate reference-only image. The benchmark's canonical Base is untouched.
+RUN uv pip uninstall --system vllm vllm-test-utils \
+ && rm -rf /workspace/vllm
+COPY vllm/ /workspace/vllm/
+WORKDIR /workspace/vllm
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0+g32601ef7a1ce8aaa6d777778435ec499248906fb \
+    SETUPTOOLS_SCM_PRETEND_VERSION_FOR_VLLM=0.0.0+g32601ef7a1ce8aaa6d777778435ec499248906fb \
+    VLLM_TARGET_DEVICE=cpu \
+    MAX_JOBS=8 \
+    VLLM_REQUIRE_RUST_FRONTEND=0
+RUN --mount=type=cache,id=pr48-reference-uv-e962733,target=/root/.cache/uv \
+    uv pip install --system --torch-backend cpu \
+      -r requirements/cpu.txt -r requirements/build/cpu.txt anthropic==1.3.0
+RUN --mount=type=cache,id=pr48-reference-uv-e962733,target=/root/.cache/uv \
+    --mount=type=cache,id=pr48-reference-ccache-e962733,target=/root/.cache/ccache \
+    --mount=type=cache,id=pr48-reference-deps-e962733,target=/workspace/vllm/.deps \
+    uv pip install --system --no-build-isolation --no-deps -e .
+RUN mkdir -p /opt/reference \
+ && uv pip freeze --system > /opt/reference/installed-packages.txt \
+ && python -c 'import anthropic,torch,vllm; print(anthropic.__version__,torch.__version__,vllm.__version__); assert anthropic.__version__ == "1.3.0"'
+LABEL ai.infra.bench.reference-only=true \
+      ai.infra.bench.reference-source=32601ef7a1ce8aaa6d777778435ec499248906fb
+ENTRYPOINT []
+CMD ["sleep", "infinity"]

@@ -3,9 +3,10 @@
 ## Status
 
 This task intentionally has no reference solution patch. Its compatibility
-contract is defined by `anthropic==1.3.0` for the stable Messages resource,
-excluding Message Batches, and by the observable behavior of the two HTTP
-endpoints named in that resource.
+objective is the broad Messages/count_tokens compatibility stated in
+`instruction.md`. At the user's explicit request, scoring covers a selected
+text-serving subset; untested SDK types remain unverified requirements. A full
+score is not proof of complete SDK compatibility.
 
 The absence of a solution does not remove the need to validate the verifier.
 The verifier uses independent positive controls for its protocol expectations
@@ -29,7 +30,7 @@ fragmentation, ordering, finish reasons, usage, and request lifecycle.
 
 The renderer/tokenizer are the production Rust backends loaded from the frozen
 Qwen3.6 assets, with text-only processing and explicit `enable_thinking=false` /
-`preserve_thinking=true` defaults. Output scripts are encoded using that real
+`preserve_thinking=true` defaults. Reasoning cases explicitly enable thinking. Output scripts are encoded using that real
 tokenizer and fragmented by token count. Existing-route controls compare the
 actual prompt text and token IDs to independent Python Jinja/HF tokenizers.
 Grammar checks execute the pinned guidance compiler/matcher on captured engine
@@ -48,7 +49,7 @@ The pinned source contains all required non-Anthropic components:
   protocol subset;
 - upstream tests for the Python adapter and Rust HTTP server;
 - the installed Anthropic 1.3.0 SDK, whose stable request and response types
-  define the newer compatibility surface.
+  define the wire types for the selected compatibility surface.
 
 The required change is therefore a new protocol adapter over existing engine
 and chat primitives, not a new inference engine or model implementation.
@@ -80,16 +81,16 @@ incomplete control.
    SDK-visible result and the semantic request received at the engine boundary.
 4. **Regression path.** Existing Rust OpenAI endpoints and health behavior run
    against the same server process.
-5. **Production backend and mutation controls.** Seven OpenAI/tokenize cases
+5. **Production backend and mutation controls.** Eight OpenAI/tokenize cases
    qualify real Qwen rendering, exact token IDs, tool history, Unicode streaming,
-   JSON constraints, and stop processing. Mutations replace tokens with bytes,
+   enabled thinking, JSON constraints, and stop processing. Mutations replace tokens with bytes,
    replace Jinja with serialized requests, or discard constraints; these must
    fail otherwise-passing checks. This is partial-boundary positive evidence,
    not a complete alternative Anthropic implementation.
 
-The extended Python measurements are in `python-compatibility.md`. Request-side
-HTTP probes, converter-only probes, and SDK-fixture-only behavior have distinct
-labels; a field being accepted does not prove its semantics are implemented.
+The current full-suite Python comparison is in `latest_python/README.md`.
+Earlier request/converter probes and the broader 115-case comparison remain in
+`history/f4163bc/`. A field being accepted does not prove its semantics are implemented.
 
 Python behavior is not normative for cases where it disagrees with SDK 1.3.0.
 IDs, timestamps, and model-generated text are checked by invariant rather than

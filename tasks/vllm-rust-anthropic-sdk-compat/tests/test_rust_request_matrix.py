@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any, Iterator
 
 import anthropic
-import httpx2
 import pytest
 
 from verifier_support import (
@@ -55,13 +54,12 @@ SUCCESS_CASES: list[tuple[str, dict[str, Any], tuple[str, ...]]] = [
         ("TOP_SYSTEM_STRING_SENTINEL",),
     ),
     (
-        "top_system_blocks_cache",
+        "top_system_blocks",
         {
             "system": [
                 {
                     "type": "text",
                     "text": "TOP_SYSTEM_BLOCK_SENTINEL",
-                    "cache_control": {"type": "ephemeral", "ttl": "5m"},
                 }
             ]
         },
@@ -268,61 +266,6 @@ SUCCESS_CASES: list[tuple[str, dict[str, Any], tuple[str, ...]]] = [
         ("TOOL_RESULT_ERROR_SENTINEL",),
     ),
     (
-        "tool_result_tool_reference",
-        {
-            "messages": [
-                {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "tool_use",
-                            "id": "toolu_reference",
-                            "name": "matrix_tool",
-                            "input": {"value": "x"},
-                        }
-                    ],
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "toolu_reference",
-                            "content": [
-                                {
-                                    "type": "tool_reference",
-                                    "tool_name": "TOOL_REFERENCE_SENTINEL",
-                                }
-                            ],
-                        }
-                    ],
-                },
-            ]
-        },
-        ("TOOL_REFERENCE_SENTINEL",),
-    ),
-    (
-        "search_result_input",
-        {
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "search_result",
-                            "source": "https://example.invalid/search",
-                            "title": "SEARCH_RESULT_TITLE_SENTINEL",
-                            "content": [
-                                {"type": "text", "text": "SEARCH_RESULT_TEXT_SENTINEL"}
-                            ],
-                        }
-                    ],
-                }
-            ]
-        },
-        ("SEARCH_RESULT_TITLE_SENTINEL", "SEARCH_RESULT_TEXT_SENTINEL"),
-    ),
-    (
         "long_multiturn",
         {
             "messages": [
@@ -337,32 +280,15 @@ SUCCESS_CASES: list[tuple[str, dict[str, Any], tuple[str, ...]]] = [
         ("LONG_TURN_0_SENTINEL", "LONG_TURN_11_SENTINEL", "LONG_FINAL_SENTINEL"),
     ),
     (
-        "top_cache_control",
-        {"cache_control": {"type": "ephemeral", "ttl": "5m"}},
-        ("MATRIX_BASE_USER",),
-    ),
-    (
-        "container",
-        {"container": {"id": "container_matrix"}},
-        ("MATRIX_BASE_USER",),
-    ),
-    (
-        "inference_geo_service_tier",
-        {"inference_geo": "global", "service_tier": "auto"},
-        ("MATRIX_BASE_USER",),
-    ),
-    (
-        "metadata_user_profile",
+        "metadata_user_id",
         {
             "metadata": {"user_id": "matrix-user"},
-            "user_profile_id": "matrix-profile",
         },
         ("MATRIX_BASE_USER",),
     ),
     (
-        "adaptive_thinking_output_effort",
+        "output_effort",
         {
-            "thinking": {"type": "adaptive", "display": "summarized"},
             "output_config": {"effort": "high"},
         },
         ("MATRIX_BASE_USER",),
@@ -384,209 +310,21 @@ SUCCESS_CASES: list[tuple[str, dict[str, Any], tuple[str, ...]]] = [
         ("MATRIX_BASE_USER",),
     ),
     (
-        "custom_tool_all_fields",
+        "custom_tool_definition",
         {
             "tools": [
                 tool(
                     strict=True,
-                    eager_input_streaming=True,
-                    defer_loading=False,
-                    input_examples=[{"value": "TOOL_EXAMPLE_SENTINEL"}],
-                    allowed_callers=["direct"],
-                    cache_control={"type": "ephemeral", "ttl": "5m"},
                 )
             ],
             "tool_choice": {"type": "auto", "disable_parallel_tool_use": False},
         },
-        ("matrix_tool", "MATRIX_TOOL_DESCRIPTION", "TOOL_EXAMPLE_SENTINEL"),
+        ("matrix_tool", "MATRIX_TOOL_DESCRIPTION"),
     ),
     (
         "multiple_stop_sequences",
         {"stop_sequences": ["STOP_ONE_SENTINEL", "STOP_TWO_SENTINEL"]},
         ("MATRIX_BASE_USER",),
-    ),
-    (
-        "server_tool_use_history",
-        {
-            "messages": [
-                {"role": "user", "content": "SERVER_TOOL_USER"},
-                {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "server_tool_use",
-                            "id": "srvtoolu_search",
-                            "name": "web_search",
-                            "input": {"query": "SERVER_TOOL_QUERY_SENTINEL"},
-                        }
-                    ],
-                },
-                {"role": "user", "content": "SERVER_TOOL_CONTINUE"},
-            ]
-        },
-        ("SERVER_TOOL_QUERY_SENTINEL", "SERVER_TOOL_CONTINUE"),
-    ),
-    (
-        "web_search_result_history",
-        {
-            "messages": [
-                {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "server_tool_use",
-                            "id": "srvtoolu_web_search",
-                            "name": "web_search",
-                            "input": {"query": "q"},
-                        }
-                    ],
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "web_search_tool_result",
-                            "tool_use_id": "srvtoolu_web_search",
-                            "content": {
-                                "type": "web_search_tool_result_error",
-                                "error_code": "query_too_long",
-                            },
-                        }
-                    ],
-                },
-            ]
-        },
-        ("query_too_long",),
-    ),
-    (
-        "web_fetch_and_code_execution_results",
-        {
-            "messages": [
-                {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "server_tool_use",
-                            "id": "srvtoolu_fetch",
-                            "name": "web_fetch",
-                            "input": {"url": "https://example.invalid"},
-                        },
-                        {
-                            "type": "server_tool_use",
-                            "id": "srvtoolu_code",
-                            "name": "code_execution",
-                            "input": {"code": "print(1)"},
-                        },
-                    ],
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "web_fetch_tool_result",
-                            "tool_use_id": "srvtoolu_fetch",
-                            "content": {
-                                "type": "web_fetch_tool_result_error",
-                                "error_code": "url_not_accessible",
-                            },
-                        },
-                        {
-                            "type": "code_execution_tool_result",
-                            "tool_use_id": "srvtoolu_code",
-                            "content": {
-                                "type": "code_execution_tool_result_error",
-                                "error_code": "execution_time_exceeded",
-                            },
-                        },
-                    ],
-                },
-            ]
-        },
-        ("url_not_accessible", "execution_time_exceeded"),
-    ),
-    (
-        "bash_and_text_editor_results",
-        {
-            "messages": [
-                {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "server_tool_use",
-                            "id": "srvtoolu_bash",
-                            "name": "bash_code_execution",
-                            "input": {"command": "false"},
-                        },
-                        {
-                            "type": "server_tool_use",
-                            "id": "srvtoolu_editor",
-                            "name": "text_editor_code_execution",
-                            "input": {"path": "/tmp/missing"},
-                        },
-                    ],
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "bash_code_execution_tool_result",
-                            "tool_use_id": "srvtoolu_bash",
-                            "content": {
-                                "type": "bash_code_execution_tool_result_error",
-                                "error_code": "output_file_too_large",
-                            },
-                        },
-                        {
-                            "type": "text_editor_code_execution_tool_result",
-                            "tool_use_id": "srvtoolu_editor",
-                            "content": {
-                                "type": "text_editor_code_execution_tool_result_error",
-                                "error_code": "file_not_found",
-                                "error_message": "EDITOR_RESULT_SENTINEL",
-                            },
-                        },
-                    ],
-                },
-            ]
-        },
-        ("output_file_too_large", "file_not_found", "EDITOR_RESULT_SENTINEL"),
-    ),
-    (
-        "tool_search_and_container_upload",
-        {
-            "messages": [
-                {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "server_tool_use",
-                            "id": "srvtoolu_tool_search",
-                            "name": "tool_search_tool_regex",
-                            "input": {"pattern": "weather"},
-                        }
-                    ],
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_search_tool_result",
-                            "tool_use_id": "srvtoolu_tool_search",
-                            "content": {
-                                "type": "tool_search_tool_result_error",
-                                "error_code": "unavailable",
-                                "error_message": "TOOL_SEARCH_RESULT_SENTINEL",
-                            },
-                        },
-                        {
-                            "type": "container_upload",
-                            "file_id": "CONTAINER_UPLOAD_FILE_SENTINEL",
-                        },
-                    ],
-                },
-            ]
-        },
-        ("TOOL_SEARCH_RESULT_SENTINEL", "CONTAINER_UPLOAD_FILE_SENTINEL"),
     ),
 ]
 
@@ -631,7 +369,7 @@ def test_request_variant_reaches_rust_semantic_path(
         assert_json_constraint(
             captures[-1], overrides["output_config"]["format"]["schema"]
         )
-    elif case_name == "adaptive_thinking_output_effort":
+    elif case_name == "output_effort":
         rendered = shared_server.render_captures()[-1]
         assert rendered["template_kwargs"]["reasoning_effort"] == "high"
 
@@ -640,19 +378,6 @@ COUNT_CASES: list[tuple[str, dict[str, Any]]] = [
     ("plain", {}),
     ("system", {"system": "COUNT_SYSTEM_SENTINEL"}),
     ("tools", {"tools": [tool()]}),
-    ("thinking", {"thinking": {"type": "adaptive"}}),
-    (
-        "structured_output",
-        {
-            "output_config": {
-                "format": {
-                    "type": "json_schema",
-                    "schema": {"type": "object", "properties": {}},
-                }
-            }
-        },
-    ),
-    ("user_profile", {"user_profile_id": "count-profile"}),
 ]
 
 
@@ -671,105 +396,3 @@ def test_count_tokens_request_variants(
         messages=[{"role": "user", "content": f"COUNT_{case_name}"}],
         **extra,
     )
-
-
-INVALID_CASES: list[tuple[str, dict[str, Any]]] = [
-    (
-        "missing_max_tokens",
-        {"model": MODEL, "messages": [{"role": "user", "content": "x"}]},
-    ),
-    ("empty_messages", {"model": MODEL, "max_tokens": 8, "messages": []}),
-    (
-        "invalid_role",
-        {
-            "model": MODEL,
-            "max_tokens": 8,
-            "messages": [{"role": "developer", "content": "x"}],
-        },
-    ),
-    (
-        "unknown_content_block",
-        {
-            "model": MODEL,
-            "max_tokens": 8,
-            "messages": [
-                {"role": "user", "content": [{"type": "unknown", "value": "x"}]}
-            ],
-        },
-    ),
-]
-
-
-@pytest.mark.parametrize(
-    ("case_name", "body"), INVALID_CASES, ids=[case[0] for case in INVALID_CASES]
-)
-def test_invalid_request_returns_anthropic_error(
-    shared_server: RustServer,
-    case_name: str,
-    body: dict[str, Any],
-) -> None:
-    response = httpx2.post(
-        f"{shared_server.base_url}/v1/messages",
-        headers={
-            "content-type": "application/json",
-            "x-api-key": "matrix-key",
-            "anthropic-version": "2023-06-01",
-        },
-        json=body,
-        timeout=20,
-    )
-    assert response.status_code == 400, {"case": case_name, "body": response.text}
-    payload = response.json()
-    assert payload["type"] == "error"
-    assert payload["error"]["type"] == "invalid_request_error"
-
-
-MULTIMODAL_CASES: list[tuple[str, dict[str, Any]]] = [
-    (
-        "base64_image",
-        {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/png",
-                "data": "iVBORw0KGgo=",
-            },
-        },
-    ),
-    (
-        "url_image",
-        {
-            "type": "image",
-            "source": {"type": "url", "url": "https://example.invalid/image.png"},
-        },
-    ),
-    (
-        "base64_document",
-        {
-            "type": "document",
-            "source": {
-                "type": "base64",
-                "media_type": "application/pdf",
-                "data": "JVBERi0xLjQ=",
-            },
-        },
-    ),
-]
-
-
-@pytest.mark.parametrize(
-    ("case_name", "block"), MULTIMODAL_CASES, ids=[case[0] for case in MULTIMODAL_CASES]
-)
-def test_unsupported_backend_media_fails_cleanly(
-    shared_server: RustServer,
-    case_name: str,
-    block: dict[str, Any],
-) -> None:
-    with pytest.raises(anthropic.BadRequestError) as caught:
-        sdk(shared_server.base_url).messages.create(
-            model=MODEL,
-            max_tokens=8,
-            messages=[{"role": "user", "content": [block]}],
-        )
-    assert caught.value.status_code == 400, case_name
-    assert caught.value.body["error"]["type"] == "invalid_request_error"
