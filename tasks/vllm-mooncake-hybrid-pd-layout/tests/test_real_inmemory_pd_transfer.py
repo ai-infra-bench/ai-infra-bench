@@ -29,6 +29,7 @@ def run_cross_group_shared_transfer() -> int:
         num_blocks=12,
         attention_kind="full",
     )
+    last_block = config.num_blocks - 1
     transport = MemoryTransport()
     with patched_worker_runtime(
         transport,
@@ -63,20 +64,20 @@ def run_cross_group_shared_transfer() -> int:
                     producer,
                     consumer,
                     local_block_ids=[[1], [3]],
-                    remote_block_ids=[[6], [8]],
+                    remote_block_ids=[[last_block], [8]],
                     transfer_id="e2e-cross-group-shared-backing",
                 )
             )
             assert finished[1] == {"decoder-request"}
             page_stride_bytes = source_attention.stride(0)
             expected = before.clone()
-            expected[6 * page_stride_bytes : 7 * page_stride_bytes] = source_backing[
-                1 * page_stride_bytes : 2 * page_stride_bytes
-            ]
+            expected[
+                last_block * page_stride_bytes : (last_block + 1) * page_stride_bytes
+            ] = source_backing[1 * page_stride_bytes : 2 * page_stride_bytes]
             expected[8 * page_stride_bytes : 9 * page_stride_bytes] = source_backing[
                 3 * page_stride_bytes : 4 * page_stride_bytes
             ]
-            assert torch.equal(destination_attention[6], source_attention[1])
+            assert torch.equal(destination_attention[last_block], source_attention[1])
             assert torch.equal(destination_gdn[0][8], source_gdn[0][3])
             assert torch.equal(destination_gdn[1][8], source_gdn[1][3])
             assert torch.equal(destination_backing, expected)

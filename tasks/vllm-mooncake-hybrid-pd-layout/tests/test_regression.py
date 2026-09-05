@@ -42,6 +42,66 @@ from verifier_support import (
 LOGICAL_BLOCK_SIZE = 16
 
 
+@pytest.mark.parametrize("terminal_endpoint", ["source", "destination"])
+@pytest.mark.parametrize("physical_ratio", [1, 5])
+def test_terminal_attention_payload_completes_without_neighbor_corruption(
+    terminal_endpoint: str,
+    physical_ratio: int,
+) -> None:
+    logical_block_size = 30
+    config = make_hybrid_config(logical_block_size=logical_block_size, num_blocks=14)
+    last_block = config.num_blocks - 1
+    source_block = last_block if terminal_endpoint == "source" else 4
+    destination_block = last_block if terminal_endpoint == "destination" else 6
+    transport = MemoryTransport()
+    with patched_worker_runtime(
+        transport, kernel_block_size=logical_block_size // physical_ratio
+    ):
+        producer = make_worker_connector(
+            "kv_producer", config, logical_block_size=logical_block_size
+        )
+        consumer = make_worker_connector(
+            "kv_consumer", config, logical_block_size=logical_block_size
+        )
+        source = make_cross_group_shared_caches(config, physical_ratio=physical_ratio)
+        destination = make_cross_group_shared_caches(
+            config, physical_ratio=physical_ratio
+        )
+        source_backing = mamba_storage_bytes(source["model.layers.1.linear_attn"])
+        destination_backing = mamba_storage_bytes(
+            destination["model.layers.1.linear_attn"]
+        )
+        source_backing.copy_(
+            torch.arange(source_backing.numel(), dtype=torch.int64)
+            .mul(11)
+            .add(7)
+            .remainder(211)
+            .to(torch.uint8)
+        )
+        destination_backing.fill_(223)
+        expected = destination_backing.clone()
+        page_bytes = config.kv_cache_groups[0].kv_cache_spec.page_size_bytes
+        expected[
+            destination_block * page_bytes : (destination_block + 1) * page_bytes
+        ] = source_backing[source_block * page_bytes : (source_block + 1) * page_bytes]
+        try:
+            producer.register_kv_caches(source)
+            consumer.register_kv_caches(destination)
+            finished = asyncio.run(
+                transfer_once(
+                    producer,
+                    consumer,
+                    local_block_ids=[[1, source_block], []],
+                    remote_block_ids=[[destination_block], []],
+                    transfer_id=f"terminal-{terminal_endpoint}-{physical_ratio}",
+                )
+            )
+            assert finished[1] == {"decoder-request"}
+            assert torch.equal(destination_backing, expected)
+        finally:
+            shutdown_connectors(producer, consumer)
+
+
 @pytest.mark.parametrize("attention_kind", ["mla", "sliding_mla"])
 @pytest.mark.parametrize("physical_ratio", [1, 3])
 def test_non_gdn_mla_shared_storage_preserves_payload_and_neighbors(

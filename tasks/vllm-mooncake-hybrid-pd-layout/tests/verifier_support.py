@@ -664,7 +664,7 @@ def make_mamba_cache(
     return tuple(state_tensors)
 
 
-def make_cross_group_shared_caches(config: KVCacheConfig):
+def make_cross_group_shared_caches(config: KVCacheConfig, *, physical_ratio: int = 1):
     """Build full-attention and GDN views sharing one HMA-style allocation."""
     attention_spec = config.kv_cache_groups[0].kv_cache_spec
     mamba_spec = config.kv_cache_groups[1].kv_cache_spec
@@ -674,14 +674,19 @@ def make_cross_group_shared_caches(config: KVCacheConfig):
         attention_spec.page_size_bytes,
         mamba_spec.page_size_bytes,
     )
+    assert page_stride_bytes % physical_ratio == 0
+    assert attention_spec.page_size_bytes % physical_ratio == 0
     backing = torch.zeros(
         config.num_blocks * page_stride_bytes,
         dtype=torch.uint8,
     )
     attention = torch.as_strided(
         backing,
-        size=(config.num_blocks, attention_spec.page_size_bytes),
-        stride=(page_stride_bytes, 1),
+        size=(
+            config.num_blocks * physical_ratio,
+            attention_spec.page_size_bytes // physical_ratio,
+        ),
+        stride=(page_stride_bytes // physical_ratio, 1),
     )
     mamba_cache = make_mamba_cache(
         mamba_spec,

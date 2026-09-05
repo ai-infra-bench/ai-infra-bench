@@ -36,7 +36,12 @@ required.update(
     for ratio in (1, 3)
     for kind in ("mla", "sliding_mla")
 )
-assert tests == 27, f"expected exactly 27 tests, got {tests}"
+required.update(
+    f"test_terminal_attention_payload_completes_without_neighbor_corruption[{ratio}-{endpoint}]"
+    for ratio in (1, 5)
+    for endpoint in ("source", "destination")
+)
+assert tests == 31, f"expected exactly 31 tests, got {tests}"
 assert failures == 0 and errors == 0 and skipped == 0
 assert len(names) == tests, "test case names must be unique"
 assert required <= names, f"missing required tests: {required - names}"
