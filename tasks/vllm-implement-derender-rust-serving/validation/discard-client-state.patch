@@ -1,0 +1,2484 @@
+diff --git a/rust/src/chat/src/lib.rs b/rust/src/chat/src/lib.rs
+--- a/rust/src/chat/src/lib.rs
++++ b/rust/src/chat/src/lib.rs
+@@ -213,11 +213,37 @@
+         self.prepare_text_request(request).await
+     }
+ 
+-    /// Prepare one chat request without submitting it to an engine.
+-    pub async fn prepare(
++    /// Effective tool-call parser name for the model, if parsing is enabled.
++    pub fn tool_call_parser_name(&self, model_id: &str) -> Option<&str> {
++        match &self.tool_call_parser {
++            ParserSelection::Auto => ToolParserFactory::global().resolve_name_for_model(model_id),
++            ParserSelection::None => None,
++            ParserSelection::Explicit(name) => Some(name),
++        }
++    }
++
++    /// Effective reasoning parser name for the model, if parsing is enabled.
++    pub fn reasoning_parser_name(&self, model_id: &str) -> Option<&str> {
++        match &self.reasoning_parser {
++            ParserSelection::Auto => {
++                ReasoningParserFactory::global().resolve_name_for_model(model_id)
++            }
++            ParserSelection::None => None,
++            ParserSelection::Explicit(name) => Some(name),
++        }
++    }
++
++    /// Validate one chat request and construct its output processor without
++    /// rendering or tokenizing.
++    ///
++    /// Returns the request as adjusted by the processor constructor (e.g.
++    /// `decode_options.skip_special_tokens` is forced off when a parser needs
++    /// special tokens preserved), so callers that decode outside the normal
++    /// pipeline (such as the derender endpoints) observe the same options.
++    pub fn new_output_processor(
+         &self,
+         mut request: ChatRequest,
+-    ) -> Result<(TextRequest, DynChatOutputProcessor)> {
++    ) -> Result<(ChatRequest, DynChatOutputProcessor)> {
+         request.validate()?;
+         let output_processor = self.backend.new_chat_output_processor(
+             &mut request,
+@@ -226,6 +252,15 @@
+                 reasoning_parser: &self.reasoning_parser,
+             },
+         )?;
++        Ok((request, output_processor))
++    }
++
++    /// Prepare one chat request without submitting it to an engine.
++    pub async fn prepare(
++        &self,
++        request: ChatRequest,
++    ) -> Result<(TextRequest, DynChatOutputProcessor)> {
++        let (request, output_processor) = self.new_output_processor(request)?;
+         let text_request = self.prepare_text_request(request).await?;
+         Ok((text_request, output_processor))
+     }
+@@ -326,24 +361,12 @@
+ 
+     /// Effective tool-call parser name for this model, if parsing is enabled.
+     pub fn tool_call_parser_name(&self) -> Option<&str> {
+-        match &self.processor.tool_call_parser {
+-            ParserSelection::Auto => {
+-                ToolParserFactory::global().resolve_name_for_model(self.model_id())
+-            }
+-            ParserSelection::None => None,
+-            ParserSelection::Explicit(name) => Some(name),
+-        }
++        self.processor.tool_call_parser_name(self.model_id())
+     }
+ 
+     /// Effective reasoning parser name for this model, if parsing is enabled.
+     pub fn reasoning_parser_name(&self) -> Option<&str> {
+-        match &self.processor.reasoning_parser {
+-            ParserSelection::Auto => {
+-                ReasoningParserFactory::global().resolve_name_for_model(self.model_id())
+-            }
+-            ParserSelection::None => None,
+-            ParserSelection::Explicit(name) => Some(name),
+-        }
++        self.processor.reasoning_parser_name(self.model_id())
+     }
+ 
+     /// Render, tokenize, and submit one chat request.
+diff --git a/rust/src/chat/src/stream.rs b/rust/src/chat/src/stream.rs
+--- a/rust/src/chat/src/stream.rs
++++ b/rust/src/chat/src/stream.rs
+@@ -38,6 +38,18 @@
+ 
+ impl ChatEventStream {
+     pub(crate) fn new(request_id: String, inner: impl crate::output::ChatEventStream) -> Self {
++        Self {
++            request_id,
++            inner: Box::pin(inner),
++        }
++    }
++
++    /// Wrap an arbitrary stream of chat events.
++    ///
++    /// Used by callers that synthesize the structured event stream themselves
++    /// (e.g. the derender endpoints replaying already-generated tokens through
++    /// an output processor) rather than receiving it from the engine pipeline.
++    pub fn from_stream(request_id: String, inner: impl ChatEventStreamTrait) -> Self {
+         Self {
+             request_id,
+             inner: Box::pin(inner),
+diff --git a/rust/src/server/src/routes.rs b/rust/src/server/src/routes.rs
+--- a/rust/src/server/src/routes.rs
++++ b/rust/src/server/src/routes.rs
+@@ -4,6 +4,7 @@
+ mod abort_requests;
+ mod cache;
+ mod collective_rpc;
++mod derender;
+ mod health;
+ mod inference;
+ mod load;
+@@ -113,6 +114,14 @@
+         .route("/v1/models", get(openai::list_models))
+         .route("/v1/completions", post(openai::completions))
+         .route("/v1/chat/completions", post(openai::chat_completions))
++        .route(
++            "/v1/chat/completions/derender",
++            post(derender::derender_chat_completions),
++        )
++        .route(
++            "/v1/completions/derender",
++            post(derender::derender_completions),
++        )
+         // vLLM specific endpoints
+         .route("/tokenize", post(tokenize::tokenize))
+         .route("/detokenize", post(tokenize::detokenize));
+diff --git a/rust/src/server/src/routes/derender/detok.rs b/rust/src/server/src/routes/derender/detok.rs
+new file mode 100644
+--- /dev/null
++++ b/rust/src/server/src/routes/derender/detok.rs
+@@ -0,0 +1,240 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++//! Incremental detokenization for the streaming derender endpoints.
++//!
++//! Ports `vllm/tokenizers/detokenizer_utils.py::detokenize_incrementally`
++//! onto the caller-supplied, JSON-serializable [`DerenderStreamState`].
++//!
++//! Window reconstruction decodes from the token IDs carried alongside the
++//! wire pieces (`DerenderStreamState::prev_token_ids`), so byte-fallback
++//! pieces whose bytes are not valid UTF-8 on their own still decode exactly
++//! like one-shot `decode`. The Rust [`Tokenizer`] trait has no
++//! `convert_ids_to_tokens` / `convert_tokens_to_string` pair, and some
++//! backends' `id_to_token` is lossy UTF-8 (e.g. tiktoken stores base-token
++//! byte pieces with replacement characters), so round-tripping pieces back
++//! through `token_to_id` would drop or corrupt split multi-byte characters.
++//!
++//! States produced by the Python implementation carry only `prev_tokens`
++//! pieces; those are mapped back through `token_to_id` as a best-effort
++//! fallback.
++
++use thiserror_ext::AsReport as _;
++use vllm_text::tokenizer::DynTokenizer;
++
++use super::types::DerenderStreamState;
++use crate::error::{ApiError, server_error};
++
++/// Sentinel written into `DerenderStreamState::prev_token_ids` for window
++/// slots without a decodable token ID (only reachable via the foreign-state
++/// fallback). Always out of vocabulary, so window reconstruction filters it.
++const NO_TOKEN_ID: u32 = u32::MAX;
++
++/// One slot in the carried decode window: the wire piece plus its token ID.
++///
++/// `id` is `None` only for foreign (Python-produced) state whose piece did
++/// not map back through `token_to_id`.
++struct WindowToken {
++    piece: String,
++    id: Option<u32>,
++}
++
++/// Convert one token id into the raw token piece carried in the decode
++/// window.
++///
++/// Out-of-vocab ids and (when `skip_special_tokens`) special tokens map to
++/// `""`, matching Python's `convert_ids_to_tokens` + `_replace_none_with_empty`
++/// behavior.
++fn token_piece(tokenizer: &DynTokenizer, token_id: u32, skip_special_tokens: bool) -> String {
++    if token_id as usize >= tokenizer.vocab_size() {
++        return String::new();
++    }
++    if skip_special_tokens && tokenizer.is_special_id(token_id) {
++        return String::new();
++    }
++    tokenizer.id_to_token(token_id).unwrap_or_default()
++}
++
++/// Whether a window token ID participates in decoding: in vocabulary, and
++/// not a special token when `skip_special_tokens` is set (matching the `""`
++/// piece those tokens produce in [`token_piece`]).
++fn is_decodable(tokenizer: &DynTokenizer, token_id: u32, skip_special_tokens: bool) -> bool {
++    (token_id as usize) < tokenizer.vocab_size()
++        && !(skip_special_tokens && tokenizer.is_special_id(token_id))
++}
++
++fn decode_ids(tokenizer: &DynTokenizer, token_ids: &[u32]) -> Result<String, ApiError> {
++    tokenizer
++        .decode(token_ids, false)
++        .map_err(|error| server_error!("derender detokenization failed: {}", error.as_report()))
++}
++
++/// Decode the decodable IDs in `window[range]`, approximating Python's
++/// `convert_tokens_to_string(pieces)` without a lossy piece round-trip.
++fn decode_window(
++    tokenizer: &DynTokenizer,
++    window: &[WindowToken],
++    range: std::ops::Range<usize>,
++    skip_special_tokens: bool,
++) -> Result<String, ApiError> {
++    let ids: Vec<u32> = window[range]
++        .iter()
++        .filter_map(|token| token.id)
++        .filter(|&id| is_decodable(tokenizer, id, skip_special_tokens))
++        .collect();
++    decode_ids(tokenizer, &ids)
++}
++
++/// Slice `text` to the characters after the first `prefix_chars`, mirroring
++/// Python's `new_text[len(prefix_text):]` (which slices by code point).
++fn drop_prefix_chars(text: &str, prefix_chars: usize) -> String {
++    text.chars().skip(prefix_chars).collect()
++}
++
++/// Outcome of feeding one new token into the incremental decode window.
++struct IncrementalStep {
++    /// The window slot appended for this token.
++    new_token: WindowToken,
++    /// Newly visible text, or `""` when the tail is an unfinished multi-byte
++    /// sequence.
++    text: String,
++    prefix_offset: usize,
++    read_offset: usize,
++}
++
++/// Port of `detokenize_incrementally` for a single new token id.
++///
++/// The window is always a (possibly empty) list here, so this only implements
++/// the non-first-iteration path from Python.
++///
++/// The offsets are necessary to defeat cleanup algorithms in the decode which
++/// decide to add a space or not depending on the surrounding ids.
++fn detokenize_incrementally(
++    tokenizer: &DynTokenizer,
++    new_token_id: u32,
++    window: &[WindowToken],
++    prefix_offset: usize,
++    read_offset: usize,
++    skip_special_tokens: bool,
++) -> Result<IncrementalStep, ApiError> {
++    let new_piece = token_piece(tokenizer, new_token_id, skip_special_tokens);
++
++    // The prefix text is necessary only to defeat cleanup algorithms in
++    // the decode which decide to add a space or not depending on the
++    // surrounding ids.
++    let prefix_text = decode_window(
++        tokenizer,
++        window,
++        prefix_offset..read_offset,
++        skip_special_tokens,
++    )?;
++    let mut window_ids: Vec<u32> = window[prefix_offset..]
++        .iter()
++        .filter_map(|token| token.id)
++        .filter(|&id| is_decodable(tokenizer, id, skip_special_tokens))
++        .collect();
++    if is_decodable(tokenizer, new_token_id, skip_special_tokens) {
++        window_ids.push(new_token_id);
++    }
++    let new_text = decode_ids(tokenizer, &window_ids)?;
++
++    let prefix_chars = prefix_text.chars().count();
++    let new_token = WindowToken {
++        piece: new_piece,
++        id: Some(new_token_id),
++    };
++    // A trailing U+FFFD char means it's a potential unfinished byte sequence
++    // from byte fallback tokenization. If it's in the middle, it's probably a
++    // real invalid id generated by the model.
++    if new_text.chars().count() <= prefix_chars || new_text.ends_with('\u{FFFD}') {
++        return Ok(IncrementalStep {
++            new_token,
++            text: String::new(),
++            prefix_offset,
++            read_offset,
++        });
++    }
++
++    Ok(IncrementalStep {
++        new_token,
++        text: drop_prefix_chars(&new_text, prefix_chars),
++        prefix_offset: read_offset,
++        read_offset: window.len() + 1,
++    })
++}
++
++/// Incrementally detokenize `delta_token_ids` from prior stream state.
++///
++/// Resumes decoding from the offsets carried in `state` rather than
++/// replaying token history. `state.prev_tokens` holds the trailing decode
++/// window (from `prefix_offset` onward) that `detokenize_incrementally`
++/// still needs to reproduce any partially read multi-byte character
++/// (tracked by `read_offset`). The delta tokens are fed straight onto it.
++///
++/// The window is bounded. `detokenize_incrementally` never reads before
++/// `prefix_offset`, so after processing we trim `prev_tokens` to that
++/// tail and rebase the offsets to it. State transport therefore stays
++/// O(window) per chunk instead of re-sending the full token history.
++///
++/// Returns `(new_text, updated_state)` — the delta text for this chunk and
++/// the state to pass to the next call.
++pub(super) fn detokenize_delta(
++    tokenizer: &DynTokenizer,
++    delta_token_ids: &[u32],
++    state: &DerenderStreamState,
++    skip_special_tokens: bool,
++) -> Result<(String, DerenderStreamState), ApiError> {
++    // Prefer the carried token IDs. States produced by the Python
++    // implementation have only `prev_tokens` pieces; map those back through
++    // `token_to_id` as a best-effort fallback (lossy for backends whose
++    // `id_to_token` is lossy UTF-8, hence the ID side channel).
++    let mut window: Vec<WindowToken> = match &state.prev_token_ids {
++        Some(ids) => state
++            .prev_tokens
++            .iter()
++            .zip(ids)
++            .map(|(piece, &id)| WindowToken {
++                piece: piece.clone(),
++                id: (id != NO_TOKEN_ID).then_some(id),
++            })
++            .collect(),
++        None => state
++            .prev_tokens
++            .iter()
++            .map(|piece| WindowToken {
++                id: tokenizer.token_to_id(piece),
++                piece: piece.clone(),
++            })
++            .collect(),
++    };
++    let mut prefix_offset = state.prefix_offset;
++    let mut read_offset = state.read_offset;
++
++    let mut text = String::new();
++    for &token_id in delta_token_ids {
++        let step = detokenize_incrementally(
++            tokenizer,
++            token_id,
++            &window,
++            prefix_offset,
++            read_offset,
++            skip_special_tokens,
++        )?;
++        window.push(step.new_token);
++        text.push_str(&step.text);
++        prefix_offset = step.prefix_offset;
++        read_offset = step.read_offset;
++    }
++
++    // Trim to the tail still readable by detokenize_incrementally
++    // (everything before prefix_offset is dead) and rebase the offsets so
++    // the carried window stays bounded regardless of generation length.
++    let trimmed = window.split_off(prefix_offset);
++    let mut updated_state = state.clone();
++    updated_state.prev_tokens = trimmed.iter().map(|token| token.piece.clone()).collect();
++    updated_state.prev_token_ids =
++        Some(trimmed.iter().map(|token| token.id.unwrap_or(NO_TOKEN_ID)).collect());
++    updated_state.prefix_offset = 0;
++    updated_state.read_offset = read_offset - prefix_offset;
++    Ok((text, updated_state))
++}
+diff --git a/rust/src/server/src/routes/derender/logprobs.rs b/rust/src/server/src/routes/derender/logprobs.rs
+new file mode 100644
+--- /dev/null
++++ b/rust/src/server/src/routes/derender/logprobs.rs
+@@ -0,0 +1,303 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++//! `token_id:N` placeholder resolution and chat→completion logprobs
++//! conversion for the derender endpoints.
++//!
++//! Ports `_resolve_logprobs`, `_correct_decoded_token` and
++//! `_convert_chat_logprobs_to_completion_logprobs` from
++//! `vllm/renderers/online_derenderer.py`, plus `resolve_token_id_placeholder`
++//! from `vllm/entrypoints/generate/base/serving.py`.
++
++use std::collections::HashMap;
++
++use thiserror_ext::AsReport as _;
++use tracing::warn;
++use vllm_text::tokenizer::DynTokenizer;
++
++use crate::error::{ApiError, server_error};
++use crate::routes::inference::generate::GenerateLogprob;
++use crate::routes::openai::utils::logprobs::text_len;
++use crate::routes::openai::utils::types::{
++    ChatLogProbs, ChatLogProbsContent, LogProbs, TopLogProb,
++};
++
++/// Extract the token ID from a `token_id:N` placeholder string.
++fn parse_token_id_placeholder(token: &str) -> Option<u32> {
++    token.strip_prefix("token_id:")?.parse().ok()
++}
++
++/// Decode a `token_id:N` placeholder back to a token string and UTF-8 bytes.
++///
++/// Returns `(token, None)` unchanged if token is not a placeholder.
++/// This is the inverse of `format_token_id` on the /generate side
++/// when `return_tokens_as_token_ids` is active.
++///
++/// Decodes the ID directly rather than round-tripping through
++/// `id_to_token`/`token_to_id`, which is lossy for backends whose byte
++/// pieces are not valid UTF-8 on their own.
++fn resolve_token_id_placeholder(
++    token: &str,
++    tokenizer: &DynTokenizer,
++) -> Result<(String, Option<Vec<u8>>), ApiError> {
++    let Some(token_id) = parse_token_id_placeholder(token) else {
++        return Ok((token.to_string(), None));
++    };
++    if tokenizer.id_to_token(token_id).is_none() {
++        warn!(
++            token_id,
++            "resolve_token_id_placeholder: token_id has no vocab entry; substituting empty string"
++        );
++        return Ok((String::new(), None));
++    }
++    let token_str = tokenizer.decode(&[token_id], false).map_err(|error| {
++        server_error!("derender logprobs resolution failed: {}", error.as_report())
++    })?;
++    Ok((token_str.clone(), Some(token_str.into_bytes())))
++}
++
++/// Use preceding tokens as context to fix U+FFFD from byte-fallback.
++///
++/// Mirrors `LogprobsProcessor._correct_decoded_token` in
++/// v1/engine/logprobs.py.
++fn correct_decoded_token(
++    token_id: u32,
++    context_token_ids: &[u32],
++    tokenizer: &DynTokenizer,
++) -> Result<String, ApiError> {
++    let decode = |ids: &[u32]| {
++        tokenizer.decode(ids, true).map_err(|error| {
++            server_error!("derender logprobs correction failed: {}", error.as_report())
++        })
++    };
++    let max_ctx = context_token_ids.len().min(4);
++
++    for num_ctx in 1..=max_ctx {
++        let context = &context_token_ids[context_token_ids.len() - num_ctx..];
++        let mut full_ids = context.to_vec();
++        full_ids.push(token_id);
++        let full_decoded = decode(&full_ids)?;
++
++        if full_decoded.ends_with('\u{FFFD}') {
++            continue;
++        }
++
++        let mut clean_end = context.len();
++        for j in (0..context.len()).rev() {
++            if decode(&context[j..=j])?.ends_with('\u{FFFD}') {
++                clean_end = j;
++            } else {
++                break;
++            }
++        }
++
++        let clean_prefix = if clean_end > 0 {
++            decode(&context[..clean_end])?
++        } else {
++            String::new()
++        };
++
++        if let Some(suffix) = full_decoded.strip_prefix(&clean_prefix) {
++            return Ok(suffix.to_string());
++        }
++
++        let common_len = clean_prefix
++            .chars()
++            .zip(full_decoded.chars())
++            .take_while(|(a, b)| a == b)
++            .count();
++        return Ok(full_decoded.chars().skip(common_len).collect());
++    }
++
++    Ok(String::new())
++}
++
++/// Resolve `token_id:N` placeholders in a [`ChatLogProbs`] object.
++pub(super) fn resolve_logprobs(
++    logprobs: &ChatLogProbs,
++    tokenizer: &DynTokenizer,
++) -> Result<ChatLogProbs, ApiError> {
++    let Some(content) = &logprobs.content else {
++        return Ok(logprobs.clone());
++    };
++
++    let mut context_token_ids: Vec<u32> = Vec::new();
++    let mut resolved_content = Vec::with_capacity(content.len());
++
++    for entry in content {
++        let (mut token_str, mut token_bytes) =
++            resolve_token_id_placeholder(&entry.token, tokenizer)?;
++        let sampled_id = parse_token_id_placeholder(&entry.token);
++
++        if token_str.ends_with('\u{FFFD}')
++            && let Some(id) = sampled_id
++        {
++            token_str = correct_decoded_token(id, &context_token_ids, tokenizer)?;
++            token_bytes = Some(token_str.clone().into_bytes());
++        }
++
++        let mut resolved_top = Vec::with_capacity(entry.top_logprobs.len());
++        for top in &entry.top_logprobs {
++            let (mut top_str, mut top_bytes) = resolve_token_id_placeholder(&top.token, tokenizer)?;
++            let top_id = parse_token_id_placeholder(&top.token);
++            if top_str.ends_with('\u{FFFD}')
++                && let Some(id) = top_id
++            {
++                top_str = correct_decoded_token(id, &context_token_ids, tokenizer)?;
++                top_bytes = Some(top_str.clone().into_bytes());
++            }
++            resolved_top.push(TopLogProb {
++                token: top_str,
++                logprob: top.logprob,
++                bytes: top_bytes,
++            });
++        }
++
++        resolved_content.push(ChatLogProbsContent {
++            token: token_str,
++            logprob: entry.logprob,
++            bytes: token_bytes,
++            top_logprobs: resolved_top,
++        });
++
++        if let Some(id) = sampled_id {
++            context_token_ids.push(id);
++        }
++    }
++
++    Ok(ChatLogProbs {
++        content: Some(resolved_content),
++    })
++}
++
++/// Convert [`ChatLogProbs`] (per-token objects) to [`LogProbs`] (parallel
++/// flat lists) as required by the /v1/completions response schema.
++pub(super) fn chat_logprobs_to_completion(logprobs: &ChatLogProbs) -> LogProbs {
++    let mut tokens = Vec::new();
++    let mut token_logprobs = Vec::new();
++    let mut top_logprobs_list = Vec::new();
++    let mut text_offset = Vec::new();
++
++    let mut offset = 0;
++    if let Some(content) = &logprobs.content {
++        for entry in content {
++            text_offset.push(offset);
++            tokens.push(entry.token.clone());
++            token_logprobs.push(Some(entry.logprob));
++            top_logprobs_list.push(if entry.top_logprobs.is_empty() {
++                None
++            } else {
++                Some(
++                    entry
++                        .top_logprobs
++                        .iter()
++                        .map(|top| (top.token.clone(), top.logprob))
++                        .collect::<HashMap<String, f32>>(),
++                )
++            });
++            offset += text_len(&entry.token);
++        }
++    }
++
++    LogProbs {
++        tokens,
++        token_logprobs,
++        top_logprobs: top_logprobs_list,
++        text_offset,
++    }
++}
++
++/// Resolve one wire token string: `token_id:N` placeholders decode through
++/// the tokenizer, `decoded_token` strings pass through, and unknown IDs fall
++/// back to the placeholder form.
++fn wire_token_str(
++    token_id: u32,
++    decoded_token: Option<&str>,
++    tokenizer: &DynTokenizer,
++) -> Result<String, ApiError> {
++    match decoded_token {
++        Some(token) => Ok(resolve_token_id_placeholder(token, tokenizer)?.0),
++        None if tokenizer.id_to_token(token_id).is_some() => {
++            tokenizer.decode(&[token_id], false).map_err(|error| {
++                server_error!("derender logprobs resolution failed: {}", error.as_report())
++            })
++        }
++        None => Ok(format!("token_id:{token_id}")),
++    }
++}
++
++/// Convert engine-wire prompt logprobs (one candidate map per prompt
++/// position, as carried by `GenerateResponse.prompt_logprobs`) into the
++/// completions [`LogProbs`] shape, mirroring the normal path's echoed and
++/// prompt-only logprobs.
++///
++/// `prompt_token_ids` identifies the sampled token at each position; when it
++/// is shorter than the position list, the remaining positions fall back to
++/// their first candidate.
++pub(super) fn prompt_logprobs_to_completion(
++    prompt_logprobs: &[Option<HashMap<u32, GenerateLogprob>>],
++    prompt_token_ids: &[u32],
++    tokenizer: &DynTokenizer,
++) -> Result<LogProbs, ApiError> {
++    let mut tokens = Vec::with_capacity(prompt_logprobs.len());
++    let mut token_logprobs = Vec::with_capacity(prompt_logprobs.len());
++    let mut top_logprobs_list = Vec::with_capacity(prompt_logprobs.len());
++    let mut text_offset = Vec::with_capacity(prompt_logprobs.len());
++
++    let mut offset = 0;
++    for (position, position_logprobs) in prompt_logprobs.iter().enumerate() {
++        text_offset.push(offset);
++        let sampled_id = prompt_token_ids.get(position).copied();
++        match position_logprobs {
++            // The first prompt position carries no logprobs.
++            None => {
++                let token = match sampled_id {
++                    Some(id) => wire_token_str(id, None, tokenizer)?,
++                    None => String::new(),
++                };
++                offset += text_len(&token);
++                tokens.push(token);
++                token_logprobs.push(None);
++                top_logprobs_list.push(None);
++            }
++            Some(candidates) => {
++                let sampled = sampled_id
++                    .and_then(|id| candidates.get(&id).map(|entry| (id, entry)))
++                    .or_else(|| candidates.iter().next().map(|(&id, entry)| (id, entry)));
++                let (token, token_logprob) = match sampled {
++                    Some((id, entry)) => (
++                        wire_token_str(id, entry.decoded_token.as_deref(), tokenizer)?,
++                        Some(entry.logprob),
++                    ),
++                    None => (String::new(), None),
++                };
++                offset += text_len(&token);
++                tokens.push(token);
++                token_logprobs.push(token_logprob);
++                let mut top = HashMap::with_capacity(candidates.len());
++                for (&id, entry) in candidates {
++                    top.insert(
++                        wire_token_str(id, entry.decoded_token.as_deref(), tokenizer)?,
++                        entry.logprob,
++                    );
++                }
++                top_logprobs_list.push((!top.is_empty()).then_some(top));
++            }
++        }
++    }
++
++    Ok(LogProbs {
++        tokens,
++        token_logprobs,
++        top_logprobs: top_logprobs_list,
++        text_offset,
++    })
++}
++
++/// Shift every text offset by `prefix_len`, used when an echoed prompt is
++/// prepended to the choice text.
++pub(super) fn shift_text_offsets(logprobs: &mut LogProbs, prefix_len: u32) {
++    for offset in &mut logprobs.text_offset {
++        *offset = offset.saturating_add(prefix_len);
++    }
++}
+diff --git a/rust/src/server/src/routes/derender/mod.rs b/rust/src/server/src/routes/derender/mod.rs
+new file mode 100644
+--- /dev/null
++++ b/rust/src/server/src/routes/derender/mod.rs
+@@ -0,0 +1,1037 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++//! Postprocessing counterpart to the /render endpoints: turn
++//! token-in/token-out `GenerateResponse`s back into OpenAI chat/completion
++//! responses without a GPU.
++//!
++//! Mirrors the Python vLLM implementation in
++//! `vllm/entrypoints/scale_out/derender/` (api_router.py, serving.py) and
++//! `vllm/renderers/online_derenderer.py`.
++//!
++//! Deliberate deviations from the Python implementation:
++//! - Streaming chunks are bounds-checked like non-streaming payloads
++//!   (`validate_stream_bounds`); Python only bounds the non-streaming path.
++//! - Streaming chat derender is rejected for reasoning-parser models (Python
++//!   parity), but tool-parser models are rejected only when the request
++//!   actually engages tool parsing, matching the normal chat pipeline.
++//! - Non-streaming completion derender honours `completion_request.echo`
++//!   (including the `max_tokens=0` prompt-only case); Python ignores `echo`.
++//! - The streaming detok state additionally carries `prev_token_ids` so
++//!   window reconstruction decodes from token IDs instead of round-tripping
++//!   lossy `id_to_token` pieces through `token_to_id`.
++
++mod detok;
++mod logprobs;
++mod types;
++
++use std::sync::Arc;
++
++use axum::Json;
++use axum::extract::State;
++use axum::http::HeaderMap;
++use axum::response::{IntoResponse, Response};
++use futures::StreamExt as _;
++use thiserror_ext::AsReport as _;
++use tracing::{debug, warn};
++use vllm_chat::{AssistantContentBlock, AssistantMessageExt as _, ChatRequestProcessor};
++use vllm_chat::{ChatEventStream, FinishReason};
++use vllm_text::tokenizer::DynTokenizer;
++use vllm_text::{DecodedTextEvent, Finished, Prompt, SampledDelta, TextRequestProcessor};
++
++use self::types::{
++    DerenderChatCompletionResponse, DerenderChatRequest, DerenderChatRequestUnion,
++    DerenderChatStreamRequest, DerenderChatStreamResponse, DerenderCompletionRequest,
++    DerenderCompletionRequestUnion, DerenderCompletionStreamRequest,
++    DerenderCompletionStreamResponse,
++};
++use crate::error::{
++    ApiError, bail_invalid_request, chat_submit_error, server_error, text_submit_error,
++};
++use crate::lora::LoraModelResolution;
++use crate::render::RenderState;
++use crate::routes::inference::generate::GenerateResponse;
++use crate::routes::openai::chat_completions::{
++    AssistantRole, ChatCompletionChoice, ChatCompletionMessage, ChatCompletionStreamChoice,
++    ChatCompletionStreamResponse, ChatMessageDelta, lower_chat_request,
++};
++use crate::routes::openai::utils::logprobs::{append_openai_logprobs, text_len};
++use crate::routes::openai::utils::types::{
++    FunctionCallResponse, StreamResponseEnvelope, ToolCall, ToolChoice, ToolChoiceValue, Usage,
++};
++use crate::routes::openai::utils::validated_json::ValidatedJson;
++use crate::routes::openai::{
++    CompletionChoice, CompletionResponse, CompletionStreamChoice, CompletionStreamResponse,
++    completion_echo_text,
++};
++use crate::state::AppState;
++use crate::utils::{ResolvedRequestContext, resolve_request_context, unix_timestamp};
++
++/// TODO: plumb `VLLM_MAX_N_SEQUENCES` through the server configuration;
++/// Python reads `envs.VLLM_MAX_N_SEQUENCES` (default 16384).
++const MAX_N_SEQUENCES: usize = 16384;
++
++/// Everything a derender handler needs, abstracted over the render-only and
++/// engine-backed servers.
++pub(crate) struct DerenderContext<'a> {
++    /// Public model names accepted by the frontend (including LoRA names).
++    lora_resolution: LoraModelResolution,
++    /// Primary public model name, echoed when the request omits `model`.
++    primary_model_name: &'a str,
++    /// Backend model id used for parser resolution.
++    model_id: &'a str,
++    tokenizer: DynTokenizer,
++    max_model_len: u32,
++    max_logprobs: i32,
++    text: &'a TextRequestProcessor,
++    chat: &'a ChatRequestProcessor,
++}
++
++impl DerenderContext<'_> {
++    /// Whether a reasoning or tool parser is effectively configured for this
++    /// model (Python: `self.parser is not None`).
++    fn has_parser(&self) -> bool {
++        self.chat.reasoning_parser_name(self.model_id).is_some()
++            || self.chat.tool_call_parser_name(self.model_id).is_some()
++    }
++}
++
++fn render_context(state: &RenderState) -> DerenderContext<'_> {
++    DerenderContext {
++        lora_resolution: LoraModelResolution {
++            model_names: state.served_model_names.clone(),
++            lora_request: None,
++        },
++        primary_model_name: &state.served_model_names[0],
++        model_id: state.text.model_id(),
++        tokenizer: state.text.tokenizer(),
++        max_model_len: state.text.max_model_len(),
++        max_logprobs: state.text.max_logprobs(),
++        text: &state.text,
++        chat: &state.chat,
++    }
++}
++
++async fn app_context<'a>(state: &'a AppState, model: Option<&str>) -> DerenderContext<'a> {
++    let text = state.chat.text().request_processor();
++    DerenderContext {
++        lora_resolution: state.resolve_model_with_loras(model).await,
++        primary_model_name: state.primary_model_name(),
++        model_id: state.chat.model_id(),
++        tokenizer: text.tokenizer(),
++        max_model_len: text.max_model_len(),
++        max_logprobs: text.max_logprobs(),
++        text,
++        chat: state.chat.request_processor(),
++    }
++}
++
++/// Python `BaseServing._check_model`: an omitted model resolves the served
++/// name; an unknown one is a 404.
++fn check_model(ctx: &DerenderContext<'_>, model: Option<&str>) -> Result<(), ApiError> {
++    if let Some(model) = model
++        && !ctx.lora_resolution.model_names.iter().any(|name| name == model)
++    {
++        return Err(ApiError::model_not_found(model.to_string()));
++    }
++    Ok(())
++}
++
++fn response_model_name(ctx: &DerenderContext<'_>, model: Option<String>) -> String {
++    model.unwrap_or_else(|| ctx.primary_model_name.to_string())
++}
++
++/// Reject derender payloads that exceed resource bounds.
++///
++/// Runs before any tokenizer.decode() or parser invocation to prevent
++/// CPU/memory exhaustion from oversized caller-supplied token structures.
++fn validate_derender_bounds(
++    generate_responses: &[GenerateResponse],
++    max_model_len: u32,
++    max_logprobs: i32,
++) -> Result<(), ApiError> {
++    let max_model_len = max_model_len as usize;
++
++    if generate_responses.len() > MAX_N_SEQUENCES {
++        bail_invalid_request!(
++            "generate_responses count ({}) exceeds server maximum ({}). \
++             Set VLLM_MAX_N_SEQUENCES to increase this limit.",
++            generate_responses.len(),
++            MAX_N_SEQUENCES
++        );
++    }
++
++    for response in generate_responses {
++        if response.choices.len() > MAX_N_SEQUENCES {
++            bail_invalid_request!(
++                "choices count ({}) in response '{}' exceeds server maximum ({}).",
++                response.choices.len(),
++                response.request_id,
++                MAX_N_SEQUENCES
++            );
++        }
++
++        for choice in &response.choices {
++            if choice.token_ids.len() > max_model_len {
++                bail_invalid_request!(
++                    "token_ids length ({}) in choice {} exceeds max_model_len ({}).",
++                    choice.token_ids.len(),
++                    choice.index,
++                    max_model_len
++                );
++            }
++            if let Some(content) = choice.logprobs.as_ref().and_then(|l| l.content.as_ref()) {
++                if content.len() > max_model_len {
++                    bail_invalid_request!(
++                        "logprobs.content length ({}) in choice {} exceeds max_model_len ({}).",
++                        content.len(),
++                        choice.index,
++                        max_model_len
++                    );
++                }
++                for entry in content {
++                    if max_logprobs >= 0 && entry.top_logprobs.len() > max_logprobs as usize {
++                        bail_invalid_request!(
++                            "top_logprobs count ({}) in choice {} exceeds max_logprobs ({}).",
++                            entry.top_logprobs.len(),
++                            choice.index,
++                            max_logprobs
++                        );
++                    }
++                }
++            }
++        }
++
++        if let Some(prompt_logprobs) = &response.prompt_logprobs
++            && prompt_logprobs.len() > max_model_len
++        {
++            bail_invalid_request!(
++                "prompt_logprobs length ({}) in response '{}' exceeds max_model_len ({}).",
++                prompt_logprobs.len(),
++                response.request_id,
++                max_model_len
++            );
++        }
++    }
++
++    Ok(())
++}
++
++/// Bound one streaming chunk before decoding, matching the non-streaming
++/// `validate_derender_bounds` token/logprob limits. Python skips this check on
++/// the streaming path; we deliberately harden it so a single caller-supplied
++/// chunk cannot force token-by-token detokenization past `max_model_len`.
++fn validate_stream_bounds(
++    generate_chunk: &crate::routes::inference::generate::GenerateStreamResponse,
++    max_model_len: u32,
++    max_logprobs: i32,
++) -> Result<(), ApiError> {
++    let max_model_len = max_model_len as usize;
++    for choice in &generate_chunk.choices {
++        if choice.token_ids.len() > max_model_len {
++            bail_invalid_request!(
++                "token_ids length ({}) in choice {} exceeds max_model_len ({}).",
++                choice.token_ids.len(),
++                choice.index,
++                max_model_len
++            );
++        }
++        if let Some(content) = choice.logprobs.as_ref().and_then(|l| l.content.as_ref()) {
++            if content.len() > max_model_len {
++                bail_invalid_request!(
++                    "logprobs.content length ({}) in choice {} exceeds max_model_len ({}).",
++                    content.len(),
++                    choice.index,
++                    max_model_len
++                );
++            }
++            for entry in content {
++                if max_logprobs >= 0 && entry.top_logprobs.len() > max_logprobs as usize {
++                    bail_invalid_request!(
++                        "top_logprobs count ({}) in choice {} exceeds max_logprobs ({}).",
++                        entry.top_logprobs.len(),
++                        choice.index,
++                        max_logprobs
++                    );
++                }
++            }
++        }
++    }
++    Ok(())
++}
++
++/// Map a wire `finish_reason` string to the internal enum for the replayed
++/// parse pipeline. The response echoes the wire string verbatim; this mapping
++/// only feeds the structured assembly.
++fn wire_finish_reason(finish_reason: Option<&str>) -> FinishReason {
++    match finish_reason {
++        Some("length") => FinishReason::Length,
++        Some("abort") => FinishReason::Abort,
++        Some("repetition") => FinishReason::Repetition(None),
++        _ => FinishReason::stop_eos(),
++    }
++}
++
++/// Replay already-generated tokens through the chat output pipeline so the
++/// configured reasoning/tool parser splits them into reasoning, content and
++/// tool calls, mirroring Python's `parser.parse()` one-shot extraction.
++///
++/// Returns the assembled message plus whether output metadata (logprobs, token
++/// IDs) may be attached: like the normal chat path, per-token data is
++/// suppressed when it would leak hidden reasoning tokens.
++async fn parse_chat_choice(
++    ctx: &DerenderContext<'_>,
++    chat_request: crate::routes::openai::chat_completions::ChatCompletionRequest,
++    token_ids: &[u32],
++    finish_reason: Option<&str>,
++    ctx_request: ResolvedRequestContext,
++) -> Result<(ChatCompletionMessage, bool), ApiError> {
++    let include_reasoning = chat_request.include_reasoning;
++    let is_named_tool_choice =
++        matches!(&chat_request.tool_choice, Some(ToolChoice::Function { .. }));
++    let is_required_tool_choice = matches!(
++        &chat_request.tool_choice,
++        Some(ToolChoice::Value(ToolChoiceValue::Required))
++    );
++
++    let lowered = lower_chat_request(chat_request, &ctx.lora_resolution, ctx_request)?;
++    // Render and tokenize the supplied chat request so the replayed stream
++    // starts from the real prompt: several parsers derive their starting mode
++    // from the prompt tail (e.g. a prefilled think/response channel opener).
++    let (text_request, processor) = ctx
++        .chat
++        .prepare(lowered)
++        .await
++        .map_err(|error| chat_submit_error("failed to prepare derender chat request", error))?;
++    let prepared = ctx
++        .text
++        .prepare(text_request)
++        .map_err(|error| text_submit_error("failed to prepare derender chat request", error))?;
++    let request_id = prepared.text_request.request_id.clone();
++    let prompt_token_ids = prepared.generate_request.prompt_token_ids;
++    let prompt_token_count = prompt_token_ids.len();
++
++    // Parser path: decode with special tokens preserved so the parser can see
++    // markers like </think>, <tool_call>, or Harmony channel tokens.
++    let mut decoder = ctx.tokenizer.create_decode_stream(&prompt_token_ids, false, 0);
++    for &token_id in token_ids {
++        decoder
++            .push_token(token_id)
++            .map_err(|error| server_error!("derender decode failed: {}", error.as_report()))?;
++    }
++    let (_, decoded) = decoder
++        .flush(None)
++        .map_err(|error| server_error!("derender decode failed: {}", error.as_report()))?;
++
++    let events = vec![
++        Ok(DecodedTextEvent::Start {
++            prompt_token_ids: Arc::from(prompt_token_ids),
++            prompt_logprobs: None,
++        }),
++        Ok(DecodedTextEvent::TextDelta {
++            decoded,
++            sampled: SampledDelta {
++                token_ids: token_ids.to_vec(),
++                logprobs: None,
++            },
++            finished: Some(Box::new(Finished {
++                usage: vllm_llm::TokenUsage {
++                    prompt_token_count,
++                    output_token_count: token_ids.len(),
++                    cached_token_count: 0,
++                },
++                finish_reason: wire_finish_reason(finish_reason),
++                kv_transfer_params: None,
++                ec_transfer_params: None,
++            })),
++        }),
++    ];
++    let decoded_stream = futures::stream::iter(events).boxed();
++    let chat_stream = processor
++        .process(decoded_stream)
++        .map_err(|error| chat_submit_error("failed to derender chat response", error))?;
++    let collected =
++        ChatEventStream::from_stream(request_id, chat_stream)
++            .collect_message()
++            .await
++            .map_err(|error| chat_submit_error("failed to derender chat response", error))?;
++
++    let has_content = collected
++        .message
++        .content
++        .iter()
++        .any(|block| matches!(block, AssistantContentBlock::Text { .. }));
++    // A named or required tool choice forces a (possibly empty) content
++    // string, matching Python's `content = content or ""`.
++    let content = if has_content {
++        Some(collected.message.text())
++    } else if is_named_tool_choice || is_required_tool_choice {
++        Some(String::new())
++    } else {
++        None
++    };
++    let tool_calls = collected
++        .message
++        .tool_calls()
++        .map(|call| ToolCall {
++            id: call.id.clone(),
++            tool_type: "function".to_string(),
++            function: FunctionCallResponse {
++                name: call.name.clone(),
++                arguments: Some(call.arguments.clone()),
++            },
++        })
++        .collect();
++
++    // Mirror collect_chat_completion: when reasoning is parsed out but the
++    // request hides it, per-token output metadata is suppressed as well so
++    // hidden reasoning tokens cannot leak through logprobs.
++    let reasoning = collected.message.reasoning();
++    let include_output_metadata = include_reasoning || reasoning.is_none();
++
++    Ok((
++        ChatCompletionMessage {
++            role: AssistantRole,
++            content,
++            tool_calls,
++            reasoning: if include_reasoning { reasoning } else { None },
++        },
++        include_output_metadata,
++    ))
++}
++
++/// Postprocess a GenerateResponse into a chat completion response.
++///
++/// Non-streaming only: expects the complete GenerateResponse with all token
++/// IDs present. When `request.chat_request` is provided and a parser is
++/// configured, the parser splits the output into (reasoning, content,
++/// tool_calls). Otherwise falls back to plain detokenization.
++async fn derender_chat(
++    ctx: &DerenderContext<'_>,
++    request: DerenderChatRequest,
++    request_context: ResolvedRequestContext,
++) -> Result<DerenderChatCompletionResponse, ApiError> {
++    check_model(ctx, request.model.as_deref())?;
++    validate_derender_bounds(
++        std::slice::from_ref(&request.generate_response),
++        ctx.max_model_len,
++        ctx.max_logprobs,
++    )?;
++
++    let model_name = response_model_name(ctx, request.model.clone());
++    let response = &request.generate_response;
++    let mut choices = Vec::with_capacity(response.choices.len());
++
++    for choice in &response.choices {
++        if choice.token_ids.is_empty() {
++            bail_invalid_request!("choice {} has empty or null token_ids", choice.index);
++        }
++
++        let resolved_logprobs = choice
++            .logprobs
++            .as_ref()
++            .map(|logprobs| logprobs::resolve_logprobs(logprobs, &ctx.tokenizer))
++            .transpose()?;
++
++        let (message, include_output_metadata) = if ctx.has_parser()
++            && let Some(chat_request) = request.chat_request.clone()
++        {
++            parse_chat_choice(
++                ctx,
++                chat_request,
++                &choice.token_ids,
++                choice.finish_reason.as_deref(),
++                request_context.clone(),
++            )
++            .await?
++        } else {
++            // No parser: plain detokenization honouring the request's
++            // skip_special_tokens (default true when no request was given).
++            let skip_special = request
++                .chat_request
++                .as_ref()
++                .map(|request| request.skip_special_tokens)
++                .unwrap_or(true);
++            let decoded_text = ctx
++                .tokenizer
++                .decode(&choice.token_ids, skip_special)
++                .map_err(|error| server_error!("derender decode failed: {}", error.as_report()))?;
++            (
++                ChatCompletionMessage {
++                    role: AssistantRole,
++                    content: Some(decoded_text),
++                    tool_calls: Vec::new(),
++                    reasoning: None,
++                },
++                true,
++            )
++        };
++
++        choices.push(ChatCompletionChoice {
++            index: choice.index,
++            message,
++            logprobs: if include_output_metadata {
++                resolved_logprobs
++            } else {
++                None
++            },
++            finish_reason: choice.finish_reason.clone(),
++            stop_reason: None,
++            token_ids: None,
++        });
++    }
++
++    let prompt_tokens = request.prompt_tokens.unwrap_or(0);
++    let completion_tokens: usize =
++        response.choices.iter().map(|choice| choice.token_ids.len()).sum();
++    debug!(
++        request_id = %response.request_id,
++        model = %model_name,
++        choices = choices.len(),
++        completion_tokens,
++        "derender_chat"
++    );
++
++    Ok(DerenderChatCompletionResponse {
++        id: response.request_id.clone(),
++        object: "chat.completion".to_string(),
++        created: unix_timestamp(),
++        model: model_name,
++        choices,
++        usage: Usage {
++            prompt_tokens,
++            total_tokens: checked_total_tokens(prompt_tokens, completion_tokens)?,
++            completion_tokens: Some(completion_tokens),
++            prompt_tokens_details: None,
++            completion_tokens_details: Default::default(),
++        },
++        prompt_logprobs: response.prompt_logprobs.clone(),
++        kv_transfer_params: response.kv_transfer_params.clone(),
++        // The Python derender endpoint does not pass ec_transfer_params through.
++        ec_transfer_params: None,
++    })
++}
++
++/// Postprocess a list of GenerateResponses into a completion response.
++///
++/// Non-streaming only. Mirrors the multi-prompt completions case: one
++/// GenerateResponse per prompt, parallel to the list[GenerateRequest] from
++/// /v1/completions/render.
++fn derender_completion(
++    ctx: &DerenderContext<'_>,
++    request: DerenderCompletionRequest,
++) -> Result<CompletionResponse, ApiError> {
++    check_model(ctx, request.model.as_deref())?;
++
++    if request.generate_responses.is_empty() {
++        bail_invalid_request!("generate_responses must not be empty");
++    }
++    if let Some(prompt_tokens) = &request.prompt_tokens
++        && prompt_tokens.len() != request.generate_responses.len()
++    {
++        bail_invalid_request!(
++            "prompt_tokens length ({}) must equal generate_responses length ({})",
++            prompt_tokens.len(),
++            request.generate_responses.len()
++        );
++    }
++
++    validate_derender_bounds(
++        &request.generate_responses,
++        ctx.max_model_len,
++        ctx.max_logprobs,
++    )?;
++
++    let skip_special = request
++        .completion_request
++        .as_ref()
++        .map(|request| request.skip_special_tokens)
++        .unwrap_or(true);
++
++    // Honour `completion_request.echo` like the normal completions path
++    // (Python derender ignores `echo`): prepend the prompt to each choice's
++    // text, and for prompt-only requests (echo + max_tokens=0) expose just
++    // the prompt, hiding the one internally generated token.
++    let completion_request = request.completion_request.as_ref();
++    let echo = completion_request
++        .map(|request| completion_echo_text(request, ctx.tokenizer.as_ref()))
++        .transpose()?
++        .flatten();
++    let prompt_only =
++        echo.is_some() && completion_request.is_some_and(|request| request.max_tokens == Some(0));
++    let echo_prompt_token_ids = match completion_request.filter(|_| echo.is_some()) {
++        Some(request) => Some(match &request.prompt {
++            Prompt::Text(text) => {
++                ctx.tokenizer.encode(text, request.add_special_tokens).map_err(|error| {
++                    ApiError::invalid_request(
++                        format!("Failed to tokenize prompt for echo: {}", error.as_report()),
++                        Some("prompt"),
++                    )
++                })?
++            }
++            Prompt::TokenIds(token_ids) => token_ids.clone(),
++        }),
++        None => None,
++    };
++
++    let mut choices = Vec::new();
++    let mut total_prompt_tokens = 0;
++    let mut total_completion_tokens = 0;
++    let mut index = 0;
++
++    for (response_idx, response) in request.generate_responses.iter().enumerate() {
++        let prompt_tokens =
++            request.prompt_tokens.as_ref().map(|tokens| tokens[response_idx]).unwrap_or(0);
++        for choice in &response.choices {
++            if choice.token_ids.is_empty() {
++                bail_invalid_request!(
++                    "choice {} in response {} has empty or null token_ids",
++                    choice.index,
++                    response.request_id
++                );
++            }
++
++            let decoded_text = ctx
++                .tokenizer
++                .decode(&choice.token_ids, skip_special)
++                .map_err(|error| server_error!("derender decode failed: {}", error.as_report()))?;
++            let text = match &echo {
++                None => decoded_text,
++                Some(prompt) if prompt_only => prompt.clone(),
++                Some(prompt) => format!("{prompt}{decoded_text}"),
++            };
++            let mut logprobs = choice
++                .logprobs
++                .as_ref()
++                .map(|logprobs| {
++                    logprobs::resolve_logprobs(logprobs, &ctx.tokenizer)
++                        .map(|resolved| logprobs::chat_logprobs_to_completion(&resolved))
++                })
++                .transpose()?;
++            if let Some(prompt) = &echo {
++                if prompt_only {
++                    // Choice logprobs would describe the hidden internal
++                    // token; echo back prompt logprobs like the normal path.
++                    logprobs = match &response.prompt_logprobs {
++                        Some(prompt_logprobs) => Some(logprobs::prompt_logprobs_to_completion(
++                            prompt_logprobs,
++                            echo_prompt_token_ids.as_deref().unwrap_or(&[]),
++                            &ctx.tokenizer,
++                        )?),
++                        None => None,
++                    };
++                } else if let Some(completion_logprobs) = logprobs {
++                    logprobs = Some(match &response.prompt_logprobs {
++                        // The render step enables prompt logprobs for echo
++                        // requests, so prepend them exactly like the normal
++                        // echoed completions path.
++                        Some(prompt_logprobs) => {
++                            let prompt_logprobs = logprobs::prompt_logprobs_to_completion(
++                                prompt_logprobs,
++                                echo_prompt_token_ids.as_deref().unwrap_or(&[]),
++                                &ctx.tokenizer,
++                            )?;
++                            let completion_start = prompt_logprobs
++                                .text_offset
++                                .last()
++                                .zip(prompt_logprobs.tokens.last())
++                                .map(|(&offset, token)| offset.saturating_add(text_len(token)))
++                                .unwrap_or(0);
++                            let mut completion_logprobs = completion_logprobs;
++                            logprobs::shift_text_offsets(
++                                &mut completion_logprobs,
++                                completion_start,
++                            );
++                            append_openai_logprobs(prompt_logprobs, completion_logprobs)
++                        }
++                        None => {
++                            let mut completion_logprobs = completion_logprobs;
++                            logprobs::shift_text_offsets(
++                                &mut completion_logprobs,
++                                text_len(prompt),
++                            );
++                            completion_logprobs
++                        }
++                    });
++                }
++            }
++
++            choices.push(CompletionChoice {
++                index,
++                text,
++                logprobs,
++                finish_reason: choice.finish_reason.clone(),
++                stop_reason: None,
++                prompt_logprobs: None,
++                token_ids: None,
++                prompt_token_ids: None,
++            });
++            total_completion_tokens += choice.token_ids.len();
++            index += 1;
++        }
++        total_prompt_tokens = checked_total_tokens(total_prompt_tokens, prompt_tokens)?;
++    }
++
++    let first = &request.generate_responses[0];
++    let kv_params = first.kv_transfer_params.clone();
++    let kv_params = if request.generate_responses[1..]
++        .iter()
++        .any(|response| response.kv_transfer_params != kv_params)
++    {
++        warn!(
++            "derender_completion: kv_transfer_params differ across responses; \
++             setting to None on the aggregated response"
++        );
++        None
++    } else {
++        kv_params
++    };
++
++    let model_name = response_model_name(ctx, request.model.clone());
++    debug!(
++        request_id = %first.request_id,
++        model = %model_name,
++        choices = choices.len(),
++        total_completion_tokens,
++        "derender_completion"
++    );
++
++    Ok(CompletionResponse {
++        id: first.request_id.clone(),
++        object: "text_completion".to_string(),
++        created: unix_timestamp(),
++        model: model_name,
++        choices,
++        usage: Some(Usage {
++            prompt_tokens: total_prompt_tokens,
++            total_tokens: checked_total_tokens(total_prompt_tokens, total_completion_tokens)?,
++            completion_tokens: Some(total_completion_tokens),
++            prompt_tokens_details: None,
++            completion_tokens_details: Default::default(),
++        }),
++        system_fingerprint: None,
++        kv_transfer_params: kv_params,
++        ec_transfer_params: None,
++    })
++}
++
++/// `prompt_tokens` in derender requests is caller supplied, so adding the
++/// completion count with plain arithmetic could overflow.
++fn checked_total_tokens(prompt_tokens: usize, completion_tokens: usize) -> Result<usize, ApiError> {
++    prompt_tokens.checked_add(completion_tokens).ok_or_else(|| {
++        ApiError::invalid_request(
++            format!(
++                "prompt_tokens ({prompt_tokens}) + completion_tokens \
++                 ({completion_tokens}) overflows the token counter"
++            ),
++            None,
++        )
++    })
++}
++
++/// Aggregate chunk usage, forwarding the caller-supplied prompt token count.
++fn stream_usage(
++    prompt_tokens: Option<usize>,
++    usage: Option<&Usage>,
++) -> Result<Option<Usage>, ApiError> {
++    let Some(usage) = usage else {
++        return Ok(None);
++    };
++    let prompt_tokens = prompt_tokens.unwrap_or(usage.prompt_tokens);
++    let completion_tokens = usage.completion_tokens.unwrap_or(0);
++    Ok(Some(Usage {
++        prompt_tokens,
++        total_tokens: checked_total_tokens(prompt_tokens, completion_tokens)?,
++        completion_tokens: Some(completion_tokens),
++        prompt_tokens_details: None,
++        completion_tokens_details: Default::default(),
++    }))
++}
++
++/// Whether the supplied chat request would engage the tool parser in the
++/// normal chat pipeline (`ResolvedToolContext::parsing_enabled`): tools are
++/// declared and tool_choice is not explicitly "none". Function/Required/
++/// AllowedTools choices fail closed and count as engaged even without a
++/// tools list.
++fn tool_parsing_would_engage(
++    request: &crate::routes::openai::chat_completions::ChatCompletionRequest,
++) -> bool {
++    match &request.tool_choice {
++        Some(ToolChoice::Value(ToolChoiceValue::None)) => false,
++        Some(_) => true,
++        None => request.tools.as_ref().is_some_and(|tools| !tools.is_empty()),
++    }
++}
++
++/// Streaming counterpart to [`derender_chat`].
++///
++/// Processes one `GenerateStreamResponse` chunk and returns the derendered
++/// chunk together with the updated client carried state.
++///
++/// TODO: parse path for reasoning and tool calls is implemented in a future
++/// PR (Python raises NotImplementedError in the same situation).
++fn derender_chat_stream(
++    ctx: &DerenderContext<'_>,
++    request: DerenderChatStreamRequest,
++) -> Result<DerenderChatStreamResponse, ApiError> {
++    check_model(ctx, request.model.as_deref())?;
++    validate_stream_bounds(&request.generate_chunk, ctx.max_model_len, ctx.max_logprobs)?;
++
++    // Fail closed for reasoning parsers: the streaming parse path is not yet
++    // implemented (Python raises NotImplementedError in the same situation),
++    // so hidden reasoning markup must never leak through plain detok.
++    if ctx.chat.reasoning_parser_name(ctx.model_id).is_some() {
++        bail_invalid_request!(
++            "Streaming chat derender is not yet supported for models with a reasoning or \
++             tool parser configured. Use the non-streaming derender endpoint (stream=false) \
++             for parsed output."
++        );
++    }
++
++    // Deviation from Python (which rejects on any configured parser): the
++    // normal chat pipeline only engages the tool parser when the request
++    // itself enables tool parsing, so a tool-capable model serving a
++    // tool-free request streams plain text there. Mirror that here instead of
++    // rejecting on the mere presence of a tool parser.
++    if ctx.chat.tool_call_parser_name(ctx.model_id).is_some()
++        && let Some(chat_request) = &request.chat_request
++        && tool_parsing_would_engage(chat_request)
++    {
++        bail_invalid_request!(
++            "Streaming chat derender is not yet supported for models with a reasoning or \
++             tool parser configured. Use the non-streaming derender endpoint (stream=false) \
++             for parsed output."
++        );
++    }
++
++    // A single DerenderStreamState is threaded through every choice in this
++    // chunk. Correct only when there is at most one choice per SSE event
++    // (n=1, one call per index), as the streaming derender protocol assumes.
++    // Multiple choices sharing one chunk would corrupt each other's detok
++    // window.
++    if request.generate_chunk.choices.len() > 1 {
++        bail_invalid_request!("derender_chat_stream expects at most one choice per chunk");
++    }
++
++    let mut state = types::DerenderStreamState::default();
++    state.validate()?;
++
++    let skip_special = request
++        .chat_request
++        .as_ref()
++        .map(|request| request.skip_special_tokens)
++        .unwrap_or(true);
++    let mut stream_choices = Vec::with_capacity(request.generate_chunk.choices.len());
++
++    for choice in &request.generate_chunk.choices {
++        let (new_text, updated_state) =
++            detok::detokenize_delta(&ctx.tokenizer, &choice.token_ids, &state, skip_special)?;
++        state = updated_state;
++
++        // Unlike OpenAI's API, which always emits `role: "assistant"` on the
++        // very first chunk, this emits it on the first chunk with a non empty
++        // `choices` list. A leading usage only chunk therefore defers the role
++        // to the following content chunk instead of sending an empty role only
++        // delta.
++        let include_role = !state.role_sent;
++        if include_role {
++            state.role_sent = true;
++        }
++
++        stream_choices.push(ChatCompletionStreamChoice {
++            index: choice.index,
++            delta: ChatMessageDelta {
++                role: include_role.then_some(AssistantRole),
++                content: (!new_text.is_empty()).then_some(new_text),
++                tool_calls: None,
++                reasoning: None,
++            },
++            logprobs: None,
++            finish_reason: choice.finish_reason.clone(),
++            stop_reason: None,
++            token_ids: None,
++        });
++    }
++
++    let model_name = response_model_name(ctx, request.model.clone());
++    debug!(
++        request_id = %request.generate_chunk.request_id,
++        model = %model_name,
++        "derender_chat_stream"
++    );
++    let envelope = Arc::new(StreamResponseEnvelope::new(
++        request.generate_chunk.request_id.clone(),
++        "chat.completion.chunk",
++        unix_timestamp(),
++        model_name,
++    ));
++    let mut chunk = ChatCompletionStreamResponse::new(&envelope);
++    chunk.choices = stream_choices;
++    chunk.usage = stream_usage(request.prompt_tokens, request.generate_chunk.usage.as_ref())?;
++
++    Ok(DerenderChatStreamResponse {
++        chunk,
++        stream_state: state,
++    })
++}
++
++/// Streaming counterpart to [`derender_completion`].
++///
++/// Processes one `GenerateStreamResponse` chunk (one output sequence's delta)
++/// and returns the derendered chunk and updated state.
++fn derender_completion_stream(
++    ctx: &DerenderContext<'_>,
++    request: DerenderCompletionStreamRequest,
++) -> Result<DerenderCompletionStreamResponse, ApiError> {
++    check_model(ctx, request.model.as_deref())?;
++    validate_stream_bounds(&request.generate_chunk, ctx.max_model_len, ctx.max_logprobs)?;
++
++    // See the equivalent check in derender_chat_stream: a single
++    // DerenderStreamState is threaded through every choice in this chunk, so
++    // more than one choice per chunk would corrupt the detok window across
++    // choices.
++    if request.generate_chunk.choices.len() > 1 {
++        bail_invalid_request!("derender_completion_stream expects at most one choice per chunk");
++    }
++
++    let mut state = types::DerenderStreamState::default();
++    state.validate()?;
++
++    let skip_special = request
++        .completion_request
++        .as_ref()
++        .map(|request| request.skip_special_tokens)
++        .unwrap_or(true);
++    let mut stream_choices = Vec::with_capacity(request.generate_chunk.choices.len());
++
++    for choice in &request.generate_chunk.choices {
++        let (new_text, updated_state) =
++            detok::detokenize_delta(&ctx.tokenizer, &choice.token_ids, &state, skip_special)?;
++        state = updated_state;
++
++        stream_choices.push(CompletionStreamChoice {
++            index: choice.index,
++            text: new_text,
++            logprobs: None,
++            finish_reason: choice.finish_reason.clone(),
++            stop_reason: None,
++            token_ids: None,
++            prompt_token_ids: None,
++        });
++    }
++
++    let model_name = response_model_name(ctx, request.model.clone());
++    debug!(
++        request_id = %request.generate_chunk.request_id,
++        model = %model_name,
++        "derender_completion_stream"
++    );
++    let envelope = Arc::new(StreamResponseEnvelope::new(
++        request.generate_chunk.request_id.clone(),
++        "text_completion",
++        unix_timestamp(),
++        model_name,
++    ));
++    let mut chunk = CompletionStreamResponse::new(&envelope);
++    chunk.choices = stream_choices;
++    chunk.usage = stream_usage(request.prompt_tokens, request.generate_chunk.usage.as_ref())?;
++
++    Ok(DerenderCompletionStreamResponse {
++        chunk,
++        stream_state: state,
++    })
++}
++
++fn chat_request_model(request: &DerenderChatRequestUnion) -> Option<&str> {
++    match request {
++        DerenderChatRequestUnion::Streaming(request) => request.model.as_deref(),
++        DerenderChatRequestUnion::NonStreaming(request) => request.model.as_deref(),
++    }
++}
++
++fn completion_request_model(request: &DerenderCompletionRequestUnion) -> Option<&str> {
++    match request {
++        DerenderCompletionRequestUnion::Streaming(request) => request.model.as_deref(),
++        DerenderCompletionRequestUnion::NonStreaming(request) => request.model.as_deref(),
++    }
++}
++
++/// Derender a generate response into a chat completion response (render-only
++/// server variant).
++///
++/// Accepts both non-streaming (`stream=false`, default) and streaming
++/// (`stream=true`) request bodies on the same path; the `stream`
++/// discriminator selects the shape.
++pub async fn derender_chat_render(
++    State(state): State<Arc<RenderState>>,
++    headers: HeaderMap,
++    ValidatedJson(body): ValidatedJson<DerenderChatRequestUnion>,
++) -> Result<Response, ApiError> {
++    let ctx = render_context(&state);
++    let request_context = resolve_request_context(&headers, None);
++    match body {
++        DerenderChatRequestUnion::Streaming(request) => {
++            derender_chat_stream(&ctx, request).map(|response| Json(response).into_response())
++        }
++        DerenderChatRequestUnion::NonStreaming(request) => {
++            derender_chat(&ctx, request, request_context)
++                .await
++                .map(|response| Json(response).into_response())
++        }
++    }
++}
++
++/// Derender a generate response into a completion response (render-only
++/// server variant).
++pub async fn derender_completion_render(
++    State(state): State<Arc<RenderState>>,
++    ValidatedJson(body): ValidatedJson<DerenderCompletionRequestUnion>,
++) -> Result<Response, ApiError> {
++    let ctx = render_context(&state);
++    match body {
++        DerenderCompletionRequestUnion::Streaming(request) => {
++            derender_completion_stream(&ctx, request).map(|response| Json(response).into_response())
++        }
++        DerenderCompletionRequestUnion::NonStreaming(request) => {
++            derender_completion(&ctx, request).map(|response| Json(response).into_response())
++        }
++    }
++}
++
++/// Derender a generate response into a chat completion response
++/// (engine-backed server variant).
++pub async fn derender_chat_completions(
++    State(state): State<Arc<AppState>>,
++    headers: HeaderMap,
++    ValidatedJson(body): ValidatedJson<DerenderChatRequestUnion>,
++) -> Result<Response, ApiError> {
++    let ctx = app_context(&state, chat_request_model(&body)).await;
++    let request_context = resolve_request_context(&headers, None);
++    match body {
++        DerenderChatRequestUnion::Streaming(request) => {
++            derender_chat_stream(&ctx, request).map(|response| Json(response).into_response())
++        }
++        DerenderChatRequestUnion::NonStreaming(request) => {
++            derender_chat(&ctx, request, request_context)
++                .await
++                .map(|response| Json(response).into_response())
++        }
++    }
++}
++
++/// Derender a generate response into a completion response (engine-backed
++/// server variant).
++pub async fn derender_completions(
++    State(state): State<Arc<AppState>>,
++    ValidatedJson(body): ValidatedJson<DerenderCompletionRequestUnion>,
++) -> Result<Response, ApiError> {
++    let ctx = app_context(&state, completion_request_model(&body)).await;
++    match body {
++        DerenderCompletionRequestUnion::Streaming(request) => {
++            derender_completion_stream(&ctx, request).map(|response| Json(response).into_response())
++        }
++        DerenderCompletionRequestUnion::NonStreaming(request) => {
++            derender_completion(&ctx, request).map(|response| Json(response).into_response())
++        }
++    }
++}
+diff --git a/rust/src/server/src/routes/derender/types.rs b/rust/src/server/src/routes/derender/types.rs
+new file mode 100644
+--- /dev/null
++++ b/rust/src/server/src/routes/derender/types.rs
+@@ -0,0 +1,330 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++//! Wire types for the `/v1/chat/completions/derender` and
++//! `/v1/completions/derender` endpoints.
++//!
++//! Mirrors the Python vLLM `Derender*Request` / `Derender*Stream*` classes in
++//! `vllm/entrypoints/scale_out/token_in_token_out/protocol.py`.
++
++use serde::{Deserialize, Deserializer, Serialize};
++use serde_json::Value;
++use validator::{Validate, ValidationErrors};
++
++use crate::error::{ApiError, bail_invalid_request};
++use crate::routes::inference::generate::{
++    GenerateResponse, GenerateStreamResponse, PromptLogprobMaps,
++};
++use crate::routes::openai::chat_completions::ChatCompletionRequest;
++use crate::routes::openai::utils::types::{Normalizable, Usage};
++use crate::routes::openai::{CompletionRequest, CompletionStreamResponse};
++
++/// Cap on the carried detok window in [`DerenderStreamState`].
++///
++/// INITIAL_INCREMENTAL_DETOKENIZATION_OFFSET is small (5) and the trimmed
++/// window is O(offset). A generous limit rejects unusually large or malformed
++/// payloads without restricting legitimate multi-byte sequences.
++const MAX_PREV_TOKENS: usize = 1024;
++
++/// Per sequence state for stateless streaming derender.
++///
++/// The client carries this between successive per chunk HTTP calls to the
++/// streaming derender endpoint. All fields are plain JSON serializable data.
++/// No opaque tokenizer or parser internals are stored here.
++///
++/// The detokenization strategy carries the incremental decode offsets
++/// directly rather than re-sending the whole token history each chunk.
++/// `detokenize_incrementally` only ever reads the trailing token window
++/// `prev_tokens[prefix_offset..]`, so we carry just that tail plus the two
++/// offsets. Each chunk resumes exactly where the last one stopped, including
++/// any partially processed multi-byte character (tracked by `read_offset`),
++/// then trims and rebases the window so it never grows with generation
++/// length.
++///
++/// Do not skip serializing `None` fields here: Python's `model_dump()` emits
++/// them as explicit `null`.
++#[derive(Debug, Clone, Default, Deserialize, Serialize)]
++pub(crate) struct DerenderStreamState {
++    /// Trailing decode window. Token strings from `prefix_offset` onward.
++    ///
++    /// Bounded, trimmed and rebased each chunk to the tail
++    /// `detokenize_incrementally` still reads, so it does not grow with the
++    /// number of chunks.
++    #[serde(default)]
++    pub prev_tokens: Vec<String>,
++    /// Token IDs parallel to `prev_tokens`, used to reconstruct the decode
++    /// window without a lossy `id_to_token` → `token_to_id` round-trip
++    /// (some backends store byte pieces as lossy UTF-8). Slots without a
++    /// decodable ID carry `u32::MAX`.
++    ///
++    /// Rust-specific extension: states produced by the Python implementation
++    /// lack this field (`null`/absent), in which case the pieces are mapped
++    /// back through `token_to_id` as a best-effort fallback. Python ignores
++    /// the unknown field when it parses our state.
++    #[serde(default)]
++    pub prev_token_ids: Option<Vec<u32>>,
++    /// Prefix offset into `prev_tokens` for incremental detokenization.
++    #[serde(default)]
++    pub prefix_offset: usize,
++    /// Read offset into `prev_tokens` for incremental detokenization.
++    #[serde(default)]
++    pub read_offset: usize,
++    /// True once the initial `role: "assistant"` delta has been emitted.
++    ///
++    /// Prevents re-emitting the role on subsequent chunks even when the detok
++    /// window is transiently empty (e.g. usage only final chunk).
++    #[serde(default)]
++    pub role_sent: bool,
++    // TODO: Properties used in follow on PR for tool call parsing
++    /// Last emitted cumulative assistant content text.
++    pub last_content: Option<String>,
++    /// Last emitted cumulative reasoning text.
++    pub last_reasoning: Option<String>,
++    /// Stable tool-call IDs, assigned once when each call first appears.
++    ///
++    /// Prevents ID regeneration across re-parsing.
++    #[serde(default)]
++    pub last_tool_call_ids: Vec<String>,
++}
++
++impl DerenderStreamState {
++    /// Reject malformed caller supplied offsets/lengths.
++    ///
++    /// Python enforces the `prev_tokens` cap through a Pydantic field
++    /// validator (surfaced as 400) and turns detok failures from out-of-range
++    /// offsets into a 400 "invalid stream_state" error; both checks live here.
++    pub(super) fn validate(&self) -> Result<(), ApiError> {
++        if self.prev_tokens.len() > MAX_PREV_TOKENS {
++            bail_invalid_request!(
++                "prev_tokens length ({}) exceeds maximum ({})",
++                self.prev_tokens.len(),
++                MAX_PREV_TOKENS
++            );
++        }
++        if self.prefix_offset > self.read_offset || self.read_offset > self.prev_tokens.len() {
++            bail_invalid_request!(
++                "invalid stream_state: detokenization failed (prefix_offset={}, \
++                 read_offset={}, prev_tokens length={})",
++                self.prefix_offset,
++                self.read_offset,
++                self.prev_tokens.len()
++            );
++        }
++        if let Some(ids) = &self.prev_token_ids
++            && ids.len() != self.prev_tokens.len()
++        {
++            bail_invalid_request!(
++                "invalid stream_state: prev_token_ids length ({}) does not match \
++                 prev_tokens length ({})",
++                ids.len(),
++                self.prev_tokens.len()
++            );
++        }
++        Ok(())
++    }
++}
++
++/// Reject `stream: true` on the non-streaming request body, steering the
++/// untagged union to the streaming variant (or to a 400 when malformed).
++fn expect_stream_false<'de, D>(deserializer: D) -> Result<bool, D::Error>
++where
++    D: Deserializer<'de>,
++{
++    let value = bool::deserialize(deserializer)?;
++    if value {
++        return Err(serde::de::Error::custom(
++            "`stream` must be false or omitted for the non-streaming derender request",
++        ));
++    }
++    Ok(false)
++}
++
++/// Reject a missing or false `stream` on the streaming request body.
++fn expect_stream_true<'de, D>(deserializer: D) -> Result<bool, D::Error>
++where
++    D: Deserializer<'de>,
++{
++    let value = bool::deserialize(deserializer)?;
++    if !value {
++        return Err(serde::de::Error::custom(
++            "`stream` must be true for the streaming derender request",
++        ));
++    }
++    Ok(true)
++}
++
++/// Request for the /v1/chat/completions/derender endpoint (non-streaming).
++///
++/// Wraps a complete GenerateResponse and caller supplied metadata needed to
++/// produce a fully formed ChatCompletionResponse without a GPU.
++#[derive(Debug, Deserialize)]
++pub(crate) struct DerenderChatRequest {
++    #[serde(default, deserialize_with = "expect_stream_false")]
++    #[allow(dead_code)]
++    stream: bool,
++    /// Served model name. Defaults to the server's served model name.
++    pub model: Option<String>,
++    /// The complete token-in / token-out engine response to derender.
++    pub generate_response: GenerateResponse,
++    /// Prompt token count for usage; defaults to 0 if omitted.
++    ///
++    /// GenerateResponse carries only output tokens; the caller already has
++    /// `len(GenerateRequest.token_ids)` from the render step.
++    pub prompt_tokens: Option<usize>,
++    /// The original (post-adjust_request) ChatCompletionRequest from /render.
++    ///
++    /// Required by the parsing so that tool/reasoning parsers can receive the
++    /// full request context they expect.
++    pub chat_request: Option<ChatCompletionRequest>,
++}
++
++/// One chunk streaming derender request for /v1/chat/completions/derender.
++///
++/// The client sends one request per SSE chunk received from
++/// `/inference/v1/generate`. Each request carries the generate chunk plus the
++/// `stream_state` returned by the previous call (`None` on the first call).
++/// The response contains the derendered chunk and the updated state to be
++/// passed to the next call.
++#[derive(Debug, Deserialize)]
++pub(crate) struct DerenderChatStreamRequest {
++    #[serde(deserialize_with = "expect_stream_true")]
++    #[allow(dead_code)]
++    stream: bool,
++    pub model: Option<String>,
++    /// One SSE chunk from `/inference/v1/generate` (`stream=True`).
++    pub generate_chunk: GenerateStreamResponse,
++    /// Client carried detok state from the previous call. `None` on first.
++    ///
++    /// Boxed to keep the untagged request-union variants similarly sized.
++    pub stream_state: Option<Box<DerenderStreamState>>,
++    /// Prompt token count for usage. Forwarded from the render step.
++    pub prompt_tokens: Option<usize>,
++    /// The original (post adjust_request) ChatCompletionRequest from /render.
++    pub chat_request: Option<ChatCompletionRequest>,
++}
++
++/// Request for the /v1/completions/derender endpoint (non-streaming).
++///
++/// Parallel to DerenderChatRequest but handles the multi-prompt completions
++/// case: one GenerateResponse per prompt, mirroring the list[GenerateRequest]
++/// returned by /v1/completions/render.
++#[derive(Debug, Deserialize)]
++pub(crate) struct DerenderCompletionRequest {
++    #[serde(default, deserialize_with = "expect_stream_false")]
++    #[allow(dead_code)]
++    stream: bool,
++    /// Served model name. Defaults to the server's served model name.
++    pub model: Option<String>,
++    /// One response per prompt, parallel to the list[GenerateRequest]
++    /// returned by /v1/completions/render.
++    pub generate_responses: Vec<GenerateResponse>,
++    /// One prompt token count per response; each defaults to 0 if omitted.
++    ///
++    /// If provided, `len(prompt_tokens)` must equal `len(generate_responses)`.
++    pub prompt_tokens: Option<Vec<usize>>,
++    /// The original (post-adjust_request) CompletionRequest from /render.
++    ///
++    /// Mirrors chat_request on DerenderChatRequest.
++    pub completion_request: Option<CompletionRequest>,
++}
++
++/// One chunk streaming derender request for /v1/completions/derender.
++///
++/// Parallel to `DerenderChatStreamRequest` for the completions endpoint. Each
++/// call processes one SSE chunk (one output sequence's delta) and returns the
++/// derendered chunk plus updated state.
++#[derive(Debug, Deserialize)]
++pub(crate) struct DerenderCompletionStreamRequest {
++    #[serde(deserialize_with = "expect_stream_true")]
++    #[allow(dead_code)]
++    stream: bool,
++    pub model: Option<String>,
++    /// One SSE chunk from `/inference/v1/generate`.
++    pub generate_chunk: GenerateStreamResponse,
++    /// Client-carried detok state. `None` on the first call.
++    ///
++    /// Boxed to keep the untagged request-union variants similarly sized.
++    pub stream_state: Option<Box<DerenderStreamState>>,
++    /// Prompt token count for usage.
++    pub prompt_tokens: Option<usize>,
++    /// The original (post adjust_request) CompletionRequest from /render.
++    pub completion_request: Option<CompletionRequest>,
++}
++
++/// Validation and normalization of embedded requests (e.g. `chat_request`)
++/// happen when the handler lowers them, not at extraction time.
++macro_rules! impl_union_validation {
++    ($union:ident) => {
++        impl Validate for $union {
++            fn validate(&self) -> Result<(), ValidationErrors> {
++                Ok(())
++            }
++        }
++
++        impl Normalizable for $union {}
++    };
++}
++
++/// Determines the type by checking the `stream` field's literal value. A body
++/// without `stream` validates as the non-streaming member (`stream` defaults
++/// to false there), so the server can validate and dispatch both shapes on a
++/// single path.
++#[derive(Debug, Deserialize)]
++#[serde(untagged)]
++pub(crate) enum DerenderChatRequestUnion {
++    Streaming(DerenderChatStreamRequest),
++    NonStreaming(DerenderChatRequest),
++}
++
++impl_union_validation!(DerenderChatRequestUnion);
++
++/// See [`DerenderChatRequestUnion`].
++#[derive(Debug, Deserialize)]
++#[serde(untagged)]
++pub(crate) enum DerenderCompletionRequestUnion {
++    Streaming(DerenderCompletionStreamRequest),
++    NonStreaming(DerenderCompletionRequest),
++}
++
++impl_union_validation!(DerenderCompletionRequestUnion);
++
++/// Response for one streaming chat derender chunk.
++///
++/// Pairs the derendered SSE chunk with the updated client carried state to
++/// pass to the next call.
++#[derive(Debug, Clone, Serialize)]
++pub(crate) struct DerenderChatStreamResponse {
++    pub chunk: crate::routes::openai::chat_completions::ChatCompletionStreamResponse,
++    pub stream_state: DerenderStreamState,
++}
++
++/// Response for one streaming completions derender chunk.
++///
++/// Parallel to `DerenderChatStreamResponse` for the completions endpoint.
++#[derive(Debug, Clone, Serialize)]
++pub(crate) struct DerenderCompletionStreamResponse {
++    pub chunk: CompletionStreamResponse,
++    pub stream_state: DerenderStreamState,
++}
++
++/// Mirrors the Python vLLM `ChatCompletionResponse` as produced by the
++/// derender endpoint.
++///
++/// Unlike the normal chat path's response type, `prompt_logprobs` here
++/// carries the engine-side `HashMap<u32, GenerateLogprob>` shape passed
++/// through from `GenerateResponse`, and `usage` is always present.
++///
++/// Do not skip serializing `None` fields here: non-streaming response types
++/// should serialize `None` as explicit `null`.
++#[derive(Debug, Clone, Serialize)]
++pub(crate) struct DerenderChatCompletionResponse {
++    pub id: String,
++    pub object: String,
++    pub created: u64,
++    pub model: String,
++    pub choices: Vec<crate::routes::openai::chat_completions::ChatCompletionChoice>,
++    pub usage: Usage,
++    pub prompt_logprobs: Option<PromptLogprobMaps>,
++    pub kv_transfer_params: Option<Value>,
++    pub ec_transfer_params: Option<Value>,
++}
+diff --git a/rust/src/server/src/routes/inference/generate.rs b/rust/src/server/src/routes/inference/generate.rs
+--- a/rust/src/server/src/routes/inference/generate.rs
++++ b/rust/src/server/src/routes/inference/generate.rs
+@@ -26,11 +26,11 @@
+ };
+ 
+ use self::convert::{ResponseOptions, prepare_generate_request};
+-use self::types::{
+-    GenerateLogprob, GenerateResponse, GenerateResponseChoice, GenerateResponseStreamChoice,
+-    GenerateStreamResponse,
++pub(crate) use self::types::{
++    GenerateLogprob, GenerateRequest, GenerateResponse, GenerateResponseChoice,
++    GenerateResponseStreamChoice, GenerateSamplingParams, GenerateStreamResponse,
++    PromptLogprobMaps,
+ };
+-pub(crate) use self::types::{GenerateRequest, GenerateSamplingParams};
+ pub(crate) use self::validate::validate_request_compat;
+ use crate::config::ApiServerOptions;
+ use crate::error::{ApiError, bail_server_error, server_error, text_submit_error};
+diff --git a/rust/src/server/src/routes/inference/generate/types.rs b/rust/src/server/src/routes/inference/generate/types.rs
+--- a/rust/src/server/src/routes/inference/generate/types.rs
++++ b/rust/src/server/src/routes/inference/generate/types.rs
+@@ -56,46 +56,98 @@
+ ///
+ /// Do not skip serializing `None` fields here: non-streaming response types
+ /// should serialize `None` as explicit `null`.
+-#[derive(Debug, Clone, Serialize)]
+-pub(super) struct GenerateResponseChoice {
++///
++/// Also deserialized by the derender endpoints. A JSON `null` `token_ids`
++/// fails deserialization (400); the derender handler additionally rejects
++/// missing/empty `token_ids` with Python's "empty or null token_ids" error.
++#[derive(Debug, Clone, Deserialize, Serialize)]
++pub(crate) struct GenerateResponseChoice {
+     pub index: u32,
+     pub logprobs: Option<ChatLogProbs>,
++    // Per OpenAI spec the Python default is "stop".
++    #[serde(default = "default_finish_reason")]
+     pub finish_reason: Option<String>,
++    #[serde(default)]
+     pub token_ids: Vec<u32>,
++}
++
++fn default_finish_reason() -> Option<String> {
++    Some("stop".to_string())
+ }
+ 
+ /// Mirrors the Python vLLM `GenerateResponseStreamChoice` class.
+ #[serde_with::skip_serializing_none]
+-#[derive(Debug, Clone, Serialize)]
+-pub(super) struct GenerateResponseStreamChoice {
++#[derive(Debug, Clone, Deserialize, Serialize)]
++pub(crate) struct GenerateResponseStreamChoice {
+     pub index: u32,
+     pub logprobs: Option<ChatLogProbs>,
+     pub finish_reason: Option<String>,
++    #[serde(default)]
+     pub token_ids: Vec<u32>,
+ }
+ 
+ /// Mirrors the Python vLLM `GenerateStreamResponse` class.
+ #[serde_with::skip_serializing_none]
+-#[derive(Debug, Clone, Serialize)]
+-pub(super) struct GenerateStreamResponse {
++#[derive(Debug, Clone, Deserialize, Serialize)]
++pub(crate) struct GenerateStreamResponse {
++    #[serde(default)]
+     pub request_id: String,
+     pub choices: Vec<GenerateResponseStreamChoice>,
+     pub usage: Option<Usage>,
+ }
+ 
++/// Engine-wire prompt logprobs: one candidate map per prompt position.
++pub(crate) type PromptLogprobMaps = Vec<Option<HashMap<u32, GenerateLogprob>>>;
++
+ /// Mirrors the Python vLLM `GenerateResponse` class.
+-#[derive(Debug, Clone, Serialize)]
+-pub(super) struct GenerateResponse {
++#[derive(Debug, Clone, Deserialize, Serialize)]
++pub(crate) struct GenerateResponse {
++    #[serde(default)]
+     pub request_id: String,
+     pub choices: Vec<GenerateResponseChoice>,
+-    pub prompt_logprobs: Option<Vec<Option<HashMap<u32, GenerateLogprob>>>>,
++    #[serde(default, deserialize_with = "deserialize_prompt_logprob_maps")]
++    pub prompt_logprobs: Option<PromptLogprobMaps>,
+     pub kv_transfer_params: Option<Value>,
+     pub ec_transfer_params: Option<Value>,
+ }
+ 
++/// Deserialize prompt-logprob position maps with integer keys.
++///
++/// Serde's untagged-union buffering (used by the derender request unions)
++/// cannot drive `HashMap<u32, _>`'s key parsing, so accept string keys and
++/// parse them explicitly.
++fn deserialize_prompt_logprob_maps<'de, D>(
++    deserializer: D,
++) -> Result<Option<PromptLogprobMaps>, D::Error>
++where
++    D: serde::Deserializer<'de>,
++{
++    let raw = Option::<Vec<Option<HashMap<String, GenerateLogprob>>>>::deserialize(deserializer)?;
++    raw.map(|positions| {
++        positions
++            .into_iter()
++            .map(|position| {
++                position
++                    .map(|candidates| {
++                        candidates
++                            .into_iter()
++                            .map(|(key, value)| {
++                                key.parse::<u32>()
++                                    .map(|token_id| (token_id, value))
++                                    .map_err(serde::de::Error::custom)
++                            })
++                            .collect::<Result<HashMap<_, _>, _>>()
++                    })
++                    .transpose()
++            })
++            .collect::<Result<Vec<_>, _>>()
++    })
++    .transpose()
++}
++
+ /// Mirrors the Python vLLM `Logprob` class used in prompt-logprobs payloads.
+-#[derive(Debug, Clone, Serialize)]
+-pub(super) struct GenerateLogprob {
++#[derive(Debug, Clone, Deserialize, Serialize)]
++pub(crate) struct GenerateLogprob {
+     pub logprob: f32,
+     pub rank: Option<u32>,
+     pub decoded_token: Option<String>,
+diff --git a/rust/src/server/src/routes/openai/chat_completions.rs b/rust/src/server/src/routes/openai/chat_completions.rs
+--- a/rust/src/server/src/routes/openai/chat_completions.rs
++++ b/rust/src/server/src/routes/openai/chat_completions.rs
+@@ -28,13 +28,14 @@
+ 
+ use self::convert::{ResponseOptions, prepare_chat_request};
+ pub(crate) use self::types::ChatCompletionRequest;
++use self::types::ChatCompletionResponse;
++pub(crate) use self::types::{
++    AssistantRole, ChatCompletionChoice, ChatCompletionMessage, ChatCompletionStreamChoice,
++    ChatCompletionStreamResponse, ChatMessageDelta,
++};
+ use crate::config::ApiServerOptions;
+ use crate::error::{ApiError, bail_server_error, chat_submit_error, server_error};
+ use crate::lora::LoraModelResolution;
+-use crate::routes::openai::chat_completions::types::{
+-    AssistantRole, ChatCompletionChoice, ChatCompletionMessage, ChatCompletionResponse,
+-    ChatCompletionStreamChoice, ChatCompletionStreamResponse, ChatMessageDelta,
+-};
+ use crate::routes::openai::utils::logprobs::{
+     decoded_logprobs_to_openai_chat, prompt_logprobs_to_maps,
+ };
+diff --git a/rust/src/server/src/routes/openai/chat_completions/types.rs b/rust/src/server/src/routes/openai/chat_completions/types.rs
+--- a/rust/src/server/src/routes/openai/chat_completions/types.rs
++++ b/rust/src/server/src/routes/openai/chat_completions/types.rs
+@@ -339,7 +339,7 @@
+ /// Do not skip serializing `None` fields here: non-streaming response types
+ /// should serialize `None` as explicit `null`.
+ #[derive(Debug, Clone, Serialize)]
+-pub(super) struct ChatCompletionResponse {
++pub(crate) struct ChatCompletionResponse {
+     pub id: String,
+     pub object: String,
+     pub created: u64,
+@@ -355,7 +355,7 @@
+ 
+ /// Mirrors the Python vLLM `ChatCompletionResponseChoice` class.
+ #[derive(Debug, Clone, Serialize)]
+-pub(super) struct ChatCompletionChoice {
++pub(crate) struct ChatCompletionChoice {
+     pub index: u32,
+     pub message: ChatCompletionMessage,
+     pub logprobs: Option<ChatLogProbs>,
+@@ -367,7 +367,7 @@
+ /// A literal type for the "assistant" role, since the API only allows that
+ /// specific value in responses.
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, SerializeDisplay)]
+-pub(super) struct AssistantRole;
++pub(crate) struct AssistantRole;
+ 
+ impl fmt::Display for AssistantRole {
+     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+@@ -377,7 +377,7 @@
+ 
+ /// Mirrors the Python vLLM response `ChatMessage` class.
+ #[derive(Debug, Clone, Serialize)]
+-pub(super) struct ChatCompletionMessage {
++pub(crate) struct ChatCompletionMessage {
+     pub role: AssistantRole,
+     pub content: Option<String>,
+     #[serde(skip_serializing_if = "Vec::is_empty")]
+@@ -388,7 +388,7 @@
+ /// Mirrors the Python vLLM `ChatCompletionStreamResponse` class.
+ #[serde_with::skip_serializing_none]
+ #[derive(Debug, Clone, Serialize)]
+-pub(super) struct ChatCompletionStreamResponse {
++pub(crate) struct ChatCompletionStreamResponse {
+     #[serde(flatten)]
+     pub envelope: Arc<StreamResponseEnvelope>,
+     pub choices: Vec<ChatCompletionStreamChoice>,
+@@ -411,7 +411,7 @@
+ /// Mirrors the Python vLLM `ChatCompletionResponseStreamChoice` class.
+ #[serde_with::skip_serializing_none]
+ #[derive(Debug, Clone, Default, Serialize)]
+-pub(super) struct ChatCompletionStreamChoice {
++pub(crate) struct ChatCompletionStreamChoice {
+     pub index: u32,
+     pub delta: ChatMessageDelta,
+     pub logprobs: Option<ChatLogProbs>,
+@@ -423,7 +423,7 @@
+ /// Mirrors the Python vLLM `DeltaMessage` class.
+ #[serde_with::skip_serializing_none]
+ #[derive(Debug, Clone, Default, Serialize)]
+-pub(super) struct ChatMessageDelta {
++pub(crate) struct ChatMessageDelta {
+     pub role: Option<AssistantRole>,
+     pub content: Option<String>,
+     pub tool_calls: Option<Vec<ToolCallDelta>>,
+diff --git a/rust/src/server/src/routes/openai/completions.rs b/rust/src/server/src/routes/openai/completions.rs
+--- a/rust/src/server/src/routes/openai/completions.rs
++++ b/rust/src/server/src/routes/openai/completions.rs
+@@ -27,8 +27,13 @@
+     TextOutputStreamExt as _, TextRequest,
+ };
+ 
++pub(crate) use self::convert::completion_echo_text;
+ use self::convert::{ResponseOptions, prepare_completion_request};
+ pub(crate) use self::types::CompletionRequest;
++use self::types::CompletionSseChunk;
++pub(crate) use self::types::{
++    CompletionChoice, CompletionResponse, CompletionStreamChoice, CompletionStreamResponse,
++};
+ use super::utils::logprobs::{
+     collected_logprobs_to_openai, decoded_logprobs_to_openai, decoded_prompt_logprobs_to_openai,
+     prompt_logprobs_to_maps, text_len,
+@@ -37,10 +42,6 @@
+ use crate::config::ApiServerOptions;
+ use crate::error::{ApiError, bail_server_error, server_error, text_submit_error};
+ use crate::lora::LoraModelResolution;
+-use crate::routes::openai::completions::types::{
+-    CompletionChoice, CompletionResponse, CompletionSseChunk, CompletionStreamChoice,
+-    CompletionStreamResponse,
+-};
+ use crate::routes::openai::utils::types::LogProbs;
+ use crate::routes::openai::utils::usage::ContinuousUsage;
+ use crate::routes::openai::utils::validated_json::ValidatedJson;
+diff --git a/rust/src/server/src/routes/openai/completions/convert.rs b/rust/src/server/src/routes/openai/completions/convert.rs
+--- a/rust/src/server/src/routes/openai/completions/convert.rs
++++ b/rust/src/server/src/routes/openai/completions/convert.rs
+@@ -176,7 +176,9 @@
+     })
+ }
+ 
+-fn completion_echo_text(
++/// Prompt text echoed back northbound when `echo=true`, mirroring the Python
++/// completions path. Shared with the derender endpoint.
++pub(crate) fn completion_echo_text(
+     request: &CompletionRequest,
+     tokenizer: &dyn Tokenizer,
+ ) -> Result<Option<String>, ApiError> {
+diff --git a/rust/src/server/src/routes/openai/completions/types.rs b/rust/src/server/src/routes/openai/completions/types.rs
+--- a/rust/src/server/src/routes/openai/completions/types.rs
++++ b/rust/src/server/src/routes/openai/completions/types.rs
+@@ -216,7 +216,7 @@
+ /// Do not skip serializing `None` fields here: non-streaming response types
+ /// should serialize `None` as explicit `null`.
+ #[derive(Debug, Clone, Serialize)]
+-pub(super) struct CompletionResponse {
++pub(crate) struct CompletionResponse {
+     pub id: String,
+     pub object: String,
+     pub created: u64,
+@@ -230,7 +230,7 @@
+ 
+ /// Mirrors the Python vLLM `CompletionResponseChoice` class.
+ #[derive(Debug, Clone, Serialize)]
+-pub(super) struct CompletionChoice {
++pub(crate) struct CompletionChoice {
+     pub index: u32,
+     pub text: String,
+     pub logprobs: Option<LogProbs>,
+@@ -244,7 +244,7 @@
+ /// Mirrors the Python vLLM `CompletionStreamResponse` class.
+ #[serde_with::skip_serializing_none]
+ #[derive(Debug, Clone, Serialize)]
+-pub(super) struct CompletionStreamResponse {
++pub(crate) struct CompletionStreamResponse {
+     #[serde(flatten)]
+     pub envelope: Arc<StreamResponseEnvelope>,
+     pub choices: Vec<CompletionStreamChoice>,
+@@ -265,7 +265,7 @@
+ /// Mirrors the Python vLLM `CompletionResponseStreamChoice` class.
+ #[serde_with::skip_serializing_none]
+ #[derive(Debug, Clone, Default, Serialize)]
+-pub(super) struct CompletionStreamChoice {
++pub(crate) struct CompletionStreamChoice {
+     pub index: u32,
+     pub text: String,
+     pub logprobs: Option<LogProbs>,
+diff --git a/rust/src/server/src/routes/openai/mod.rs b/rust/src/server/src/routes/openai/mod.rs
+--- a/rust/src/server/src/routes/openai/mod.rs
++++ b/rust/src/server/src/routes/openai/mod.rs
+@@ -9,5 +9,8 @@
+ pub use chat_completions::chat_completions;
+ pub(crate) use chat_completions::{ChatCompletionRequest, lower_chat_request};
+ pub use completions::completions;
+-pub(crate) use completions::{CompletionRequest, lower_completion_request};
++pub(crate) use completions::{
++    CompletionChoice, CompletionRequest, CompletionResponse, CompletionStreamChoice,
++    CompletionStreamResponse, completion_echo_text, lower_completion_request,
++};
+ pub use models::list_models;
+diff --git a/rust/src/server/src/routes/openai/utils/types.rs b/rust/src/server/src/routes/openai/utils/types.rs
+--- a/rust/src/server/src/routes/openai/utils/types.rs
++++ b/rust/src/server/src/routes/openai/utils/types.rs
+@@ -434,7 +434,10 @@
+ ///
+ /// Do not skip serializing `None` fields here: non-streaming response types
+ /// should serialize `None` as explicit `null`.
+-#[derive(Debug, Clone, Serialize)]
++///
++/// `Deserialize` is derived for the derender endpoints, which accept `Usage`
++/// embedded in `GenerateResponse` / `GenerateStreamResponse` request bodies.
++#[derive(Debug, Clone, Deserialize, Serialize)]
+ pub struct Usage {
+     pub prompt_tokens: usize,
+     pub total_tokens: usize,
+@@ -442,6 +445,7 @@
+     pub prompt_tokens_details: Option<PromptTokenUsageInfo>,
+     /// Reasoning-token breakdown.
+     /// Always present, 0 when the configured parser has no reasoning channel.
++    #[serde(default)]
+     pub completion_tokens_details: CompletionTokenUsageInfo,
+ }
+ 
+@@ -479,13 +483,13 @@
+ }
+ 
+ /// Mirrors the Python vLLM `PromptTokenUsageInfo` class.
+-#[derive(Debug, Clone, Serialize)]
++#[derive(Debug, Clone, Deserialize, Serialize)]
+ pub struct PromptTokenUsageInfo {
+     pub cached_tokens: usize,
+ }
+ 
+ /// Mirrors the Python vLLM `CompletionTokenUsageInfo` class.
+-#[derive(Debug, Clone, Default, Serialize)]
++#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+ pub struct CompletionTokenUsageInfo {
+     pub reasoning_tokens: usize,
+ }
+@@ -604,13 +608,16 @@
+ pub type PromptLogprobs = Vec<Option<HashMap<u32, PromptLogprob>>>;
+ 
+ /// Mirrors the Python vLLM `ChatCompletionLogProbs` class.
+-#[derive(Debug, Clone, Serialize)]
++///
++/// `Deserialize` is derived for the derender endpoints, which accept
++/// chat-shaped logprobs embedded in `GenerateResponse` request bodies.
++#[derive(Debug, Clone, Deserialize, Serialize)]
+ pub struct ChatLogProbs {
+     pub content: Option<Vec<ChatLogProbsContent>>,
+ }
+ 
+ /// Mirrors the Python vLLM `ChatCompletionLogProbsContent` class.
+-#[derive(Debug, Clone, Serialize)]
++#[derive(Debug, Clone, Deserialize, Serialize)]
+ pub struct ChatLogProbsContent {
+     pub token: String,
+     pub logprob: f32,
+@@ -619,7 +626,7 @@
+ }
+ 
+ /// Mirrors the Python vLLM `ChatCompletionLogProb` class.
+-#[derive(Debug, Clone, Serialize)]
++#[derive(Debug, Clone, Deserialize, Serialize)]
+ pub struct TopLogProb {
+     pub token: String,
+     pub logprob: f32,
+diff --git a/rust/src/server/src/routes/render.rs b/rust/src/server/src/routes/render.rs
+--- a/rust/src/server/src/routes/render.rs
++++ b/rust/src/server/src/routes/render.rs
+@@ -33,6 +33,14 @@
+         .route("/v1/models", get(list_models))
+         .route("/v1/chat/completions/render", post(render_chat))
+         .route("/v1/completions/render", post(render_completion))
++        .route(
++            "/v1/chat/completions/derender",
++            post(crate::routes::derender::derender_chat_render),
++        )
++        .route(
++            "/v1/completions/derender",
++            post(crate::routes::derender::derender_completion_render),
++        )
+         .with_state(state)
+         .layer(DefaultBodyLimit::max(DEFAULT_REQUEST_BODY_LIMIT_BYTES))
+ }
+diff --git a/rust/src/text/src/lib.rs b/rust/src/text/src/lib.rs
+--- a/rust/src/text/src/lib.rs
++++ b/rust/src/text/src/lib.rs
+@@ -83,6 +83,16 @@
+         self.max_model_len
+     }
+ 
++    /// Return the maximum number of top log probabilities accepted.
++    pub fn max_logprobs(&self) -> i32 {
++        self.max_logprobs
++    }
++
++    /// Return the backend model id.
++    pub fn model_id(&self) -> &str {
++        self.backend.model_id()
++    }
++
+     fn prepare_prompt_tokens(
+         &self,
+         prompt: Prompt,
