@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-09-05T01:43:27+08:00",
+  "recorded_at": "2026-09-05T10:02:17+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-240",
     "instance_id": "vllm-project__vllm-46807",
@@ -29,7 +29,7 @@
     "base": {
       "behavior_tests": {
         "passed": 3,
-        "failed": 20,
+        "failed": 21,
         "errors": 0,
         "skipped": 0
       },
@@ -38,13 +38,13 @@
     },
     "oracle": {
       "behavior_tests": {
-        "passed": 23,
+        "passed": 24,
         "failed": 0,
         "errors": 0,
         "skipped": 0
       },
       "e2e_exit_code": 0,
-      "e2e_output": "REAL_MOONCAKE_CPU_PD_OK ratio=3 descriptors=4"
+      "e2e_output": "REAL_MOONCAKE_CPU_PD_OK ratio=3 descriptors=4 cross_group_descriptors=3 cross_group_registrations=2"
     }
   },
   "image": {
@@ -76,28 +76,28 @@
         "sha256": "cb84ac59e1bee3daa3c4179993d5053c3be0fd04e2aa51c1c79519bac7c87db3"
       },
       "tests/check_junit.py": {
-        "sha256": "51200d298c9e7762aa3616c2d1c1de8e81ab0eade86617bbfef36f6821ef0602"
+        "sha256": "935f161f0d449896c1a417a9164bfe4f787410abc17e7e46f70bb1d0ffc0007e"
       },
       "tests/test_regression.py": {
-        "sha256": "6cf1ec6cd12878a5e33607885ced2172467fafc41592a9334935fa0aa2876caf"
+        "sha256": "80482b7b697a0c4244b395ac6d21b51adffea8e22742cb3aa390fcfc81f1bb58"
       },
       "tests/verifier_support.py": {
-        "sha256": "beb6a5b91e1a9ff2d0b9dc2127456d40eaff5fbd12a5fb4f195ca8e425ebca9a"
+        "sha256": "5cf9a900daba8c66160912275092b840c10258e2fddfd5b9cc68b8b1f48eba2d"
       },
       "tests/test_real_inmemory_pd_transfer.py": {
-        "sha256": "e2e71a699fe828bb9de8b16b8cc56915e068802af13edee6abbcb0ec456e2118"
+        "sha256": "8373502bdc04edb39db701502c1cbc9e4fe4aa186c0071e9b3d7fc419bb28f3c"
       },
       "validation/ci-cases.json": {
-        "sha256": "367a43b9815d3a2ee5c89d19e1a27e2c21d129e5eebcad23b2bd6f979206490d"
+        "sha256": "bb8b983e5614e2b6fdde5e5f8ee7f30897c09f7a07f0a921d7ee6b9720973763"
       },
       "validation/remediation-matrix.md": {
-        "sha256": "2cec086dd570f69e3810845c944c3ba0fcf9fab66b8a0e634b5aa710eae51184"
+        "sha256": "dd1b7020c25246b32f6993e7bd848fe525541901a5aafa1d08c65cff2c5339e0"
       }
     }
   },
   "verifier_contract": {
-    "behavior_cases": 23,
-    "collection_integrity": "JUnit contains exactly 23 unique, passing, non-skipped cases for full reward.",
+    "behavior_cases": 24,
+    "collection_integrity": "JUnit contains exactly 24 unique, passing, non-skipped cases for full reward.",
     "asserts_private_implementation_structure": false,
     "imports_oracle_helpers": false,
     "behaviors": [
@@ -105,6 +105,7 @@
       "full-attention, MLA, sliding-window MLA, and both GDN conv and temporal-state payloads reach their matching destination blocks",
       "null state placeholders are ignored and unrequested bytes across complete backing allocations remain unchanged",
       "padded attention views and production-shaped shared-page GDN views stay within valid registered memory",
+      "full-attention and GDN groups can share one backing allocation and base address while retaining distinct transfer regions and destination blocks",
       "full-attention, MLA, and sliding-window MLA logical-to-physical block ratios greater than one do not overlap or corrupt neighboring blocks",
       "registration, transfer, group-count, and producer-consumer layout failures are not reported as successful",
       "for supported prompts of at least two elements, cache-only GDN remote prefill and decode preserve the exact final-element recomputation boundary for token IDs and prompt embeddings on producer and consumer sides",
@@ -117,14 +118,14 @@
     ]
   },
   "e2e_boundary": {
-    "path": "hybrid KV configuration and partial-prefix P/D request metadata -> real Mooncake worker construction and registration -> real metadata encoding/decoding, group-aware ratio-three transfer planning, and producer send lifecycle -> pointer-based copy into consumer CPU tensors and completion status",
+    "path": "hybrid KV configuration and partial-prefix P/D request metadata -> real Mooncake worker construction and deduplicated backing registration -> real metadata encoding/decoding, group-aware ratio-three and cross-group shared-backing transfer planning, and producer send lifecycle -> pointer-based copy into consumer CPU tensors and completion status",
     "scheduler_composition": "Cold token-ID, cold prompt-embedding, warm-prefix, and consumer prompt-embedding cases enter through the real Scheduler.add_request, Scheduler.schedule, and Scheduler.update_from_output lifecycle. The consumer case waits for remote state, receives a real KVConnectorOutput completion, resumes with one local prompt element, and finishes. Producer token-ID and prompt-embedding cases also compare the retained public request input with the exact original prefix.",
-    "substitution": "Deterministic CPU tensors replace model forward passes. Attention tensors preserve their declared physical layout, while GDN conv and temporal tensors are production-shaped as_strided views over one page-strided backing allocation. An in-memory engine replaces native Mooncake RDMA and validates registered ranges before performing the exact pointer-based copies requested by production connector code. A loopback socket replaces ZMQ transport while retaining production message encoding and response handling.",
-    "preserved_semantics": "Cache group cardinality and order, power-of-two and non-power-of-two logical-to-physical block identities, per-group partial-prefix suffix selection, GDN shared-page shapes, offsets and strides, both recurrent-state payloads, complete backing bytes, null placeholders, registration ranges, failure codes, prompt element order, request completion, and cold/warm lifecycle state are preserved.",
+    "substitution": "Deterministic CPU tensors replace model forward passes. Attention tensors preserve their declared physical layout, while GDN conv and temporal tensors are production-shaped as_strided views over page-strided backing allocations. A dedicated HMA fixture gives full-attention and GDN the same storage and base address. An in-memory engine replaces native Mooncake RDMA and validates registered ranges before performing the exact pointer-based copies requested by production connector code. A loopback socket replaces ZMQ transport while retaining production message encoding and response handling.",
+    "preserved_semantics": "Cache group cardinality and order, cross-group shared base addresses, deduplicated memory registration with distinct logical regions, power-of-two and non-power-of-two logical-to-physical block identities, per-group partial-prefix suffix selection, GDN shared-page shapes, offsets and strides, both recurrent-state payloads, complete backing bytes, null placeholders, registration ranges, failure codes, prompt element order, request completion, and cold/warm lifecycle state are preserved.",
     "limitations": "The verifier does not execute GPU kernels, model weights, native Mooncake RDMA/NVLink, multi-node transport, or full-model accuracy evaluation. It does not claim coverage for Mamba variants other than GDN."
   },
   "independent_challenge": {
-    "case": "An unpublished ratio-five partial-prefix sliding-window MLA plus production-shaped shared-page GDN transfer with non-contiguous logical blocks.",
+    "case": "An unpublished 80-byte padded allocation shared by full-attention and production-shaped GDN views, with non-contiguous per-group partial-prefix source and destination blocks.",
     "oracle": "passed",
     "alternative_python_block_expansion": "passed"
   },
@@ -135,7 +136,7 @@
       "rewards": [0, 0, 0, 0, 0],
       "behavior_tests_each_round": {
         "passed": 3,
-        "failed": 20,
+        "failed": 21,
         "errors": 0,
         "skipped": 0
       },
@@ -146,7 +147,7 @@
       "rounds": 5,
       "rewards": [1, 1, 1, 1, 1],
       "behavior_tests_each_round": {
-        "passed": 23,
+        "passed": 24,
         "failed": 0,
         "errors": 0,
         "skipped": 0
@@ -160,7 +161,7 @@
       "patch_sha256": "29dbfd8ba2f7cd2b869ffc4eefaeec1c4695088c4b52cddaa43cd37f9b3dadea",
       "expected_reward": 1,
       "actual_reward": 1,
-      "tests_passed": 23,
+      "tests_passed": 24,
       "tests_failed": 0,
       "e2e_exit_code": 0
     },
@@ -169,7 +170,7 @@
       "patch_sha256": "9421d1220d08cca5ef138e447fc28d65a54746106dca8e663ec08e383e3ad03d",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 22,
+      "tests_passed": 23,
       "tests_failed": 1,
       "e2e_exit_code": 0
     },
@@ -178,7 +179,7 @@
       "patch_sha256": "384882040957cfe0ae3fa56932663cab705838beaf1770ef5cb31e21dfb4f779",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 23,
+      "tests_passed": 24,
       "tests_failed": 0,
       "e2e_exit_code": 1
     },
@@ -188,7 +189,7 @@
       "expected_reward": 0,
       "actual_reward": 0,
       "tests_passed": 15,
-      "tests_failed": 8,
+      "tests_failed": 9,
       "e2e_exit_code": 1
     },
     {
@@ -196,7 +197,7 @@
       "patch_sha256": "a63b682e05a97ecdea58c55867c6e7818ba8b4d5fcc7f7d27354188ff0a26c34",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 22,
+      "tests_passed": 23,
       "tests_failed": 1,
       "e2e_exit_code": 0
     },
@@ -205,7 +206,7 @@
       "patch_sha256": "6e38681b26e9a23e4548ffe1c2a8765dc5763ef45e48c4f845779b7c5d08d8a7",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 22,
+      "tests_passed": 23,
       "tests_failed": 1,
       "e2e_exit_code": 1
     },
@@ -214,7 +215,7 @@
       "patch_sha256": "d72fdc3017319feafb717fe07a0eae7177787529d1a3d41d5de66c16bd428ef2",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 22,
+      "tests_passed": 23,
       "tests_failed": 1,
       "e2e_exit_code": 0
     },
@@ -223,7 +224,7 @@
       "patch_sha256": "72c891854a4306ce1f5aa7a2764a7208f4de48294c6f4a882f3df492f55e051f",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 19,
+      "tests_passed": 20,
       "tests_failed": 4,
       "e2e_exit_code": 0
     },
@@ -232,7 +233,7 @@
       "patch_sha256": "7543b272c7136a097f8e97d0d5c7e0392c39a541cb696227e2a1f88ecf22a561",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 21,
+      "tests_passed": 22,
       "tests_failed": 2,
       "e2e_exit_code": 0
     },
@@ -241,7 +242,7 @@
       "patch_sha256": "62aa83f68a1e9a129431c26ebe198e70dc6d78c4dd695011881b18eb4d3fa47d",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 22,
+      "tests_passed": 23,
       "tests_failed": 1,
       "e2e_exit_code": 0
     },
@@ -251,7 +252,7 @@
       "expected_reward": 0,
       "actual_reward": 0,
       "tests_passed": 18,
-      "tests_failed": 5,
+      "tests_failed": 6,
       "e2e_exit_code": 1
     },
     {
@@ -259,7 +260,7 @@
       "patch_sha256": "09adad65cf366d20d8a3eb8d8c1d03f123d3f00c60b7f3b47381a304b3e1f338",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 21,
+      "tests_passed": 22,
       "tests_failed": 2,
       "e2e_exit_code": 0
     },
@@ -268,7 +269,7 @@
       "patch_sha256": "85bfea07d0665802b4ae56ce52b766c5f35c138ea7ebc28f468b2f709b86b46d",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 21,
+      "tests_passed": 22,
       "tests_failed": 2,
       "e2e_exit_code": 0
     },
@@ -277,7 +278,7 @@
       "patch_sha256": "8640e355da4b73d065704912f643601584fad039209c6943d09ef073f5fe4b93",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 23,
+      "tests_passed": 24,
       "tests_failed": 0,
       "e2e_exit_code": 1
     },
@@ -286,7 +287,16 @@
       "patch_sha256": "22a0639abd08574ca7709f2de74118f22cfaacc322703a19c364f29cc5538d21",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 22,
+      "tests_passed": 23,
+      "tests_failed": 1,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "drop-duplicate-base-region",
+      "patch_sha256": "05888a8d2d630892372c9b517057037b7bd0436e64666075532eab7fae9ac190",
+      "expected_reward": 0,
+      "actual_reward": 0,
+      "tests_passed": 23,
       "tests_failed": 1,
       "e2e_exit_code": 1
     }
@@ -294,9 +304,9 @@
   "harbor": {
     "version": "0.22.0",
     "verifier_environment_mode": "shared",
-    "job_id": "3bfd7eaf-6b3c-4fba-882d-cf77f290463d",
-    "trial_id": "0f4bf30e-426f-4d99-825a-5360b98b9c90",
-    "input_task_checksum": "4ff82ababff148cfaab91f46d45f87cf2b43a02e433f93527ac7042d6fe1cdb7",
+    "job_id": "3daedf97-0f29-40e5-ab74-934aab7f461d",
+    "trial_id": "53a18b21-78c9-4927-b203-358831dc97a0",
+    "input_task_checksum": "46c78371f437fe6b13dc18d4f740f73698327a4f79ff35bff75f445ecd117b01",
     "checksum_scope": "Prepared Oracle task after executable freeze and before final evidence-only updates.",
     "reward": 1,
     "n_completed_trials": 1,
@@ -305,7 +315,7 @@
     "pytest_exit_code": 0,
     "integrity_exit_code": 0,
     "pipeline_exit_code": 0,
-    "runtime_seconds": 29
+    "runtime_seconds": 31
   },
   "provenance_gates": {
     "head_matches_base": true,

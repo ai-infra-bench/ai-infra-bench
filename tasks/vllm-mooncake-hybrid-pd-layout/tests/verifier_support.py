@@ -518,27 +518,67 @@ def make_hybrid_caches(
 def make_mamba_cache(
     spec: MambaSpec,
     num_blocks: int,
+    *,
+    backing: torch.Tensor | None = None,
+    page_stride_bytes: int | None = None,
 ) -> tuple[torch.Tensor, ...]:
     """Build production-shaped state views over one page-strided allocation."""
-    backing = torch.zeros(num_blocks * spec.page_size_bytes, dtype=torch.uint8)
+    page_stride_bytes = page_stride_bytes or spec.page_size_bytes
+    assert page_stride_bytes >= spec.page_size_bytes
+    if backing is None:
+        backing = torch.zeros(num_blocks * page_stride_bytes, dtype=torch.uint8)
+    assert backing.dtype == torch.uint8
+    assert backing.numel() >= num_blocks * page_stride_bytes
     state_tensors: list[torch.Tensor] = []
     storage_offset_bytes = 0
     for shape, dtype in zip(spec.shapes, spec.dtypes, strict=True):
         element_size = torch.empty((), dtype=dtype).element_size()
-        assert spec.page_size_bytes % element_size == 0
+        assert page_stride_bytes % element_size == 0
         assert storage_offset_bytes % element_size == 0
         natural_stride = torch.empty(shape, dtype=dtype).stride()
         state_tensors.append(
             torch.as_strided(
                 backing.view(dtype),
                 size=(num_blocks, *shape),
-                stride=(spec.page_size_bytes // element_size, *natural_stride),
+                stride=(page_stride_bytes // element_size, *natural_stride),
                 storage_offset=storage_offset_bytes // element_size,
             )
         )
         storage_offset_bytes += prod(shape) * element_size
     assert storage_offset_bytes <= spec.page_size_bytes
     return tuple(state_tensors)
+
+
+def make_cross_group_shared_caches(config: KVCacheConfig):
+    """Build full-attention and GDN views sharing one HMA-style allocation."""
+    attention_spec = config.kv_cache_groups[0].kv_cache_spec
+    mamba_spec = config.kv_cache_groups[1].kv_cache_spec
+    assert isinstance(attention_spec, FullAttentionSpec)
+    assert isinstance(mamba_spec, MambaSpec)
+    page_stride_bytes = max(
+        attention_spec.page_size_bytes,
+        mamba_spec.page_size_bytes,
+    )
+    backing = torch.zeros(
+        config.num_blocks * page_stride_bytes,
+        dtype=torch.uint8,
+    )
+    attention = torch.as_strided(
+        backing,
+        size=(config.num_blocks, attention_spec.page_size_bytes),
+        stride=(page_stride_bytes, 1),
+    )
+    mamba_cache = make_mamba_cache(
+        mamba_spec,
+        config.num_blocks,
+        backing=backing,
+        page_stride_bytes=page_stride_bytes,
+    )
+    assert attention.data_ptr() == mamba_cache[0].data_ptr()
+    return {
+        "model.layers.0.self_attn": attention,
+        "model.layers.1.linear_attn": mamba_cache,
+    }
 
 
 def mamba_storage_bytes(cache: tuple[torch.Tensor, ...]) -> torch.Tensor:

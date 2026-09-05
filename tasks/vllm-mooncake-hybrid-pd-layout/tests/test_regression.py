@@ -22,6 +22,7 @@ from verifier_support import (
     create_model_runner_output,
     create_request,
     create_scheduler,
+    make_cross_group_shared_caches,
     make_hybrid_caches,
     make_hybrid_config,
     make_mamba_cache,
@@ -217,6 +218,75 @@ def test_shared_padded_storage_transfers_without_neighbor_corruption() -> None:
                 3 * gdn_page_bytes : 4 * gdn_page_bytes
             ]
             assert torch.equal(mamba_storage_bytes(destination_gdn), expected_gdn)
+        finally:
+            shutdown_connectors(producer, consumer)
+
+
+def test_cross_group_shared_backing_preserves_all_transfer_regions() -> None:
+    config = make_hybrid_config(
+        logical_block_size=LOGICAL_BLOCK_SIZE,
+        num_blocks=12,
+        attention_kind="full",
+    )
+    transport = MemoryTransport()
+    with patched_worker_runtime(
+        transport, kernel_block_size=LOGICAL_BLOCK_SIZE
+    ):
+        producer = make_worker_connector(
+            "kv_producer", config, logical_block_size=LOGICAL_BLOCK_SIZE
+        )
+        consumer = make_worker_connector(
+            "kv_consumer", config, logical_block_size=LOGICAL_BLOCK_SIZE
+        )
+        source = make_cross_group_shared_caches(config)
+        destination = make_cross_group_shared_caches(config)
+        source_attention = source["model.layers.0.self_attn"]
+        destination_attention = destination["model.layers.0.self_attn"]
+        source_gdn = source["model.layers.1.linear_attn"]
+        destination_gdn = destination["model.layers.1.linear_attn"]
+        source_backing = mamba_storage_bytes(source_gdn)
+        destination_backing = mamba_storage_bytes(destination_gdn)
+        destination_backing.fill_(211)
+        source_attention[1].copy_(
+            torch.arange(source_attention.shape[1], dtype=torch.uint8)
+        )
+        source_gdn[0][3].fill_(37)
+        source_gdn[1][3].fill_(41)
+        destination_before = destination_backing.clone()
+
+        try:
+            producer.register_kv_caches(source)
+            consumer.register_kv_caches(destination)
+            expected_regions = {
+                (source_backing.data_ptr(), source_backing.numel()),
+                (destination_backing.data_ptr(), destination_backing.numel()),
+            }
+            assert set(transport.regions) == expected_regions
+
+            finished = asyncio.run(
+                transfer_once(
+                    producer,
+                    consumer,
+                    local_block_ids=[[1], [3]],
+                    remote_block_ids=[[6], [8]],
+                    transfer_id="cross-group-shared-backing",
+                )
+            )
+
+            assert finished[1] == {"decoder-request"}
+            page_stride_bytes = source_attention.stride(0)
+            expected = destination_before.clone()
+            expected[6 * page_stride_bytes : 7 * page_stride_bytes] = source_backing[
+                1 * page_stride_bytes : 2 * page_stride_bytes
+            ]
+            expected[8 * page_stride_bytes : 9 * page_stride_bytes] = source_backing[
+                3 * page_stride_bytes : 4 * page_stride_bytes
+            ]
+            assert torch.equal(destination_attention[6], source_attention[1])
+            assert torch.equal(destination_gdn[0][8], source_gdn[0][3])
+            assert torch.equal(destination_gdn[1][8], source_gdn[1][3])
+            assert torch.equal(destination_backing, expected)
+            assert transport.transfers
         finally:
             shutdown_connectors(producer, consumer)
 

@@ -9,6 +9,7 @@ from vllm.v1.attention.backends.utils import NULL_BLOCK_ID
 
 from verifier_support import (
     MemoryTransport,
+    make_cross_group_shared_caches,
     make_hybrid_caches,
     make_hybrid_config,
     make_worker_connector,
@@ -17,6 +18,73 @@ from verifier_support import (
     shutdown_connectors,
     transfer_once,
 )
+
+
+def run_cross_group_shared_transfer() -> tuple[int, int]:
+    logical_block_size = 16
+    config = make_hybrid_config(
+        logical_block_size=logical_block_size,
+        num_blocks=12,
+        attention_kind="full",
+    )
+    transport = MemoryTransport()
+    with patched_worker_runtime(
+        transport,
+        kernel_block_size=logical_block_size,
+    ):
+        producer = make_worker_connector(
+            "kv_producer", config, logical_block_size=logical_block_size
+        )
+        consumer = make_worker_connector(
+            "kv_consumer", config, logical_block_size=logical_block_size
+        )
+        source = make_cross_group_shared_caches(config)
+        destination = make_cross_group_shared_caches(config)
+        source_attention = source["model.layers.0.self_attn"]
+        destination_attention = destination["model.layers.0.self_attn"]
+        source_gdn = source["model.layers.1.linear_attn"]
+        destination_gdn = destination["model.layers.1.linear_attn"]
+        source_backing = mamba_storage_bytes(source_gdn)
+        destination_backing = mamba_storage_bytes(destination_gdn)
+        destination_backing.fill_(211)
+        source_attention[1].copy_(
+            torch.arange(source_attention.shape[1], dtype=torch.uint8)
+        )
+        source_gdn[0][3].fill_(37)
+        source_gdn[1][3].fill_(41)
+        before = destination_backing.clone()
+        try:
+            producer.register_kv_caches(source)
+            consumer.register_kv_caches(destination)
+            assert set(transport.regions) == {
+                (source_backing.data_ptr(), source_backing.numel()),
+                (destination_backing.data_ptr(), destination_backing.numel()),
+            }
+            finished = asyncio.run(
+                transfer_once(
+                    producer,
+                    consumer,
+                    local_block_ids=[[1], [3]],
+                    remote_block_ids=[[6], [8]],
+                    transfer_id="e2e-cross-group-shared-backing",
+                )
+            )
+            assert finished[1] == {"decoder-request"}
+            page_stride_bytes = source_attention.stride(0)
+            expected = before.clone()
+            expected[6 * page_stride_bytes : 7 * page_stride_bytes] = source_backing[
+                1 * page_stride_bytes : 2 * page_stride_bytes
+            ]
+            expected[8 * page_stride_bytes : 9 * page_stride_bytes] = source_backing[
+                3 * page_stride_bytes : 4 * page_stride_bytes
+            ]
+            assert torch.equal(destination_attention[6], source_attention[1])
+            assert torch.equal(destination_gdn[0][8], source_gdn[0][3])
+            assert torch.equal(destination_gdn[1][8], source_gdn[1][3])
+            assert torch.equal(destination_backing, expected)
+        finally:
+            shutdown_connectors(producer, consumer)
+    return len(transport.transfers), len(transport.regions)
 
 
 def main() -> None:
@@ -114,9 +182,12 @@ def main() -> None:
         finally:
             shutdown_connectors(producer, consumer)
 
+    shared_descriptors, shared_registrations = run_cross_group_shared_transfer()
     print(
         "REAL_MOONCAKE_CPU_PD_OK "
-        f"ratio={physical_ratio} descriptors={len(transport.transfers)}"
+        f"ratio={physical_ratio} descriptors={len(transport.transfers)} "
+        f"cross_group_descriptors={shared_descriptors} "
+        f"cross_group_registrations={shared_registrations}"
     )
 
 
