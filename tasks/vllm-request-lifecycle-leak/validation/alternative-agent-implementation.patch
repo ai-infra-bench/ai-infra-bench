@@ -1,0 +1,16 @@
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index 90ca58441..362c56a07 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -1719,6 +1719,11 @@ class Scheduler(SchedulerInterface):
+         self, request: Request, delay_free_blocks: bool = False
+     ) -> dict[str, Any] | None:
+         assert request.is_finished()
++        # Completion is the ownership boundary. Drop the request-bound hash
++        # callback here so releasing the scheduler's final reference also
++        # releases the request and any multimodal payload it owns. Live and
++        # streaming-waiting requests retain their callback and payload.
++        request.get_hash_new_full_blocks = None
+ 
+         connector_delay_free_blocks, kv_xfer_params = self._connector_finished(request)
+         self.encoder_cache_manager.free(request)

@@ -387,6 +387,15 @@ P0. Establish a bypass through the actual grading entrypoint and final
 reward. Label extracted or relocated probes as preliminary, recording
 their substitutions and any missing container or Harbor validation.
 
+Check verifier permissions under the actual host and container identities.
+Candidate code must not modify trusted grading scripts or final rewards, but
+Harbor must be able to traverse/read the collected output paths. A non-root
+owner on a trusted read-only harness mount is not by itself a trust failure;
+root ownership alone is not proof of effective isolation. If files are staged,
+verify their trusted origin and protection before candidate execution. Separate
+permission/setup/collection failures from behavioral reward 0, and require
+collection evidence with the intended non-root host when applicable.
+
 ### 5.6 Gate 3 blockers
 
 Block when required behavior is untested, reward depends on undisclosed or

@@ -1,0 +1,46 @@
+schema_version = "1.4"
+artifacts = ["/workspace/repo/vllm"]
+
+[task]
+name = "ai-infra-bench/vllm-request-lifecycle-leak"
+version = "1.2.0"
+description = "Fix completed vLLM requests retaining multimodal payloads until cyclic garbage collection."
+authors = [{ name = "AI Infra Bench Curators" }]
+keywords = ["vllm", "memory-leak", "prefix-caching", "multimodal"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+track = "representative"
+source_ids = ["vllm__pr__34183"]
+repository = "vllm-project/vllm"
+base_commit = "e94ec597334d9a3e9b0d04bc17152e2747c83d51"
+image_digest = "sha256:243698b78997390a803dc06234f9a33194fdfd1cee4d7eefdbb8eeb96a12ae1b"
+oracle_commit = "8a5e0e2b2bb925d162328927b7565514fa355da1"
+workload_type = "bug_fix"
+subsystems = ["request_lifecycle", "memory", "multimodal"]
+dependency_cutoff = "2026-02-10T01:18:42Z"
+environment_template = "vllm-cutoff-pinned"
+publication_state = "hardening-pending-validation"
+difficulty = "medium"
+grader_kind = "correctness"
+
+[agent]
+timeout_sec = 36000
+user = "agent"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 600.0
+environment_mode = "separate"
+user = "root"
+network_mode = "no-network"
+
+[environment]
+docker_image = "ai-infra-bench/vllm-request-lifecycle-leak:base-e94ec597334d"
+network_mode = "no-network"
+build_timeout_sec = 14400.0
+accelerator = "CPU"
+cpus = 4
+memory_mb = 16384
+storage_mb = 49152
+workdir = "/workspace/repo"

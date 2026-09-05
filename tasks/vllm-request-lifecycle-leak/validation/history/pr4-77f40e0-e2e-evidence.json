@@ -1,0 +1,116 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-05T17:33:00+08:00",
+  "status": "final-validated",
+  "source": {
+    "repository": "vllm-project/vllm",
+    "base_commit": "e94ec597334d9a3e9b0d04bc17152e2747c83d51",
+    "oracle_commit": "8a5e0e2b2bb925d162328927b7565514fa355da1"
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-request-lifecycle-leak:base-e94ec597334d",
+    "image_id": "sha256:243698b78997390a803dc06234f9a33194fdfd1cee4d7eefdbb8eeb96a12ae1b",
+    "size_bytes": 3948995902,
+    "dockerfile_sha256": "4f6d898f88d4325d9e0e784e6c68df5801d8e2f05769ac5b2d1e7098f1ff01f6",
+    "dependency_lock_sha256": "cb3b63dd4ccb3861651fb63081183ffaf801162ccf99830a8e71179c1fdb88cb",
+    "dependency_lock_manifest_sha256": "ee0ff9360a216aff48d868802168d806e6918bb7e08673eb29821fc09d64b954"
+  },
+  "artifacts": {
+    "files": {
+      ".dockerignore": "914c87fd58ee5c87f0f8e48b891a5dc3d24f662b7e083e1d6c99b3ac0e477514",
+      "README.md": "8efcbdb3ce489f94a0b4e55f430d6f982fe9adae48cf67e419ed8fc7346ce6da",
+      "environment/Dockerfile": "4f6d898f88d4325d9e0e784e6c68df5801d8e2f05769ac5b2d1e7098f1ff01f6",
+      "environment/image-manifest.json": "3931d0b0b19a66912702f3654b07984fecb820eb54949cc9fd661796e43b8924",
+      "environment/lock/README.md": "275795d94633e340c72da0d4b9880aee8f8e1d191764d648b1e410a233599716",
+      "environment/lock/manifest.json": "ee0ff9360a216aff48d868802168d806e6918bb7e08673eb29821fc09d64b954",
+      "environment/lock/requirements.txt": "cb3b63dd4ccb3861651fb63081183ffaf801162ccf99830a8e71179c1fdb88cb",
+      "instruction.md": "7f5fbf4ca5ef990f744145db4d2ef804742ef4ea72dfa65f87ffe2be29e71f4f",
+      "solution/oracle.patch": "80f903a082cd8a9547edc3ede12380a8bc498181da3cf749c816994ab7699423",
+      "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+      "task.toml": "572f2892ef640fa355f6ce6d45b541db381efb7a3e4a079d61addd391c833577",
+      "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+      "tests/supervise_retention.py": "5e786c618ce0bf98e57e370f1258683fac3ee7964713a8e0e23b2258433c6c73",
+      "tests/test.sh": "d9d1e0cc559379663f6884da9af884c2db55ffa6b4152af5f7f245620127af5e",
+      "tests/verify_retention.py": "ef658bf8f9c829a9e400d6390d752f70b5b97c552875e196b5b6392265b8296a",
+      "validation/alternative-agent-implementation.patch": "f11a6f96bf082077b82883804e53e4a4580aa2dadfd81326b4a1c2c06b154411",
+      "validation/ci-cases.json": "8e0d7a82dc21a0b7616e1d890fb30d3207ed268c0861d4b261206814cd7ea4fc",
+      "validation/docker-build.md": "54e6234ab8ac6bf60e42bbb07118a40264f9ed7663a843c65af37c2923222ff6",
+      "validation/incomplete-agent-implementation.patch": "cf17e340624856ecbdd6c460498c83b73cb4e5b484f348094f2a851135c3273b",
+      "validation/os-exit-zero-bypass.patch": "2ff359bf99a822fc6b2ab29c29abde293e4e96e43d0ac9dc72787ac5d5bbb34d",
+      "validation/remediation-matrix.md": "c61e92f7fd0413e5d6bac026b9b4ff9a3d7558b503a9ebbf33359f79f0f57b9e",
+      "validation/system-exit-zero-bypass.patch": "46857414f715b704e0ea8a8d35ef8efaffb8438c6a6d729b956ead2df12937de"
+    }
+  },
+  "e2e_boundary": {
+    "path": "Request construction -> Scheduler ownership -> normal/cancel/streaming completion -> prompt and multimodal reclamation",
+    "real_components": [
+      "vllm.v1.request.Request and RequestStatus",
+      "Scheduler.add_request, finish_requests, and _handle_stopped_request",
+      "FCFSRequestQueue and running/request ownership collections",
+      "MultiModalFeatureSpec and PlaceholderRange",
+      "production prefix block hasher"
+    ],
+    "substitution": "Deterministic weak-referenceable 256 KiB objects replace media tensors; minimal recorders replace unrelated KV/encoder resource managers.",
+    "limitation": "The CPU task exercises the Python ownership defect and does not run model inference or CUDA allocation."
+  },
+  "verifier_contract": {
+    "behavior_cases": 11,
+    "implementation_independent": true,
+    "source_or_ast_assertions": false,
+    "trusted_completion": "root-owned parent grades all nonce-bound observations and alone writes reward 1",
+    "candidate_boundary": "each observation imports and executes candidate vLLM as unprivileged agent"
+  },
+  "validation": {
+    "base": {"expected_reward": 0, "reward": 0, "passed_cases": 7, "total_cases": 11},
+    "oracle": {"expected_reward": 1, "reward": 1, "passed_cases": 11, "total_cases": 11},
+    "correct_alternatives": [
+      {"name": "scheduler-side-completion-cleanup", "expected_reward": 1, "reward": 1, "passed_cases": 11}
+    ],
+    "controls": [
+      {"name": "finish-only-incomplete", "expected_reward": 0, "reward": 0, "passed_cases": 8},
+      {"name": "SystemExit(0)-at-import", "expected_reward": 0, "reward": 0, "passed_cases": 0},
+      {"name": "os._exit(0)-at-import", "expected_reward": 0, "reward": 0, "passed_cases": 0}
+    ],
+    "repeated_runs": {
+      "base_rewards": [0, 0, 0, 0, 0],
+      "oracle_rewards": [1, 1, 1, 1, 1]
+    },
+    "repository_checks": {
+      "task_validate": "OK",
+      "case_discovery": "6 cases with expected rewards",
+      "image_check": "declared image ID and Base commit matched"
+    },
+    "harbor": {
+      "version": "0.22.0",
+      "job_id": "1c731a86-4849-4de5-a288-0b388093d6d8",
+      "trial_id": "7dc373b0-987e-491e-a043-475a881eafb9",
+      "trial_name": "vllm-request-lifecycle-leak__jgrDYWf",
+      "input_task_checksum": "a719ec9a207e11d047447fb07d7af80a5afeade2434af47ec5bceeafa9207213",
+      "agent": "oracle",
+      "environment": "docker",
+      "verifier_environment_mode": "separate",
+      "reward": 1.0,
+      "n_completed_trials": 1,
+      "n_errored_trials": 0,
+      "started_at": "2026-09-05T09:30:14.777874Z",
+      "finished_at": "2026-09-05T09:32:49.705611Z",
+      "result_directory": "/root/workspace/dxz-workspace/ai-infra-bench-data/pr4-review-fix-20260905/harbor/pr4-review-fix-oracle"
+    },
+    "binding_note": "The Harbor run used the exact executable files and final image recorded here. Only publication_state metadata and this evidence record were updated afterward; neither changes the environment, instruction, solution, or verifier."
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "source_tree_matches_base": true,
+    "reachable_history_count": 2000,
+    "bounded_shallow_history_documented": true,
+    "future_reference_commit_absent": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "donor_python_source_absent": true,
+    "donor_source_layers_absent_from_final_image": true,
+    "solution_tests_validation_absent_from_image": true,
+    "worktree_clean_at_container_start": true,
+    "runtime_network_disabled": true,
+    "verifier_mount_read_only": true
+  }
+}

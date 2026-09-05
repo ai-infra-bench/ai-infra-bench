@@ -109,6 +109,12 @@ Keep these artifacts out of the agent image. Distinguish function-level probes
 from final grading runs and re-run affected cases and controls after fixes;
 an earlier reward of 1 does not certify a control's correctness.
 
+When fixing verifier permissions, retain write isolation from candidate code and
+check that Harbor can collect rewards/logs using the intended host identity.
+Record relevant owners, modes and mount restrictions for failures. Do not treat
+root-only local success as evidence of non-root CI compatibility, or remove
+completion safeguards to make collection pass.
+
 Base must receive 0 because of the target behavior. Oracle and correct
 alternatives must receive 1 with no skips or errors. Incorrect controls must
 receive 0 through behavior alone.

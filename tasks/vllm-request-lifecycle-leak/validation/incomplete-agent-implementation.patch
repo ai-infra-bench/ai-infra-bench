@@ -1,0 +1,15 @@
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index 90ca58441..f930c7c52 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -1709,5 +1709,10 @@ class Scheduler(SchedulerInterface):
+ 
+             request.status = finished_status
++            # Incomplete: ordinary stopped requests are released, but client
++            # cancellation and streaming end still retain the bound callback.
++            if finished_status == RequestStatus.FINISHED_STOPPED:
++                request.get_hash_new_full_blocks = None
++
+             self._free_request(request, delay_free_blocks=delay_free_blocks)
+ 
+     def _free_request(
