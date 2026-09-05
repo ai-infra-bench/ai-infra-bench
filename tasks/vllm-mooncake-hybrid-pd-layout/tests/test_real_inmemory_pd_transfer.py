@@ -2,14 +2,20 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import torch
+
+from padded_state_transfer import run_padded_state_transfer
+from scheduler_handoff import run_scheduler_handoff
 
 from vllm.v1.attention.backends.utils import NULL_BLOCK_ID
 
 from verifier_support import (
+    assert_cross_group_transfer,
     MemoryTransport,
     make_cross_group_shared_caches,
+    make_cross_group_shared_config,
     make_hybrid_caches,
     make_hybrid_config,
     make_mla_caches,
@@ -24,10 +30,9 @@ from verifier_support import (
 
 def run_cross_group_shared_transfer() -> int:
     logical_block_size = 16
-    config = make_hybrid_config(
+    config = make_cross_group_shared_config(
         logical_block_size=logical_block_size,
         num_blocks=12,
-        attention_kind="full",
     )
     last_block = config.num_blocks - 1
     transport = MemoryTransport()
@@ -47,7 +52,6 @@ def run_cross_group_shared_transfer() -> int:
         destination_attention = destination["model.layers.0.self_attn"]
         source_gdn = source["model.layers.1.linear_attn"]
         destination_gdn = destination["model.layers.1.linear_attn"]
-        source_backing = mamba_storage_bytes(source_gdn)
         destination_backing = mamba_storage_bytes(destination_gdn)
         destination_backing.fill_(211)
         source_attention[1].copy_(
@@ -69,18 +73,13 @@ def run_cross_group_shared_transfer() -> int:
                 )
             )
             assert finished[1] == {"decoder-request"}
-            page_stride_bytes = source_attention.stride(0)
-            expected = before.clone()
-            expected[
-                last_block * page_stride_bytes : (last_block + 1) * page_stride_bytes
-            ] = source_backing[1 * page_stride_bytes : 2 * page_stride_bytes]
-            expected[8 * page_stride_bytes : 9 * page_stride_bytes] = source_backing[
-                3 * page_stride_bytes : 4 * page_stride_bytes
-            ]
             assert torch.equal(destination_attention[last_block], source_attention[1])
             assert torch.equal(destination_gdn[0][8], source_gdn[0][3])
             assert torch.equal(destination_gdn[1][8], source_gdn[1][3])
-            assert torch.equal(destination_backing, expected)
+            assert_cross_group_transfer(
+                source, destination, before,
+                attention_pairs=[(1, last_block)], gdn_pairs=[(3, 8)],
+            )
         finally:
             shutdown_connectors(producer, consumer)
     return len(transport.transfers)
@@ -250,6 +249,10 @@ def main() -> None:
     shared_descriptors = run_cross_group_shared_transfer()
     mla_descriptors = run_non_gdn_mla_transfer("mla")
     sliding_mla_descriptors = run_non_gdn_mla_transfer("sliding_mla")
+    padded = run_padded_state_transfer(physical_ratio=4)
+    handoff = run_scheduler_handoff()
+    print("PADDED_GDN_PAYLOAD_OK " + json.dumps(padded, sort_keys=True))
+    print("SCHEDULER_WORKER_HANDOFF_OK " + json.dumps(handoff, sort_keys=True))
     print(
         "REAL_MOONCAKE_CPU_PD_OK "
         f"ratio={physical_ratio} descriptors={len(transport.transfers)} "

@@ -6,7 +6,7 @@ import contextlib
 import ctypes
 import json
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import count
 from math import prod
 from pathlib import Path
@@ -563,6 +563,23 @@ def make_mla_config(
     )
 
 
+def make_cross_group_shared_config(
+    *, logical_block_size: int = 16, num_blocks: int = 12
+) -> KVCacheConfig:
+    """Declare the same padded page size that the shared allocation uses."""
+    config = make_hybrid_config(
+        logical_block_size=logical_block_size, num_blocks=num_blocks
+    )
+    attention_spec = config.kv_cache_groups[0].kv_cache_spec
+    group = config.kv_cache_groups[1]
+    assert attention_spec.page_size_bytes >= group.kv_cache_spec.page_size_bytes
+    config.kv_cache_groups[1] = KVCacheGroupSpec(
+        group.layer_names,
+        replace(group.kv_cache_spec, page_size_padded=attention_spec.page_size_bytes),
+    )
+    return config
+
+
 def make_mla_caches(
     config: KVCacheConfig,
     *,
@@ -674,6 +691,9 @@ def make_cross_group_shared_caches(config: KVCacheConfig, *, physical_ratio: int
         attention_spec.page_size_bytes,
         mamba_spec.page_size_bytes,
     )
+    assert mamba_spec.page_size_bytes == page_stride_bytes, (
+        "shared GDN fixture must declare its actual padded page stride"
+    )
     assert page_stride_bytes % physical_ratio == 0
     assert attention_spec.page_size_bytes % physical_ratio == 0
     backing = torch.zeros(
@@ -709,6 +729,76 @@ def mamba_storage_bytes(cache: tuple[torch.Tensor, ...]) -> torch.Tensor:
         0,
         (storage.nbytes(),),
         (1,),
+    )
+
+
+def assert_cross_group_transfer(
+    source, destination, before: torch.Tensor, *,
+    attention_pairs: list[tuple[int, int]],
+    gdn_pairs: list[tuple[int, int]],
+    physical_ratio: int = 1,
+) -> dict[str, int]:
+    """Check all live payload bytes and protect every unrequested physical page.
+
+    GDN payload is defined by the actual state views. Padding within a requested
+    GDN page may be copied or retained; it is not model-visible state. The
+    attention views sharing those pages are aliases, not separately live data.
+    """
+    src_gdn = source["model.layers.1.linear_attn"]
+    dst_gdn = destination["model.layers.1.linear_attn"]
+    src = mamba_storage_bytes(src_gdn)
+    dst = mamba_storage_bytes(dst_gdn)
+    required = torch.zeros(dst.numel(), dtype=torch.bool)
+    permitted = torch.zeros_like(required)
+    expected = before.clone()
+
+    def require_view(src_view, dst_view):
+        assert src_view.is_contiguous() and dst_view.is_contiguous()
+        size = src_view.numel() * src_view.element_size()
+        assert size == dst_view.numel() * dst_view.element_size()
+        src_offset = src_view.data_ptr() - src.data_ptr()
+        dst_offset = dst_view.data_ptr() - dst.data_ptr()
+        expected[dst_offset:dst_offset + size] = src[src_offset:src_offset + size]
+        required[dst_offset:dst_offset + size] = True
+        permitted[dst_offset:dst_offset + size] = True
+
+    for source_id, destination_id in attention_pairs:
+        for offset in range(physical_ratio):
+            require_view(
+                source["model.layers.0.self_attn"][source_id * physical_ratio + offset],
+                destination["model.layers.0.self_attn"][destination_id * physical_ratio + offset],
+            )
+    page_bytes = dst_gdn[0].stride(0) * dst_gdn[0].element_size()
+    for source_id, destination_id in gdn_pairs:
+        for src_state, dst_state in zip(src_gdn, dst_gdn, strict=True):
+            require_view(src_state[source_id], dst_state[destination_id])
+        page_start = dst_gdn[0][destination_id].data_ptr() - dst.data_ptr()
+        permitted[page_start:page_start + page_bytes] = True
+
+    assert torch.equal(dst[required], expected[required]), "requested state payload differs"
+    assert torch.equal(dst[~permitted], before[~permitted]), "unrequested storage changed"
+    return {
+        "required_bytes": int(required.sum()),
+        "permitted_padding_bytes": int((permitted & ~required).sum()),
+        "changed_padding_bytes": int((dst[permitted & ~required] != before[permitted & ~required]).sum()),
+    }
+
+
+def assert_gdn_slots(source, destination, before, pairs):
+    """Require every state tensor; ignore only requested slots' unused tails."""
+    backing = mamba_storage_bytes(destination)
+    permitted = torch.zeros(backing.numel(), dtype=torch.bool)
+    page_bytes = destination[0].stride(0) * destination[0].element_size()
+    for source_id, destination_id in pairs:
+        for src_state, dst_state in zip(source, destination, strict=True):
+            assert torch.equal(
+                dst_state[destination_id].view(torch.uint8),
+                src_state[source_id].view(torch.uint8),
+            ), "GDN state payload differs"
+        start = destination[0][destination_id].data_ptr() - backing.data_ptr()
+        permitted[start:start + page_bytes] = True
+    assert torch.equal(backing[~permitted], before[~permitted]), (
+        "unrequested GDN storage changed"
     )
 
 

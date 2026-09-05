@@ -1,5 +1,7 @@
 # Mooncake hybrid P/D layout hardening
 
+The sections through F17 below are historical qualification records. The final post-merge F18/F19 section and `e2e-evidence.json` describe the current verifier.
+
 Review rules: `/tmp/ai-infra-review-skill.QQWW99` at `0753f6b587d24f1c81c192d5a84ad2ac626f168e` (clean), loaded from the latest `origin/main` during this review.
 
 Task worktree: `/home/qunhong/workspace/ai-infra-bench` on `tasks/rq1-eight-reviewed-tasks-with-tokenizer-review` at `579a50eafc552ad76f2396e8a36d6843b67df6dd` when review began. The task had only the approved `instruction.md` edit before hardening.
@@ -108,3 +110,60 @@ Terminal-payload hardening after the independent GPT-5.6 Sol xhigh review of PR 
 The scoring transport is unchanged. These tests do not assert exact registration sizes, registration counts, full-storage coverage, descriptor partitioning, or candidate private fields. The registered footprint may omit unused padding; adjacent split registrations also remain valid. The separate suggestion to reject every registration extending beyond a fixture tensor's logical storage is not adopted as an implementation-independent assertion: correctness of any broader registered allocation must be established from transport/allocation semantics, not by requiring the Oracle's storage representation. This change closes the reproduced missing-payload-byte failure without claiming native RDMA allocation-boundary qualification.
 
 Final terminal-payload validation: Base received reward 0 in five of five runs with 3 passed and 28 failed cases per run; Oracle received reward 1 in five of five runs with 31/31 cases and no errors/skips. The three correct alternatives received 1 and all seventeen incorrect controls received 0. Harbor job `9fcfd584-91cf-48b2-93ac-5bde287a6bb2` completed one trial with reward 1, zero errored trials, and all verifier exit codes zero. The task contract, Oracle and canonical image were unchanged.
+
+Post-merge review of PR #47 (`b9090a5d6f5ee9756ce355367d1cad6a006cf38a`),
+using the main skill at `497a5b6e0c0c3c8a538ee1f09e25aac4967d5b1c`.
+The user authorized repair, publication and an independent GPT-6/high review.
+The merged task is unchanged relative to the reviewed revision. Both reported
+counterexamples were independently reproduced before editing.
+
+| ID | Priority | Finding | Authorized remediation | Validation | Status |
+| --- | --- | --- | --- | --- | --- |
+| F18 | P1 | Dropping hybrid receive metadata passes all 31 old cases and four E2Es, but a real scheduled request remains waiting without a copy. | Connect real producer/consumer scheduler outputs to worker entry points, then return actual worker completion events; retain independent payload and isolation checks. Add the bad implementation as a control. | Before repair: wrong reward 1 and failed real handoff. After repair: reward 0, all five new handoff cases fail and E2E fails. | fixed |
+| F19 | P1 | A correct GDN payload-only transfer is rejected for preserving unused requested-page padding; shared fixture spec also understates the physical stride. | Declare padded specs before connector construction. Require state-view bytes and unchanged unrequested storage, while allowing requested GDN page padding to differ. Add the payload-only alternative and mixed-dtype padded repeated transfers. | Before repair: wrong reward 0, independent padded and handoff challenges pass. After repair: reward 1 with 38/38 cases and all six E2E scenarios; requested padding remains unchanged. The conv-only control fails 13 cases and E2E. | fixed |
+
+Instruction, task metadata, environment, canonical image and Oracle are unchanged.
+The skill files are clean at the main revision above; the isolated worktree is
+`/home/qunhong/workspace/ai-infra-bench-mooncake-handoff-padding`, branch
+`tasks/harden-mooncake-handoff-padding`. PR #47 was already merged, so these
+changes are published as a follow-up PR.
+
+The seven new cases cover five real scheduler/worker handoffs (cold token IDs,
+two token IDs, two embeddings, warm-prefix ratio three, and embedding ratio four)
+and two mixed-dtype padded state transfers (ratios one/four). The latter uses
+200 bytes of actual state in each declared 256-byte page and two successive
+partial-prefix transfers. Full payload bytes remain mandatory, and all bytes
+outside requested attention payloads and requested GDN pages remain unchanged.
+Only unused tails of requested GDN pages may change or remain intact.
+
+The handoff starts with real requests on both schedulers. It passes their actual
+metadata through the worker connector entry points and feeds back only actual
+worker completion sets. Bootstrap HTTP provides a valid endpoint, and native
+transport uses range-checked in-memory copies. It does not synthesize receive
+metadata, remote-agent task counts or successful receive events. Expected block
+mapping comes independently from the real cache allocators. Existing isolated
+transfer and scheduler cases remain for diagnosis; they are supplemented by this
+complete path.
+
+Qualification found that the historical split-registration alternative divided
+an odd allocation at a physical-attention boundary inside a larger GDN slot.
+The new 256-byte, ratio-four case correctly rejected its cross-registration
+copy (37/38 cases passed, E2E failed). The control now derives its split alignment
+from every aliased layer's stride. Its repaired version passes 38/38 and all six
+E2Es. This is a control implementation repair; registration/copy acceptance rules
+were not weakened. The old control hash was
+`76863ac660b6048d719bf6734d08a813374e3550d593a7f17560b0b779a542b1`.
+
+Final direct qualification comprises Base, Oracle and all 23 manifest controls:
+Base scores 0 (3 passed, 35 failed); Oracle and four correct alternatives score 1
+(38 passed); all nineteen incorrect controls score 0. There are no collection
+errors or skips. The complete matrix's only unexpected result was the old split
+alternative above; that control was repaired and rerun against identical verifier
+hashes. Three additional fresh-container rounds each for Base, Oracle and the
+payload-only alternative reproduce rewards 0, 1 and 1 respectively. An independent
+43-element, logical-size-21, ratio-seven handoff challenge passes for warm token
+IDs and cold embeddings under both Oracle and payload-only implementations.
+Final Harbor Oracle and payload-only trial identities, rewards, checksums and
+executable hashes are recorded in `e2e-evidence.json`. Raw local logs are retained
+under `/home/qunhong/workspace/ai-infra-bench-mooncake-handoff-work`; the checked-in
+`validation/run_cases.py` reproduces all direct versions in fresh containers.

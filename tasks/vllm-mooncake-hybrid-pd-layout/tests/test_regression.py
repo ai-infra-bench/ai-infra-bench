@@ -18,11 +18,13 @@ from vllm.v1.outputs import KVConnectorOutput, ModelRunnerOutput
 from vllm.v1.request import Request, RequestStatus
 
 from verifier_support import (
+    assert_cross_group_transfer,
     MemoryTransport,
     create_model_runner_output,
     create_request,
     create_scheduler,
     make_cross_group_shared_caches,
+    make_cross_group_shared_config,
     make_hybrid_caches,
     make_hybrid_config,
     make_mamba_cache,
@@ -49,7 +51,9 @@ def test_terminal_attention_payload_completes_without_neighbor_corruption(
     physical_ratio: int,
 ) -> None:
     logical_block_size = 30
-    config = make_hybrid_config(logical_block_size=logical_block_size, num_blocks=14)
+    config = make_cross_group_shared_config(
+        logical_block_size=logical_block_size, num_blocks=14
+    )
     last_block = config.num_blocks - 1
     source_block = last_block if terminal_endpoint == "source" else 4
     destination_block = last_block if terminal_endpoint == "destination" else 6
@@ -344,10 +348,9 @@ def test_shared_padded_storage_transfers_without_neighbor_corruption() -> None:
 
 
 def test_cross_group_shared_backing_preserves_all_transfer_regions() -> None:
-    config = make_hybrid_config(
+    config = make_cross_group_shared_config(
         logical_block_size=LOGICAL_BLOCK_SIZE,
         num_blocks=12,
-        attention_kind="full",
     )
     transport = MemoryTransport()
     with patched_worker_runtime(transport, kernel_block_size=LOGICAL_BLOCK_SIZE):
@@ -363,7 +366,6 @@ def test_cross_group_shared_backing_preserves_all_transfer_regions() -> None:
         destination_attention = destination["model.layers.0.self_attn"]
         source_gdn = source["model.layers.1.linear_attn"]
         destination_gdn = destination["model.layers.1.linear_attn"]
-        source_backing = mamba_storage_bytes(source_gdn)
         destination_backing = mamba_storage_bytes(destination_gdn)
         destination_backing.fill_(211)
         source_attention[1].copy_(
@@ -388,18 +390,13 @@ def test_cross_group_shared_backing_preserves_all_transfer_regions() -> None:
             )
 
             assert finished[1] == {"decoder-request"}
-            page_stride_bytes = source_attention.stride(0)
-            expected = destination_before.clone()
-            expected[6 * page_stride_bytes : 7 * page_stride_bytes] = source_backing[
-                1 * page_stride_bytes : 2 * page_stride_bytes
-            ]
-            expected[8 * page_stride_bytes : 9 * page_stride_bytes] = source_backing[
-                3 * page_stride_bytes : 4 * page_stride_bytes
-            ]
             assert torch.equal(destination_attention[6], source_attention[1])
             assert torch.equal(destination_gdn[0][8], source_gdn[0][3])
             assert torch.equal(destination_gdn[1][8], source_gdn[1][3])
-            assert torch.equal(destination_backing, expected)
+            assert_cross_group_transfer(
+                source, destination, destination_before,
+                attention_pairs=[(1, 6)], gdn_pairs=[(3, 8)],
+            )
             assert transport.transfers
         finally:
             shutdown_connectors(producer, consumer)

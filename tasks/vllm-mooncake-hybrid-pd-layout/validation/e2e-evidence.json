@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-09-05T12:01:02+08:00",
+  "recorded_at": "2026-09-05T11:37:44.439676+00:00",
   "source": {
     "candidate_id": "vllm-cpu-300-240",
     "instance_id": "vllm-project__vllm-46807",
@@ -21,32 +21,6 @@
       }
     ]
   },
-  "fact_validation": {
-    "historical_observations": {
-      "qwen35": "The reference PR reports that the pre-existing Mooncake path could not initialize a hybrid full-attention plus GDN layout.",
-      "deepseek_v4_flash": "The reference PR discussion records standalone GSM8K accuracy of about 0.9507 and pre-existing 1P1D Mooncake accuracy of about 0.0485."
-    },
-    "base": {
-      "behavior_tests": {
-        "passed": 3,
-        "failed": 28,
-        "errors": 0,
-        "skipped": 0
-      },
-      "e2e_exit_code": 1,
-      "failure_boundary": "The mixed-layout worker reaches the real Mooncake worker constructor and fails when the GDN backend is treated as an ordinary attention cache. Scheduler cases also retain the wrong cache-only GDN prompt boundary. Non-GDN MLA cases also fail real registration when overlapping shared-storage views are registered separately."
-    },
-    "oracle": {
-      "behavior_tests": {
-        "passed": 31,
-        "failed": 0,
-        "errors": 0,
-        "skipped": 0
-      },
-      "e2e_exit_code": 0,
-      "e2e_output": "REAL_MOONCAKE_CPU_PD_OK ratio=3 descriptors=4 cross_group_descriptors=3 non_gdn_mla_descriptors=24 non_gdn_sliding_mla_descriptors=24"
-    }
-  },
   "image": {
     "canonical_tag": "ai-infra-bench/vllm-mooncake-hybrid-pd-layout:base-97b5ce5c3931",
     "image_id": "sha256:20b46c59b7d5a4a50c73fbdd7a096a7be0fb3278470dc75b49685bb52bcbb5b9",
@@ -58,52 +32,52 @@
     "dependency_lock_manifest_sha256": "7f9c3e7f46ed6a77c9ffb557d440f43f6e54618429a61cea3e131384092328c0",
     "cache_only_rebuild_image_id": "sha256:20b46c59b7d5a4a50c73fbdd7a096a7be0fb3278470dc75b49685bb52bcbb5b9"
   },
-  "artifacts": {
-    "files": {
-      "task.toml": {
-        "sha256": "7f3789ad71367020458c5ef8b0e541b2a04ab412111e9b0f66803372e56a6a93"
+  "prior_validation": {
+    "revision": "b9090a5d6f5ee9756ce355367d1cad6a006cf38a",
+    "path": "tasks/vllm-mooncake-hybrid-pd-layout/validation/e2e-evidence.json",
+    "scope": "Historical 31-case / four-scenario evidence remains available at the merged revision. No historical stability, challenge or Harbor result is presented as a run of this verifier."
+  },
+  "fact_validation": {
+    "historical_observations": {
+      "qwen35": "The reference PR reports that the pre-existing Mooncake path could not initialize a hybrid full-attention plus GDN layout.",
+      "deepseek_v4_flash": "The reference PR discussion records standalone GSM8K accuracy of about 0.9507 and pre-existing 1P1D Mooncake accuracy of about 0.0485."
+    },
+    "base": {
+      "reward": 0,
+      "behavior_tests": {
+        "passed": 3,
+        "failed": 35,
+        "errors": 0,
+        "skipped": 0
       },
-      "instruction.md": {
-        "sha256": "cd4823617d98d7d76eb02d7a60ac5b2563d252e27fb5ccac3d999a02e9dbd4d7"
+      "e2e_exit_code": 1,
+      "failure_boundary": "The mixed-layout worker reaches the real Mooncake worker constructor and fails when the GDN backend is treated as an ordinary attention cache. Scheduler cases also retain the wrong cache-only GDN prompt boundary. Non-GDN MLA cases also fail real registration when overlapping shared-storage views are registered separately."
+    },
+    "oracle": {
+      "reward": 1,
+      "behavior_tests": {
+        "passed": 38,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
       },
-      "solution/oracle.patch": {
-        "sha256": "c57aca82d402768b5564a96f63a197195bf4c6fdb7a033a8f3d3a9d78c67fd47"
-      },
-      "solution/solve.sh": {
-        "sha256": "30736ddecc6d93c65becaef873117262947e06abc41e37210157417696d39d56"
-      },
-      "tests/test.sh": {
-        "sha256": "cb84ac59e1bee3daa3c4179993d5053c3be0fd04e2aa51c1c79519bac7c87db3"
-      },
-      "tests/check_junit.py": {
-        "sha256": "2a775137cb4dec0b802505ec63f923a452dc0f0b461dcee8eb25f1fc66e0e726"
-      },
-      "tests/test_regression.py": {
-        "sha256": "02839ceaae31d57e0724c608da7e10555d9e3aa19d4b3e4414b39fdc4dc8d73d"
-      },
-      "tests/verifier_support.py": {
-        "sha256": "3cf0dca657170f4bd0965fa05d0fb1e4b043b803b3d4ef915c82999a3f56b936"
-      },
-      "tests/test_real_inmemory_pd_transfer.py": {
-        "sha256": "c3bfe81ce942d21105b0e428ac65496ef3ae8e5a7a68185957931cb0b5dd8b8f"
-      },
-      "validation/ci-cases.json": {
-        "sha256": "cae7f52816dc9317cc1c5576cfa4dacba367e4e6ca1c940d8eabfdf7c3dac453"
-      },
-      "validation/remediation-matrix.md": {
-        "sha256": "03bccba02505e325f6e9d5ab383a935a27f0c98687d6197c81a6034ece39809f"
-      }
+      "e2e_exit_code": 0,
+      "e2e_output": [
+        "PADDED_GDN_PAYLOAD_OK [{\"changed_padding_bytes\": 56, \"completed\": true, \"permitted_padding_bytes\": 56, \"required_bytes\": 712, \"step\": 0}, {\"changed_padding_bytes\": 56, \"completed\": true, \"permitted_padding_bytes\": 56, \"required_bytes\": 456, \"step\": 1}]",
+        "SCHEDULER_WORKER_HANDOFF_OK {\"consumer_completed\": true, \"copy_descriptors\": 9, \"local_recomputed_elements\": 1, \"physical_ratio\": 1, \"producer_completed\": true, \"prompt_elements\": 51, \"prompt_kind\": \"token_ids\", \"warm\": false}",
+        "REAL_MOONCAKE_CPU_PD_OK ratio=3 descriptors=4 cross_group_descriptors=3 non_gdn_mla_descriptors=24 non_gdn_sliding_mla_descriptors=24"
+      ]
     }
   },
   "verifier_contract": {
-    "behavior_cases": 31,
-    "collection_integrity": "JUnit contains exactly 31 unique, passing, non-skipped cases for full reward.",
+    "behavior_cases": 38,
+    "collection_integrity": "Exactly 38 unique passing cases, with zero skips/errors, plus all six E2E scenarios are required for reward 1.",
     "asserts_private_implementation_structure": false,
     "imports_oracle_helpers": false,
     "behaviors": [
       "mixed full-attention and GDN workers initialize through the existing connector interface",
       "full-attention, MLA, sliding-window MLA, and both GDN conv and temporal-state payloads reach their matching destination blocks",
-      "null state placeholders are ignored and unrequested bytes across complete backing allocations remain unchanged",
+      "null state placeholders are ignored; unrequested backing bytes remain unchanged, excluding only padding within requested GDN pages",
       "padded attention views and production-shaped shared-page GDN views stay within valid registered memory",
       "full-attention and GDN groups can share one backing allocation and base address while retaining distinct transfer regions and destination blocks",
       "full-attention, MLA, and sliding-window MLA logical-to-physical block ratios greater than one do not overlap or corrupt neighboring blocks",
@@ -116,45 +90,104 @@
       "cold and fully cached warm requests complete and a subsequent request confirms the prefill scheduler remains healthy",
       "pure full-attention Mooncake transfer and NIXL GDN remote-prefill token accounting remain compatible",
       "non-GDN DeepSeek MLA and sliding-window MLA select real MLA model/topology semantics, preserve both shared-storage layer payloads and untouched gaps, and support partial-prefix transfers at physical ratios one, three, and four",
-      "legal source-terminal and destination-terminal attention requests complete at physical ratios one and five, copy the entire requested payload through its final byte, and preserve all unrequested backing bytes"
+      "legal source-terminal and destination-terminal attention requests complete at physical ratios one and five, copy the entire requested payload through its final byte, and preserve all unrequested backing bytes",
+      "real producer and consumer Scheduler outputs cross bind_connector_metadata/start_load_kv; actual worker get_finished events let the waiting consumer resume and both sides complete",
+      "scheduler handoff covers cold token IDs, two-element IDs and embeddings, warm ratio-three prefixes and ratio-four embeddings; expected destinations derive from actual cache allocators",
+      "mixed float16/float32 GDN state occupies 200 bytes of a declared 256-byte page; ratios one/four and two successive partial-prefix transfers preserve both states and every unrequested page"
     ],
-    "registration_fairness": "Reward observes completion and destination bytes, not registration count, length, storage coverage, descriptor count, private candidate fields or Oracle helper structure. The payload-bounded alternative derives registered extents from transferable regions and may omit unused trailing storage padding; the split-registration alternative remains accepted."
+    "registration_fairness": "Reward observes completion and destination bytes, not registration count, length, storage coverage, descriptor count, private candidate fields or Oracle helper structure. The payload-bounded alternative derives registered extents from transferable regions and may omit unused trailing storage padding; the split-registration alternative remains accepted.",
+    "e2e_scenarios": 6,
+    "padding_fairness": "Both GDN state tensor payloads are required byte-for-byte. Requested GDN page tails may be copied or preserved. All bytes outside the union of requested attention payloads and requested GDN pages remain unchanged. Attention/GDN views alias the allocation; unused alias views are not separately live state."
   },
   "e2e_boundary": {
-    "path": "hybrid KV configuration and partial-prefix P/D request metadata -> real Mooncake worker construction and deduplicated backing registration -> real metadata encoding/decoding, group-aware ratio-three and cross-group shared-backing transfer planning, and producer send lifecycle -> pointer-based copy into consumer CPU tensors and completion status; non-GDN DeepSeek MLA and sliding-window MLA configuration -> real ModelConfig and TransferTopology with no recurrent groups -> shared-storage registration, partial-prefix ratio-four transfer, exact consumer backing bytes and completion; cross-group shared-backing E2E requests the final consumer attention block, including its last payload byte",
-    "scheduler_composition": "Cold token-ID, cold prompt-embedding, warm-prefix, and consumer prompt-embedding cases enter through the real Scheduler.add_request, Scheduler.schedule, and Scheduler.update_from_output lifecycle. The consumer case waits for remote state, receives a real KVConnectorOutput completion, resumes with one local prompt element, and finishes. Producer token-ID and prompt-embedding cases also compare the retained public request input with the exact original prefix.",
-    "substitution": "Deterministic CPU tensors replace model forward passes. Attention tensors preserve their declared physical layout, while GDN conv and temporal tensors are production-shaped as_strided views over page-strided backing allocations. A dedicated HMA fixture gives full-attention and GDN the same storage and base address. An in-memory engine replaces native Mooncake RDMA and validates registered ranges before performing the exact pointer-based copies requested by production connector code. A loopback socket replaces ZMQ transport while retaining production message encoding and response handling. Non-GDN MLA fixtures use a small DeepseekV4ForCausalLM config parsed by real ModelConfig (use_mla=True), no MambaSpec groups, and a three-dimensional MLA backend shape. Model/topology flags are not patched.",
-    "preserved_semantics": "Cache group cardinality and order, cross-group shared base addresses, non-overlapping registration coverage with distinct logical regions, power-of-two and non-power-of-two logical-to-physical block identities, per-group partial-prefix suffix selection, GDN shared-page shapes, offsets and strides, both recurrent-state payloads, complete backing bytes, null placeholders, registration ranges, prompt element order, request completion, and cold/warm lifecycle state are preserved without requiring one registration partitioning strategy. Non-GDN MLA also preserves distinct per-layer storage offsets, physical row strides, inter-view gaps, and real MLA topology selection. Source and destination allocation endpoints are exercised through legal terminal block IDs; no exact registration extent or whole-storage coverage assertion is added.",
+    "path": "P/D Request input -> real Scheduler.add_request/schedule -> scheduler-produced connector metadata -> real bind_connector_metadata/start_load_kv, bootstrap discovery parsing, message encoding, registration and pointer-copy planning -> real worker get_finished events -> real Scheduler.update_from_output/schedule -> exact destination state, one local recomputed element and completed producer/consumer requests",
+    "additional_paths": "Existing isolated full-attention/GDN, shared-backing, non-GDN MLA and sliding-MLA transfer scenes remain. A fifth scene covers mixed-dtype padded GDN transfers; the sixth runs the complete real scheduler/worker handoff.",
+    "substitution": "Model forward outputs and CPU cache contents are deterministic. Native RDMA is replaced by registered-range-checked ctypes.memmove. Bootstrap HTTP returns one producer endpoint; loopback transport preserves real production encoding, parsing, pull-task creation and completion handling. No send/receive connector metadata, remote-agent task count or completion event is fabricated in the new handoff.",
+    "preserved_semantics": "Prompt input kind/order, cold/warm prefix lifecycle, allocator-selected block IDs, cache-group order, shared storage, physical expansion, GDN page strides/offsets/dtypes, both state payloads, untouched pages, and production receive/send completion events.",
     "limitations": "The verifier does not execute GPU kernels, model weights, native Mooncake RDMA/NVLink, multi-node transport, or full-model accuracy evaluation. It does not claim coverage for Mamba variants other than GDN."
   },
+  "reported_counterexamples": {
+    "reviewed_revision": "b9090a5d6f5ee9756ce355367d1cad6a006cf38a",
+    "drop_hybrid_receive_metadata": {
+      "before_reward": 1,
+      "before_behavior_tests": "31/31",
+      "before_e2e_exit_code": 0,
+      "independent_before": "Real request remained WAITING_FOR_REMOTE_KVS with zero copies.",
+      "after": {
+        "name": "drop-hybrid-receive-metadata",
+        "round": 1,
+        "expected_reward": 0,
+        "docker_rc": 0,
+        "seconds": 52.35,
+        "reward": 0,
+        "command_exit_code": 1,
+        "pytest_exit_code": 1,
+        "integrity_exit_code": 1,
+        "pipeline_exit_code": 1,
+        "tests": 38,
+        "failures": 5,
+        "errors": 0,
+        "skipped": 0,
+        "failed_cases": [
+          "test_real_scheduler_worker_handoff[cold-token-ids]",
+          "test_real_scheduler_worker_handoff[embedding-ratio-four]",
+          "test_real_scheduler_worker_handoff[two-embeddings]",
+          "test_real_scheduler_worker_handoff[two-token-ids]",
+          "test_real_scheduler_worker_handoff[warm-ratio-three]"
+        ]
+      }
+    },
+    "payload_only_correct_alternative": {
+      "before_reward": 0,
+      "before_behavior_tests": "30/31",
+      "before_e2e_exit_code": 1,
+      "independent_before": "Both actual state tensors, unchanged unrequested pages and scheduler completion passed.",
+      "after": {
+        "name": "alternative-gdn-payload-only",
+        "round": 1,
+        "expected_reward": 1,
+        "docker_rc": 0,
+        "seconds": 21.79,
+        "reward": 1,
+        "command_exit_code": 0,
+        "pytest_exit_code": 0,
+        "integrity_exit_code": 0,
+        "pipeline_exit_code": 0,
+        "tests": 38,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "failed_cases": []
+      },
+      "padded_e2e_output": [
+        "PADDED_GDN_PAYLOAD_OK [{\"changed_padding_bytes\": 0, \"completed\": true, \"permitted_padding_bytes\": 56, \"required_bytes\": 712, \"step\": 0}, {\"changed_padding_bytes\": 0, \"completed\": true, \"permitted_padding_bytes\": 56, \"required_bytes\": 456, \"step\": 1}]"
+      ]
+    },
+    "development_fixture_corrections": "Initial new-case probe incorrectly enabled embedding APC without hashes; an initial full run exposed four remaining shared fixtures without declared padding. Corrected harness configurations before final runs; no Oracle change."
+  },
   "independent_challenge": {
-    "case": "Seventeen shared FA/GDN logical pages, 42-token blocks, physical ratio seven, with two successive partial-prefix transfers on one connector pair: source terminal block to an interior destination, then an interior source to the destination terminal block. Completion and full destination state are checked after each transfer.",
-    "oracle": "passed",
-    "alternative_python_block_expansion": "passed",
-    "alternative_split_memory_registration": "passed",
-    "alternative_payload_bounded_registration": "passed",
-    "script_sha256": "abc2c84ed8ca97b9c9976d263396a7f1f20ccba600042ec5c1343fd5b2231cf9"
+    "case": "43-element prompts, logical block size 21, physical ratio seven: one warm token-ID and one cold embedding P/D request through actual scheduler/worker handoff. These parameters are outside the 38-case inventory.",
+    "script_sha256": "41b53b322d0d7b2006162737ce045dc78b622cec3f74a30269b3a1a519d83406",
+    "reproduce": "With candidate applied and /tests on PYTHONPATH, call scheduler_handoff.run_scheduler_handoff(num_tokens=43, logical_block_size=21, physical_ratio=7, prompt_kind=kind, warm=warm) for (kind,warm)=(token_ids,True),(prompt_embeddings,False).",
+    "oracle": "2/2 passed",
+    "alternative_gdn_payload_only": "2/2 passed"
   },
   "repeated_runs": [
     {
       "case": "base",
-      "rounds": 5,
+      "rounds": 3,
       "rewards": [
-        0,
-        0,
         0,
         0,
         0
       ],
       "behavior_tests_each_round": {
         "passed": 3,
-        "failed": 28,
+        "failed": 35,
         "errors": 0,
         "skipped": 0
       },
       "e2e_exit_codes": [
-        1,
-        1,
         1,
         1,
         1
@@ -162,16 +195,14 @@
     },
     {
       "case": "oracle",
-      "rounds": 5,
+      "rounds": 3,
       "rewards": [
-        1,
-        1,
         1,
         1,
         1
       ],
       "behavior_tests_each_round": {
-        "passed": 31,
+        "passed": 38,
         "failed": 0,
         "errors": 0,
         "skipped": 0
@@ -179,6 +210,24 @@
       "e2e_exit_codes": [
         0,
         0,
+        0
+      ]
+    },
+    {
+      "case": "alternative-gdn-payload-only",
+      "rounds": 3,
+      "rewards": [
+        1,
+        1,
+        1
+      ],
+      "behavior_tests_each_round": {
+        "passed": 38,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "e2e_exit_codes": [
         0,
         0,
         0
@@ -191,8 +240,10 @@
       "patch_sha256": "29dbfd8ba2f7cd2b869ffc4eefaeec1c4695088c4b52cddaa43cd37f9b3dadea",
       "expected_reward": 1,
       "actual_reward": 1,
-      "tests_passed": 31,
+      "tests_passed": 38,
       "tests_failed": 0,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 0
     },
     {
@@ -200,8 +251,10 @@
       "patch_sha256": "9421d1220d08cca5ef138e447fc28d65a54746106dca8e663ec08e383e3ad03d",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 30,
-      "tests_failed": 1,
+      "tests_passed": 36,
+      "tests_failed": 2,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 0
     },
     {
@@ -209,8 +262,10 @@
       "patch_sha256": "384882040957cfe0ae3fa56932663cab705838beaf1770ef5cb31e21dfb4f779",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 29,
+      "tests_passed": 36,
       "tests_failed": 2,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 1
     },
     {
@@ -219,7 +274,9 @@
       "expected_reward": 0,
       "actual_reward": 0,
       "tests_passed": 20,
-      "tests_failed": 11,
+      "tests_failed": 18,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 1
     },
     {
@@ -227,8 +284,10 @@
       "patch_sha256": "a63b682e05a97ecdea58c55867c6e7818ba8b4d5fcc7f7d27354188ff0a26c34",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 30,
+      "tests_passed": 37,
       "tests_failed": 1,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 0
     },
     {
@@ -236,8 +295,10 @@
       "patch_sha256": "6e38681b26e9a23e4548ffe1c2a8765dc5763ef45e48c4f845779b7c5d08d8a7",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 30,
-      "tests_failed": 1,
+      "tests_passed": 35,
+      "tests_failed": 3,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 1
     },
     {
@@ -245,8 +306,10 @@
       "patch_sha256": "d72fdc3017319feafb717fe07a0eae7177787529d1a3d41d5de66c16bd428ef2",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 30,
+      "tests_passed": 37,
       "tests_failed": 1,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 0
     },
     {
@@ -254,8 +317,10 @@
       "patch_sha256": "72c891854a4306ce1f5aa7a2764a7208f4de48294c6f4a882f3df492f55e051f",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 27,
+      "tests_passed": 34,
       "tests_failed": 4,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 0
     },
     {
@@ -263,8 +328,10 @@
       "patch_sha256": "7543b272c7136a097f8e97d0d5c7e0392c39a541cb696227e2a1f88ecf22a561",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 29,
-      "tests_failed": 2,
+      "tests_passed": 35,
+      "tests_failed": 3,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 0
     },
     {
@@ -272,9 +339,11 @@
       "patch_sha256": "62aa83f68a1e9a129431c26ebe198e70dc6d78c4dd695011881b18eb4d3fa47d",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 28,
-      "tests_failed": 3,
-      "e2e_exit_code": 0
+      "tests_passed": 32,
+      "tests_failed": 6,
+      "errors": 0,
+      "skipped": 0,
+      "e2e_exit_code": 1
     },
     {
       "case": "compact-mamba-stride",
@@ -282,7 +351,9 @@
       "expected_reward": 0,
       "actual_reward": 0,
       "tests_passed": 25,
-      "tests_failed": 6,
+      "tests_failed": 13,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 1
     },
     {
@@ -290,8 +361,10 @@
       "patch_sha256": "09adad65cf366d20d8a3eb8d8c1d03f123d3f00c60b7f3b47381a304b3e1f338",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 29,
-      "tests_failed": 2,
+      "tests_passed": 34,
+      "tests_failed": 4,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 0
     },
     {
@@ -299,8 +372,10 @@
       "patch_sha256": "85bfea07d0665802b4ae56ce52b766c5f35c138ea7ebc28f468b2f709b86b46d",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 29,
+      "tests_passed": 36,
       "tests_failed": 2,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 0
     },
     {
@@ -308,8 +383,10 @@
       "patch_sha256": "8640e355da4b73d065704912f643601584fad039209c6943d09ef073f5fe4b93",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 27,
-      "tests_failed": 4,
+      "tests_passed": 33,
+      "tests_failed": 5,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 1
     },
     {
@@ -317,8 +394,10 @@
       "patch_sha256": "22a0639abd08574ca7709f2de74118f22cfaacc322703a19c364f29cc5538d21",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 22,
-      "tests_failed": 9,
+      "tests_passed": 27,
+      "tests_failed": 11,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 1
     },
     {
@@ -326,17 +405,21 @@
       "patch_sha256": "05888a8d2d630892372c9b517057037b7bd0436e64666075532eab7fae9ac190",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 30,
-      "tests_failed": 1,
+      "tests_passed": 35,
+      "tests_failed": 3,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 1
     },
     {
       "case": "alternative-split-memory-registration",
-      "patch_sha256": "76863ac660b6048d719bf6734d08a813374e3550d593a7f17560b0b779a542b1",
+      "patch_sha256": "5e0b01df82b1a5b099a8d0ba3b2f51ea7d3773c17cb87115a7e0a0af821041e8",
       "expected_reward": 1,
       "actual_reward": 1,
-      "tests_passed": 31,
+      "tests_passed": 38,
       "tests_failed": 0,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 0
     },
     {
@@ -344,8 +427,10 @@
       "patch_sha256": "421810546bf0aa6d7b022f13f56787cea0a9a185f317b2d82183e89c6c3403c6",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 27,
+      "tests_passed": 34,
       "tests_failed": 4,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 1
     },
     {
@@ -353,8 +438,10 @@
       "patch_sha256": "26dde9c3aecb794d9289c3b6f81c632ddb8ebce09c87d460d8fc3612014aa8dd",
       "expected_reward": 0,
       "actual_reward": 0,
-      "tests_passed": 27,
-      "tests_failed": 4,
+      "tests_passed": 32,
+      "tests_failed": 6,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 1
     },
     {
@@ -362,47 +449,229 @@
       "patch_sha256": "9356dab4bc4b45ca357f62b8be8f98d2a6b1ec9991a620417f373c5159d9c3a3",
       "expected_reward": 1,
       "actual_reward": 1,
-      "tests_passed": 31,
+      "tests_passed": 38,
       "tests_failed": 0,
+      "errors": 0,
+      "skipped": 0,
       "e2e_exit_code": 0
+    },
+    {
+      "case": "drop-hybrid-receive-metadata",
+      "patch_sha256": "0cbcd3ad76798f8fdcf8bcd2c498a533e238ae3300de7247a00f58286631b3ca",
+      "expected_reward": 0,
+      "actual_reward": 0,
+      "tests_passed": 33,
+      "tests_failed": 5,
+      "errors": 0,
+      "skipped": 0,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "alternative-gdn-payload-only",
+      "patch_sha256": "6beda8e32dc87f271dc375bfd165d6756537ec5d06b97dfa981545914ad3dc0d",
+      "expected_reward": 1,
+      "actual_reward": 1,
+      "tests_passed": 38,
+      "tests_failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "e2e_exit_code": 0
+    },
+    {
+      "case": "conv-state-only",
+      "patch_sha256": "7206417ab5328116cfd3b6193147933cfa8fae628adeef23ac12f65c7c550a55",
+      "expected_reward": 0,
+      "actual_reward": 0,
+      "tests_passed": 25,
+      "tests_failed": 13,
+      "errors": 0,
+      "skipped": 0,
+      "e2e_exit_code": 1
     }
   ],
   "harbor": {
     "version": "0.22.0",
+    "job_id": "f3674cfa-1eaf-417e-99d7-566ee14962b0",
+    "trial_id": "5aa186e3-bb6d-40c8-ae8c-a7658d67225e",
+    "input_task_checksum": "df172ace2fca2b31316fb4d0ec71a79de89c43cb726c7093d7cec8151857a76f",
+    "checksum_scope": "Prepared task after verifier/Oracle/control freeze and before final evidence and remediation documentation updates. Canonical docker_image injected by repository prepare-case.",
     "verifier_environment_mode": "shared",
-    "job_id": "9fcfd584-91cf-48b2-93ac-5bde287a6bb2",
-    "trial_id": "223e0d4d-6aac-4384-a9c2-97010ad7a9ee",
-    "input_task_checksum": "2119e8128f633778ecc6f4d8652bdbdf0d504c6eb26b4d45a773c1ac75f1c8cc",
-    "checksum_scope": "Prepared Oracle task after executable freeze and before final evidence-only updates.",
-    "reward": 1,
     "n_completed_trials": 1,
     "n_errored_trials": 0,
+    "reward": 1,
     "command_exit_code": 0,
     "pytest_exit_code": 0,
     "integrity_exit_code": 0,
-    "pipeline_exit_code": 0,
-    "runtime_seconds": 34
+    "pipeline_exit_code": 0
+  },
+  "harbor_correct_alternative": {
+    "version": "0.22.0",
+    "job_id": "471650ae-65b7-4c73-8ca5-c4b866fc8a46",
+    "trial_id": "92e8744e-2b13-4ea2-89f3-321bbbeea86e",
+    "input_task_checksum": "6ee0448e1d6e11a34a0fc1cbb725366bf60c8be024490351e33ae4611d236371",
+    "checksum_scope": "Prepared task after verifier/Oracle/control freeze and before final evidence and remediation documentation updates. Canonical docker_image injected by repository prepare-case.",
+    "verifier_environment_mode": "shared",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "command_exit_code": 0,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "pipeline_exit_code": 0
   },
   "provenance_gates": {
-    "head_matches_base": true,
-    "future_reference_commits_absent": true,
-    "remotes_tags_reflogs_absent": true,
-    "unreachable_git_objects_absent": true,
-    "solution_tests_validation_and_reward_absent_from_agent_image": true,
-    "tests_available_only_during_verification": true,
-    "vllm_imports_from_base_worktree": true,
-    "installed_dependencies_match_lock": true,
-    "cache_only_rebuild_digest_stable": true,
-    "dockerfile_matches_committed_template": true,
-    "build_context_empty": true,
-    "runtime_network_disabled": true,
-    "canonical_image_retained": true
+    "unchanged_canonical_image": true,
+    "retained_audit_revision": "b9090a5d6f5ee9756ce355367d1cad6a006cf38a",
+    "note": "Environment inputs and image digest are unchanged. Earlier complete layer, Git-isolation, lock and cutoff evidence applies to this exact immutable image; final publication also reruns repository image/patch checks and template validation."
   },
   "review_revision": {
-    "skill_worktree": "/home/qunhong/workspace/ai-infra-bench-review-pr-47",
-    "skill_head": "0753f6b587d24f1c81c192d5a84ad2ac626f168e",
+    "skill_worktree": "/home/qunhong/workspace/ai-infra-bench-mooncake-handoff-padding",
+    "skill_head": "497a5b6e0c0c3c8a538ee1f09e25aac4967d5b1c",
     "skill_dirty": false,
-    "task_parent_head": "4a2e0a8f25b928308002df983ed57a6c225bab45",
-    "executable_changes": "Terminal source/destination payload coverage, an underregistration negative control, and a payload-bounded correct registration alternative; scoring transport, task contract, Oracle and image unchanged."
+    "task_parent_head": "497a5b6e0c0c3c8a538ee1f09e25aac4967d5b1c",
+    "task_branch": "tasks/harden-mooncake-handoff-padding",
+    "executable_changes": "Verifier handoff, valid padded fixtures, live-state assertions, two adversarial controls and one correct alternative. Instruction, task metadata, environment and Oracle unchanged."
+  },
+  "raw_runs": {
+    "local_artifact_root": "/home/qunhong/workspace/ai-infra-bench-mooncake-handoff-work",
+    "matrix": "final-matrix (split-registration result superseded by split-final after control-only repair)",
+    "stability": "stability",
+    "reproduction": "python3 validation/run_cases.py --output /absolute/new-directory (all 25 versions); add --case base --case oracle --case alternative-gdn-payload-only --rounds 3 for stability."
+  },
+  "artifacts": {
+    "files": {
+      "environment/Dockerfile": {
+        "sha256": "e121df4e529b1faa49975d016b1f633a9dae5142b05e2cd97f5292fe5cf88ed2"
+      },
+      "environment/image-manifest.json": {
+        "sha256": "3bb1920ce8332efb73128bdc5f6682dfca6289ac3452c9f4b945e60a1df53d9f"
+      },
+      "environment/lock/extras.in": {
+        "sha256": "ba21efb7e4a36f39e6492aa1d5b01e6f9bbe4ccfedcef40a36ef6f8ddca50719"
+      },
+      "environment/lock/manifest.json": {
+        "sha256": "7f9c3e7f46ed6a77c9ffb557d440f43f6e54618429a61cea3e131384092328c0"
+      },
+      "environment/lock/requirements.txt": {
+        "sha256": "8bbdd18586742d39295cd38d624a7246f4caed21d59f11a56838d1910c7d216e"
+      },
+      "instruction.md": {
+        "sha256": "cd4823617d98d7d76eb02d7a60ac5b2563d252e27fb5ccac3d999a02e9dbd4d7"
+      },
+      "solution/oracle.patch": {
+        "sha256": "c57aca82d402768b5564a96f63a197195bf4c6fdb7a033a8f3d3a9d78c67fd47"
+      },
+      "solution/solve.sh": {
+        "sha256": "30736ddecc6d93c65becaef873117262947e06abc41e37210157417696d39d56"
+      },
+      "task.toml": {
+        "sha256": "7f3789ad71367020458c5ef8b0e541b2a04ab412111e9b0f66803372e56a6a93"
+      },
+      "tests/check_junit.py": {
+        "sha256": "74bdd0699c674af9176376a8c3c26042e9f4898da315282418335e489598400f"
+      },
+      "tests/padded_state_transfer.py": {
+        "sha256": "64eacd7b8560b4d49da73d9d5bcbb4b85789f9c9b832c1c9e797f4102c8b3433"
+      },
+      "tests/scheduler_handoff.py": {
+        "sha256": "f20d87ae7fd9620cd53d8db51c8b5193fc6ce307e72a864e3cc93c990c33bf75"
+      },
+      "tests/test.sh": {
+        "sha256": "fafcf2d38b0fff36d6871d18e7b1b9612fa9f9c87c37de31a9a8c3ff7c45480e"
+      },
+      "tests/test_padded_state_transfer.py": {
+        "sha256": "489c9a65c2ff64d825a1b634ae2d7c05af26ed12aa50ed4858c7332a6a273c72"
+      },
+      "tests/test_real_inmemory_pd_transfer.py": {
+        "sha256": "2fb741dded3162e761c91512dc49863bc0f5b1a5c541172ea33856e650bababe"
+      },
+      "tests/test_regression.py": {
+        "sha256": "32e80b1235b2891a8bc4782f0de099f844be023d682de3856d04fdb8aa144bd2"
+      },
+      "tests/test_scheduler_handoff.py": {
+        "sha256": "c436a1dc0d050575619d655cc6eee2ce1f0ceda74d0f3c6b3f6121c60a4f7a91"
+      },
+      "tests/verifier_support.py": {
+        "sha256": "8dc60a1202c087116733e3bd749e2fd3154e87d3c9bc986cf07bb94306e4693f"
+      },
+      "validation/alternative-gdn-payload-only.patch": {
+        "sha256": "6beda8e32dc87f271dc375bfd165d6756537ec5d06b97dfa981545914ad3dc0d"
+      },
+      "validation/alternative-payload-bounded-registration.patch": {
+        "sha256": "9356dab4bc4b45ca357f62b8be8f98d2a6b1ec9991a620417f373c5159d9c3a3"
+      },
+      "validation/alternative-python-block-expansion.patch": {
+        "sha256": "29dbfd8ba2f7cd2b869ffc4eefaeec1c4695088c4b52cddaa43cd37f9b3dadea"
+      },
+      "validation/alternative-split-memory-registration.patch": {
+        "sha256": "5e0b01df82b1a5b099a8d0ba3b2f51ea7d3773c17cb87115a7e0a0af821041e8"
+      },
+      "validation/break-pure-attention.patch": {
+        "sha256": "a63b682e05a97ecdea58c55867c6e7818ba8b4d5fcc7f7d27354188ff0a26c34"
+      },
+      "validation/ci-cases.json": {
+        "sha256": "89a5d79ccb81bfc7bc4c8a51a4af71f9264ba94609946b58da65174a6e4edae6"
+      },
+      "validation/compact-mamba-stride.patch": {
+        "sha256": "537a87a6759053a8c484ad5aefaf54f160a4c8f5e02fcdb14664d2c75ad80c87"
+      },
+      "validation/conv-state-only.patch": {
+        "sha256": "7206417ab5328116cfd3b6193147933cfa8fae628adeef23ac12f65c7c550a55"
+      },
+      "validation/drop-duplicate-base-region.patch": {
+        "sha256": "05888a8d2d630892372c9b517057037b7bd0436e64666075532eab7fae9ac190"
+      },
+      "validation/drop-hybrid-receive-metadata.patch": {
+        "sha256": "0cbcd3ad76798f8fdcf8bcd2c498a533e238ae3300de7247a00f58286631b3ca"
+      },
+      "validation/flattened-cache-groups.patch": {
+        "sha256": "81b6764acf66f4472d12cbba63d386b2d8a846262eaaf454f1a3ea1464670742"
+      },
+      "validation/hybrid-only-mla.patch": {
+        "sha256": "421810546bf0aa6d7b022f13f56787cea0a9a185f317b2d82183e89c6c3403c6"
+      },
+      "validation/late-prefix-preparation.patch": {
+        "sha256": "9421d1220d08cca5ef138e447fc28d65a54746106dca8e663ec08e383e3ad03d"
+      },
+      "validation/minimum-three-prompt-elements.patch": {
+        "sha256": "85bfea07d0665802b4ae56ce52b766c5f35c138ea7ebc28f468b2f709b86b46d"
+      },
+      "validation/reject-partial-prefix.patch": {
+        "sha256": "22a0639abd08574ca7709f2de74118f22cfaacc322703a19c364f29cc5538d21"
+      },
+      "validation/remediation-matrix.md": {
+        "sha256": "f10b376f736e31d2707d875a6b19f7bc0de47f1f905f5a4c8aa04cf28a923ca7"
+      },
+      "validation/run_cases.py": {
+        "sha256": "1f610c3ef3df4e5bc390335f39b568e56516486c93a183737b5eb15ecb1fb933"
+      },
+      "validation/skip-full-attention-expansion.patch": {
+        "sha256": "62aa83f68a1e9a129431c26ebe198e70dc6d78c4dd695011881b18eb4d3fa47d"
+      },
+      "validation/skip-non-power-of-two-expansion.patch": {
+        "sha256": "8640e355da4b73d065704912f643601584fad039209c6943d09ef073f5fe4b93"
+      },
+      "validation/swallow-transfer-failure.patch": {
+        "sha256": "d72fdc3017319feafb717fe07a0eae7177787529d1a3d41d5de66c16bd428ef2"
+      },
+      "validation/token-ids-only-remote-match.patch": {
+        "sha256": "09adad65cf366d20d8a3eb8d8c1d03f123d3f00c60b7f3b47381a304b3e1f338"
+      },
+      "validation/transfer-null-placeholders.patch": {
+        "sha256": "6e38681b26e9a23e4548ffe1c2a8765dc5763ef45e48c4f845779b7c5d08d8a7"
+      },
+      "validation/underregister-one-byte.patch": {
+        "sha256": "26dde9c3aecb794d9289c3b6f81c632ddb8ebce09c87d460d8fc3612014aa8dd"
+      },
+      "validation/unscaled-physical-transfer.patch": {
+        "sha256": "384882040957cfe0ae3fa56932663cab705838beaf1770ef5cb31e21dfb4f779"
+      },
+      "validation/warm-completion-failure.patch": {
+        "sha256": "7543b272c7136a097f8e97d0d5c7e0392c39a541cb696227e2a1f88ecf22a561"
+      },
+      "validation/wrong-prompt-boundary.patch": {
+        "sha256": "72c891854a4306ce1f5aa7a2764a7208f4de48294c6f4a882f3df492f55e051f"
+      }
+    }
   }
 }

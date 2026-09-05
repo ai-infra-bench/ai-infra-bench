@@ -41,7 +41,15 @@ required.update(
     for ratio in (1, 5)
     for endpoint in ("source", "destination")
 )
-assert tests == 31, f"expected exactly 31 tests, got {tests}"
+required.update(
+    f"test_real_scheduler_worker_handoff[{case}]"
+    for case in ("cold-token-ids", "two-token-ids", "two-embeddings", "warm-ratio-three", "embedding-ratio-four")
+)
+required.update(
+    f"test_padded_gdn_preserves_payload_and_unrequested_pages[{case}]"
+    for case in ("logical-pages", "physical-blocks")
+)
+assert tests == 38, f"expected exactly 38 tests, got {tests}"
 assert failures == 0 and errors == 0 and skipped == 0
 assert len(names) == tests, "test case names must be unique"
 assert required <= names, f"missing required tests: {required - names}"

@@ -1,14 +1,6 @@
 --- a/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/mooncake_connector.py
 +++ b/vllm/distributed/kv_transfer/kv_connector/v1/mooncake/mooncake_connector.py
-@@ -8,6 +8,7 @@
- from concurrent.futures import ThreadPoolExecutor
- from dataclasses import dataclass
- from enum import IntEnum
-+from math import lcm
- from typing import TYPE_CHECKING, Any
-
- import httpx
-@@ -22,7 +23,6 @@
+@@ -22,7 +22,6 @@
  from vllm.distributed.kv_transfer.kv_connector.utils import (
      EngineId,
      TransferTopology,
@@ -16,7 +8,7 @@
      get_current_attn_backends,
  )
  from vllm.distributed.kv_transfer.kv_connector.v1.base import (
-@@ -51,10 +51,18 @@
+@@ -51,10 +50,18 @@
  from vllm.utils.math_utils import cdiv
  from vllm.utils.network_utils import get_ip, make_zmq_path, make_zmq_socket
  from vllm.v1.attention.backend import AttentionMetadata
@@ -37,7 +29,7 @@
  from vllm.v1.worker.utils import select_common_block_size
 
  logger = init_logger(__name__)
-@@ -85,6 +93,7 @@
+@@ -85,6 +92,7 @@
      base_addr: int
      block_len: int
      kv_block_len: int
@@ -45,7 +37,7 @@
 
 
  def _get_tp_ratio(local_tp_size: int, remote_tp_size: int) -> int:
-@@ -111,24 +120,58 @@
+@@ -111,24 +119,58 @@
  def _expand_transfer_regions(
      base_addrs: list[int],
      block_lens: list[int],
@@ -108,7 +100,7 @@
          regions.append(
              TransferRegion(
                  layer_name=layer_name,
-@@ -136,9 +179,10 @@
+@@ -136,9 +178,10 @@
                  base_addr=base_addr,
                  block_len=block_len,
                  kv_block_len=kv_block_len,
@@ -122,7 +114,7 @@
              regions.append(
                  TransferRegion(
                      layer_name=layer_name,
-@@ -146,6 +190,7 @@
+@@ -146,6 +189,7 @@
                      base_addr=base_addr + kv_block_len,
                      block_len=block_len,
                      kv_block_len=kv_block_len,
@@ -130,7 +122,7 @@
                  )
              )
      return regions
-@@ -308,6 +353,17 @@
+@@ -308,6 +352,17 @@
                      f"{remote_region.layer_index}."
                  ),
              )
@@ -148,7 +140,7 @@
          aligned_local.append(local_region)
          aligned_remote.append(remote_region)
 
-@@ -332,8 +388,10 @@
+@@ -332,8 +387,10 @@
      req_blocks: dict[ReqId, tuple[TransferId, list[list[int]]]]
      kv_caches_base_addr: list[int]
      block_lens: list[int]
@@ -159,7 +151,7 @@
 
 
  class MooncakeXferResponseStatus(IntEnum):
-@@ -481,6 +539,10 @@
+@@ -481,6 +538,10 @@
          assert self.connector_scheduler is not None
          return self.connector_scheduler.build_connector_meta(scheduler_output)
 
@@ -170,7 +162,7 @@
      def request_finished(
          self,
          request: "Request",
-@@ -581,6 +643,9 @@
+@@ -581,6 +642,9 @@
                  for g in kv_cache_config.kv_cache_groups
              )
          )
@@ -180,7 +172,7 @@
 
          # Requests that need to start recv/send.
          # New requests are added by update_state_after_alloc in
-@@ -617,6 +682,43 @@
+@@ -617,6 +681,43 @@
              for i, blocks in enumerate(block_ids)
          ]
 
@@ -224,7 +216,7 @@
      def get_num_new_matched_tokens(
          self, request: "Request", num_computed_tokens: int
      ) -> tuple[int, bool]:
-@@ -649,8 +751,10 @@
+@@ -649,8 +750,10 @@
          if params.get("do_remote_prefill"):
              # Remote prefill: get all prompt blocks from remote.
              assert not self.is_kv_producer
@@ -237,7 +229,16 @@
              if count > 0:
                  return count, True
 
-@@ -802,7 +906,7 @@
+@@ -713,7 +816,7 @@
+         meta = MooncakeConnectorMetadata()
+
+         # Loop through scheduled reqs and convert to PullReqMeta.
+-        if not self.is_kv_producer:
++        if not self.is_kv_producer and not self._has_mamba:
+             for req_id, (req, block_ids) in self._reqs_need_recv.items():
+                 assert req.kv_transfer_params is not None
+                 meta.add_new_req(
+@@ -802,7 +905,7 @@
          self,
          vllm_config: VllmConfig,
          engine_id: str,
@@ -246,7 +247,7 @@
      ):
          if TransferEngine is None:
              logger.error("Mooncake is not available")
-@@ -831,10 +935,15 @@
+@@ -831,10 +934,15 @@
          protocol = kv_transfer_config.kv_connector_extra_config.get(  # type: ignore[union-attr]
              "mooncake_protocol", "rdma"
          )
@@ -263,7 +264,7 @@
          if ret_value != 0:
              raise RuntimeError("Mooncake Transfer Engine initialization failed.")
 
-@@ -852,10 +961,11 @@
+@@ -852,10 +960,11 @@
          self.engine_id: EngineId = engine_id
          self.tp_rank = get_tensor_model_parallel_rank()
          self.tp_size = get_tensor_model_parallel_world_size()
@@ -276,7 +277,7 @@
          self.seen_base_addresses: list[int] = []
 
          assert (parallel_config := vllm_config.parallel_config)
-@@ -916,26 +1026,40 @@
+@@ -916,26 +1025,40 @@
          self.cache_config = vllm_config.cache_config
          self.kv_cache_config = kv_cache_config
          self.use_mla = self.model_config.use_mla
@@ -324,7 +325,7 @@
          )
 
          self.async_zmq_ctx = zmq.asyncio.Context()
-@@ -958,6 +1082,9 @@
+@@ -958,6 +1081,9 @@
                  kernel_block_size,
              )
              assert self.block_size > kernel_block_size
@@ -334,7 +335,7 @@
              self.block_size = kernel_block_size
 
      def __del__(self):
-@@ -1092,14 +1219,18 @@
+@@ -1092,14 +1218,18 @@
          local_regions = self._get_transfer_regions(
              self.kv_caches_base_addr,
              self.block_len_per_layer,
@@ -353,7 +354,7 @@
          )
          local_regions, remote_regions, align_err = _align_transfer_regions(
              local_regions, remote_regions
-@@ -1271,6 +1402,32 @@
+@@ -1271,6 +1401,32 @@
              remote_tp_ranks,
          )
 
@@ -386,7 +387,7 @@
      async def _build_transfer_params(
          self,
          ready_reqs: list[tuple[ReqId, SendBlockMeta]],
-@@ -1293,14 +1450,6 @@
+@@ -1293,14 +1449,6 @@
              ):
                  continue
 
@@ -401,7 +402,7 @@
              if len(send_meta.local_block_ids) != len(remote_block_ids_per_group):
                  logger.error(
                      "req %s: KV group count mismatch: local=%d, remote=%d",
-@@ -1312,26 +1461,55 @@
+@@ -1312,26 +1460,55 @@
                  if err_msg is None:
                      err_msg = "KV group count mismatch"
                  continue
@@ -464,7 +465,7 @@
 
              if has_block_error:
                  err_reqs.append(d_req_id)
-@@ -1339,22 +1517,44 @@
+@@ -1339,22 +1516,44 @@
                      err_msg = "P num blocks less than D"
                  continue
 
@@ -520,7 +521,7 @@
                  )
                  if not should_transfer:
                      # Replicated KV cache: only one producer rank in the TP group
-@@ -1368,17 +1568,14 @@
+@@ -1368,7 +1567,7 @@
                      "Computed source transfer region exceeds local KV block size."
                  )
                  assert dst_region_offset + transfer_len <= remote_region.kv_block_len, (
@@ -529,21 +530,7 @@
                  )
                  # Collapse one contiguous block group into a single larger
                  # transfer descriptor when the per-block copy is identical.
--                can_coalesce = _can_coalesce_block_transfers(
--                    local_region_block_len=local_region.block_len,
--                    remote_region_block_len=remote_region.block_len,
--                    src_region_offset=src_region_offset,
--                    dst_region_offset=dst_region_offset,
--                    transfer_len=transfer_len,
--                )
-+                # A valid transport may register adjacent physical pages as
-+                # separate non-overlapping memory regions. Keep descriptors
-+                # within those registration boundaries instead of coalescing.
-+                can_coalesce = False
-
-                 for group_local_block_id, group_remote_block_id in zip(
-                     group_local_block_ids, group_remote_block_ids
-@@ -1411,28 +1608,10 @@
+@@ -1411,28 +1610,10 @@
                              )
                              lengths.append(transfer_len)
 
@@ -573,7 +560,7 @@
                  remote_session,
              )
 
-@@ -1480,18 +1659,34 @@
+@@ -1480,18 +1661,33 @@
 
          logger.info("Registering KV_Caches. use_mla: %s", self.use_mla)
 
@@ -583,8 +570,7 @@
 +        kv_data_ptrs: list[int] = []
 +        kv_data_lens: list[int] = []
 +        region_base_addresses: list[int] = []
-+        storage_sizes: dict[int, int] = {}
-+        storage_units: dict[int, int] = {}
++        seen_storage_ptrs: set[int] = set()
          self.block_len_per_layer = []
 +        self.kv_block_len_per_layer = []
          self.registered_layer_names = []
@@ -615,7 +601,7 @@
              logger.debug(
                  "registering layer %s with %d cache tensor(s)",
                  layer_name,
-@@ -1501,45 +1696,74 @@
+@@ -1501,45 +1697,63 @@
              for cache in cache_list:
                  self._log_debug_cache_registration(layer_name, cache)
                  base_addr = cache.data_ptr()
@@ -679,21 +665,10 @@
 +                )
 +                storage = cache.untyped_storage()
 +                storage_addr = storage.data_ptr()
-+                storage_sizes[storage_addr] = storage.nbytes()
-+                storage_units[storage_addr] = lcm(
-+                    storage_units.get(storage_addr, 1), block_len
-+                )
-+
-+        # Every aliased layer contributes its stride. A physical attention
-+        # block boundary may lie inside a larger recurrent state slot.
-+        for storage_addr, storage_bytes in storage_sizes.items():
-+            unit = storage_units[storage_addr]
-+            split = min(storage_bytes, max(unit, (storage_bytes // unit // 2) * unit))
-+            kv_data_ptrs.append(storage_addr)
-+            kv_data_lens.append(split)
-+            if split < storage_bytes:
-+                kv_data_ptrs.append(storage_addr + split)
-+                kv_data_lens.append(storage_bytes - split)
++                if storage_addr not in seen_storage_ptrs:
++                    seen_storage_ptrs.add(storage_addr)
++                    kv_data_ptrs.append(storage_addr)
++                    kv_data_lens.append(storage.nbytes())
 +
 +        self.kv_caches_base_addr = region_base_addresses
 +        self.seen_base_addresses = kv_data_ptrs
@@ -717,7 +692,7 @@
          )
 
          # No need to launch server for D node.
-@@ -1642,8 +1866,10 @@
+@@ -1642,8 +1856,10 @@
              },
              kv_caches_base_addr=self.kv_caches_base_addr,
              block_lens=self.block_len_per_layer,
@@ -728,7 +703,7 @@
          )
 
          encoded_data = self._encoder.encode(metadata)
-@@ -1852,15 +2078,34 @@
+@@ -1852,15 +2068,34 @@
          self,
          base_addrs: list[int],
          block_lens: list[int],

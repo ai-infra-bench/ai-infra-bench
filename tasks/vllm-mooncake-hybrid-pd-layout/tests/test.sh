@@ -3,7 +3,7 @@ set -uo pipefail
 mkdir -p /logs/verifier
 cd /workspace/vllm
 pytest_rc=0; integrity_rc=0; pipeline_rc=0
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 600 pytest --noconftest -c /dev/null --rootdir=/workspace/vllm -p no:cacheprovider -v -s --junitxml=/logs/verifier/junit.xml /tests/test_regression.py || pytest_rc=$?
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 600 pytest --noconftest -c /dev/null --rootdir=/workspace/vllm -p no:cacheprovider -v -s --junitxml=/logs/verifier/junit.xml /tests/test_regression.py /tests/test_scheduler_handoff.py /tests/test_padded_state_transfer.py || pytest_rc=$?
 python /tests/check_junit.py /logs/verifier/junit.xml || integrity_rc=$?
 timeout 180 python /tests/test_real_inmemory_pd_transfer.py > /logs/verifier/real_inmemory_pd_transfer.log 2>&1 || pipeline_rc=$?
 cat /logs/verifier/real_inmemory_pd_transfer.log
