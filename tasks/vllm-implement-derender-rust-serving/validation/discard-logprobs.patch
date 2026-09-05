@@ -137,7 +137,7 @@ diff --git a/rust/src/server/src/routes/derender/detok.rs b/rust/src/server/src/
 new file mode 100644
 --- /dev/null
 +++ b/rust/src/server/src/routes/derender/detok.rs
-@@ -0,0 +1,240 @@
+@@ -0,0 +1,262 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 +
@@ -323,6 +323,7 @@ new file mode 100644
 +    delta_token_ids: &[u32],
 +    state: &DerenderStreamState,
 +    skip_special_tokens: bool,
++    finished: bool,
 +) -> Result<(String, DerenderStreamState), ApiError> {
 +    // Prefer the carried token IDs. States produced by the Python
 +    // implementation have only `prev_tokens` pieces; map those back through
@@ -364,6 +365,27 @@ new file mode 100644
 +        text.push_str(&step.text);
 +        prefix_offset = step.prefix_offset;
 +        read_offset = step.read_offset;
++    }
++
++    if finished {
++        // No more tokens can complete a pending byte sequence. Match one-shot
++        // decoding even when the final character is a literal U+FFFD or the
++        // tokenizer substitutes U+FFFD for an incomplete final sequence.
++        let prefix = decode_window(
++            tokenizer,
++            &window,
++            prefix_offset..read_offset,
++            skip_special_tokens,
++        )?;
++        let remaining = decode_window(
++            tokenizer,
++            &window,
++            prefix_offset..window.len(),
++            skip_special_tokens,
++        )?;
++        text.push_str(&drop_prefix_chars(&remaining, prefix.chars().count()));
++        prefix_offset = window.len();
++        read_offset = window.len();
 +    }
 +
 +    // Trim to the tail still readable by detokenize_incrementally
@@ -690,7 +712,7 @@ diff --git a/rust/src/server/src/routes/derender/mod.rs b/rust/src/server/src/ro
 new file mode 100644
 --- /dev/null
 +++ b/rust/src/server/src/routes/derender/mod.rs
-@@ -0,0 +1,1037 @@
+@@ -0,0 +1,1047 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 +
@@ -1517,8 +1539,13 @@ new file mode 100644
 +    let mut stream_choices = Vec::with_capacity(request.generate_chunk.choices.len());
 +
 +    for choice in &request.generate_chunk.choices {
-+        let (new_text, updated_state) =
-+            detok::detokenize_delta(&ctx.tokenizer, &choice.token_ids, &state, skip_special)?;
++        let (new_text, updated_state) = detok::detokenize_delta(
++            &ctx.tokenizer,
++            &choice.token_ids,
++            &state,
++            skip_special,
++            choice.finish_reason.is_some(),
++        )?;
 +        state = updated_state;
 +
 +        // Unlike OpenAI's API, which always emits `role: "assistant"` on the
@@ -1598,8 +1625,13 @@ new file mode 100644
 +    let mut stream_choices = Vec::with_capacity(request.generate_chunk.choices.len());
 +
 +    for choice in &request.generate_chunk.choices {
-+        let (new_text, updated_state) =
-+            detok::detokenize_delta(&ctx.tokenizer, &choice.token_ids, &state, skip_special)?;
++        let (new_text, updated_state) = detok::detokenize_delta(
++            &ctx.tokenizer,
++            &choice.token_ids,
++            &state,
++            skip_special,
++            choice.finish_reason.is_some(),
++        )?;
 +        state = updated_state;
 +
 +        stream_choices.push(CompletionStreamChoice {

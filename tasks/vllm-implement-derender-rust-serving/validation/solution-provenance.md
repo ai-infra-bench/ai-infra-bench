@@ -35,3 +35,12 @@ including a fresh Harbor trial. Five final stability rounds passed. The
 full-history/native-decoder alternative also passed the same complete verifier.
 
 Status: qualified. Exact final patch and result hashes are in `e2e-evidence.json`.
+
+The independent review of PR head `2e654d4eb6c5ea68f936acc3bfe468949251da86`
+found terminal text loss in both qualified algorithms. This hardening flushes
+the remaining decode window when either endpoint receives a finish reason,
+then advances the offsets so the terminal state cannot duplicate text. The
+full-history alternative independently uses the Base native decoder's
+`flush(None)` result. Ordinary unfinished byte sequences remain buffered until
+more input or termination. Current measurements supersede the earlier 49-case
+qualification above and are recorded in `e2e-evidence.json`.

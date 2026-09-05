@@ -41,7 +41,7 @@ for number in range(1, a.rounds + 1):
     (a.output / "results.json").write_text(json.dumps({"test_hashes": hashes, "rounds": records}, indent=2) + "\n")
     assert reward["compile_exit_code"] == reward["regression_exit_code"] == 0, record
     assert reward["reward"] == a.expected_reward, record
-    assert counts["tests"] == 49 and counts["errors"] == counts["skipped"] == 0, record
+    assert counts["tests"] == 67 and counts["errors"] == counts["skipped"] == 0, record
     assert failed_names == baseline_names, record
     assert hashes == {str(f.relative_to(task)): hashlib.sha256(f.read_bytes()).hexdigest()
                       for f in sorted((task / "tests").rglob("*")) if f.is_file() and "__pycache__" not in f.parts}

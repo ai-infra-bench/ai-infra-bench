@@ -130,3 +130,39 @@ def test_independent_special_token_resume_challenge(plain, tmp_path, skip_specia
             fragments.append(result["chunk"]["choices"][0]["text"])
             state = json.loads(json.dumps(result["stream_state"]))
     assert "".join(fragments) == decode(ids, skip_special=skip_special)
+
+
+@pytest.mark.parametrize("path", [CHAT_PATH, COMPLETION_PATH], ids=["chat", "completion"])
+@pytest.mark.parametrize("terminal_kind", ["empty", "with-token"])
+@pytest.mark.parametrize("text", ["\ufffd", "valid text ending in \ufffd", "北京🍣 \ufffd\ufffd", "partial-bytes"],
+                         ids=["replacement", "space-and-replacement", "unicode-replacements", "incomplete-tail"])
+def test_terminal_flush_preserves_one_shot_text(plain, tmp_path, path, terminal_kind, text):
+    if text == "partial-bytes":
+        complete = encode("prefix 🍣")
+        cut = next(i for i in range(1, len(complete)) if decode(complete[:i]).endswith("\ufffd"))
+        ids = complete[:cut]
+    else:
+        ids = encode(text)
+    first_ids, final_ids = (ids, []) if terminal_kind == "empty" else (ids[:-1], ids[-1:])
+    first, state = chunk(plain, path, first_ids)
+    if text == "partial-bytes":
+        assert "\ufffd" not in text_of(first, path), "unfinished bytes escaped before termination"
+    with RenderServer(tmp_path / "terminal-receiver") as other:
+        final, state = chunk(other, path, final_ids, state,
+                             finish="stop" if terminal_kind == "empty" else "length")
+        assert final["choices"][0]["finish_reason"] in ("stop", "length")
+        assert text_of(first, path) + text_of(final, path) == decode(ids)
+
+
+@pytest.mark.parametrize("path", [CHAT_PATH, COMPLETION_PATH], ids=["chat", "completion"])
+def test_unfinished_bytes_wait_through_empty_nonterminal_chunk(plain, path):
+    ids = encode("start 🍣 final")
+    cut = next(i for i in range(1, len(ids)) if decode(ids[:i]).endswith("\ufffd"))
+    first, state = chunk(plain, path, ids[:cut])
+    assert "\ufffd" not in text_of(first, path)
+    empty, state = chunk(plain, path, [], state)
+    prefix = text_of(first, path) + text_of(empty, path)
+    assert "\ufffd" not in prefix
+    assert decode(ids).startswith(prefix)
+    final, _ = chunk(plain, path, ids[cut:], state, finish="stop")
+    assert prefix + text_of(final, path) == decode(ids)

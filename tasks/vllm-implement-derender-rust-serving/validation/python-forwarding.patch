@@ -1,0 +1,36 @@
+diff --git a/rust/src/cmd/src/main.rs b/rust/src/cmd/src/main.rs
+--- a/rust/src/cmd/src/main.rs
++++ b/rust/src/cmd/src/main.rs
+@@ -83,6 +83,32 @@
+ }
+
+ fn main() -> ExitCode {
++    // Review negative control: delegate render requests to the existing Python service.
++    if std::env::args().nth(1).as_deref() == Some("render") {
++        use std::os::unix::process::CommandExt;
++        let raw: Vec<String> = std::env::args().skip(2).collect();
++        let mut forwarded = Vec::new();
++        let mut tools_enabled = false;
++        let mut i = 0;
++        while i < raw.len() {
++            if (raw[i] == "--tool-call-parser" || raw[i] == "--reasoning-parser")
++                && raw.get(i + 1).map(String::as_str) == Some("none") {
++                i += 2;
++                continue;
++            }
++            if raw[i] == "--tool-call-parser" { tools_enabled = true; }
++            forwarded.push(raw[i].clone());
++            i += 1;
++        }
++        if tools_enabled { forwarded.push("--enable-auto-tool-choice".to_string()); }
++        eprintln!("REVIEW_NEGATIVE_CONTROL: serving render/derender via Python");
++        let error = std::process::Command::new("vllm")
++            .args(["launch", "render"])
++            .args(forwarded)
++            .env_remove("VLLM_USE_RUST_FRONTEND")
++            .exec();
++        panic!("Python delegation failed: {error}");
++    }
+     let process_label =
+         match env::args_os().nth(1).as_deref().and_then(OsStr::to_str).unwrap_or_default() {
+             "bench" => "Bench",

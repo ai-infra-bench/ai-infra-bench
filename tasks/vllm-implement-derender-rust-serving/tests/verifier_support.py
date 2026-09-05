@@ -5,6 +5,7 @@ import os
 import signal
 import socket
 import subprocess
+import sys
 import time
 from functools import lru_cache
 from pathlib import Path
@@ -107,6 +108,11 @@ class RenderServer:
         environment.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1",
                            VLLM_NO_USAGE_STATS="1", CUDA_VISIBLE_DEVICES="")
         environment.pop("VLLM_USE_RUST_FRONTEND", None)
+        if self.frontend == "rust":
+            from native_runtime import prepare
+
+            runtime = prepare(root, binary, MODEL_PATH)
+            args = [sys.executable, "/tests/native_runtime.py", str(runtime), *args[1:]]
         self.client = httpx.Client(base_url=self.base_url, timeout=30, trust_env=False)
         try:
             self.process = subprocess.Popen(args, cwd=SOURCE, env=environment,

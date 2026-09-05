@@ -137,7 +137,7 @@ diff --git a/rust/src/server/src/routes/derender/detok.rs b/rust/src/server/src/
 new file mode 100644
 --- /dev/null
 +++ b/rust/src/server/src/routes/derender/detok.rs
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,37 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 +
@@ -152,6 +152,7 @@ new file mode 100644
 +    delta_token_ids: &[u32],
 +    state: &DerenderStreamState,
 +    skip_special_tokens: bool,
++    finished: bool,
 +) -> Result<(String, DerenderStreamState), ApiError> {
 +    let mut updated = state.clone();
 +    updated.replay_ids.extend_from_slice(delta_token_ids);
@@ -161,7 +162,13 @@ new file mode 100644
 +            ApiError::invalid_request(format!("decode failed: {error}"), None)
 +        })?;
 +    }
-+    let text = decoder.next_chunk().map(|chunk| chunk.text).unwrap_or_default();
++    let text = if finished {
++        decoder.flush(None).map_err(|error| {
++            ApiError::invalid_request(format!("decode failed: {error}"), None)
++        })?.1.text
++    } else {
++        decoder.next_chunk().map(|chunk| chunk.text).unwrap_or_default()
++    };
 +    let suffix = text.strip_prefix(&updated.emitted_text).ok_or_else(|| {
 +        ApiError::invalid_request("inconsistent continuation state", None)
 +    })?.to_string();
@@ -480,7 +487,7 @@ diff --git a/rust/src/server/src/routes/derender/mod.rs b/rust/src/server/src/ro
 new file mode 100644
 --- /dev/null
 +++ b/rust/src/server/src/routes/derender/mod.rs
-@@ -0,0 +1,1037 @@
+@@ -0,0 +1,1047 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 +
@@ -1307,8 +1314,13 @@ new file mode 100644
 +    let mut stream_choices = Vec::with_capacity(request.generate_chunk.choices.len());
 +
 +    for choice in &request.generate_chunk.choices {
-+        let (new_text, updated_state) =
-+            detok::detokenize_delta(&ctx.tokenizer, &choice.token_ids, &state, skip_special)?;
++        let (new_text, updated_state) = detok::detokenize_delta(
++            &ctx.tokenizer,
++            &choice.token_ids,
++            &state,
++            skip_special,
++            choice.finish_reason.is_some(),
++        )?;
 +        state = updated_state;
 +
 +        // Unlike OpenAI's API, which always emits `role: "assistant"` on the
@@ -1388,8 +1400,13 @@ new file mode 100644
 +    let mut stream_choices = Vec::with_capacity(request.generate_chunk.choices.len());
 +
 +    for choice in &request.generate_chunk.choices {
-+        let (new_text, updated_state) =
-+            detok::detokenize_delta(&ctx.tokenizer, &choice.token_ids, &state, skip_special)?;
++        let (new_text, updated_state) = detok::detokenize_delta(
++            &ctx.tokenizer,
++            &choice.token_ids,
++            &state,
++            skip_special,
++            choice.finish_reason.is_some(),
++        )?;
 +        state = updated_state;
 +
 +        stream_choices.push(CompletionStreamChoice {

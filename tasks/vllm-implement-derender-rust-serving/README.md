@@ -31,23 +31,31 @@ to its production render-only server. Model output token IDs are ordinary
 derender inputs. The tokenizer, parser, request/response code and independent
 server processes run for real.
 
-Reward is 1 only when all 49 unique HTTP cases pass with no errors or skips,
+Reward is 1 only when all 67 unique HTTP cases pass with no errors or skips,
 and the existing server/chat crate suites complete with at least 673 passing
-tests and no failures, ignored tests or filtered tests.
+tests and no failures, ignored tests or filtered tests. Candidate services run
+in a verifier-only native runtime without access to Python/source/tests or
+outbound connections; the trusted Python clients and development image remain
+intact.
 
-| Qualification | HTTP passed / failed | Reward |
-| --- | --- | --- |
-| Base, five rounds | 9 / 40 each | 0 |
-| Oracle, five rounds | 49 / 0 each | 1 |
-| Full-history/native-decoder alternative | 49 / 0 | 1 |
-| Discard client state | 40 / 9 | 0 |
-| Plain decoding without parsing | 41 / 8 | 0 |
-| Discard logprobs | 46 / 3 | 0 |
-| Ignore prompt usage | 43 / 6 | 0 |
+| Final qualification | HTTP passed / failed / errors | Reward |
+| --- | ---: | ---: |
+| alternative-native-decoder-replay | 67 / 0 / 0 | 1 |
+| base | 9 / 58 / 0 | 0 |
+| discard-client-state | 48 / 19 / 0 | 0 |
+| discard-logprobs | 64 / 3 / 0 | 0 |
+| ignore-prompt-usage | 61 / 6 / 0 | 0 |
+| omit-terminal-flush | 51 / 16 / 0 | 0 |
+| oracle | 67 / 0 / 0 | 1 |
+| plain-text-only | 59 / 8 / 0 | 0 |
+| python-forwarding | 0 / 2 / 65 | 0 |
 
-All cases above retain passing server/chat regressions. The fixed Python
-render-only reference also passes the 49 HTTP cases. A fresh Harbor 0.22.0
-Oracle trial returned 1 with zero framework errors.
+All versions retain passing Rust regressions. Fresh Harbor Oracle and replay
+alternative trials return 1, and the Python-forwarding control returns 0,
+with zero framework errors. Each qualified positive native binary also passes two further
+HTTP stability rounds and an independent mixed-marker terminal challenge.
+The previous 49-case Python/reference and five-round results are historical;
+current executable hashes and trials are in the measured evidence.
 
 HTTP coverage uses the supplied Qwen vocabulary/template and Hermes/Qwen3
 parser configurations. Chunked reasoning/tool parsing, chunked logprobs and

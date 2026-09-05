@@ -93,6 +93,7 @@ pub(super) fn detokenize_delta(
     delta_token_ids: &[u32],
     state: &DerenderStreamState,
     skip_special_tokens: bool,
+    finished: bool,
 ) -> Result<(String, DerenderStreamState), ApiError> {
     let mut updated = state.clone();
     updated.replay_ids.extend_from_slice(delta_token_ids);
@@ -102,7 +103,13 @@ pub(super) fn detokenize_delta(
             ApiError::invalid_request(format!("decode failed: {error}"), None)
         })?;
     }
-    let text = decoder.next_chunk().map(|chunk| chunk.text).unwrap_or_default();
+    let text = if finished {
+        decoder.flush(None).map_err(|error| {
+            ApiError::invalid_request(format!("decode failed: {error}"), None)
+        })?.1.text
+    } else {
+        decoder.next_chunk().map(|chunk| chunk.text).unwrap_or_default()
+    };
     let suffix = text.strip_prefix(&updated.emitted_text).ok_or_else(|| {
         ApiError::invalid_request("inconsistent continuation state", None)
     })?.to_string();
@@ -111,6 +118,19 @@ pub(super) fn detokenize_delta(
 }
 '''
     save("alternative-native-decoder-replay", files, 1, "Use full token history and native decoder replay instead of the Oracle's bounded decode window.")
+    files = dict(oracle)
+    assert "    if finished {" in files[detok]
+    files[detok] = files[detok].replace("    if finished {", "    if false && finished {", 1)
+    save("omit-terminal-flush", files, 0, "Leave buffered terminal text unflushed, reproducing the reviewed Oracle failure.")
+
+    # This control deliberately contains no derender implementation. Preserve
+    # its complete Base-relative entry-point patch rather than grafting it on
+    # the Oracle and accidentally qualifying a different program.
+    forwarding = task / "validation/python-forwarding.patch"
+    controls.append({"name": "python-forwarding", "patch": forwarding.name,
+                     "patch_sha256": hashlib.sha256(forwarding.read_bytes()).hexdigest(),
+                     "expected_reward": 0,
+                     "purpose": "Delegate the Base Rust render entry point to the installed Python implementation; the native runtime must reject it."})
     manifest = {"schema_version": "ai_infra_bench_validation_cases.v1", "cases": controls}
     (task / "validation" / "ci-cases.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps([{k: c[k] for k in ["name", "expected_reward"]} for c in controls]))

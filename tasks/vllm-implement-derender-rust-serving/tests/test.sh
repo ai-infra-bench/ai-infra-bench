@@ -26,7 +26,7 @@ if [ "$compile_rc" -eq 0 ]; then
       --junitxml=/logs/verifier/derender.xml \
       /tests/test_derender_http.py /tests/test_derender_stream.py \
       /tests/test_derender_parsing.py || pytest_rc=$?
-  python /tests/check_junit.py /logs/verifier/derender.xml 49 || integrity_rc=$?
+  python /tests/check_junit.py /logs/verifier/derender.xml 67 || integrity_rc=$?
 else
   cat /logs/verifier/build.log
   pytest_rc=1

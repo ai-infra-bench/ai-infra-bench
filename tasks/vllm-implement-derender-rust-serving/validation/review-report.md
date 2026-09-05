@@ -1,94 +1,57 @@
-# Task review
+# Post-review task qualification
 
-Retain the task. The frozen user statement, CPU environment and behavioral
-verifier pass the three review gates for the supported scope below. No
-blocking finding remains after qualification.
+Task retained; the two reproduced P1 findings in the independent review of
+`2e654d4eb6c5ea68f936acc3bfe468949251da86` are repaired. This is the author's
+hardening qualification, not a claim that another independent reviewer has
+approved the new revision.
 
-## Statement
+Gate 1 passes: the user's frozen native Rust derender query and supported
+plain-text chunk protocol remain unchanged. Gate 2 passes: the exact canonical
+CPU image, source, offline dependencies and model metadata are retained; the
+Python reference remains available during development. The reviewed workflow is
+HTTP token/context input -> real Rust routing/tokenizer/parsers/state update ->
+client-visible response and continuation on an independent process.
 
-The instruction is the user's exact English query, including punctuation and
-spacing. It requests both Rust derender endpoints, non-streaming parsing and
-metadata, supported chunked processing with client-carried state, engine-free
-render-only operation, and preservation of existing APIs. This is a realistic
-token-in/token-out serving workflow; it does not claim to reproduce a specific
-historical incident.
+Gate 3 now includes an execution boundary for the explicit no-Python-forwarding
+constraint and 18 terminal/continuation cases. Candidate serving runs in a
+per-process native filesystem with reduced privileges and blocked outbound
+connections; Python clients remain outside. Real tokenization, parsing and
+HTTP still run. The bounded-window Oracle and full-history/native-decoder
+alternative both flush pending text at termination. Assertions preserve
+incomplete UTF-8 during continuation without prescribing private state or the
+exact timing of safe prefix emission. Requests after termination are not graded.
 
-## Environment and semantic boundary
+| Final version | HTTP passed / failed / errors | Reward |
+| --- | ---: | ---: |
+| alternative-native-decoder-replay | 67 / 0 / 0 | 1 |
+| base | 9 / 58 / 0 | 0 |
+| discard-client-state | 48 / 19 / 0 | 0 |
+| discard-logprobs | 64 / 3 / 0 | 0 |
+| ignore-prompt-usage | 61 / 6 / 0 | 0 |
+| omit-terminal-flush | 51 / 16 / 0 | 0 |
+| oracle | 67 / 0 / 0 | 1 |
+| plain-text-only | 59 / 8 / 0 | 0 |
+| python-forwarding | 0 / 2 / 65 | 0 |
 
-The immutable vLLM Base is `e473e9036f979d546830aece9855027049faf0ba`.
-The image contains its Python protocol/reference, the working native Rust
-render-only executable, pinned offline Cargo/Python dependencies and Qwen
-configuration/tokenizer/template metadata. It contains no model weights.
+All nine versions compile and pass 673 existing server/chat Rust tests. Positive
+versions have no errors or skips. Forwarding reaches the candidate's actual
+Rust entry point and fails because Python is absent from its runtime; its setup
+errors are the intended rejection. The original review's Python-forwarding
+Harbor reward 1 becomes 0 in a fresh final Harbor trial. Final Oracle and
+alternative Harbor trials both return 1, all with zero framework errors.
 
-```text
-real HTTP request with generated token IDs and original request context
--> production Rust render CLI/router, tokenizer, parser and response assembly
--> response or chunk plus client-carried state
--> exact text/metadata checks and continuation on an independent process
-```
+Two further HTTP rounds for each retained positive native binary pass. An
+independent 12-case mixed-marker/replacement partition challenge passes under
+both algorithms. The native-boundary probe confirms source/Python/tests/proc
+are absent, model metadata remains readable and immutable, privileges are
+reduced, and even a live same-container listener cannot be reached. Exact
+hashes, trial identities, test results and reproduction artifacts are recorded
+in `e2e-evidence.json` and `run-results.json`.
 
-Generated token IDs are the normal interface input. Model computation and an
-engine are not part of this semantic boundary. The real native tokenizer,
-parsers, request/response transport and independent process state run without
-substitution. Separate server/chat crate regressions exercise the existing
-shared serving code with upstream engine fixtures.
-
-A fresh Base container without task mounts started the render CLI and returned
-200 for health, models and chat rendering, and 404 for both missing derender
-endpoints. Git/PR-object isolation, normal import paths, resource hashes and
-dependency compatibility passed. The cache-only rebuild reproduced the same
-image ID. No future Rust derender source enters the Dockerfile or image.
-
-## Verifier and reference independence
-
-The 49 HTTP cases cover both response families, Unicode and escaped text,
-multiple prompts/choices, exact usage, logprob token/byte reconstruction,
-reasoning with real prompt context, tools and mixed outputs, invalid inputs,
-special-token options, concurrent calls and client-carried continuation.
-
-The independent challenge crosses special tokens and a split emoji. Another
-test terminates the original server inside a partially decoded character,
-then continues on a fresh process. The verifier treats returned state as an
-opaque JSON object rather than requiring the Oracle's private representation.
-
-The Oracle uses a bounded decode window; the correct alternative replays full
-token history through the production incremental decoder. Both receive 1.
-Four complete, compilable mutations omit continuation state, parsing,
-logprobs or prompt usage and receive 0 through their planned behavior defects;
-all retain passing existing API regressions.
-
-Final measured outcomes:
-
-- Python reference: 49/49 HTTP cases pass.
-- Base: 9/49 HTTP cases pass, 40 fail at missing functionality; reward 0 in
-  five rounds with identical failure names, no errors or skips.
-- Oracle: 49/49 HTTP cases and 673 server/chat regressions pass, reward 1 in
-  five final rounds.
-- Correct alternative: complete verifier passes, reward 1.
-- Four incomplete controls: rewards 0; 9, 8, 3 and 6 HTTP failures respectively.
-- Fresh Harbor Oracle: one completed trial, zero framework errors, reward 1.
-
-## Limitations and qualification notes
-
-Supported chunked processing means the Base's plain-text chat/completion
-protocol. Streaming reasoning/tool parsing and streaming logprobs are not
-claimed. HTTP cases use the supplied Qwen vocabulary/template and explicitly
-configured Hermes/Qwen3 parsers; this is not an all-model benchmark. No GPU
-computation, throughput, or transfer behavior is claimed.
-
-A broad diagnostic ran vllm-text in addition to the rewarded crates. Its
-Qwen3-0.6B download-dependent test failed offline and one explicitly
-network-dependent test was ignored; neither is part of the scored suites.
-The scored server/chat suites have no ignored or failed tests.
-
-One provisional stability attempt after restoring old-timestamp source files
-reused a compiled discard-state mutation through Cargo's timestamp cache. The
-source hashes were correct but the build log still showed the mutation's
-unused-state warning. That qualification-container restoration was corrected
-by touching the restored files and rebuilding. The fresh Harbor trial and all
-five subsequent Oracle rounds passed. The failed restoration attempt remains
-in the external raw logs and is not counted as a successful stability round.
-
-No tests, Oracle implementation names, or curator reproducer are made available
-to the evaluated agent. Final hashes, prepared-task checksum semantics and raw
-log locations are recorded in `e2e-evidence.json`.
+The original 49-case and five-round records remain historical at the parent
+revision. Pre-freeze runs, including tests later relaxed for fairness, are
+retained in the external work directory and are excluded from final results.
+The verifier uses one supplied Qwen tokenizer and Hermes/Qwen3 parsers. It does
+not claim streaming tools/reasoning/logprobs, all-model coverage, GPU inference,
+model quality or throughput. No new independent subagent review was run during
+this hardening.

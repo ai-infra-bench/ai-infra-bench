@@ -1,5 +1,7 @@
 # Construction record
 
+The construction and initial qualification below are historical at `2e654d4`. Current post-review results are in the final section and `e2e-evidence.json`.
+
 - Benchmark branch: `tasks/vllm-implement-derender-rust-serving` (renamed from
   `codex/vllm-rust-derender-task` for publication at the user's request).
 - Benchmark worktree: `/home/qunhong/workspace/ai-infra-bench-rust-derender`.
@@ -65,3 +67,15 @@ The user authorized a standalone task PR from the `tasks/` publication branch.
 Only this task directory is included; the Git commit and PR identify the
 published snapshot. The branch rename and this record update do not change
 the frozen instruction, environment, Oracle, verifier or validation controls.
+
+## Post-review hardening
+
+The user supplied an independent PR #52 report and requested assessment and
+repair where needed. Both P1s were confirmed. The native server execution
+boundary and terminal decoder behavior were repaired; the frozen instruction,
+task metadata and canonical image were retained. Final qualification runs all
+67 HTTP cases and 673 Rust regressions for Base, Oracle, a correct replay
+alternative and six negative controls. Three fresh Harbor trials, repeated HTTP
+matrices and independent boundary/terminal challenges provide final evidence.
+Raw development and final artifacts are at
+`/home/qunhong/workspace/ai-infra-bench-derender-hardening-work/`.

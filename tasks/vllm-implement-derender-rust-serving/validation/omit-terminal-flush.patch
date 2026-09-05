@@ -4,7 +4,7 @@ diff --git a/rust/src/chat/src/lib.rs b/rust/src/chat/src/lib.rs
 @@ -213,11 +213,37 @@
          self.prepare_text_request(request).await
      }
- 
+
 -    /// Prepare one chat request without submitting it to an engine.
 -    pub async fn prepare(
 +    /// Effective tool-call parser name for the model, if parsing is enabled.
@@ -59,7 +59,7 @@ diff --git a/rust/src/chat/src/lib.rs b/rust/src/chat/src/lib.rs
          Ok((text_request, output_processor))
      }
 @@ -326,24 +361,12 @@
- 
+
      /// Effective tool-call parser name for this model, if parsing is enabled.
      pub fn tool_call_parser_name(&self) -> Option<&str> {
 -        match &self.processor.tool_call_parser {
@@ -71,7 +71,7 @@ diff --git a/rust/src/chat/src/lib.rs b/rust/src/chat/src/lib.rs
 -        }
 +        self.processor.tool_call_parser_name(self.model_id())
      }
- 
+
      /// Effective reasoning parser name for this model, if parsing is enabled.
      pub fn reasoning_parser_name(&self) -> Option<&str> {
 -        match &self.processor.reasoning_parser {
@@ -83,13 +83,13 @@ diff --git a/rust/src/chat/src/lib.rs b/rust/src/chat/src/lib.rs
 -        }
 +        self.processor.reasoning_parser_name(self.model_id())
      }
- 
+
      /// Render, tokenize, and submit one chat request.
 diff --git a/rust/src/chat/src/stream.rs b/rust/src/chat/src/stream.rs
 --- a/rust/src/chat/src/stream.rs
 +++ b/rust/src/chat/src/stream.rs
 @@ -38,6 +38,18 @@
- 
+
  impl ChatEventStream {
      pub(crate) fn new(request_id: String, inner: impl crate::output::ChatEventStream) -> Self {
 +        Self {
@@ -367,7 +367,7 @@ new file mode 100644
 +        read_offset = step.read_offset;
 +    }
 +
-+    if finished {
++    if false && finished {
 +        // No more tokens can complete a pending byte sequence. Match one-shot
 +        // decoding even when the final character is a literal U+FFFD or the
 +        // tokenizer substitutes U+FFFD for an incomplete final sequence.
@@ -1528,7 +1528,7 @@ new file mode 100644
 +        bail_invalid_request!("derender_chat_stream expects at most one choice per chunk");
 +    }
 +
-+    let mut state = types::DerenderStreamState::default();
++    let mut state = request.stream_state.map(|state| *state).unwrap_or_default();
 +    state.validate()?;
 +
 +    let skip_special = request
@@ -1614,7 +1614,7 @@ new file mode 100644
 +        bail_invalid_request!("derender_completion_stream expects at most one choice per chunk");
 +    }
 +
-+    let mut state = types::DerenderStreamState::default();
++    let mut state = request.stream_state.map(|state| *state).unwrap_or_default();
 +    state.validate()?;
 +
 +    let skip_special = request
@@ -2100,7 +2100,7 @@ diff --git a/rust/src/server/src/routes/inference/generate.rs b/rust/src/server/
 +++ b/rust/src/server/src/routes/inference/generate.rs
 @@ -26,11 +26,11 @@
  };
- 
+
  use self::convert::{ResponseOptions, prepare_generate_request};
 -use self::types::{
 -    GenerateLogprob, GenerateResponse, GenerateResponseChoice, GenerateResponseStreamChoice,
@@ -2141,7 +2141,7 @@ diff --git a/rust/src/server/src/routes/inference/generate/types.rs b/rust/src/s
 +fn default_finish_reason() -> Option<String> {
 +    Some("stop".to_string())
  }
- 
+
  /// Mirrors the Python vLLM `GenerateResponseStreamChoice` class.
  #[serde_with::skip_serializing_none]
 -#[derive(Debug, Clone, Serialize)]
@@ -2154,7 +2154,7 @@ diff --git a/rust/src/server/src/routes/inference/generate/types.rs b/rust/src/s
 +    #[serde(default)]
      pub token_ids: Vec<u32>,
  }
- 
+
  /// Mirrors the Python vLLM `GenerateStreamResponse` class.
  #[serde_with::skip_serializing_none]
 -#[derive(Debug, Clone, Serialize)]
@@ -2166,7 +2166,7 @@ diff --git a/rust/src/server/src/routes/inference/generate/types.rs b/rust/src/s
      pub choices: Vec<GenerateResponseStreamChoice>,
      pub usage: Option<Usage>,
  }
- 
+
 +/// Engine-wire prompt logprobs: one candidate map per prompt position.
 +pub(crate) type PromptLogprobMaps = Vec<Option<HashMap<u32, GenerateLogprob>>>;
 +
@@ -2184,7 +2184,7 @@ diff --git a/rust/src/server/src/routes/inference/generate/types.rs b/rust/src/s
      pub kv_transfer_params: Option<Value>,
      pub ec_transfer_params: Option<Value>,
  }
- 
+
 +/// Deserialize prompt-logprob position maps with integer keys.
 +///
 +/// Serde's untagged-union buffering (used by the derender request unions)
@@ -2231,7 +2231,7 @@ diff --git a/rust/src/server/src/routes/openai/chat_completions.rs b/rust/src/se
 --- a/rust/src/server/src/routes/openai/chat_completions.rs
 +++ b/rust/src/server/src/routes/openai/chat_completions.rs
 @@ -28,13 +28,14 @@
- 
+
  use self::convert::{ResponseOptions, prepare_chat_request};
  pub(crate) use self::types::ChatCompletionRequest;
 +use self::types::ChatCompletionResponse;
@@ -2262,7 +2262,7 @@ diff --git a/rust/src/server/src/routes/openai/chat_completions/types.rs b/rust/
      pub object: String,
      pub created: u64,
 @@ -355,7 +355,7 @@
- 
+
  /// Mirrors the Python vLLM `ChatCompletionResponseChoice` class.
  #[derive(Debug, Clone, Serialize)]
 -pub(super) struct ChatCompletionChoice {
@@ -2276,11 +2276,11 @@ diff --git a/rust/src/server/src/routes/openai/chat_completions/types.rs b/rust/
  #[derive(Debug, Clone, Copy, PartialEq, Eq, SerializeDisplay)]
 -pub(super) struct AssistantRole;
 +pub(crate) struct AssistantRole;
- 
+
  impl fmt::Display for AssistantRole {
      fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 @@ -377,7 +377,7 @@
- 
+
  /// Mirrors the Python vLLM response `ChatMessage` class.
  #[derive(Debug, Clone, Serialize)]
 -pub(super) struct ChatCompletionMessage {
@@ -2321,7 +2321,7 @@ diff --git a/rust/src/server/src/routes/openai/completions.rs b/rust/src/server/
 @@ -27,8 +27,13 @@
      TextOutputStreamExt as _, TextRequest,
  };
- 
+
 +pub(crate) use self::convert::completion_echo_text;
  use self::convert::{ResponseOptions, prepare_completion_request};
  pub(crate) use self::types::CompletionRequest;
@@ -2349,7 +2349,7 @@ diff --git a/rust/src/server/src/routes/openai/completions/convert.rs b/rust/src
 @@ -176,7 +176,9 @@
      })
  }
- 
+
 -fn completion_echo_text(
 +/// Prompt text echoed back northbound when `echo=true`, mirroring the Python
 +/// completions path. Shared with the derender endpoint.
@@ -2370,7 +2370,7 @@ diff --git a/rust/src/server/src/routes/openai/completions/types.rs b/rust/src/s
      pub object: String,
      pub created: u64,
 @@ -230,7 +230,7 @@
- 
+
  /// Mirrors the Python vLLM `CompletionResponseChoice` class.
  #[derive(Debug, Clone, Serialize)]
 -pub(super) struct CompletionChoice {
@@ -2431,17 +2431,17 @@ diff --git a/rust/src/server/src/routes/openai/utils/types.rs b/rust/src/server/
 +    #[serde(default)]
      pub completion_tokens_details: CompletionTokenUsageInfo,
  }
- 
+
 @@ -479,13 +483,13 @@
  }
- 
+
  /// Mirrors the Python vLLM `PromptTokenUsageInfo` class.
 -#[derive(Debug, Clone, Serialize)]
 +#[derive(Debug, Clone, Deserialize, Serialize)]
  pub struct PromptTokenUsageInfo {
      pub cached_tokens: usize,
  }
- 
+
  /// Mirrors the Python vLLM `CompletionTokenUsageInfo` class.
 -#[derive(Debug, Clone, Default, Serialize)]
 +#[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -2450,7 +2450,7 @@ diff --git a/rust/src/server/src/routes/openai/utils/types.rs b/rust/src/server/
  }
 @@ -604,13 +608,16 @@
  pub type PromptLogprobs = Vec<Option<HashMap<u32, PromptLogprob>>>;
- 
+
  /// Mirrors the Python vLLM `ChatCompletionLogProbs` class.
 -#[derive(Debug, Clone, Serialize)]
 +///
@@ -2460,7 +2460,7 @@ diff --git a/rust/src/server/src/routes/openai/utils/types.rs b/rust/src/server/
  pub struct ChatLogProbs {
      pub content: Option<Vec<ChatLogProbsContent>>,
  }
- 
+
  /// Mirrors the Python vLLM `ChatCompletionLogProbsContent` class.
 -#[derive(Debug, Clone, Serialize)]
 +#[derive(Debug, Clone, Deserialize, Serialize)]
@@ -2469,7 +2469,7 @@ diff --git a/rust/src/server/src/routes/openai/utils/types.rs b/rust/src/server/
      pub logprob: f32,
 @@ -619,7 +626,7 @@
  }
- 
+
  /// Mirrors the Python vLLM `ChatCompletionLogProb` class.
 -#[derive(Debug, Clone, Serialize)]
 +#[derive(Debug, Clone, Deserialize, Serialize)]
@@ -2500,7 +2500,7 @@ diff --git a/rust/src/text/src/lib.rs b/rust/src/text/src/lib.rs
 @@ -83,6 +83,16 @@
          self.max_model_len
      }
- 
+
 +    /// Return the maximum number of top log probabilities accepted.
 +    pub fn max_logprobs(&self) -> i32 {
 +        self.max_logprobs

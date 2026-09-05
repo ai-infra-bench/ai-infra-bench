@@ -26,7 +26,7 @@ verifier must not replace tokenization, parsing, state continuation, or HTTP.
 | Client-carried state across instances | A stream continues on a fresh server without sharing mutable process state | Alternate independently started server instances; treat state as an opaque public value |
 | Render-only without weights or engine | Standalone server starts and processes all derender inputs | No engine/model mounts or engine connection; actual render CLI |
 | Preserve existing APIs | Models, health and render keep working; shared serving paths retain their behavior | Native positive controls and required upstream regression checks |
-| Native Rust, no Python forwarding | Derender works while no Python server or engine exists | Isolated render-only processes with no external network |
+| Native Rust, no Python forwarding | Candidate serves with no access to the Python reference or interpreter and no outbound connections | Verifier-only chroot containing ELF/native libraries/model metadata, unprivileged server, inherited no-new-privileges and connect filter; Python client stays outside |
 
 The source snapshot supplies non-streaming parsing and plain-text chunked
 derender protocols in Python. As discussed before the user froze the query,
@@ -45,11 +45,24 @@ chunked scope at this Base. The Oracle's bounded window and the alternative's
 full-history replay are both accepted; state representation and growth strategy
 are not graded.
 
-The frozen matrix contains 49 HTTP cases: 24 general response/validation/API
-cases, 14 continuation cases, and 11 parsing/logprob cases. An additional 673
+The matrix contains 67 HTTP cases: 24 general response/validation/API
+cases, 32 continuation cases, and 11 parsing/logprob cases. An additional 673
 existing Rust server/chat cases guard shared API behavior. No task behavior test
 imports an Oracle symbol. The existing crate suites may grow without failing
 the minimum baseline-count check.
 
-Status: validated against Python, native Rust Oracle, four negative controls,
-and a different correct state representation; see `e2e-evidence.json`.
+The 18 added continuation cases require terminal output to equal one-shot
+real-tokenizer decoding, including literal U+FFFD and incomplete byte tails.
+They cover empty/data-bearing terminal chunks, stop/length, another server,
+withholding incomplete bytes during a
+nonterminal empty chunk. No private state layout is required.
+
+The Python development reference remains in the image. Only candidate serving
+runs in the native runtime; the trusted Python HTTP/tokenizer client and Rust
+build/regression tools run outside it. Each server gets a separate filesystem,
+which also prevents client-state tests from sharing hidden local files. Native
+libraries are discovered from the built binary; this does not compare candidate
+symbols, function names or source with the Oracle.
+
+The historical 49-case Python/reference results do not qualify terminal flush.
+Current positive/negative and Harbor results are recorded in `e2e-evidence.json`.
