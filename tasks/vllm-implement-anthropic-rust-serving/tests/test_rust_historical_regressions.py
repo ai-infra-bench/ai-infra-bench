@@ -109,10 +109,12 @@ def create_with_tool(base_url: str, *, stream: bool = False):
 
 
 def assert_mixed_message(message) -> None:
-    assert [block.type for block in message.content] == ["text", "tool_use"]
-    assert "PREFACE_SENTINEL" in message.content[0].text
-    assert message.content[1].name == "get_weather"
-    assert message.content[1].input == {
+    assert len(message.content) >= 2
+    assert all(block.type == "text" for block in message.content[:-1])
+    assert "PREFACE_SENTINEL" in "".join(block.text for block in message.content[:-1])
+    assert message.content[-1].type == "tool_use"
+    assert message.content[-1].name == "get_weather"
+    assert message.content[-1].input == {
         "city": "Paris",
         "note": "TOOL_NOTE_SENTINEL",
     }

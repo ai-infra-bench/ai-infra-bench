@@ -31,7 +31,7 @@ def main():
         key: sum(int(s.get(key, "0")) for s in xml.iter("testsuite"))
         for key in ("tests", "failures", "errors", "skipped")
     }
-    assert counts["tests"] == inventory["total_pytest_cases"] == 77
+    assert counts["tests"] == inventory["total_pytest_cases"]
     assert counts["errors"] == counts["skipped"] == 0
     by_file = defaultdict(lambda: {"passed": 0, "failed": 0})
     cases = []
@@ -55,22 +55,31 @@ def main():
         assert sum(by_file[Path(group["file"]).stem].values()) == group["cases"]
     controls = json.loads((args.artifacts / "python-cpu-control.log").read_text())
     assert len(controls["checks"]) == 10 and all(controls["checks"].values())
+    fixture_count = sum(by_file["test_sdk_fixture"].values())
+    native_count = sum(by_file["test_real_qwen_backend"].values()) + sum(
+        row["name"] == "test_existing_rust_openai_and_health_routes" for row in cases
+    )
     summary = {
         **counts,
         "passed": counts["tests"] - counts["failures"],
         "pytest_exit_code": int(counts["failures"] > 0),
         "sdk_fixture": by_file["test_sdk_fixture"],
         "server_cases": {
-            "passed": counts["tests"] - counts["failures"] - 21,
+            "passed": counts["tests"] - counts["failures"] - fixture_count,
             "failed": counts["failures"],
         },
         "anthropic_behavior_cases": {
-            "passed": counts["tests"] - counts["failures"] - 30,
+            "passed": counts["tests"]
+            - counts["failures"]
+            - fixture_count
+            - native_count,
             "failed": counts["failures"],
         },
-        "existing_api_backend_controls": {"passed": 9, "failed": 0},
+        "existing_api_backend_controls": {"passed": native_count, "failed": 0},
     }
-    assert summary["passed"] == 77 and counts["failures"] == 0
+    assert (
+        summary["passed"] == inventory["total_pytest_cases"] and counts["failures"] == 0
+    )
     record = {
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "reference": json.loads(
@@ -78,7 +87,7 @@ def main():
         ),
         "benchmark": {
             "parent_commit": previous["benchmark"]["commit"],
-            "revision_identity": "Scope-corrected working tree; exact scored test hashes below identify the executed revision.",
+            "revision_identity": "Verifier hardening working tree; exact scored test hashes below identify the executed revision.",
             "base_commit": previous["benchmark"]["base_commit"],
             "canonical_image_id": previous["benchmark"]["canonical_image_id"],
             "test_file_sha256": frozen,

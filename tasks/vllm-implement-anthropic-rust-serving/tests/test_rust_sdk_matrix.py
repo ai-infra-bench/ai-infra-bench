@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +15,8 @@ from verifier_support import (
     assert_json_constraint,
     minimax_parallel_tool_calls,
     minimax_tool_call,
+    message_text,
+    reference_tokenizer,
 )
 
 
@@ -95,8 +96,7 @@ def test_sync_nonstream_raw_and_streaming_response(tmp_path: Path) -> None:
         assert message.type == "message"
         assert message.role == "assistant"
         assert message.model == MODEL
-        assert message.content[0].type == "text"
-        assert "plain response" in message.content[0].text
+        assert message_text(message) == "plain response"
         assert message.stop_reason == "end_turn"
         assert message.usage.input_tokens > 0
         assert message.usage.output_tokens > 0
@@ -105,11 +105,11 @@ def test_sync_nonstream_raw_and_streaming_response(tmp_path: Path) -> None:
 
         raw = sdk.messages.with_raw_response.create(**create_kwargs())
         assert raw.status_code == 200
-        assert raw.parse().content[0].type == "text"
+        assert message_text(raw.parse()) == "plain response"
 
         with sdk.messages.with_streaming_response.create(**create_kwargs()) as response:
             assert response.status_code == 200
-            assert response.parse().content[0].type == "text"
+            assert message_text(response.parse()) == "plain response"
 
 
 @pytest.mark.asyncio
@@ -123,7 +123,7 @@ async def test_async_nonstream_and_stream(tmp_path: Path) -> None:
             _strict_response_validation=True,
         ) as sdk:
             message = await sdk.messages.create(**create_kwargs())
-            assert "async response" in message.content[0].text
+            assert message_text(message) == "async response"
             raw = await sdk.messages.with_raw_response.create(**create_kwargs())
             assert (await raw.parse()).role == "assistant"
             async with sdk.messages.with_streaming_response.create(
@@ -153,7 +153,7 @@ async def test_async_nonstream_and_stream(tmp_path: Path) -> None:
             await raw_stream.close()
         assert events[0].type == "message_start"
         assert events[-1].type == "message_stop"
-        assert "async response" in final.content[0].text
+        assert message_text(final) == "async response"
         assert raw_events[-1].type == "message_stop"
 
 
@@ -170,10 +170,28 @@ def test_stream_helper_event_order_and_accumulation(tmp_path: Path) -> None:
         event_types = [event.type for event in events]
         assert event_types[0] == "message_start"
         assert event_types[-1] == "message_stop"
-        assert event_types.count("content_block_start") == 1
-        assert event_types.count("content_block_stop") == 1
-        assert event_types.count("message_delta") == 1
-        assert final.content[0].text == "chunked response"
+        starts = [
+            event.index for event in events if event.type == "content_block_start"
+        ]
+        stops = [event.index for event in events if event.type == "content_block_stop"]
+        assert starts == stops == list(range(len(final.content)))
+        assert starts
+        delta_positions = [
+            i for i, event in enumerate(events) if event.type == "message_delta"
+        ]
+        assert delta_positions
+        assert (
+            max(
+                i
+                for i, event in enumerate(events)
+                if event.type == "content_block_stop"
+            )
+            < delta_positions[0]
+        )
+        assert delta_positions[-1] < len(events) - 1
+        assert final.stop_reason == "end_turn"
+        assert final.stop_sequence is None
+        assert message_text(final) == "chunked response"
         assert final.usage.cache_read_input_tokens == 3
 
 
@@ -246,20 +264,74 @@ def test_tool_choice_request_semantics(
 ) -> None:
     output = minimax_tool_call("get_weather", [("city", "Paris"), ("unit", "c")])
     with RustServer(tmp_path, [output], tool_parser="minimax_m2") as server:
+        before = len(server.captures())
         message = client(server.base_url).messages.create(
             **create_kwargs(tools=[tool_definition()], tool_choice=tool_choice)
         )
-        semantic_request = server.render_captures()[-1]["chat_request"]
-        serialized_choice = json.dumps(semantic_request["tool_choice"])
-        assert expected_choice in serialized_choice.lower()
-        assert semantic_request["parallel_tool_calls"] is expected_parallel
+        assert len(server.captures()) == before + 1, (
+            "Messages did not submit generation"
+        )
         if tool_choice["type"] == "none":
+            # No tool calls is the contract. Equivalent implementations may
+            # normalize the unused parallel flag or remove tool definitions.
             assert all(block.type != "tool_use" for block in message.content)
         else:
+            semantic_request = server.render_captures()[-1]["chat_request"]
+            actual_choice = semantic_request["tool_choice"]
+            if expected_choice == "function":
+                # Requiring a call from a singleton allowed set is equivalent
+                # to explicitly naming that function. Compare the restriction,
+                # not the enum used to encode it in the stable chat subsystem.
+                names = {
+                    item.get("function", item)["name"]
+                    for item in semantic_request["tools"]
+                }
+                named = (
+                    isinstance(actual_choice, dict)
+                    and actual_choice.get("function", {}).get("name")
+                    == tool_choice["name"]
+                )
+                singleton_required = actual_choice == "required" and names == {
+                    tool_choice["name"]
+                }
+                assert named or singleton_required
+            else:
+                assert actual_choice == expected_choice
+            assert semantic_request["parallel_tool_calls"] is expected_parallel
             calls = [block for block in message.content if block.type == "tool_use"]
             assert len(calls) == 1
             assert calls[0].name == "get_weather"
             assert calls[0].input == {"city": "Paris", "unit": "c"}
+
+
+@pytest.mark.parametrize("limit", [1, 7, 19])
+@pytest.mark.parametrize("streaming", [False, True], ids=["nonstream", "stream"])
+def test_sdk_generation_limit_reaches_engine_and_bounds_output(
+    tmp_path: Path,
+    limit: int,
+    streaming: bool,
+) -> None:
+    output = "amber cobalt linen violet silver cedar " * 16
+    tokenizer = reference_tokenizer()
+    tokens = tokenizer.encode(output, add_special_tokens=False).ids
+    assert len(tokens) > limit
+    expected = tokenizer.decode(tokens[:limit], skip_special_tokens=False)
+    with RustServer(tmp_path, [output], chunk_sizes=[1, 4, 2]) as server:
+        sdk = client(server.base_url)
+        kwargs = create_kwargs(max_tokens=limit)
+        if streaming:
+            with sdk.messages.stream(**kwargs) as stream:
+                message = stream.get_final_message()
+        else:
+            message = sdk.messages.create(**kwargs)
+        captures = server.captures()
+        assert len(captures) == 1
+        assert captures[0]["sampling_params"]["max_tokens"] == limit
+        assert all(block.type == "text" for block in message.content)
+        assert "".join(block.text for block in message.content) == expected
+        assert message.usage.output_tokens == limit
+        assert message.stop_reason == "max_tokens"
+        assert message.stop_sequence is None
 
 
 def test_parallel_tool_calls_nonstream(tmp_path: Path) -> None:
@@ -267,6 +339,7 @@ def test_parallel_tool_calls_nonstream(tmp_path: Path) -> None:
     with RustServer(tmp_path, [output], tool_parser="minimax_m2") as server:
         message = client(server.base_url).messages.create(
             **create_kwargs(
+                max_tokens=128,
                 tools=[tool_definition()],
                 tool_choice={"type": "auto", "disable_parallel_tool_use": False},
             )
@@ -288,6 +361,7 @@ def test_parallel_tool_calls_stream_with_fragmented_arguments(tmp_path: Path) ->
     ) as server:
         with client(server.base_url).messages.stream(
             **create_kwargs(
+                max_tokens=128,
                 tools=[tool_definition()],
                 tool_choice={"type": "auto", "disable_parallel_tool_use": False},
             )
@@ -339,7 +413,7 @@ def test_requested_stop_sequence_is_applied(tmp_path: Path, marker: str) -> None
         message = client(server.base_url).messages.create(
             **create_kwargs(stop_sequences=["FIRST_STOP", "SECOND_STOP"])
         )
-        assert message.content[0].text == "visible"
+        assert message_text(message) == "visible"
         assert message.stop_reason == "stop_sequence"
         assert message.stop_sequence == marker
 
@@ -429,7 +503,7 @@ async def test_concurrent_requests_have_isolated_content_and_ids(
                 ]
             )
         assert len({message.id for message in messages}) == 8
-        assert {message.content[0].text for message in messages} == set(outputs)
+        assert {message_text(message) for message in messages} == set(outputs)
         captured = "\n".join(item["prompt"] for item in server.captures())
         for index in range(8):
             assert captured.count(f"CONCURRENT_INPUT_{index}") == 1

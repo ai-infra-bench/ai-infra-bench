@@ -1,0 +1,1 @@
+These immutable records describe the pre-hardening task at benchmark commit `497a5b6e0c0c3c8a538ee1f09e25aac4967d5b1c`: 77 pytest cases, before generation-limit enforcement and the tool-none fairness fix. Current tests and results must not be attributed to these runs. Check out that commit to reproduce the original executable artifacts.
