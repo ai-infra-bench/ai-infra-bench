@@ -1,0 +1,11 @@
+--- a/rust/src/server/src/routes/openai/chat_completions/convert.rs
++++ b/rust/src/server/src/routes/openai/chat_completions/convert.rs
+@@ -143,7 +143,7 @@
+         },
+         tools: convert_tools(request.tools)?,
+         tool_choice: convert_tool_choice(request.tool_choice.as_ref())?,
+-        parallel_tool_calls: request.parallel_tool_calls.unwrap_or(true),
++        parallel_tool_calls: if request.tool_choice.as_ref().is_some_and(|choice| matches!(choice, ToolChoice::Value(ToolChoiceValue::None))) { false } else { request.parallel_tool_calls.unwrap_or(true) },
+         decode_options: vllm_text::output::TextDecodeOptions {
+             skip_special_tokens: request.skip_special_tokens,
+             include_stop_str_in_output: request.include_stop_str_in_output,

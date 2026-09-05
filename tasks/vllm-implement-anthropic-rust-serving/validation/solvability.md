@@ -26,7 +26,9 @@ The Rust server, HTTP transport, request validation, renderer, tokenization,
 engine-client boundary, response conversion, SSE framing, and SDK parser are
 semantic components and run for real. Only model generation is substituted by
 a deterministic engine. The substitute preserves output blocks, delta
-fragmentation, ordering, finish reasons, usage, and request lifecycle.
+fragmentation, ordering, finish reasons, usage, and request lifecycle. It now
+truncates generated token IDs at the received max_tokens and reports length;
+independent assertions also check the received limit.
 
 The renderer/tokenizer are the production Rust backends loaded from the frozen
 Qwen3.6 assets, with text-only processing and explicit `enable_thinking=false` /
@@ -81,12 +83,16 @@ incomplete control.
    SDK-visible result and the semantic request received at the engine boundary.
 4. **Regression path.** Existing Rust OpenAI endpoints and health behavior run
    against the same server process.
-5. **Production backend and mutation controls.** Eight OpenAI/tokenize cases
+5. **Production backend and mutation controls.** Eighteen OpenAI/tokenize cases
    qualify real Qwen rendering, exact token IDs, tool history, Unicode streaming,
-   enabled thinking, JSON constraints, and stop processing. Mutations replace tokens with bytes,
-   replace Jinja with serialized requests, or discard constraints; these must
+   enabled thinking, JSON constraints, stop processing, nondefault generation
+   settings, and tool-none behavior. Mutations replace tokens with bytes,
+   replace Jinja with serialized requests, discard constraints or generation
+   settings; these must
    fail otherwise-passing checks. This is partial-boundary positive evidence,
-   not a complete alternative Anthropic implementation.
+   not a complete alternative Anthropic implementation. A native tool-none
+   normalization is a correct partial alternative whose native cases must all
+   pass even though the absent Anthropic route keeps total reward at zero.
 
 The current full-suite Python comparison is in `latest_python/README.md`.
 Earlier request/converter probes and the broader 115-case comparison remain in
