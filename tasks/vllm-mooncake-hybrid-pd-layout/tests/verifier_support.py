@@ -245,9 +245,14 @@ class MemoryTransport:
         ]
         for index, (start, size) in enumerate(new_regions):
             end = start + size
+            other_regions = (
+                self.regions
+                + new_regions[:index]
+                + new_regions[index + 1 :]
+            )
             if any(
                 start < other_start + other_size and other_start < end
-                for other_start, other_size in new_regions[index + 1 :]
+                for other_start, other_size in other_regions
             ):
                 return 3
         self.regions.extend(new_regions)

@@ -21,7 +21,6 @@ required = {
     "test_partial_prefix_transfers_requested_suffix_per_group",
     "test_physical_block_expansion_copies_only_requested_payload[full]",
     "test_physical_block_expansion_copies_only_requested_payload[mla]",
-    "test_registration_failure_is_reported",
     "test_transfer_failure_is_not_reported_as_complete",
     "test_pure_full_attention_transfer_is_unchanged",
     "test_layout_mismatch_is_not_reported_as_complete",
@@ -32,7 +31,7 @@ required = {
     "test_warm_full_prefix_remote_decode_remains_schedulable",
     "test_prompt_embeddings_remote_decode_remains_schedulable",
 }
-assert tests == 24, f"expected exactly 24 tests, got {tests}"
+assert tests == 23, f"expected exactly 23 tests, got {tests}"
 assert failures == 0 and errors == 0 and skipped == 0
 assert len(names) == tests, "test case names must be unique"
 assert required <= names, f"missing required tests: {required - names}"

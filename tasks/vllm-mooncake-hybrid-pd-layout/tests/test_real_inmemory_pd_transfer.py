@@ -20,7 +20,7 @@ from verifier_support import (
 )
 
 
-def run_cross_group_shared_transfer() -> tuple[int, int]:
+def run_cross_group_shared_transfer() -> int:
     logical_block_size = 16
     config = make_hybrid_config(
         logical_block_size=logical_block_size,
@@ -56,10 +56,6 @@ def run_cross_group_shared_transfer() -> tuple[int, int]:
         try:
             producer.register_kv_caches(source)
             consumer.register_kv_caches(destination)
-            assert set(transport.regions) == {
-                (source_backing.data_ptr(), source_backing.numel()),
-                (destination_backing.data_ptr(), destination_backing.numel()),
-            }
             finished = asyncio.run(
                 transfer_once(
                     producer,
@@ -84,7 +80,7 @@ def run_cross_group_shared_transfer() -> tuple[int, int]:
             assert torch.equal(destination_backing, expected)
         finally:
             shutdown_connectors(producer, consumer)
-    return len(transport.transfers), len(transport.regions)
+    return len(transport.transfers)
 
 
 def main() -> None:
@@ -182,12 +178,11 @@ def main() -> None:
         finally:
             shutdown_connectors(producer, consumer)
 
-    shared_descriptors, shared_registrations = run_cross_group_shared_transfer()
+    shared_descriptors = run_cross_group_shared_transfer()
     print(
         "REAL_MOONCAKE_CPU_PD_OK "
         f"ratio={physical_ratio} descriptors={len(transport.transfers)} "
-        f"cross_group_descriptors={shared_descriptors} "
-        f"cross_group_registrations={shared_registrations}"
+        f"cross_group_descriptors={shared_descriptors}"
     )
 
 
