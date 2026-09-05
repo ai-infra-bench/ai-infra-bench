@@ -351,9 +351,28 @@ def test_finish_reason_mapping(
         finish_reason=finish_reason,
         stop_text=stop_text,
     ) as server:
-        message = client(server.base_url).messages.create(**create_kwargs())
-    assert message.stop_reason == expected_reason
-    assert message.stop_sequence == expected_sequence
+        sdk = client(server.base_url)
+        message = sdk.messages.create(**create_kwargs())
+        with sdk.messages.stream(**create_kwargs()) as stream:
+            streamed = stream.get_final_message()
+    for result in (message, streamed):
+        assert result.stop_reason == expected_reason
+        assert result.stop_sequence == expected_sequence
+
+
+@pytest.mark.parametrize("stream", [False, True], ids=["nonstream", "stream"])
+def test_engine_error_uses_anthropic_error_surface(
+    tmp_path: Path, stream: bool
+) -> None:
+    with RustServer(tmp_path, [""], finish_reason="error") as server:
+        sdk = client(server.base_url)
+        with pytest.raises(anthropic.APIStatusError) as caught:
+            response = sdk.messages.create(**create_kwargs(stream=stream))
+            if stream:
+                list(response)
+    assert caught.value.status_code in (200, 500)
+    assert caught.value.body["type"] == "error"
+    assert caught.value.body["error"]["type"] == "api_error"
 
 
 def test_rich_history_reaches_semantic_engine_input(tmp_path: Path) -> None:

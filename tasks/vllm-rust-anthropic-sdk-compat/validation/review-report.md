@@ -59,11 +59,17 @@ resolved Python lock.
 
 Pass within the documented no-solution boundary.
 
-The rewarded path contains 86 pytest cases: 17 official-SDK protocol controls
-and 69 candidate Rust HTTP cases. Ten additional checks execute the official
+The rewarded path contains 106 pytest cases: 35 official-SDK protocol controls
+and 71 candidate Rust HTTP cases. Ten additional checks execute the official
 SDK against the pinned Python vLLM server on the adapter's measured compatible
 subset. Reward 1 requires the exact case counts with no failure, error, or skip,
 and all ten Python checks.
+
+The expanded SDK controls cover every explicit HTTP status mapping used by the
+Messages client, plus ping filtering, stream error events, terminal stream
+reasons, Unicode and escaped tool JSON fragmentation, cache and service-tier
+usage fields, citations, and the SDK 1.3 hosted web, code, editor, tool-search,
+and container-upload response unions.
 
 The Rust cases start the real Axum router over TCP and exercise request parsing,
 validation, chat rendering, tokenization, the engine-client boundary, output
@@ -71,27 +77,22 @@ processing, SSE framing, and official SDK parsing. Only generated model output
 is deterministic. Tests assert public SDK results and semantic engine input,
 not candidate file names or helper names.
 
-Five frozen Base runs were identical: the SDK fixture passed 17/17, the Python
+Five frozen Base runs were identical: the SDK fixture passed 35/35, the Python
 control passed 10/10, and the Rust matrix passed the existing OpenAI/health
-regression while all 68 Anthropic cases failed. A direct
+regression while all 70 Anthropic cases failed. A direct
 `VLLM_USE_RUST_FRONTEND=1 vllm serve` run independently returned 200 for health
 and OpenAI chat and 404 for both missing Anthropic paths.
 
 The two declared partial controls both received reward 0 and passed only the
 existing OpenAI/health regression:
 
-- fixed JSON endpoints passed one Rust case and failed 68;
-- a fixed count-tokens-only implementation passed one Rust case and failed 68
+- fixed JSON endpoints passed one Rust case and failed 70;
+- a fixed count-tokens-only implementation passed one Rust case and failed 70
   because it performed no observable tokenizer work.
 
 Harbor 0.22.0 reproduced reward 0 for Base and both controls with one completed,
 zero-error trial per case. The SDK fixture and Python control passed in every
 manual and Harbor execution.
-
-The pull-request workflow then rebuilt the image on an independent runner after
-the task cache tag missed, and repeated all three Harbor cases. The validation
-job completed successfully in 48 minutes 45 seconds; each case again completed
-without a framework error and returned its declared reward 0.
 
 ## Semantic boundary
 

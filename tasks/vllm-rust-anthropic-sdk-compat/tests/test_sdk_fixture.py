@@ -44,8 +44,16 @@ def test_sync_create_and_raw_response() -> None:
         assert message.role == "assistant"
         assert message.content[0].type == "text"
         assert message.content[0].text == "fixture response"
+        assert message.usage.input_tokens == 19
+        assert message.usage.output_tokens == 7
+        assert message.usage.cache_creation_input_tokens == 3
+        assert message.usage.cache_read_input_tokens == 5
+        assert message.usage.cache_creation is not None
+        assert message.usage.cache_creation.ephemeral_5m_input_tokens == 2
+        assert message.usage.cache_creation.ephemeral_1h_input_tokens == 1
         assert message.usage.output_tokens_details is not None
         assert message.usage.output_tokens_details.thinking_tokens == 2
+        assert message.usage.service_tier == "standard"
 
         raw = client.messages.with_raw_response.create(**_kwargs())
         assert raw.request_id == "req_fixture_123"
@@ -113,6 +121,8 @@ def test_sync_stream_text_and_thinking() -> None:
             events = list(stream)
             message = stream.get_final_message()
         assert message.content[0].text == "fixture stream"
+        assert message.usage.input_tokens == 23
+        assert message.usage.output_tokens == 4
         assert events[0].type == "message_start"
         assert events[-1].type == "message_stop"
 
@@ -312,6 +322,8 @@ def test_sdk_serializes_rich_1_3_request() -> None:
         )
         record = server.records[-1]
         assert record["path"] == "/v1/messages"
+        assert record["headers"]["x-api-key"] == "fixture-key"
+        assert record["headers"]["anthropic-version"] == "2023-06-01"
         assert record["headers"]["anthropic-user-profile-id"] == "profile_fixture"
         assert record["body"]["messages"][0]["role"] == "system"
         assert record["body"]["thinking"]["type"] == "adaptive"
@@ -319,14 +331,40 @@ def test_sdk_serializes_rich_1_3_request() -> None:
         assert record["body"]["container"]["id"] == "container_fixture"
 
 
-def test_anthropic_error_envelope_becomes_typed_exception() -> None:
+@pytest.mark.parametrize(
+    ("case", "exception_type", "status", "error_type"),
+    [
+        ("error_400", anthropic.BadRequestError, 400, "invalid_request_error"),
+        ("error_401", anthropic.AuthenticationError, 401, "authentication_error"),
+        ("error_403", anthropic.PermissionDeniedError, 403, "permission_error"),
+        ("error_404", anthropic.NotFoundError, 404, "not_found_error"),
+        ("error_409", anthropic.ConflictError, 409, "invalid_request_error"),
+        ("error_413", anthropic.RequestTooLargeError, 413, "request_too_large"),
+        (
+            "error_422",
+            anthropic.UnprocessableEntityError,
+            422,
+            "invalid_request_error",
+        ),
+        ("error_429", anthropic.RateLimitError, 429, "rate_limit_error"),
+        ("error_500", anthropic.InternalServerError, 500, "api_error"),
+        ("error_529", anthropic.OverloadedError, 529, "overloaded_error"),
+    ],
+)
+def test_anthropic_error_envelope_becomes_typed_exception(
+    case: str,
+    exception_type: type[anthropic.APIStatusError],
+    status: int,
+    error_type: str,
+) -> None:
     with FixtureServer() as server:
         client = _client(server.base_url)
-        with pytest.raises(anthropic.BadRequestError) as caught:
-            client.messages.create(**_kwargs("error"))
-        assert caught.value.status_code == 400
-        assert caught.value.body["error"]["type"] == "invalid_request_error"
-        assert "fixture rejected" in caught.value.message
+        with pytest.raises(exception_type) as caught:
+            client.messages.create(**_kwargs(case))
+        assert caught.value.status_code == status
+        assert caught.value.body["error"]["type"] == error_type
+        assert caught.value.request_id == "req_fixture_123"
+        assert "fixture" in caught.value.message
 
 
 @pytest.mark.parametrize(
@@ -336,6 +374,33 @@ def test_anthropic_error_envelope_becomes_typed_exception() -> None:
         ("thinking", ["thinking", "text"], "end_turn", None),
         ("redacted", ["redacted_thinking", "text"], "end_turn", None),
         ("server_tool", ["server_tool_use"], "pause_turn", None),
+        ("citations", ["text"], "end_turn", None),
+        (
+            "hosted_web",
+            [
+                "server_tool_use",
+                "web_search_tool_result",
+                "web_fetch_tool_result",
+            ],
+            "end_turn",
+            None,
+        ),
+        (
+            "hosted_code",
+            [
+                "code_execution_tool_result",
+                "bash_code_execution_tool_result",
+                "text_editor_code_execution_tool_result",
+            ],
+            "end_turn",
+            None,
+        ),
+        (
+            "tool_search_upload",
+            ["tool_search_tool_result", "container_upload"],
+            "end_turn",
+            None,
+        ),
         ("stop_sequence", ["text"], "stop_sequence", "HALT"),
         ("max_tokens", ["text"], "max_tokens", None),
         ("refusal", ["text"], "refusal", None),
@@ -356,3 +421,100 @@ def test_nonstream_response_union_and_stop_reasons(
     if case == "refusal":
         assert message.stop_details is not None
         assert message.stop_details.category == "cyber"
+    elif case == "citations":
+        assert message.content[0].citations is not None
+        citation = message.content[0].citations[0]
+        assert citation.type == "char_location"
+        assert citation.cited_text == "fixture"
+        assert citation.start_char_index == 6
+        assert citation.end_char_index == 13
+    elif case == "hosted_web":
+        search = message.content[1]
+        fetch = message.content[2]
+        assert search.content[0].title == "vLLM fixture result"
+        assert search.content[0].encrypted_content == "encrypted-search-fixture"
+        assert fetch.content.content.source.data == "fetched fixture body"
+    elif case == "hosted_code":
+        code, bash, editor = message.content
+        assert code.content.stdout == "code fixture output"
+        assert code.content.content[0].file_id == "file_code_fixture"
+        assert bash.content.stdout == "bash fixture output"
+        assert bash.content.content[0].file_id == "file_bash_fixture"
+        assert editor.content.content == "editor fixture output"
+        assert editor.content.total_lines == 1
+    elif case == "tool_search_upload":
+        search, upload = message.content
+        assert search.content.tool_references[0].tool_name == "get_weather"
+        assert upload.file_id == "file_upload_fixture"
+
+
+def test_stream_ping_is_ignored_without_changing_accumulation() -> None:
+    with FixtureServer() as server:
+        with _client(server.base_url).messages.stream(
+            **_kwargs("stream_ping")
+        ) as stream:
+            events = list(stream)
+            message = stream.get_final_message()
+    assert message.content[0].text == "fixture stream"
+    event_types = [event.type for event in events]
+    assert "ping" not in event_types
+    assert event_types[0] == "message_start"
+    assert event_types[-1] == "message_stop"
+    assert event_types.count("content_block_delta") == 2
+
+
+def test_stream_error_event_becomes_sdk_exception() -> None:
+    with FixtureServer() as server:
+        stream = _client(server.base_url).messages.create(
+            **_kwargs("stream_error"), stream=True
+        )
+        first = next(stream)
+        assert first.type == "message_start"
+        with pytest.raises(anthropic.APIStatusError) as caught:
+            list(stream)
+    assert caught.value.status_code == 200
+    assert caught.value.body["type"] == "error"
+    assert caught.value.body["error"]["type"] == "overloaded_error"
+    assert caught.value.request_id == "req_fixture_123"
+
+
+@pytest.mark.parametrize(
+    ("case", "stop_reason", "stop_sequence"),
+    [
+        ("stream_stop_sequence", "stop_sequence", "HALT"),
+        ("stream_max_tokens", "max_tokens", None),
+    ],
+)
+def test_stream_terminal_reason_and_sequence(
+    case: str, stop_reason: str, stop_sequence: str | None
+) -> None:
+    with FixtureServer() as server:
+        with _client(server.base_url).messages.stream(**_kwargs(case)) as stream:
+            message = stream.get_final_message()
+    assert message.stop_reason == stop_reason
+    assert message.stop_sequence == stop_sequence
+    assert message.usage.output_tokens == 4
+
+
+def test_stream_fragmented_unicode_and_escaped_tool_json() -> None:
+    with FixtureServer() as server:
+        with _client(server.base_url).messages.stream(
+            **_kwargs("stream_unicode_tool")
+        ) as stream:
+            events = list(stream)
+            message = stream.get_final_message()
+    assert message.stop_reason == "tool_use"
+    assert len(message.content) == 1
+    tool = message.content[0]
+    assert tool.type == "tool_use"
+    assert tool.input == {
+        "city": "München",
+        "note": 'quote " slash \\ emoji 🍣',
+    }
+    deltas = [
+        event.delta.partial_json
+        for event in events
+        if event.type == "content_block_delta"
+        and event.delta.type == "input_json_delta"
+    ]
+    assert len(deltas) >= 5

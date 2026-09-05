@@ -7,6 +7,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 
+ERROR_CASES: dict[str, tuple[int, str, str]] = {
+    "error_400": (400, "invalid_request_error", "fixture rejected request"),
+    "error_401": (401, "authentication_error", "fixture authentication failed"),
+    "error_403": (403, "permission_error", "fixture permission denied"),
+    "error_404": (404, "not_found_error", "fixture model not found"),
+    "error_409": (409, "invalid_request_error", "fixture conflict"),
+    "error_413": (413, "request_too_large", "fixture request too large"),
+    "error_422": (422, "invalid_request_error", "fixture request unprocessable"),
+    "error_429": (429, "rate_limit_error", "fixture rate limited"),
+    "error_500": (500, "api_error", "fixture internal error"),
+    "error_529": (529, "overloaded_error", "fixture overloaded"),
+}
+
+
 def _usage(*, input_tokens: int = 19, output_tokens: int = 7) -> dict[str, Any]:
     return {
         "input_tokens": input_tokens,
@@ -70,6 +84,127 @@ def _message(body: dict[str, Any], case: str) -> dict[str, Any]:
             }
         ]
         stop_reason = "pause_turn"
+    elif case == "citations":
+        content = [
+            {
+                "type": "text",
+                "text": "Cited fixture text",
+                "citations": [
+                    {
+                        "type": "char_location",
+                        "cited_text": "fixture",
+                        "document_index": 0,
+                        "document_title": "Fixture document",
+                        "start_char_index": 6,
+                        "end_char_index": 13,
+                    }
+                ],
+            }
+        ]
+    elif case == "hosted_web":
+        content = [
+            {
+                "type": "server_tool_use",
+                "id": "srvtoolu_search_fixture",
+                "name": "web_search",
+                "input": {"query": "vLLM"},
+                "caller": {"type": "direct"},
+            },
+            {
+                "type": "web_search_tool_result",
+                "tool_use_id": "srvtoolu_search_fixture",
+                "caller": {"type": "direct"},
+                "content": [
+                    {
+                        "type": "web_search_result",
+                        "url": "https://example.invalid/vllm",
+                        "title": "vLLM fixture result",
+                        "encrypted_content": "encrypted-search-fixture",
+                        "page_age": "1 day",
+                    }
+                ],
+            },
+            {
+                "type": "web_fetch_tool_result",
+                "tool_use_id": "srvtoolu_fetch_fixture",
+                "caller": {"type": "direct"},
+                "content": {
+                    "type": "web_fetch_result",
+                    "url": "https://example.invalid/document",
+                    "retrieved_at": "2026-09-01T00:00:00Z",
+                    "content": {
+                        "type": "document",
+                        "title": "Fetched fixture",
+                        "source": {
+                            "type": "text",
+                            "media_type": "text/plain",
+                            "data": "fetched fixture body",
+                        },
+                    },
+                },
+            },
+        ]
+    elif case == "hosted_code":
+        content = [
+            {
+                "type": "code_execution_tool_result",
+                "tool_use_id": "srvtoolu_code_fixture",
+                "content": {
+                    "type": "code_execution_result",
+                    "return_code": 0,
+                    "stdout": "code fixture output",
+                    "stderr": "",
+                    "content": [
+                        {
+                            "type": "code_execution_output",
+                            "file_id": "file_code_fixture",
+                        }
+                    ],
+                },
+            },
+            {
+                "type": "bash_code_execution_tool_result",
+                "tool_use_id": "srvtoolu_bash_fixture",
+                "content": {
+                    "type": "bash_code_execution_result",
+                    "return_code": 0,
+                    "stdout": "bash fixture output",
+                    "stderr": "",
+                    "content": [
+                        {
+                            "type": "bash_code_execution_output",
+                            "file_id": "file_bash_fixture",
+                        }
+                    ],
+                },
+            },
+            {
+                "type": "text_editor_code_execution_tool_result",
+                "tool_use_id": "srvtoolu_editor_fixture",
+                "content": {
+                    "type": "text_editor_code_execution_view_result",
+                    "file_type": "text",
+                    "content": "editor fixture output",
+                    "start_line": 1,
+                    "num_lines": 1,
+                    "total_lines": 1,
+                },
+            },
+        ]
+    elif case == "tool_search_upload":
+        content = [
+            {
+                "type": "tool_search_tool_result",
+                "tool_use_id": "srvtoolu_tool_search_fixture",
+                "content": {
+                    "type": "tool_search_tool_search_result",
+                    "tool_references": [
+                        {"type": "tool_reference", "tool_name": "get_weather"}
+                    ],
+                },
+            },
+            {"type": "container_upload", "file_id": "file_upload_fixture"},
+        ]
     elif case == "stop_sequence":
         content = [{"type": "text", "text": "stopped"}]
         stop_reason = "stop_sequence"
@@ -140,6 +275,24 @@ def _stream(body: dict[str, Any], case: str) -> bytes:
             },
         )
     ]
+    if case == "stream_error":
+        chunks.append(
+            _event(
+                "error",
+                {
+                    "type": "error",
+                    "error": {
+                        "type": "overloaded_error",
+                        "message": "fixture stream overloaded",
+                    },
+                },
+            )
+        )
+        return "".join(chunks).encode()
+    if case == "stream_ping":
+        chunks.append(_event("ping", {"type": "ping"}))
+
+    stop_sequence: str | None = None
     if case == "stream_parallel_tools":
         for index, tool_id, city in (
             (0, "toolu_stream_paris", "Paris"),
@@ -190,6 +343,61 @@ def _stream(body: dict[str, Any], case: str) -> bytes:
             )
         stop_reason = "tool_use"
         output_tokens = 12
+    elif case == "stream_unicode_tool":
+        tool_input = json.dumps(
+            {
+                "city": "München",
+                "note": 'quote " slash \\ emoji 🍣',
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        quote_escape = tool_input.index('\\"') + 1
+        slash_escape = tool_input.index("\\\\") + 1
+        split_points = sorted({1, 9, quote_escape, slash_escape, len(tool_input) - 1})
+        fragments: list[str] = []
+        start = 0
+        for end in split_points:
+            fragments.append(tool_input[start:end])
+            start = end
+        fragments.append(tool_input[start:])
+        chunks.append(
+            _event(
+                "content_block_start",
+                {
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {
+                        "type": "tool_use",
+                        "id": "toolu_unicode_fixture",
+                        "name": "get_weather",
+                        "input": {},
+                    },
+                },
+            )
+        )
+        chunks.extend(
+            _event(
+                "content_block_delta",
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {
+                        "type": "input_json_delta",
+                        "partial_json": fragment,
+                    },
+                },
+            )
+            for fragment in fragments
+        )
+        chunks.append(
+            _event(
+                "content_block_stop",
+                {"type": "content_block_stop", "index": 0},
+            )
+        )
+        stop_reason = "tool_use"
+        output_tokens = 17
     elif case == "stream_thinking":
         chunks.extend(
             [
@@ -288,7 +496,13 @@ def _stream(body: dict[str, Any], case: str) -> bytes:
                 ),
             ]
         )
-        stop_reason = "end_turn"
+        if case == "stream_stop_sequence":
+            stop_reason = "stop_sequence"
+            stop_sequence = "HALT"
+        elif case == "stream_max_tokens":
+            stop_reason = "max_tokens"
+        else:
+            stop_reason = "end_turn"
         output_tokens = 4
     chunks.extend(
         [
@@ -298,7 +512,7 @@ def _stream(body: dict[str, Any], case: str) -> bytes:
                     "type": "message_delta",
                     "delta": {
                         "stop_reason": stop_reason,
-                        "stop_sequence": None,
+                        "stop_sequence": stop_sequence,
                     },
                     "usage": {
                         "input_tokens": 23,
@@ -364,10 +578,16 @@ class FixtureServer(AbstractContextManager["FixtureServer"]):
                         "application/json",
                     )
                     return
-                if case == "error":
+                if case in ERROR_CASES:
+                    status, error_type, message = ERROR_CASES[case]
                     self._send(
-                        400,
-                        b'{"type":"error","error":{"type":"invalid_request_error","message":"fixture rejected request"}}',
+                        status,
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "error": {"type": error_type, "message": message},
+                            }
+                        ).encode(),
                         "application/json",
                     )
                     return

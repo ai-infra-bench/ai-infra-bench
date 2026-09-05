@@ -7,10 +7,10 @@
 | Parameters | max tokens, stop strings, metadata, cache control, service tier, inference geo, container, user-profile header, thinking, structured output | SDK 1.3 request capture | validation result and engine/chat options |
 | Tool choice | auto, any, named, none, strict tools, disabled parallel use | Python common subset; SDK request capture | selected chat tool mode and public response |
 | Tool output | one tool, mixed text and tool, parallel tools, repeated names, fragmented JSON, multiple tool results | SDK SSE fixture; deterministic engine | ordered blocks, unique IDs, reconstructed JSON |
-| Non-stream response | text, thinking then text, parallel tools, empty output, primary engine finish reasons, SDK-only response reasons, usage details | SDK 1.3 fixture | typed `Message` and raw envelope |
-| SSE | named events, block indexes, text/thinking/signature/tool deltas, terminal usage, and multiple fragmentation schedules | SDK 1.3 fixture | exact event invariants and final accumulated message |
+| Non-stream response | text, thinking then text, citations, hosted-tool result unions, parallel tools, empty output, primary engine finish reasons, SDK-only response reasons, usage details | SDK 1.3 fixture | typed `Message` and raw envelope |
+| SSE | named events, ignored ping, stream errors, block indexes, text/thinking/signature/tool deltas, terminal reasons and usage, Unicode/escaped JSON, and multiple fragmentation schedules | SDK 1.3 fixture | exact event invariants, typed exception, and final accumulated message |
 | Token counting | simple, system, long history, tools, and structured output | Python where supported; tokenizer invariants | exact count and absence of generation |
-| Errors and headers | malformed JSON, missing/invalid fields, context-limit response parsing, and both auth styles | SDK exception parsing fixture | status, Anthropic error envelope, request ID |
+| Errors and headers | malformed JSON, missing/invalid fields, every explicit SDK HTTP status mapping used by Messages, stream errors, context-limit response parsing, request ID, and both auth styles | SDK exception parsing fixture | status, Anthropic error envelope, request ID |
 | Isolation | repeated calls, concurrent sync and async requests, unique IDs, and no cross-request block state | deterministic engine scripts | per-request results and cleanup |
 | Regression | OpenAI chat/completions/models and health | pinned Base expectations | unchanged public response behavior |
 
@@ -18,6 +18,6 @@ Parameterized values and unpublished combinations vary within these disclosed
 behavior classes. Reward never depends on Rust module names, helper names,
 private fields, source layout, or similarity to the Python adapter.
 
-The frozen verifier collects 86 cases: 17 SDK protocol-fixture controls and 69
+The frozen verifier collects 106 cases: 35 SDK protocol-fixture controls and 71
 candidate Rust HTTP cases. The separate Python frontend control executes ten
 real-server checks for the older adapter's compatible subset.
