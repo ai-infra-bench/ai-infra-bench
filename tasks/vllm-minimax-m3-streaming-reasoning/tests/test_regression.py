@@ -244,6 +244,21 @@ def test_existing_prefilled_reasoning_mode_remains_unchanged(
     assert tool_calls == []
 
 
+def test_enabled_streaming_with_explicit_atomic_markers_matches_nonstreaming():
+    chunks = ["<mm:think>", "plan", "</mm:think>", "answer"]
+    streaming_parser, tokenizer = _parser(thinking_mode="enabled")
+
+    streamed = _stream(streaming_parser, tokenizer, chunks)
+
+    nonstreaming_parser, _ = _parser(thinking_mode="enabled")
+    nonstreamed = nonstreaming_parser.parse(
+        "".join(chunks), _request(stream=False)
+    )
+
+    assert nonstreamed == ("plan", "answer", [])
+    assert streamed == nonstreamed
+
+
 def test_disabled_thinking_mode_remains_plain_content():
     parser, tokenizer = _parser(thinking_mode="disabled")
 
