@@ -79,3 +79,13 @@ alternative and six negative controls. Three fresh Harbor trials, repeated HTTP
 matrices and independent boundary/terminal challenges provide final evidence.
 Raw development and final artifacts are at
 `/home/qunhong/workspace/ai-infra-bench-derender-hardening-work/`.
+
+## Long-state and nullable-delta follow-up
+
+The user explicitly authorized repairing the two independent functional P1s,
+pushing PR #52 and requesting another independent subagent review. The current
+87-case verifier covers long state roundtrips and all three empty token-delta
+representations. Two focused incorrect controls accompany the corrections.
+Image, instruction and execution-isolation implementation are unchanged. Raw
+results are retained at
+`/home/qunhong/workspace/ai-infra-bench-derender-round2-work/`.

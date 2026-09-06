@@ -137,7 +137,7 @@ diff --git a/rust/src/server/src/routes/derender/detok.rs b/rust/src/server/src/
 new file mode 100644
 --- /dev/null
 +++ b/rust/src/server/src/routes/derender/detok.rs
-@@ -0,0 +1,262 @@
+@@ -0,0 +1,263 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 +
@@ -311,10 +311,11 @@ new file mode 100644
 +/// still needs to reproduce any partially read multi-byte character
 +/// (tracked by `read_offset`). The delta tokens are fed straight onto it.
 +///
-+/// The window is bounded. `detokenize_incrementally` never reads before
++/// `detokenize_incrementally` never reads before
 +/// `prefix_offset`, so after processing we trim `prev_tokens` to that
 +/// tail and rebase the offsets to it. State transport therefore stays
-+/// O(window) per chunk instead of re-sending the full token history.
++/// proportional to the remaining window; deferred text can make that window
++/// grow until further input or termination resolves it.
 +///
 +/// Returns `(new_text, updated_state)` — the delta text for this chunk and
 +/// the state to pass to the next call.
@@ -1764,7 +1765,7 @@ diff --git a/rust/src/server/src/routes/derender/types.rs b/rust/src/server/src/
 new file mode 100644
 --- /dev/null
 +++ b/rust/src/server/src/routes/derender/types.rs
-@@ -0,0 +1,330 @@
+@@ -0,0 +1,313 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 +
@@ -1786,13 +1787,6 @@ new file mode 100644
 +use crate::routes::openai::utils::types::{Normalizable, Usage};
 +use crate::routes::openai::{CompletionRequest, CompletionStreamResponse};
 +
-+/// Cap on the carried detok window in [`DerenderStreamState`].
-+///
-+/// INITIAL_INCREMENTAL_DETOKENIZATION_OFFSET is small (5) and the trimmed
-+/// window is O(offset). A generous limit rejects unusually large or malformed
-+/// payloads without restricting legitimate multi-byte sequences.
-+const MAX_PREV_TOKENS: usize = 1024;
-+
 +/// Per sequence state for stateless streaming derender.
 +///
 +/// The client carries this between successive per chunk HTTP calls to the
@@ -1805,8 +1799,8 @@ new file mode 100644
 +/// `prev_tokens[prefix_offset..]`, so we carry just that tail plus the two
 +/// offsets. Each chunk resumes exactly where the last one stopped, including
 +/// any partially processed multi-byte character (tracked by `read_offset`),
-+/// then trims and rebases the window so it never grows with generation
-+/// length.
++/// then trims and rebases the consumed prefix. Ambiguous replacement-character
++/// tails can retain a longer window until continuation or termination.
 +///
 +/// Do not skip serializing `None` fields here: Python's `model_dump()` emits
 +/// them as explicit `null`.
@@ -1814,9 +1808,8 @@ new file mode 100644
 +pub(crate) struct DerenderStreamState {
 +    /// Trailing decode window. Token strings from `prefix_offset` onward.
 +    ///
-+    /// Bounded, trimmed and rebased each chunk to the tail
-+    /// `detokenize_incrementally` still reads, so it does not grow with the
-+    /// number of chunks.
++    /// Trimmed and rebased each chunk to the tail the decoder still needs.
++    /// Pending output may span many tokens; returned state must remain usable.
 +    #[serde(default)]
 +    pub prev_tokens: Vec<String>,
 +    /// Token IDs parallel to `prev_tokens`, used to reconstruct the decode
@@ -1855,19 +1848,10 @@ new file mode 100644
 +}
 +
 +impl DerenderStreamState {
-+    /// Reject malformed caller supplied offsets/lengths.
-+    ///
-+    /// Python enforces the `prev_tokens` cap through a Pydantic field
-+    /// validator (surfaced as 400) and turns detok failures from out-of-range
-+    /// offsets into a 400 "invalid stream_state" error; both checks live here.
++    /// Reject inconsistent offsets and parallel token arrays. Do not impose
++    /// a fixed decode-window size: legitimate deferred text may span an
++    /// entire generation. Normal request limits apply at the HTTP boundary.
 +    pub(super) fn validate(&self) -> Result<(), ApiError> {
-+        if self.prev_tokens.len() > MAX_PREV_TOKENS {
-+            bail_invalid_request!(
-+                "prev_tokens length ({}) exceeds maximum ({})",
-+                self.prev_tokens.len(),
-+                MAX_PREV_TOKENS
-+            );
-+        }
 +        if self.prefix_offset > self.read_offset || self.read_offset > self.prev_tokens.len() {
 +            bail_invalid_request!(
 +                "invalid stream_state: detokenization failed (prefix_offset={}, \
@@ -2117,7 +2101,16 @@ diff --git a/rust/src/server/src/routes/inference/generate.rs b/rust/src/server/
 diff --git a/rust/src/server/src/routes/inference/generate/types.rs b/rust/src/server/src/routes/inference/generate/types.rs
 --- a/rust/src/server/src/routes/inference/generate/types.rs
 +++ b/rust/src/server/src/routes/inference/generate/types.rs
-@@ -56,46 +56,98 @@
+@@ -4,7 +4,7 @@
+ use std::collections::HashMap;
+
+ use llm_multimodal::MediaContentPart;
+-use serde::{Deserialize, Serialize};
++use serde::{Deserialize, Deserializer, Serialize};
+ use serde_json::{Map, Value};
+ use validator::Validate;
+ use vllm_text::SamplingParams;
+@@ -56,46 +56,106 @@
  ///
  /// Do not skip serializing `None` fields here: non-streaming response types
  /// should serialize `None` as explicit `null`.
@@ -2151,8 +2144,16 @@ diff --git a/rust/src/server/src/routes/inference/generate/types.rs b/rust/src/s
      pub index: u32,
      pub logprobs: Option<ChatLogProbs>,
      pub finish_reason: Option<String>,
-+    #[serde(default)]
++    #[serde(default, deserialize_with = "deserialize_stream_token_ids")]
      pub token_ids: Vec<u32>,
++}
++
++// An absent or null token delta is a normal empty streaming event.
++fn deserialize_stream_token_ids<'de, D>(deserializer: D) -> Result<Vec<u32>, D::Error>
++where
++    D: Deserializer<'de>,
++{
++    Option::<Vec<u32>>::deserialize(deserializer).map(Option::unwrap_or_default)
  }
 
  /// Mirrors the Python vLLM `GenerateStreamResponse` class.

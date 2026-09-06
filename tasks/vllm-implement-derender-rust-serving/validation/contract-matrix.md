@@ -41,12 +41,12 @@ checks supplied stop/length reasons for plain output and the actual names,
 arguments and content separation of parsed tools. It does not add the pending
 upstream tool-finish-reason rewrite as an undisclosed requirement. Chunked
 reasoning/tool parsing and chunked logprobs are not part of the supported
-chunked scope at this Base. The Oracle's bounded window and the alternative's
+chunked scope at this Base. The Oracle's retained window and the alternative's
 full-history replay are both accepted; state representation and growth strategy
 are not graded.
 
-The matrix contains 67 HTTP cases: 24 general response/validation/API
-cases, 32 continuation cases, and 11 parsing/logprob cases. An additional 673
+The matrix contains 87 HTTP cases: 24 general response/validation/API
+cases, 52 continuation cases, and 11 parsing/logprob cases. An additional 673
 existing Rust server/chat cases guard shared API behavior. No task behavior test
 imports an Oracle symbol. The existing crate suites may grow without failing
 the minimum baseline-count check.
@@ -66,3 +66,9 @@ symbols, function names or source with the Oracle.
 
 The historical 49-case Python/reference results do not qualify terminal flush.
 Current positive/negative and Harbor results are recorded in `e2e-evidence.json`.
+
+The next 20 cases cover eight long deferred-text transitions and twelve empty
+token-event representations. Each long input remains within the configured model
+length and carries only server-produced state to another instance. Explicit
+null, omitted and empty-array deltas must preserve pending text and the supplied
+finish reason. No exact state layout, window cap or emission timing is graded.

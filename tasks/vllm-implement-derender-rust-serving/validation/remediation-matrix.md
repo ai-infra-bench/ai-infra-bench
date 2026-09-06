@@ -26,3 +26,13 @@ stability rounds per qualified positive native binary, independent challenges an
 fresh Harbor results are recorded in `e2e-evidence.json`. New test assertions
 were audited for fairness: completed-stream replay and fixed emission timing
 on an empty nonterminal chunk are not hidden requirements.
+
+| ID | Gate | Finding | Resolution | Status |
+| --- | --- | --- | --- | --- |
+| D11 | Oracle/verifier, P1 | Long legal deferred text creates state exceeding its own 1024-entry validator limit. | Remove the unsupported window-size assumption, retain structural checks, and add eight long cross-instance transitions plus a rejection control. | fixed |
+| D12 | Oracle/verifier, P1 | Both algorithms reject the public stream protocol's null token delta. | Normalize null stream IDs to an empty vector; add twelve representation/event cases and a rejection control. | fixed |
+
+D1–D10 and their run counts are historical at c2d48fa. Current functional
+qualification is 87 HTTP + 673 Rust cases, with ten measured versions, two fresh
+positive Harbor trials, repeated HTTP matrices and independent challenges.
+Native runtime and its existing CI control are unchanged and not newly probed.

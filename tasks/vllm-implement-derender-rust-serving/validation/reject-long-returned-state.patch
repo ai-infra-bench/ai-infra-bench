@@ -1149,7 +1149,7 @@ new file mode 100644
 +            .map(|logprobs| logprobs::resolve_logprobs(logprobs, &ctx.tokenizer))
 +            .transpose()?;
 +
-+        let (message, include_output_metadata) = if false && ctx.has_parser()
++        let (message, include_output_metadata) = if ctx.has_parser()
 +            && let Some(chat_request) = request.chat_request.clone()
 +        {
 +            parse_chat_choice(
@@ -1765,7 +1765,7 @@ diff --git a/rust/src/server/src/routes/derender/types.rs b/rust/src/server/src/
 new file mode 100644
 --- /dev/null
 +++ b/rust/src/server/src/routes/derender/types.rs
-@@ -0,0 +1,313 @@
+@@ -0,0 +1,316 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 +
@@ -1852,6 +1852,9 @@ new file mode 100644
 +    /// a fixed decode-window size: legitimate deferred text may span an
 +    /// entire generation. Normal request limits apply at the HTTP boundary.
 +    pub(super) fn validate(&self) -> Result<(), ApiError> {
++        if self.prev_tokens.len() > 1024 {
++            bail_invalid_request!("stream state exceeds 1024 tokens");
++        }
 +        if self.prefix_offset > self.read_offset || self.read_offset > self.prev_tokens.len() {
 +            bail_invalid_request!(
 +                "invalid stream_state: detokenization failed (prefix_offset={}, \

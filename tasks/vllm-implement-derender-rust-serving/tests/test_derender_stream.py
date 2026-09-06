@@ -166,3 +166,51 @@ def test_unfinished_bytes_wait_through_empty_nonterminal_chunk(plain, path):
     assert decode(ids).startswith(prefix)
     final, _ = chunk(plain, path, ids[cut:], state, finish="stop")
     assert prefix + text_of(final, path) == decode(ids)
+
+
+@pytest.mark.parametrize("path", [CHAT_PATH, COMPLETION_PATH], ids=["chat", "completion"])
+@pytest.mark.parametrize("count", [1100, 2305])
+@pytest.mark.parametrize("resume", [False, True], ids=["finish", "continue-then-finish"])
+def test_long_deferred_text_state_remains_consumable(plain, tmp_path, path, count, resume):
+    ids = encode("leading: ") + encode("\ufffd") * count
+    assert len(ids) < 8192
+    first, state = chunk(plain, path, ids, index=7)
+    fragments = [text_of(first, path)]
+    with RenderServer(tmp_path / "long-state-receiver") as other:
+        if resume:
+            tail = encode(" continuation 北京🍣")
+            middle, state = chunk(other, path, tail, state, index=7)
+            fragments.append(text_of(middle, path))
+            ids += tail
+        final, _ = chunk(other, path, [], state, index=7, finish="stop")
+        fragments.append(text_of(final, path))
+        assert final["choices"][0]["finish_reason"] == "stop"
+    assert "".join(fragments) == decode(ids)
+
+
+@pytest.mark.parametrize("path", [CHAT_PATH, COMPLETION_PATH], ids=["chat", "completion"])
+@pytest.mark.parametrize("representation", ["null", "omitted", "empty"])
+@pytest.mark.parametrize("terminal", [False, True], ids=["nonterminal", "terminal"])
+def test_empty_token_delta_representations(plain, tmp_path, path, representation, terminal):
+    ids = encode("prefix \ufffd")
+    first, state = chunk(plain, path, ids, request_id="empty-delta", index=2)
+    choice = {"index": 2, "finish_reason": "stop" if terminal else None}
+    if representation != "omitted":
+        choice["token_ids"] = None if representation == "null" else []
+    with RenderServer(tmp_path / "empty-delta-receiver") as other:
+        result = other.post(path, {
+            "stream": True, "model": MODEL, "stream_state": state,
+            "generate_chunk": {"request_id": "empty-delta", "choices": [choice]},
+        })
+        assert result["chunk"]["choices"][0]["index"] == 2
+        assert result["chunk"]["choices"][0].get("finish_reason") == choice["finish_reason"]
+        output = text_of(first, path) + text_of(result["chunk"], path)
+        if terminal:
+            assert result["chunk"]["choices"][0]["finish_reason"] == "stop"
+        else:
+            tail = encode(" tail🍣")
+            final, _ = chunk(other, path, tail, json.loads(json.dumps(result["stream_state"])),
+                             request_id="empty-delta", index=2, finish="length")
+            output += text_of(final, path)
+            ids += tail
+        assert output == decode(ids)

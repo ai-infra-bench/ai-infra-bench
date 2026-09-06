@@ -4,44 +4,58 @@
     {
       "name": "discard-client-state",
       "patch": "discard-client-state.patch",
-      "patch_sha256": "1f3802587ab05dda738c895a38927ddb2794f3aec713086db7925c54559d2869",
+      "patch_sha256": "947dffcb0c2c64cad326802b886f82df2a8762992a57b42196419e2017cebe81",
       "expected_reward": 0,
       "purpose": "Expose both endpoints but restart decoding for each chunk, losing cross-call state."
     },
     {
       "name": "plain-text-only",
       "patch": "plain-text-only.patch",
-      "patch_sha256": "0f9e4a995907daa8105b929dccd43b63c0cdf14178ebf2bdc41c6da5e31fd44a",
+      "patch_sha256": "7f2771aa0faac4536fc028705db8525c9738eaa8e7fe484e346aedcc82a7804d",
       "expected_reward": 0,
       "purpose": "Keep native decoding but bypass non-streaming reasoning and tool parsing."
     },
     {
       "name": "discard-logprobs",
       "patch": "discard-logprobs.patch",
-      "patch_sha256": "f12262f12aa699e129e23fc3ed94f51b372106268f57693768e9a63933db7882",
+      "patch_sha256": "6d0a430954ff42ebb701c63f41615daa4de0ba6a40391798265917016816065a",
       "expected_reward": 0,
       "purpose": "Return empty logprob entries while ordinary response text remains valid."
     },
     {
       "name": "ignore-prompt-usage",
       "patch": "ignore-prompt-usage.patch",
-      "patch_sha256": "4c6fe0ebba708d50f02d987f6560d9bf5246b421e10b7fcbfc2fcdbaa42a7ac2",
+      "patch_sha256": "14313f94ba59998a13cf5d7971c35c904c4930da022889d43c4f4f9eca3b6569",
       "expected_reward": 0,
       "purpose": "Drop caller-supplied prompt accounting in non-streaming chat responses."
     },
     {
       "name": "alternative-native-decoder-replay",
       "patch": "alternative-native-decoder-replay.patch",
-      "patch_sha256": "c9e9dabf5da1c3118f4b425bc213c363700fe12039ebb1fee9a6fcacab89cc64",
+      "patch_sha256": "25ac30663a2267ec6184078916e91f5d7af55b58cee0ea7e2ee640fe909c7fcb",
       "expected_reward": 1,
-      "purpose": "Use full token history and native decoder replay instead of the Oracle's bounded decode window."
+      "purpose": "Use full token history and native decoder replay instead of the Oracle's retained decode window."
     },
     {
       "name": "omit-terminal-flush",
       "patch": "omit-terminal-flush.patch",
-      "patch_sha256": "3dfc46ff8d3870a3e60515d8e8fd45adf4d4e23b7744263ee05b5539a592a47a",
+      "patch_sha256": "17b047d156df22fda09dae1575a9e93979e38184e045cd243b917b64bf2eb523",
       "expected_reward": 0,
       "purpose": "Leave buffered terminal text unflushed, reproducing the reviewed Oracle failure."
+    },
+    {
+      "name": "reject-long-returned-state",
+      "patch": "reject-long-returned-state.patch",
+      "patch_sha256": "c80f259ce93067f8680d0ef996b098c983d1fb363b7509811e25f59db69ad1ab",
+      "expected_reward": 0,
+      "purpose": "Reject the decoder's own valid returned state after a long deferred-text chunk."
+    },
+    {
+      "name": "reject-null-stream-delta",
+      "patch": "reject-null-stream-delta.patch",
+      "patch_sha256": "2ae2bd5e60e1aab4f26b7a1db22b8f86b2d869dc4c14963e6d6406138dce330a",
+      "expected_reward": 0,
+      "purpose": "Reject explicit null deltas while accepting omitted and empty token arrays."
     },
     {
       "name": "python-forwarding",

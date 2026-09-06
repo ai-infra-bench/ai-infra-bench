@@ -44,3 +44,10 @@ full-history alternative independently uses the Base native decoder's
 `flush(None)` result. Ordinary unfinished byte sequences remain buffered until
 more input or termination. Current measurements supersede the earlier 49-case
 qualification above and are recorded in `e2e-evidence.json`.
+
+A subsequent independent functional review at c2d48fa found that long deferred
+text violated the Oracle's own 1024-entry state cap and that stream null token
+IDs were not deserializable. The current reference removes that unsupported cap
+while retaining structural checks, and normalizes null stream deltas before
+routing. The HTTP contract and decoder algorithms are otherwise retained.
+Current 87-case results supersede earlier qualification counts above.

@@ -1,57 +1,49 @@
-# Post-review task qualification
+# Long-state and empty-delta qualification
 
-Task retained; the two reproduced P1 findings in the independent review of
-`2e654d4eb6c5ea68f936acc3bfe468949251da86` are repaired. This is the author's
-hardening qualification, not a claim that another independent reviewer has
-approved the new revision.
+The two functional P1 findings from the independent review of `c2d48fa663f8dad4555c560d1a1de23e6a15ddab`
+are repaired. This report records the author's ordinary functional qualification;
+the user-requested independent review follows publication of the new commit.
 
-Gate 1 passes: the user's frozen native Rust derender query and supported
-plain-text chunk protocol remain unchanged. Gate 2 passes: the exact canonical
-CPU image, source, offline dependencies and model metadata are retained; the
-Python reference remains available during development. The reviewed workflow is
-HTTP token/context input -> real Rust routing/tokenizer/parsers/state update ->
-client-visible response and continuation on an independent process.
+The instruction, CPU environment and semantic boundary are unchanged: real HTTP
+generation input -> native Rust routing/tokenizer/parser/state transition ->
+client-visible output and state consumed by an independent instance. Model
+forward passes remain outside this token-in/token-out boundary.
 
-Gate 3 now includes an execution boundary for the explicit no-Python-forwarding
-constraint and 18 terminal/continuation cases. Candidate serving runs in a
-per-process native filesystem with reduced privileges and blocked outbound
-connections; Python clients remain outside. Real tokenization, parsing and
-HTTP still run. The bounded-window Oracle and full-history/native-decoder
-alternative both flush pending text at termination. Assertions preserve
-incomplete UTF-8 during continuation without prescribing private state or the
-exact timing of safe prefix emission. Requests after termination are not graded.
+The Oracle no longer assumes deferred text fits in 1024 window entries. It keeps
+structural state checks and permits the decoder's own valid pending state to
+continue. Streaming token IDs accept null, omission and an empty array as empty
+deltas. Non-streaming nonempty-token validation remains intact. Tests grade
+output and lifecycle, with opaque state and no fixed emission schedule.
 
-| Final version | HTTP passed / failed / errors | Reward |
+| Final functional version | HTTP passed / failed / errors | Reward |
 | --- | ---: | ---: |
-| alternative-native-decoder-replay | 67 / 0 / 0 | 1 |
-| base | 9 / 58 / 0 | 0 |
-| discard-client-state | 48 / 19 / 0 | 0 |
-| discard-logprobs | 64 / 3 / 0 | 0 |
-| ignore-prompt-usage | 61 / 6 / 0 | 0 |
-| omit-terminal-flush | 51 / 16 / 0 | 0 |
-| oracle | 67 / 0 / 0 | 1 |
-| plain-text-only | 59 / 8 / 0 | 0 |
-| python-forwarding | 0 / 2 / 65 | 0 |
+| alternative-native-decoder-replay | 87 / 0 / 0 | 1 |
+| base | 9 / 78 / 0 | 0 |
+| discard-client-state | 48 / 39 / 0 | 0 |
+| discard-logprobs | 84 / 3 / 0 | 0 |
+| ignore-prompt-usage | 81 / 6 / 0 | 0 |
+| omit-terminal-flush | 61 / 26 / 0 | 0 |
+| oracle | 87 / 0 / 0 | 1 |
+| plain-text-only | 79 / 8 / 0 | 0 |
+| reject-long-returned-state | 79 / 8 / 0 | 0 |
+| reject-null-stream-delta | 83 / 4 / 0 | 0 |
 
-All nine versions compile and pass 673 existing server/chat Rust tests. Positive
-versions have no errors or skips. Forwarding reaches the candidate's actual
-Rust entry point and fails because Python is absent from its runtime; its setup
-errors are the intended rejection. The original review's Python-forwarding
-Harbor reward 1 becomes 0 in a fresh final Harbor trial. Final Oracle and
-alternative Harbor trials both return 1, all with zero framework errors.
+All ten versions compile and pass 673 Rust server/chat regressions. Oracle and
+the native-replay alternative pass all 87 HTTP cases. The two new controls
+separately restore the invalid window cap or reject null deltas and are rejected.
+Fresh Harbor Oracle and alternative trials each score 1 with zero framework
+errors. Both retained positive binaries pass two more complete HTTP rounds and
+six independent growing-state/empty-event challenges each.
 
-Two further HTTP rounds for each retained positive native binary pass. An
-independent 12-case mixed-marker/replacement partition challenge passes under
-both algorithms. The native-boundary probe confirms source/Python/tests/proc
-are absent, model metadata remains readable and immutable, privileges are
-reduced, and even a live same-container listener cannot be reached. Exact
-hashes, trial identities, test results and reproduction artifacts are recorded
-in `e2e-evidence.json` and `run-results.json`.
+The original task/CPU-environment assessment remains applicable to unchanged
+artifacts. Native execution isolation is unchanged and has only its previously
+recorded dynamic evidence; no new security-completeness review or forwarding
+probe is claimed after the prior platform screening interruption. The unchanged
+Python-forwarding control stays in the repository CI manifest, but is not part
+of this round's ten measured functional versions.
 
-The original 49-case and five-round records remain historical at the parent
-revision. Pre-freeze runs, including tests later relaxed for fairness, are
-retained in the external work directory and are excluded from final results.
-The verifier uses one supplied Qwen tokenizer and Hermes/Qwen3 parsers. It does
-not claim streaming tools/reasoning/logprobs, all-model coverage, GPU inference,
-model quality or throughput. No new independent subagent review was run during
-this hardening.
+Exact hashes, run identities and measured results are in `e2e-evidence.json` and
+`run-results.json`. The 67-case records at c2d48fa remain historical. This task
+continues to qualify the supplied Qwen tokenizer and supported plain chunk
+modes, without claims about streaming tools/reasoning/logprobs, GPU behavior,
+model quality or throughput.

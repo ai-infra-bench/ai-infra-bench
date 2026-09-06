@@ -59,7 +59,7 @@ def main():
         print(json.dumps(record), flush=True)
         (args.output / "results.json").write_text(json.dumps({"test_hashes": hashes, "cases": records}, indent=2) + "\n")
         assert reward["compile_exit_code"] == reward["regression_exit_code"] == 0, record
-        assert record["tests"] == 67 and record["skipped"] == 0, record
+        assert record["tests"] == 87 and record["skipped"] == 0, record
         assert reward["reward"] == case["expected_reward"], record
         if case["expected_reward"]:
             assert record["errors"] == record["failures"] == 0, record

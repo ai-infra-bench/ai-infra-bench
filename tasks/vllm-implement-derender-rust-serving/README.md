@@ -31,31 +31,29 @@ to its production render-only server. Model output token IDs are ordinary
 derender inputs. The tokenizer, parser, request/response code and independent
 server processes run for real.
 
-Reward is 1 only when all 67 unique HTTP cases pass with no errors or skips,
-and the existing server/chat crate suites complete with at least 673 passing
-tests and no failures, ignored tests or filtered tests. Candidate services run
-in a verifier-only native runtime without access to Python/source/tests or
-outbound connections; the trusted Python clients and development image remain
-intact.
+Reward is 1 only when all 87 unique HTTP cases pass without errors or skips,
+and the server/chat crate suites finish with at least 673 passes and no failed,
+ignored or filtered cases. State is carried opaquely between independent
+servers. Long deferred text and null/omitted/empty token deltas are covered.
 
-| Final qualification | HTTP passed / failed / errors | Reward |
+| Current functional qualification | HTTP passed / failed / errors | Reward |
 | --- | ---: | ---: |
-| alternative-native-decoder-replay | 67 / 0 / 0 | 1 |
-| base | 9 / 58 / 0 | 0 |
-| discard-client-state | 48 / 19 / 0 | 0 |
-| discard-logprobs | 64 / 3 / 0 | 0 |
-| ignore-prompt-usage | 61 / 6 / 0 | 0 |
-| omit-terminal-flush | 51 / 16 / 0 | 0 |
-| oracle | 67 / 0 / 0 | 1 |
-| plain-text-only | 59 / 8 / 0 | 0 |
-| python-forwarding | 0 / 2 / 65 | 0 |
+| alternative-native-decoder-replay | 87 / 0 / 0 | 1 |
+| base | 9 / 78 / 0 | 0 |
+| discard-client-state | 48 / 39 / 0 | 0 |
+| discard-logprobs | 84 / 3 / 0 | 0 |
+| ignore-prompt-usage | 81 / 6 / 0 | 0 |
+| omit-terminal-flush | 61 / 26 / 0 | 0 |
+| oracle | 87 / 0 / 0 | 1 |
+| plain-text-only | 79 / 8 / 0 | 0 |
+| reject-long-returned-state | 79 / 8 / 0 | 0 |
+| reject-null-stream-delta | 83 / 4 / 0 | 0 |
 
-All versions retain passing Rust regressions. Fresh Harbor Oracle and replay
-alternative trials return 1, and the Python-forwarding control returns 0,
-with zero framework errors. Each qualified positive native binary also passes two further
-HTTP stability rounds and an independent mixed-marker terminal challenge.
-The previous 49-case Python/reference and five-round results are historical;
-current executable hashes and trials are in the measured evidence.
+Fresh Oracle and alternative Harbor trials score 1 with no framework errors.
+Each correct binary also passes two complete HTTP stability rounds and six
+independent growing-state/empty-event challenges. Native runtime files and their
+existing Python-forwarding CI control remain unchanged; this functional round
+does not rerun isolation probes. Earlier 49/67-case evidence is historical.
 
 HTTP coverage uses the supplied Qwen vocabulary/template and Hermes/Qwen3
 parser configurations. Chunked reasoning/tool parsing, chunked logprobs and

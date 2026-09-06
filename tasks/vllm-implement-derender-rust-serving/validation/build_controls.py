@@ -47,6 +47,7 @@ def main():
     def save(name, files, reward, purpose):
         path = task / "validation" / f"{name}.patch"
         payload = patch_for(base, files)
+        payload = "".join("\n" if line == " \n" else line for line in payload.splitlines(keepends=True))
         path.write_text(payload)
         controls.append({"name": name, "patch": path.name, "patch_sha256": hashlib.sha256(payload.encode()).hexdigest(),
                          "expected_reward": reward, "purpose": purpose})
@@ -117,11 +118,27 @@ pub(super) fn detokenize_delta(
     Ok((suffix, updated))
 }
 '''
-    save("alternative-native-decoder-replay", files, 1, "Use full token history and native decoder replay instead of the Oracle's bounded decode window.")
+    save("alternative-native-decoder-replay", files, 1, "Use full token history and native decoder replay instead of the Oracle's retained decode window.")
     files = dict(oracle)
     assert "    if finished {" in files[detok]
     files[detok] = files[detok].replace("    if finished {", "    if false && finished {", 1)
     save("omit-terminal-flush", files, 0, "Leave buffered terminal text unflushed, reproducing the reviewed Oracle failure.")
+
+    files = dict(oracle)
+    needle = "    pub(super) fn validate(&self) -> Result<(), ApiError> {\n"
+    assert needle in files[state]
+    files[state] = files[state].replace(needle, needle + '''        if self.prev_tokens.len() > 1024 {
+            bail_invalid_request!("stream state exceeds 1024 tokens");
+        }
+''', 1)
+    save("reject-long-returned-state", files, 0, "Reject the decoder's own valid returned state after a long deferred-text chunk.")
+
+    files = dict(oracle)
+    wire = "rust/src/server/src/routes/inference/generate/types.rs"
+    needle = '#[serde(default, deserialize_with = "deserialize_stream_token_ids")]'
+    assert needle in files[wire]
+    files[wire] = files[wire].replace(needle, "#[serde(default)]", 1)
+    save("reject-null-stream-delta", files, 0, "Reject explicit null deltas while accepting omitted and empty token arrays.")
 
     # This control deliberately contains no derender implementation. Preserve
     # its complete Base-relative entry-point patch rather than grafting it on
