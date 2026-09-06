@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-09-04T18:55:40+08:00",
+  "recorded_at": "2026-09-06T23:19:15+08:00",
   "source": {
     "candidate_id": "vllm-cpu-300-223",
     "instance_id": "vllm-project__vllm-45718",
@@ -29,14 +29,14 @@
     }
   },
   "artifacts": {
-    "task_toml_sha256": "6ad953e7448d3f07af77bca900f7d82fbab7a21fe1e036281947bbcf7266a036",
+    "task_toml_sha256": "fe9dcedfd73eeba63418a3b6b91f9a74a9b22dc2b13291548c7c46a2baf9f6f2",
     "instruction_sha256": "8a13c1116848461bf291064efac45b850039407bb96f0934b7df8e78176ab54a",
     "oracle_patch_sha256": "27d69d2aa1c11de61232faf010b7b763434a942ab3c70b871fc1be13db6da608",
     "test_script_sha256": "2b6126e1d3eb9c0e80c237421f64f042f30debc01f53c6a17b3c468cb6ac94d5",
-    "regression_test_sha256": "373506beced4100e1e29ad034f9da8eb3c14b68c1a1f93857fb7a83c7bb13aea",
-    "junit_checker_sha256": "5660d151d8531d66b7607294fb7bfeaea20299832a599d44bb625611c8fdac99",
+    "regression_test_sha256": "a65544a1f2d3b3cb42488a8d679bc7b2a7a2de43d9285ab5e35bb3b82f31e576",
+    "junit_checker_sha256": "3ebf5642bb725b68366b9e852ddeb7b4fdb7e2065be0d4413a429fefe64f641d",
     "ci_cases_sha256": "cede21fcd9cec771f8b2eb027810cd6da2e5e90a81410d9cbf5eb7b23f47bc63",
-    "remediation_matrix_sha256": "dc6cf9ba403623821a39cb13bbeb57259473190226ad66db9a5e9535ebf99bbc",
+    "remediation_matrix_sha256": "01bfbaaef74d5ba77d948856ad82ad0f39a129525304b9126898838cc1029ad9",
     "files": {
       "solution/solve.sh": {
         "sha256": "30736ddecc6d93c65becaef873117262947e06abc41e37210157417696d39d56"
@@ -51,24 +51,44 @@
   },
   "verifier_contract": {
     "asserts_private_implementation_structure": false,
-    "behavior_cases": 25,
+    "behavior_cases": 26,
     "behaviors": [
       "adaptive prompt initialization defers reasoning state to generated output instead of treating instructional prompt markers as completed reasoning",
       "enabled prompt initialization begins inside reasoning and disabled prompt initialization begins after reasoning",
       "complete markers emitted from split token IDs and markers split across streaming deltas are hidden while reasoning remains separated",
       "adaptive and enabled streams transition into structured function calls with varied names and arguments",
-      "atomic-marker, plain streaming, non-streaming, disabled-thinking, malformed-prefix, and repeated-request behavior remains correct"
+      "atomic-marker, plain streaming, non-streaming, disabled-thinking, malformed-prefix, and repeated-request behavior remains correct",
+      "enabled streaming with an explicit atomic opening marker hides that marker and matches the existing non-streaming reasoning/content result"
     ],
     "public_boundary": "Reward depends on Chat Completions response fields through ParserManager and a real ASGI/OpenAIServingChat lifecycle; engine prompt state is logged only as a non-scoring diagnostic, and tests do not inspect Golden helpers, private state, patch shape, or call counts.",
-    "collection_integrity": "JUnit must contain exactly 25 unique, passing, non-skipped cases"
+    "collection_integrity": "JUnit must contain exactly 26 unique, passing, non-skipped cases"
   },
   "real_lifecycle_boundary": {
     "kind": "ASGI Chat Completions request with the pinned MiniMax M3 tokenizer and chat template, OpenAIServingChat, registered combined parser, and SSE serialization",
     "entrypoint": "ASGI POST /v1/chat/completions -> ChatCompletionRequest -> HfRenderer -> OpenAIServingChat -> ParserManager -> SSE",
-    "thinking_modes": ["adaptive", "enabled", "disabled"],
-    "real_marker_vocab_ids": [200059, 200060],
-    "split_start_marker_ids": [60, 4759, 58, 37959, 62],
-    "split_end_marker_ids": [1579, 4759, 58, 37959, 62],
+    "thinking_modes": [
+      "adaptive",
+      "enabled",
+      "disabled"
+    ],
+    "real_marker_vocab_ids": [
+      200059,
+      200060
+    ],
+    "split_start_marker_ids": [
+      60,
+      4759,
+      58,
+      37959,
+      62
+    ],
+    "split_end_marker_ids": [
+      1579,
+      4759,
+      58,
+      37959,
+      62
+    ],
     "stream_requests": 6,
     "nonstream_requests": 3,
     "http_status": 200,
@@ -83,74 +103,122 @@
   "repeated_runs": [
     {
       "case": "base",
-      "rounds": 5,
-      "rewards": [0, 0, 0, 0, 0],
-      "behavior_tests_each_round": {"passed": 12, "failed": 13, "errors": 0, "skipped": 0},
-      "e2e_exit_codes": [1, 1, 1, 1, 1],
-      "serving_exit_codes": [1, 1, 1, 1, 1]
+      "rounds": 1,
+      "rewards": [
+        0
+      ],
+      "behavior_tests_each_round": {
+        "passed": 13,
+        "failed": 13,
+        "errors": 0,
+        "skipped": 0
+      },
+      "e2e_exit_codes": [
+        1
+      ],
+      "serving_exit_codes": [
+        1
+      ]
     },
     {
       "case": "oracle",
-      "rounds": 5,
-      "rewards": [1, 1, 1, 1, 1],
-      "behavior_tests_each_round": {"passed": 25, "failed": 0, "errors": 0, "skipped": 0},
-      "e2e_exit_codes": [0, 0, 0, 0, 0],
-      "serving_exit_codes": [0, 0, 0, 0, 0]
+      "rounds": 1,
+      "rewards": [
+        1
+      ],
+      "behavior_tests_each_round": {
+        "passed": 26,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "e2e_exit_codes": [
+        0
+      ],
+      "serving_exit_codes": [
+        0
+      ]
     }
   ],
   "upstream_regression_run": {
     "path": "tests/reasoning/test_minimax_m3_reasoning_parser.py",
     "passed": 15,
     "failed": 0,
-    "skipped": 0
+    "skipped": 0,
+    "recorded_at": "2026-09-04T18:55:40+08:00",
+    "note": "Historical upstream regression run; not rerun for this verifier-only change. Oracle source is unchanged."
   },
   "adversarial_runs": [
     {
-      "case": "use_output_state_for_prompt",
-      "patch_sha256": "52485a7cc2c61096ac4d20c3a39c86c446f3ec799286a76b9e7db70d054115c1",
-      "reward": 0,
-      "tests_passed": 25,
-      "tests_failed": 0,
-      "e2e_exit_code": 0,
-      "serving_exit_code": 1
-    },
-    {
-      "case": "drop_cross_delta_marker_buffering",
-      "patch_sha256": "73af3bf0935dcff6cb57014c8dd6bb50ae71548befabe2a890c583f7d53f8e1d",
-      "reward": 0,
-      "tests_passed": 18,
-      "tests_failed": 7,
-      "e2e_exit_code": 1,
-      "serving_exit_code": 0
-    },
-    {
-      "case": "break_nonstreaming_regression",
-      "patch_sha256": "b417ac7e395dad32d7f2ed87fb4f9b1afac07fb560a8589b4abdd4b0e590d1b0",
+      "case": "oracle-break-nonstreaming",
       "reward": 0,
       "tests_passed": 23,
-      "tests_failed": 2,
+      "tests_failed": 3,
+      "tests_errors": 0,
+      "tests_skipped": 0,
+      "new_regression_passed": false,
       "e2e_exit_code": 0,
-      "serving_exit_code": 1
+      "serving_exit_code": 1,
+      "harbor_trial_id": "e2c7adc5-f7af-4f24-8131-6e91706bdb68",
+      "result_path": "runs/minimax-enabled-opener-regression-20260906-231654/jobs/oracle-break-nonstreaming/oracle-break-nonstreaming__hicf8aY/result.json",
+      "result_sha256": "b0863f57149b9726d1e03da6c02f392ae2eefd4d98b389fa68c8a1ce2a86a258",
+      "patch_sha256": "b417ac7e395dad32d7f2ed87fb4f9b1afac07fb560a8589b4abdd4b0e590d1b0"
+    },
+    {
+      "case": "oracle-drop-cross-delta-buffering",
+      "reward": 0,
+      "tests_passed": 19,
+      "tests_failed": 7,
+      "tests_errors": 0,
+      "tests_skipped": 0,
+      "new_regression_passed": true,
+      "e2e_exit_code": 1,
+      "serving_exit_code": 0,
+      "harbor_trial_id": "ca5902ec-3874-414d-a1d3-05cc50c653fa",
+      "result_path": "runs/minimax-enabled-opener-regression-20260906-231654/jobs/oracle-drop-cross-delta-buffering/oracle-drop-cross-delta-bufferin__WKqLEpY/result.json",
+      "result_sha256": "a4ea5db13de72a571b88de1f4a58fdf131336e1eb89627edbe9828e435c980ff",
+      "patch_sha256": "73af3bf0935dcff6cb57014c8dd6bb50ae71548befabe2a890c583f7d53f8e1d"
+    },
+    {
+      "case": "oracle-use-output-state-for-prompt",
+      "reward": 0,
+      "tests_passed": 26,
+      "tests_failed": 0,
+      "tests_errors": 0,
+      "tests_skipped": 0,
+      "new_regression_passed": true,
+      "e2e_exit_code": 0,
+      "serving_exit_code": 1,
+      "harbor_trial_id": "f170b4a7-a7ae-4e65-b863-c803b6f1d1af",
+      "result_path": "runs/minimax-enabled-opener-regression-20260906-231654/jobs/oracle-use-output-state-for-prompt/oracle-use-output-state-for-prom__MVmC754/result.json",
+      "result_sha256": "1af093084d8d0e65c6042109a36874b13e790680fed1fb91d4a76a09305e3faa",
+      "patch_sha256": "52485a7cc2c61096ac4d20c3a39c86c446f3ec799286a76b9e7db70d054115c1"
     }
   ],
   "alternative_implementation_runs": [
     {
-      "case": "renamed_stream_state_with_vocabulary_first_marker_resolution",
-      "patch_sha256": "30f988de658bcceb27e76e2788ace213ba8d0f018d289e811429826f5f87daca",
+      "case": "alternative-renamed-stream-state",
       "reward": 1,
-      "tests_passed": 25,
+      "tests_passed": 26,
       "tests_failed": 0,
+      "tests_errors": 0,
+      "tests_skipped": 0,
+      "new_regression_passed": true,
       "e2e_exit_code": 0,
-      "serving_exit_code": 0
+      "serving_exit_code": 0,
+      "harbor_trial_id": "ff49d828-e15c-4f57-bc3b-ffee8fe10ee5",
+      "result_path": "runs/minimax-enabled-opener-regression-20260906-231654/jobs/alternative-renamed-stream-state/alternative-renamed-stream-state__zsSwxi5/result.json",
+      "result_sha256": "2e1ed46f40ea0458482c144e5c90c81935ec0d8b84d285c672fd0da17eb779f0",
+      "patch_sha256": "30f988de658bcceb27e76e2788ace213ba8d0f018d289e811429826f5f87daca"
     }
   ],
   "harbor": {
     "version": "0.22.0",
-    "job_id": "f6e39005-bae3-4f40-8eed-9a87f8b55544",
-    "trial_id": "a42ad175-f979-41f7-9688-268334897a36",
-    "package_digest": "sha256:fffc6a670b310f62a608bf5443c20eef0f2689546241c7f558b389c2af561ab4",
-    "input_task_checksum": "c23e3b96ad67126eafa9d1741aff85ece8e2b188279b2371a0ea3128cf3b2f66",
-    "input_snapshot_note": "The checksum identifies the final executable snapshot before this Harbor result and remediation-only evidence refresh.",
+    "job_id": "2434502f-e7cb-47dc-9e80-985d275c78ee",
+    "trial_id": "7abcd2aa-db20-4096-ae03-771d5cf9d689",
+    "package_digest": "sha256:c23825c052cce6570190e4159105aeb44d97e57969d7e2c5f2f4b9c049546c9c",
+    "input_task_checksum": "9e2f47615196390dbef2522f324da93b2c2769b9518e7ae0391e6991421b854d",
+    "input_snapshot_note": "Identifies the Oracle task copy with the retained prebuilt docker_image injected, before evidence/remediation refresh; executable tests match the final task.",
     "agent": "oracle",
     "environment": "docker",
     "prebuilt_image_used": true,
@@ -162,7 +230,7 @@
     "integrity_exit_code": 0,
     "e2e_exit_code": 0,
     "serving_exit_code": 0,
-    "runtime_seconds": 51,
+    "runtime_seconds": 35.032,
     "canonical_image_retained_after_run": true
   },
   "provenance_gates": {
@@ -174,5 +242,131 @@
     "vllm_imports_from_base_worktree": true,
     "installed_dependencies_match_lock": true,
     "runtime_network_disabled": true
+  },
+  "verifier_regression_validation": {
+    "name": "enabled-explicit-atomic-opener",
+    "contract_changed": false,
+    "instruction_changed": false,
+    "oracle_changed": false,
+    "environment_changed": false,
+    "test_count_before": 25,
+    "test_count_after": 26,
+    "max_concurrent_trials": 3,
+    "resources": {
+      "cpus": 8,
+      "memory_mb": 16384,
+      "agent_timeout_sec": 64800
+    },
+    "run_directory": "runs/minimax-enabled-opener-regression-20260906-231654",
+    "results": [
+      {
+        "case": "base",
+        "reward": 0,
+        "tests_passed": 13,
+        "tests_failed": 13,
+        "tests_errors": 0,
+        "tests_skipped": 0,
+        "new_regression_passed": true,
+        "e2e_exit_code": 1,
+        "serving_exit_code": 1,
+        "harbor_trial_id": "0002f766-2a58-42f4-969e-62d80ef35d45",
+        "result_path": "runs/minimax-enabled-opener-regression-20260906-231654/jobs/base/base__Qrjt7Vo/result.json",
+        "result_sha256": "f3b21ad891e11587cfac599d1dd49f2d4ae3e78de95d382c2f9f0036200db8ee"
+      },
+      {
+        "case": "oracle",
+        "reward": 1,
+        "tests_passed": 26,
+        "tests_failed": 0,
+        "tests_errors": 0,
+        "tests_skipped": 0,
+        "new_regression_passed": true,
+        "e2e_exit_code": 0,
+        "serving_exit_code": 0,
+        "harbor_trial_id": "7abcd2aa-db20-4096-ae03-771d5cf9d689",
+        "result_path": "runs/minimax-enabled-opener-regression-20260906-231654/jobs/oracle/oracle__Eura8nH/result.json",
+        "result_sha256": "ca86b3e1e2d13b19b7ba2d7a4d427cea54d7a1f66b2768816a198bed3e3e6a39"
+      },
+      {
+        "case": "alternative-renamed-stream-state",
+        "reward": 1,
+        "tests_passed": 26,
+        "tests_failed": 0,
+        "tests_errors": 0,
+        "tests_skipped": 0,
+        "new_regression_passed": true,
+        "e2e_exit_code": 0,
+        "serving_exit_code": 0,
+        "harbor_trial_id": "ff49d828-e15c-4f57-bc3b-ffee8fe10ee5",
+        "result_path": "runs/minimax-enabled-opener-regression-20260906-231654/jobs/alternative-renamed-stream-state/alternative-renamed-stream-state__zsSwxi5/result.json",
+        "result_sha256": "2e1ed46f40ea0458482c144e5c90c81935ec0d8b84d285c672fd0da17eb779f0"
+      },
+      {
+        "case": "oracle-break-nonstreaming",
+        "reward": 0,
+        "tests_passed": 23,
+        "tests_failed": 3,
+        "tests_errors": 0,
+        "tests_skipped": 0,
+        "new_regression_passed": false,
+        "e2e_exit_code": 0,
+        "serving_exit_code": 1,
+        "harbor_trial_id": "e2c7adc5-f7af-4f24-8131-6e91706bdb68",
+        "result_path": "runs/minimax-enabled-opener-regression-20260906-231654/jobs/oracle-break-nonstreaming/oracle-break-nonstreaming__hicf8aY/result.json",
+        "result_sha256": "b0863f57149b9726d1e03da6c02f392ae2eefd4d98b389fa68c8a1ce2a86a258"
+      },
+      {
+        "case": "oracle-drop-cross-delta-buffering",
+        "reward": 0,
+        "tests_passed": 19,
+        "tests_failed": 7,
+        "tests_errors": 0,
+        "tests_skipped": 0,
+        "new_regression_passed": true,
+        "e2e_exit_code": 1,
+        "serving_exit_code": 0,
+        "harbor_trial_id": "ca5902ec-3874-414d-a1d3-05cc50c653fa",
+        "result_path": "runs/minimax-enabled-opener-regression-20260906-231654/jobs/oracle-drop-cross-delta-buffering/oracle-drop-cross-delta-bufferin__WKqLEpY/result.json",
+        "result_sha256": "a4ea5db13de72a571b88de1f4a58fdf131336e1eb89627edbe9828e435c980ff"
+      },
+      {
+        "case": "oracle-use-output-state-for-prompt",
+        "reward": 0,
+        "tests_passed": 26,
+        "tests_failed": 0,
+        "tests_errors": 0,
+        "tests_skipped": 0,
+        "new_regression_passed": true,
+        "e2e_exit_code": 0,
+        "serving_exit_code": 1,
+        "harbor_trial_id": "f170b4a7-a7ae-4e65-b863-c803b6f1d1af",
+        "result_path": "runs/minimax-enabled-opener-regression-20260906-231654/jobs/oracle-use-output-state-for-prompt/oracle-use-output-state-for-prom__MVmC754/result.json",
+        "result_sha256": "1af093084d8d0e65c6042109a36874b13e790680fed1fb91d4a76a09305e3faa"
+      },
+      {
+        "case": "sol-candidate",
+        "reward": 0,
+        "tests_passed": 25,
+        "tests_failed": 1,
+        "tests_errors": 0,
+        "tests_skipped": 0,
+        "new_regression_passed": false,
+        "e2e_exit_code": 0,
+        "serving_exit_code": 0,
+        "harbor_trial_id": "62bd0501-2c6d-4cc8-900f-acf47c779758",
+        "result_path": "runs/minimax-enabled-opener-regression-20260906-231654/jobs/sol-candidate/sol-candidate__y2BSfVi/result.json",
+        "result_sha256": "e853fc598d97eb38bb7c4c342548ada4346547ce0acb24adb0f2cf5415887ebf"
+      }
+    ],
+    "solver_control": {
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "patch_source": "runs/minimax-sol-high-20260906-224750/audit/production-only.patch",
+      "patch_sha256": "24b3684bfc5f7e91b48e1e06913ab407beb067991c1c9d37d2e8b55218ee89a8",
+      "production_files_only": true,
+      "original_reward": 1,
+      "new_reward": 0
+    },
+    "scope_note": "One behavioral regression and required JUnit-count/evidence updates. Existing image and Oracle retained; this is not a new full image/cutoff or adversarial security audit."
   }
 }
