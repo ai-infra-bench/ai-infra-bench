@@ -1,0 +1,102 @@
+diff --git a/vllm/distributed/kv_transfer/kv_connector/factory.py b/vllm/distributed/kv_transfer/kv_connector/factory.py
+index f691b9f..f599c1c 100644
+--- a/vllm/distributed/kv_transfer/kv_connector/factory.py
++++ b/vllm/distributed/kv_transfer/kv_connector/factory.py
+@@ -49,9 +49,7 @@ class KVConnectorFactory:
+         kv_transfer_config = config.kv_transfer_config
+         if kv_transfer_config is None:
+             raise ValueError("kv_transfer_config must be set to create a connector")
+-        connector_cls, compat_sig = cls._get_connector_class_with_compat(
+-            kv_transfer_config
+-        )
++        connector_cls = cls._get_connector_class(kv_transfer_config)
+ 
+         # check if the connector supports HMA
+         hma_enabled = not config.scheduler_config.disable_hybrid_kv_cache_manager
+@@ -74,12 +72,23 @@ class KVConnectorFactory:
+         # - Co-locate with worker process
+         # - Should only be used inside the forward context & attention layer
+         # We build separately to enforce strict separation
+-        if compat_sig:
+-            # Old signature: __init__(self, vllm_config, role)
+-            return connector_cls(config, role)
+-        else:
+-            # New signature: __init__(self, vllm_config, role, kv_cache_config)
++        # New signature: __init__(self, vllm_config, role, kv_cache_config)
++        try:
+             return connector_cls(config, role, kv_cache_config)
++        except TypeError as e:
++            # Check if this is a signature mismatch (missing kv_cache_config parameter)
++            # vs an actual error inside the constructor
++            if not supports_kw(connector_cls, "kv_cache_config"):
++                raise TypeError(
++                    f"Connector {connector_cls.__name__} uses the deprecated "
++                    f"pre-v0.12 constructor signature __init__(vllm_config, role). "
++                    f"As of v0.12, all KV connectors must accept kv_cache_config "
++                    f"as the third parameter: __init__(vllm_config, role, kv_cache_config). "
++                    f"Please update your connector implementation to accept this parameter "
++                    f"and pass it to super().__init__()."
++                ) from e
++            # This is a real TypeError from inside the constructor, re-raise it
++            raise
+ 
+     @classmethod
+     def get_connector_class_by_name(
+@@ -100,13 +109,12 @@ class KVConnectorFactory:
+         return cls._registry[connector_name]()
+ 
+     @classmethod
+-    def _get_connector_class_with_compat(
++    def _get_connector_class(
+         cls, kv_transfer_config: "KVTransferConfig"
+-    ) -> tuple[type[KVConnectorBaseType], bool]:
++    ) -> type[KVConnectorBaseType]:
+         connector_name = kv_transfer_config.kv_connector
+         if connector_name is None:
+             raise ValueError("Connector name is not set in KVTransferConfig")
+-        compat_sig = False
+         connector_module_path = kv_transfer_config.kv_connector_module_path
+         if connector_module_path is not None and not connector_module_path:
+             raise ValueError("kv_connector_module_path cannot be an empty string.")
+@@ -120,26 +128,18 @@ class KVConnectorFactory:
+                     f"Class {connector_name} not found in {connector_module_path}"
+                 ) from e
+             connector_cls = cast(type[KVConnectorBaseType], connector_cls)
+-            if not supports_kw(connector_cls, "kv_cache_config"):
+-                compat_sig = True
+-                logger.warning(
+-                    "Connector %s uses deprecated signature with 2 required arguments. "
+-                    "Please update to include kv_cache_config as the second argument.",
+-                    connector_cls.__name__,
+-                )
+         elif connector_name in cls._registry:
+             connector_cls = cls._registry[connector_name]()
+         else:
+             raise ValueError(f"Unsupported connector type: {connector_name}")
+-        return connector_cls, compat_sig
++        return connector_cls
+ 
+     @classmethod
+     def get_connector_class(
+         cls, kv_transfer_config: "KVTransferConfig"
+     ) -> type[KVConnectorBaseType]:
+         """Get the connector class by name."""
+-        connector_cls, _ = cls._get_connector_class_with_compat(kv_transfer_config)
+-        return connector_cls
++        return cls._get_connector_class(kv_transfer_config)
+ 
+ 
+ # Register various connectors here.
+diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/moriio/moriio_connector.py b/vllm/distributed/kv_transfer/kv_connector/v1/moriio/moriio_connector.py
+index 15aca3e..5d34d5d 100644
+--- a/vllm/distributed/kv_transfer/kv_connector/v1/moriio/moriio_connector.py
++++ b/vllm/distributed/kv_transfer/kv_connector/v1/moriio/moriio_connector.py
+@@ -95,7 +95,7 @@ class MoRIIOConnector(KVConnectorBase_V1):
+         role: KVConnectorRole,
+         kv_cache_config: "KVCacheConfig | None" = None,
+     ):
+-        super().__init__(vllm_config, role)
++        super().__init__(vllm_config, role, kv_cache_config)
+         assert vllm_config.kv_transfer_config is not None, (
+             "kv_transfer_config must be set for MoRIIOConnector"
+         )
