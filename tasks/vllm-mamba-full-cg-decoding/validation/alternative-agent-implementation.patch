@@ -1,0 +1,46 @@
+diff --git a/vllm/v1/attention/backends/utils.py b/vllm/v1/attention/backends/utils.py
+index d09c01e..5a2dd11 100644
+--- a/vllm/v1/attention/backends/utils.py
++++ b/vllm/v1/attention/backends/utils.py
+@@ -563,7 +563,28 @@ def split_decodes_and_prefills(
+ 
+     if not treat_short_extends_as_decodes:
+         assert common_attn_metadata.is_prefilling is not None
+-        is_prefill |= common_attn_metadata.is_prefilling
++        is_prefilling = common_attn_metadata.is_prefilling
++
++        # By default, a still-prefilling request is routed to the prefill path.
++        #
++        # Exception: a request that only advances *existing* recurrent state
++        # with a single-token continuation is decode-compatible and must stay
++        # on the decode path. This covers NIXL-style disaggregated decode,
++        # where the decode instance imports recurrent state and continues it
++        # one token at a time. Such a request still reports is_prefilling=True
++        # (num_computed_tokens < num_prompt_tokens), but it already has context
++        # (num_computed_tokens > 0). That distinguishes it from a true
++        # first-token prompt (num_computed_tokens == 0), which has no state to
++        # continue and must initialize its state via the prefill path.
++        #
++        # The exemption is deliberately restricted to single-token steps so
++        # that multi-token (chunked) extends still take the prefill path, which
++        # preserves ordinary chunked-prefill and speculative configurations.
++        seq_lens_upper = common_attn_metadata.seq_lens_cpu_upper_bound
++        assert seq_lens_upper is not None
++        num_computed_tokens = seq_lens_upper - query_lens
++        is_state_continuation = (num_computed_tokens > 0) & (query_lens <= 1)
++        is_prefill |= is_prefilling & ~is_state_continuation
+ 
+     if not torch.any(is_prefill):
+         return num_reqs, 0, num_tokens, 0
+diff --git a/vllm/v1/worker/gpu/model_states/mamba_hybrid.py b/vllm/v1/worker/gpu/model_states/mamba_hybrid.py
+index 93115fd..48a6931 100644
+--- a/vllm/v1/worker/gpu/model_states/mamba_hybrid.py
++++ b/vllm/v1/worker/gpu/model_states/mamba_hybrid.py
+@@ -133,6 +133,7 @@ class MambaHybridModelState(DefaultModelState):
+             block_tables=block_tables,
+             slot_mappings=slot_mappings,
+             kv_cache_config=kv_cache_config,
++            seq_lens_cpu_upper_bound=input_batch.seq_lens_cpu_upper_bound,
+             dcp_local_seq_lens=input_batch.dcp_local_seq_lens,
+             model_specific_attn_metadata=mamba_attn_metadata,
+             for_cudagraph_capture=for_capture,

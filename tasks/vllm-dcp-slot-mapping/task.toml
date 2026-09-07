@@ -1,0 +1,49 @@
+schema_version = "1.4"
+artifacts = ["/workspace/repo/vllm"]
+
+[task]
+name = "ai-infra-bench/vllm-dcp-slot-mapping"
+version = "1.2.0"
+description = "Add decode-context-parallel slot mapping to vLLM GPU model runner v2."
+authors = [{ name = "AI Infra Bench Curators" }]
+keywords = ["vllm", "dcp", "triton", "cuda-graph", "kv-cache"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+track = "representative"
+source_ids = ["vllm__pr__34179"]
+repository = "vllm-project/vllm"
+base_commit = "be3af2d29e2507f32b2190fe015cd6609b348caa"
+image_digest = "sha256:26a998dfd72cacb67bbccc56ddbc5fc60cda2e96038d0b4e3f7d069c99ec28a5"
+oracle_commit = "ab33d2a629be6eca2dd946b1628af4d23d39c547"
+workload_type = "feature_fix"
+subsystems = ["model_runner", "attention", "memory_kv"]
+dependency_cutoff = "2026-02-17T23:18:18Z"
+environment_template = "vllm-cutoff-pinned"
+publication_state = "validated"
+difficulty = "hard"
+grader_kind = "gpu_correctness"
+
+[agent]
+timeout_sec = 36000
+user = "agent"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 1800.0
+environment_mode = "separate"
+user = "root"
+network_mode = "no-network"
+
+[environment]
+docker_image = "ai-infra-bench/vllm-dcp-slot-mapping:base-be3af2d29e25"
+network_mode = "no-network"
+build_timeout_sec = 14400.0
+accelerator = "A100"
+topology = 1
+cpus = 8
+memory_mb = 32768
+storage_mb = 65536
+workdir = "/workspace/repo"
+gpus = 1
+gpu_types = ["A100"]

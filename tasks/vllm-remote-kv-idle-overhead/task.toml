@@ -1,0 +1,45 @@
+schema_version = "1.4"
+artifacts = ["/app/vllm"]
+
+[task]
+name = "ai-infra-bench/vllm-remote-kv-idle-overhead"
+version = "1.0.0"
+description = "Avoid repeatedly scanning blocked remote-KV requests in the vLLM scheduler."
+authors = [{ name = "AI Infra Bench Curators" }]
+keywords = ["vllm", "scheduler", "kv-transfer", "performance"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+track = "representative"
+source_ids = ["vllm__pr__35781"]
+repository = "vllm-project/vllm"
+base_commit = "d88f28da05b12bc7d63ebe3dcedf445ecb274343"
+image_digest = "sha256:b5b75e8dbcfe12c96c29e0ab0e8005ca22b67565c67654bce30dc9aba5cf03ef"
+oracle_commit = "a8ff2cca92807f1b15b9b8d21135784298ad7814"
+workload_type = "performance_fix"
+subsystems = ["scheduler", "kv_transfer", "performance"]
+dependency_cutoff = "2026-03-10T15:03:18Z"
+environment_template = "vllm-cutoff-pinned"
+publication_state = "validated"
+difficulty = "hard"
+grader_kind = "correctness"
+
+[agent]
+timeout_sec = 36000
+user = "agent"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 600.0
+user = "root"
+network_mode = "no-network"
+
+[environment]
+docker_image = "ai-infra-bench/vllm-remote-kv-idle-overhead:base-d88f28da05b1"
+network_mode = "no-network"
+build_timeout_sec = 14400.0
+accelerator = "CPU"
+cpus = 4
+memory_mb = 16384
+storage_mb = 24576
+workdir = "/app"

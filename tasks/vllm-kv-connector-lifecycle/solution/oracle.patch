@@ -1,0 +1,120 @@
+diff --git a/vllm/distributed/kv_transfer/kv_connector/factory.py b/vllm/distributed/kv_transfer/kv_connector/factory.py
+--- a/vllm/distributed/kv_transfer/kv_connector/factory.py
++++ b/vllm/distributed/kv_transfer/kv_connector/factory.py
+@@ -44,14 +44,12 @@ class KVConnectorFactory:
+         cls,
+         config: "VllmConfig",
+         role: KVConnectorRole,
+-        kv_cache_config: "KVCacheConfig | None" = None,
++        kv_cache_config: "KVCacheConfig",
+     ) -> KVConnectorBase:
+         kv_transfer_config = config.kv_transfer_config
+         if kv_transfer_config is None:
+             raise ValueError("kv_transfer_config must be set to create a connector")
+-        connector_cls, compat_sig = cls._get_connector_class_with_compat(
+-            kv_transfer_config
+-        )
++        connector_cls = cls.get_connector_class(kv_transfer_config)
+
+         # check if the connector supports HMA
+         hma_enabled = not config.scheduler_config.disable_hybrid_kv_cache_manager
+@@ -74,12 +72,7 @@ class KVConnectorFactory:
+         # - Co-locate with worker process
+         # - Should only be used inside the forward context & attention layer
+         # We build separately to enforce strict separation
+-        if compat_sig:
+-            # Old signature: __init__(self, vllm_config, role)
+-            return connector_cls(config, role)
+-        else:
+-            # New signature: __init__(self, vllm_config, role, kv_cache_config)
+-            return connector_cls(config, role, kv_cache_config)
++        return connector_cls(config, role, kv_cache_config)
+
+     @classmethod
+     def get_connector_class_by_name(
+@@ -100,13 +93,12 @@ class KVConnectorFactory:
+         return cls._registry[connector_name]()
+
+     @classmethod
+-    def _get_connector_class_with_compat(
++    def get_connector_class(
+         cls, kv_transfer_config: "KVTransferConfig"
+-    ) -> tuple[type[KVConnectorBaseType], bool]:
++    ) -> type[KVConnectorBaseType]:
+         connector_name = kv_transfer_config.kv_connector
+         if connector_name is None:
+             raise ValueError("Connector name is not set in KVTransferConfig")
+-        compat_sig = False
+         connector_module_path = kv_transfer_config.kv_connector_module_path
+         if connector_module_path is not None and not connector_module_path:
+             raise ValueError("kv_connector_module_path cannot be an empty string.")
+@@ -121,24 +113,18 @@ class KVConnectorFactory:
+                 ) from e
+             connector_cls = cast(type[KVConnectorBaseType], connector_cls)
+             if not supports_kw(connector_cls, "kv_cache_config"):
+-                compat_sig = True
+-                logger.warning(
+-                    "Connector %s uses deprecated signature with 2 required arguments. "
+-                    "Please update to include kv_cache_config as the second argument.",
+-                    connector_cls.__name__,
++                msg = (
++                    f"Connector {connector_cls.__name__} uses deprecated "
++                    "2-argument constructor signature. External v1 KV "
++                    "connectors must accept kv_cache_config as the third "
++                    "constructor argument and pass it to super().__init__()."
+                 )
++                logger.error(msg)
++                raise ValueError(msg)
+         elif connector_name in cls._registry:
+             connector_cls = cls._registry[connector_name]()
+         else:
+             raise ValueError(f"Unsupported connector type: {connector_name}")
+-        return connector_cls, compat_sig
+-
+-    @classmethod
+-    def get_connector_class(
+-        cls, kv_transfer_config: "KVTransferConfig"
+-    ) -> type[KVConnectorBaseType]:
+-        """Get the connector class by name."""
+-        connector_cls, _ = cls._get_connector_class_with_compat(kv_transfer_config)
+         return connector_cls
+
+
+diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/base.py b/vllm/distributed/kv_transfer/kv_connector/v1/base.py
+--- a/vllm/distributed/kv_transfer/kv_connector/v1/base.py
++++ b/vllm/distributed/kv_transfer/kv_connector/v1/base.py
+@@ -184,7 +184,7 @@ class KVConnectorBase_V1(ABC):
+         self,
+         vllm_config: "VllmConfig",
+         role: KVConnectorRole,
+-        kv_cache_config: "KVCacheConfig | None" = None,
++        kv_cache_config: "KVCacheConfig",
+     ):
+         logger.warning(
+             "Initializing KVConnectorBase_V1. This API is experimental and "
+@@ -197,13 +197,6 @@ class KVConnectorBase_V1(ABC):
+         else:
+             raise ValueError("kv_transfer_config must be set for KVConnectorBase_V1")
+         self._kv_cache_config = kv_cache_config
+-        if self._kv_cache_config is None:
+-            logger.warning(
+-                "KVConnectorBase_V1 initialized without kv_cache_config. "
+-                "This is deprecated - please update your connector to accept "
+-                "kv_cache_config as the third constructor argument and pass it "
+-                "to super().__init__()."
+-            )
+         self._role = role
+
+     @property
+diff --git a/vllm/distributed/kv_transfer/kv_transfer_state.py b/vllm/distributed/kv_transfer/kv_transfer_state.py
+--- a/vllm/distributed/kv_transfer/kv_transfer_state.py
++++ b/vllm/distributed/kv_transfer/kv_transfer_state.py
+@@ -49,7 +49,7 @@ def is_v1_kv_transfer_group(connector: KVConnectorBaseType | None = None) -> boo
+
+
+ def ensure_kv_transfer_initialized(
+-    vllm_config: "VllmConfig", kv_cache_config: "KVCacheConfig | None" = None
++    vllm_config: "VllmConfig", kv_cache_config: "KVCacheConfig"
+ ) -> None:
+     """
+     Initialize KV cache transfer parallel group.
