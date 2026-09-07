@@ -11,17 +11,15 @@ index 5b118af8fc53..697156a5b4dc 100644
          stream = container.streams.video[0]
          # SLICE parallelizes within a single frame without the
          # one-frame-per-thread latency penalty of FRAME threading.
-@@ -402,14 +402,29 @@ class PyAVVideoBackendMixin:
+@@ -402,14 +402,28 @@ class PyAVVideoBackendMixin:
          frame_interval = 1.0 / fps if fps > 0 else 0.1
          max_ts = max(0.0, duration - frame_interval) if duration > 0 else float("inf")
 
-+        start_pts = stream.start_time or 0
 +        decoder = None
 +        last_pts = None
          for idx in frame_indices:
              ts = min(idx / fps, max_ts) if fps > 0 else 0.0
--            pts = int(ts / time_base)
-+            pts = start_pts + int(ts / time_base)
+             pts = int(ts / time_base)
 -            container.seek(pts, stream=stream)
 -            frame = next(container.decode(video=0), None)
 -            if frame is not None:
@@ -46,3 +44,4 @@ index 5b118af8fc53..697156a5b4dc 100644
 
          if not frames_list:
              return np.empty((0,), dtype=np.uint8), valid_indices
+
