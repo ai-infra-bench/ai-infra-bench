@@ -2,6 +2,7 @@
 set -uo pipefail
 mkdir -p /logs/verifier
 cd /workspace/vllm
+rm -f /logs/verifier/{reward.txt,reward.json,junit.xml}
 
 pytest_rc=0
 integrity_rc=0
