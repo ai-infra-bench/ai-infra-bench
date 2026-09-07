@@ -49,6 +49,66 @@ BASE = {
 
 SUCCESS_CASES: list[tuple[str, dict[str, Any], tuple[str, ...]]] = [
     (
+        "consecutive_user_messages",
+        {
+            "messages": [
+                {"role": "user", "content": "CONSECUTIVE_USER_FIRST"},
+                {"role": "user", "content": "CONSECUTIVE_USER_SECOND"},
+            ]
+        },
+        ("CONSECUTIVE_USER_FIRST", "CONSECUTIVE_USER_SECOND"),
+    ),
+    (
+        "consecutive_assistant_messages",
+        {
+            "messages": [
+                {"role": "user", "content": "ASSISTANT_RUN_USER_FIRST"},
+                {"role": "assistant", "content": "ASSISTANT_RUN_FIRST"},
+                {"role": "assistant", "content": "ASSISTANT_RUN_SECOND"},
+                {"role": "user", "content": "ASSISTANT_RUN_USER_LAST"},
+            ]
+        },
+        ("ASSISTANT_RUN_FIRST", "ASSISTANT_RUN_SECOND", "ASSISTANT_RUN_USER_LAST"),
+    ),
+    (
+        "multiple_text_blocks",
+        {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "MULTI_TEXT_FIRST"},
+                        {
+                            "type": "text",
+                            "text": "MULTI_TEXT_SECOND",
+                            "cache_control": {"type": "ephemeral", "ttl": "5m"},
+                        },
+                    ],
+                }
+            ]
+        },
+        ("MULTI_TEXT_FIRST", "MULTI_TEXT_SECOND"),
+    ),
+    (
+        "multiple_top_system_blocks",
+        {
+            "system": [
+                {"type": "text", "text": "MULTI_TOP_SYSTEM_FIRST"},
+                {
+                    "type": "text",
+                    "text": "MULTI_TOP_SYSTEM_SECOND",
+                    "cache_control": {"type": "ephemeral", "ttl": "5m"},
+                },
+            ],
+            "messages": [{"role": "user", "content": "MULTI_TOP_SYSTEM_USER"}],
+        },
+        (
+            "MULTI_TOP_SYSTEM_FIRST",
+            "MULTI_TOP_SYSTEM_SECOND",
+            "MULTI_TOP_SYSTEM_USER",
+        ),
+    ),
+    (
         "top_system_string",
         {"system": "TOP_SYSTEM_STRING_SENTINEL"},
         ("TOP_SYSTEM_STRING_SENTINEL",),
@@ -266,6 +326,54 @@ SUCCESS_CASES: list[tuple[str, dict[str, Any], tuple[str, ...]]] = [
         ("TOOL_RESULT_ERROR_SENTINEL",),
     ),
     (
+        "multiple_tool_results",
+        {
+            "messages": [
+                {"role": "user", "content": "MULTI_TOOL_RESULTS_START"},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_result_one",
+                            "name": "matrix_tool_one",
+                            "input": {"value": "one"},
+                        },
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_result_two",
+                            "name": "matrix_tool_two",
+                            "input": {"value": "two"},
+                        },
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_result_one",
+                            "content": "MULTI_TOOL_RESULT_ONE",
+                        },
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_result_two",
+                            "content": [
+                                {"type": "text", "text": "MULTI_TOOL_RESULT_TWO"}
+                            ],
+                        },
+                    ],
+                },
+            ]
+        },
+        (
+            "matrix_tool_one",
+            "matrix_tool_two",
+            "MULTI_TOOL_RESULT_ONE",
+            "MULTI_TOOL_RESULT_TWO",
+        ),
+    ),
+    (
         "long_multiturn",
         {
             "messages": [
@@ -337,6 +445,15 @@ for _case_name, _overrides, _sentinels in SUCCESS_CASES:
         _messages.insert(0, {"role": "user", "content": "Start the requested task."})
 
 
+ORDERED_BLOCK_CASES = {
+    "consecutive_user_messages",
+    "consecutive_assistant_messages",
+    "multiple_text_blocks",
+    "multiple_top_system_blocks",
+    "multiple_tool_results",
+}
+
+
 @pytest.fixture(scope="module")
 def shared_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[RustServer]:
     root = tmp_path_factory.mktemp("rust-request-matrix")
@@ -365,6 +482,14 @@ def test_request_variant_reaches_rust_semantic_path(
     prompt = captures[-1]["prompt"]
     for sentinel in sentinels:
         assert sentinel in prompt, {"case": case_name, "prompt": prompt}
+    if case_name in ORDERED_BLOCK_CASES:
+        positions = [prompt.index(sentinel) for sentinel in sentinels]
+        assert positions == sorted(positions), {
+            "case": case_name,
+            "sentinels": sentinels,
+            "positions": positions,
+            "prompt": prompt,
+        }
     if case_name == "json_schema_output":
         assert_json_constraint(
             captures[-1], overrides["output_config"]["format"]["schema"]
@@ -378,6 +503,30 @@ COUNT_CASES: list[tuple[str, dict[str, Any]]] = [
     ("plain", {}),
     ("system", {"system": "COUNT_SYSTEM_SENTINEL"}),
     ("tools", {"tools": [tool()]}),
+    ("thinking", {"thinking": {"type": "adaptive"}}),
+    (
+        "structured_output",
+        {
+            "output_config": {
+                "format": {
+                    "type": "json_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": {"answer": {"type": "string"}},
+                        "required": ["answer"],
+                    },
+                }
+            }
+        },
+    ),
+    (
+        "tool_choice",
+        {
+            "tools": [tool()],
+            "tool_choice": {"type": "any", "disable_parallel_tool_use": True},
+        },
+    ),
+    ("cache_control", {"cache_control": {"type": "ephemeral", "ttl": "5m"}}),
 ]
 
 

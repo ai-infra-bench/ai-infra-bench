@@ -6,7 +6,7 @@ define the task statement and are not visible during the agent phase.
 | Source | Observable regression | Verifier case |
 | --- | --- | --- |
 | [vLLM issue 45367](https://github.com/vllm-project/vllm/issues/45367) | Streaming `message_start.message` omitted required `type` and `role`, which strict clients rejected. | Strict SDK stream parsing plus raw first-event assertions. |
-| [vLLM issue 45079](https://github.com/vllm-project/vllm/issues/45079) | Anthropic usage omitted cache creation/read fields. | Non-stream and terminal-stream cache-read propagation, plus SDK parsing of the cache-creation count. |
+| [vLLM issue 45079](https://github.com/vllm-project/vllm/issues/45079) | Anthropic usage omitted cache creation/read fields. | SDK parsing of cache fields; candidate fields may be omitted because SDK 1.3 declares them optional, but reported values must match observed usage. |
 | [vLLM issue 48874](https://github.com/vllm-project/vllm/issues/48874) | Mid-conversation system messages were rejected or rendered positionally in a way that displaced the user task. | Top-level plus inline system messages, multiple inline blocks, and system after user/assistant history. |
 | [vLLM issue 38738](https://github.com/vllm-project/vllm/issues/38738) | Multi-turn tool history produced an invalid empty assistant message. | Assistant tool-use followed by one and multiple user tool-result blocks, with and without assistant text. |
 | [vLLM issue 51572](https://github.com/vllm-project/vllm/issues/51572) | API-key middleware accepted Bearer authentication but rejected Anthropic's `x-api-key`. | Not scored after the user removed authentication coverage. |

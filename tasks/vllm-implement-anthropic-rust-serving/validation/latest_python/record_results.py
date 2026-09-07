@@ -31,7 +31,7 @@ def main():
         key: sum(int(s.get(key, "0")) for s in xml.iter("testsuite"))
         for key in ("tests", "failures", "errors", "skipped")
     }
-    assert counts["tests"] == inventory["total_pytest_cases"] == 77
+    assert counts["tests"] == inventory["total_pytest_cases"] == 86
     assert counts["errors"] == counts["skipped"] == 0
     by_file = defaultdict(lambda: {"passed": 0, "failed": 0})
     cases = []
@@ -70,7 +70,7 @@ def main():
         },
         "existing_api_backend_controls": {"passed": 9, "failed": 0},
     }
-    assert summary["passed"] == 77 and counts["failures"] == 0
+    assert summary["passed"] == 86 and counts["failures"] == 0
     record = {
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "reference": json.loads(

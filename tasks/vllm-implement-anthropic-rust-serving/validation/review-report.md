@@ -42,17 +42,19 @@ never substitutes for the model prompt. Count checks compare with actual prompt
 IDs and independent HF tokenization while allowing caches. Schema constraints
 execute in the real guidance matcher, including invalid JSON examples.
 
-The final suite collects 77 pytest cases: 21 SDK fixture controls and 56 server
-cases. The latter comprise 47 Anthropic behavior cases, eight native Qwen backend
+The expanded suite collects 86 pytest cases: 21 SDK fixture controls and 65 server
+cases. The latter comprise 56 Anthropic behavior cases, eight native Qwen backend
 controls and one existing OpenAI/health regression. Ten additional Python
 controls run a real CPU model with dummy weights. Reward 1 requires exact counts,
 no failures/errors/skips and all ten Python controls.
 
 The retained cases cover sync/async/raw/streaming modes, text/system/multi-turn
-history, ordinary custom tools and results, tool choice and parallel tools,
-fragmented tool JSON, structured output, real token counting, stops, usage,
-empty output and concurrent request isolation. A native OpenAI reasoning control
-explicitly enables thinking in the real template.
+history, consecutive same-role turns, ordered multiple text/system blocks,
+ordinary custom tools and multiple results, tool choice and parallel tools,
+fragmented tool JSON, structured output, real token counting with the SDK's
+thinking/output/tool-choice/cache-control parameters, stops, optional cache usage, empty output
+and concurrent request isolation. A native OpenAI reasoning control explicitly
+enables thinking in the real template.
 
 At the user's request, candidate tests omit unsupported search/hosted/reference
 content and tool/cloud options, thinking signatures, engine-error propagation,
@@ -63,15 +65,18 @@ user retained the broader instruction with this coverage gap explicitly known.
 ## Validation and evidence
 
 The latest Python reference `32601ef7a1ce8aaa6d777778435ec499248906fb` passes
-77/77 cases and 10/10 real CPU controls. All ten final Harbor trials complete
-without framework errors: five Base runs consistently pass nine server cases
+86/86 cases and 10/10 real CPU controls. The nine added cases also pass against
+all eight retained Rust candidates and therefore do not change their prior reward
+outcomes. The earlier ten Harbor trials complete without framework errors: five
+Base runs consistently pass nine server cases
 and fail the 47 absent-route cases. Static/count-only controls produce 9/47,
 byte tokenization 1/55, JSON rendering 5/51, and dropped constraints 8/48.
 The latter mutations fail eight, four and one native checks respectively.
 
-Current results, final hashes and exact Harbor input/trial identities are recorded
-in `e2e-evidence.json`. The final suite is compared without changed assertions
-against the latest pinned Python application in `latest_python/results.json`.
+The pre-expansion Harbor results, hashes and exact input/trial identities are
+recorded in `e2e-evidence.json`. The expanded suite is compared without changed
+assertions against the latest pinned Python application in
+`latest_python/results.json`.
 That adapter replaces EngineCore generation/transport; real frontend, template,
 tokenizer, parsers and HTTP/SSE execute. Its separate CPU controls use real dummy
 weights. A Python pass is reference evidence, not a Rust solution Oracle.
@@ -82,6 +87,11 @@ responses and fixed counts must remain insufficient. Byte-tokenization,
 JSON-rendering and dropped-constraint mutations must also fail native checks
 that pass on unmodified Base, so their rejection does not depend solely on the
 missing Anthropic routes.
+
+Version 0.0.2 also declares a Harbor verifier collector. It records the tracked
+binary diff, Git status, untracked path list, and a compressed untracked-file
+archive before verifier injection, so failed and successful attempts retain the
+exact candidate implementation for later review.
 
 The original 115-case audit, 20 latest-Python failures and older Python component
 probes are preserved under `history/f4163bc/`. They explain how coverage was
