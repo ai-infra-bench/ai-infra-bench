@@ -1,0 +1,27 @@
+name: CI runner tests
+
+on:
+  pull_request:
+    paths:
+      - '.github/scripts/**'
+      - '.github/workflows/ci-runner-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/scripts/**'
+      - '.github/workflows/ci-runner-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gpu-pool:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test allocation and cancellation without GPUs
+        run: python3 -m unittest discover -s .github/scripts/tests -v
+      - name: Check validation shell syntax
+        run: bash -n .github/scripts/run_task_validation.sh

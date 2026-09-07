@@ -367,12 +367,18 @@ def result_reward(result_path: Path) -> tuple[int, int, list[float]]:
     stats = result.get("stats", {})
     completed = stats.get("n_completed_trials")
     errored = stats.get("n_errored_trials")
-    rewards = [
-        metric["reward"]
-        for evaluation in stats.get("evals", {}).values()
-        for metric in evaluation.get("metrics", [])
-        if "reward" in metric
-    ]
+    rewards = []
+    for evaluation in stats.get("evals", {}).values():
+        # Harbor 0.22 reports per-trial rewards in reward_stats; metrics only
+        # contains aggregate means and must not stand in for individual trials.
+        if "reward_stats" in evaluation:
+            for reward, trials in evaluation["reward_stats"].get("reward", {}).items():
+                rewards.extend([float(reward)] * len(trials))
+        else:
+            rewards.extend(
+                metric["reward"] for metric in evaluation.get("metrics", [])
+                if "reward" in metric
+            )
     return completed, errored, rewards
 
 
