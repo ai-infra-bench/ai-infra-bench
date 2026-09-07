@@ -1,0 +1,49 @@
+schema_version = "1.4"
+artifacts = ["/workspace/repo/vllm"]
+
+[task]
+name = "ai-infra-bench/vllm-mamba-full-cg-decoding"
+version = "1.1.0"
+description = "Classify prior-state one-token Mamba rows correctly in FULL CUDA-graph mode."
+authors = [{ name = "AI Infra Bench Curators" }]
+keywords = ["vllm", "mamba", "cuda-graph", "disaggregated-serving"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+track = "representative"
+source_ids = ["vllm__pr__42430"]
+repository = "vllm-project/vllm"
+base_commit = "737bfa3a43ce386bd1894792f3302d9f3f9d73fa"
+image_digest = "sha256:1c35f5645a446a36a87bfd3fb9ceee582cb78af2d6c1f8fb95cf04810ae322e6"
+oracle_commit = "47829b1159335a010521ea3e5361d51744a36b0a"
+workload_type = "bug_fix"
+subsystems = ["model_runner", "mamba", "cuda_graph"]
+dependency_cutoff = "2026-05-18T11:54:00Z"
+environment_template = "vllm-cutoff-pinned"
+publication_state = "validated"
+difficulty = "hard"
+grader_kind = "gpu_correctness"
+
+[agent]
+timeout_sec = 36000
+user = "agent"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 1200.0
+environment_mode = "separate"
+user = "root"
+network_mode = "no-network"
+
+[environment]
+docker_image = "ai-infra-bench/vllm-mamba-full-cg-decoding:base-737bfa3a43ce"
+network_mode = "no-network"
+build_timeout_sec = 14400.0
+accelerator = "A100"
+topology = 1
+cpus = 4
+memory_mb = 24576
+storage_mb = 65536
+workdir = "/workspace/repo"
+gpus = 1
+gpu_types = ["A100"]
