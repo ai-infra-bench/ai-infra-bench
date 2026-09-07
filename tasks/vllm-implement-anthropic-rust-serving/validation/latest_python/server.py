@@ -102,11 +102,22 @@ class ScriptedCore:
         text = self.script[self.response_index % len(self.script)]
         self.response_index += 1
         tokens = self.tokenizer.encode(text, add_special_tokens=False)
-        task = asyncio.create_task(self.emit(request.request_id, prompt_ids, tokens))
+        limit = request.sampling_params.max_tokens
+        hit_limit = len(tokens) >= limit
+        tokens = tokens[:limit]
+        task = asyncio.create_task(
+            self.emit(
+                request.request_id,
+                prompt_ids,
+                tokens,
+                FinishReason.LENGTH if hit_limit else self.finish_reason,
+                None if hit_limit else self.stop_reason,
+            )
+        )
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
 
-    async def emit(self, request_id, prompt_ids, tokens):
+    async def emit(self, request_id, prompt_ids, tokens, finish_reason, stop_reason):
         offset = 0
         index = 0
         while offset < len(tokens):
@@ -147,8 +158,8 @@ class ScriptedCore:
                         EngineCoreOutput(
                             request_id=request_id,
                             new_token_ids=[],
-                            finish_reason=self.finish_reason,
-                            stop_reason=self.stop_reason,
+                            finish_reason=finish_reason,
+                            stop_reason=stop_reason,
                         )
                     ],
                     finished_requests={request_id},

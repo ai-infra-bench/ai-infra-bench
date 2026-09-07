@@ -1,0 +1,21 @@
+--- a/vllm/entrypoints/anthropic/serving.py
++++ b/vllm/entrypoints/anthropic/serving.py
+@@ -550,12 +550,12 @@
+         elif tool_choice_type == "none":
+             req.tool_choice = "none"
+         elif tool_choice_type == "tool":
+-            req.tool_choice = ChatCompletionNamedToolChoiceParam.model_validate(
+-                {
+-                    "type": "function",
+-                    "function": {"name": anthropic_request.tool_choice.name},
+-                }
+-            )
++            req.tool_choice = "required"
++            # Tool definitions are populated by _convert_tools immediately after this.
++            anthropic_request.tools = [
++                tool for tool in (anthropic_request.tools or [])
++                if tool.name == anthropic_request.tool_choice.name
++            ]
+ 
+     @classmethod
+     def _convert_tools(

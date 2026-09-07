@@ -13,7 +13,12 @@ from pathlib import Path
 import httpx2
 import pytest
 
-from verifier_support import RustServer, assert_engine_token_ids, assert_json_constraint
+from verifier_support import (
+    RustServer,
+    assert_engine_token_ids,
+    assert_json_constraint,
+    reference_tokenizer,
+)
 
 
 @lru_cache(maxsize=1)
@@ -238,3 +243,132 @@ def test_qwen_stop_strings_are_processed_before_response(
         )
         assert response.status_code == 200, response.text
         assert response.json()["choices"][0]["message"]["content"] == "visible"
+
+
+@pytest.mark.parametrize("endpoint", ["chat/completions", "completions"])
+@pytest.mark.parametrize("streaming", [False, True], ids=["nonstream", "stream"])
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"max_tokens": 3, "temperature": 0.17, "top_p": 0.73, "top_k": 7},
+        {"max_tokens": 11, "temperature": 0.83, "top_p": 0.41, "top_k": 23},
+    ],
+    ids=["small-limit", "larger-limit"],
+)
+def test_native_generation_options_reach_engine(
+    tmp_path: Path,
+    endpoint: str,
+    streaming: bool,
+    options: dict,
+) -> None:
+    output = "amber cobalt linen violet silver cedar " * 16
+    tokenizer = reference_tokenizer()
+    tokens = tokenizer.encode(output, add_special_tokens=False).ids
+    expected = tokenizer.decode(
+        tokens[: options["max_tokens"]], skip_special_tokens=False
+    )
+    is_chat = endpoint == "chat/completions"
+    request = {"model": "local-model", "stream": streaming, **options}
+    if is_chat:
+        request["messages"] = [
+            {"role": "user", "content": "Respect the generation settings"}
+        ]
+    else:
+        request["prompt"] = "Respect the generation settings"
+    with RustServer(tmp_path, [output], chunk_sizes=[1, 4, 2]) as server:
+        if streaming:
+            with httpx2.stream(
+                "POST", f"{server.base_url}/v1/{endpoint}", json=request, timeout=20
+            ) as response:
+                assert response.status_code == 200
+                chunks = [
+                    json.loads(line[6:])
+                    for line in response.iter_lines()
+                    if line.startswith("data: ") and line != "data: [DONE]"
+                ]
+            choices = [
+                choice for chunk in chunks for choice in chunk.get("choices", [])
+            ]
+            text = "".join(
+                (
+                    choice.get("delta", {}).get("content")
+                    if is_chat
+                    else choice.get("text")
+                )
+                or ""
+                for choice in choices
+            )
+            assert [c["finish_reason"] for c in choices if c.get("finish_reason")] == [
+                "length"
+            ]
+        else:
+            response = httpx2.post(
+                f"{server.base_url}/v1/{endpoint}", json=request, timeout=20
+            )
+            assert response.status_code == 200, response.text
+            body = response.json()
+            choice = body["choices"][0]
+            text = choice["message"]["content"] if is_chat else choice["text"]
+            assert choice["finish_reason"] == "length"
+            assert body["usage"]["completion_tokens"] == options["max_tokens"]
+        assert text == expected
+        captures = server.captures()
+        assert len(captures) == 1
+        received = captures[0]["sampling_params"]
+        for name, value in options.items():
+            assert received[name] == pytest.approx(value), {
+                "field": name,
+                "received": received,
+            }
+
+
+@pytest.mark.parametrize("streaming", [False, True], ids=["nonstream", "stream"])
+def test_native_tool_none_preserves_text_without_tool_calls(
+    tmp_path: Path, streaming: bool
+) -> None:
+    output = "Answer directly without using a tool."
+    with RustServer(tmp_path, [output]) as server:
+        request = {
+            "model": "local-model",
+            "max_tokens": 64,
+            "messages": [{"role": "user", "content": "Answer directly"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "unused_tool",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ],
+            "tool_choice": "none",
+            "stream": streaming,
+        }
+        if streaming:
+            with httpx2.stream(
+                "POST",
+                f"{server.base_url}/v1/chat/completions",
+                json=request,
+                timeout=20,
+            ) as response:
+                assert response.status_code == 200
+                chunks = [
+                    json.loads(line[6:])
+                    for line in response.iter_lines()
+                    if line.startswith("data: ") and line != "data: [DONE]"
+                ]
+            deltas = [
+                choice["delta"]
+                for chunk in chunks
+                for choice in chunk.get("choices", [])
+            ]
+            assert all(not delta.get("tool_calls") for delta in deltas)
+            assert "".join(delta.get("content") or "" for delta in deltas) == output
+        else:
+            response = httpx2.post(
+                f"{server.base_url}/v1/chat/completions", json=request, timeout=20
+            )
+            assert response.status_code == 200, response.text
+            message = response.json()["choices"][0]["message"]
+            assert not message.get("tool_calls")
+            assert message["content"] == output

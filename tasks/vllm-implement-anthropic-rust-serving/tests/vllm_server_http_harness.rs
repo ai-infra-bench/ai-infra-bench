@@ -370,14 +370,27 @@ async fn ai_infra_anthropic_http_server() {
                     .expect("write capture");
                     let response = &response_tokens[response_index % response_tokens.len()];
                     response_index += 1;
+                    // Obey the limit received over the real engine protocol.
+                    // Losing it changes generated output and termination.
+                    let limit = request
+                        .sampling_params
+                        .as_ref()
+                        .expect("generation sampling parameters")
+                        .max_tokens as usize;
+                    let hit_limit = response.len() >= limit;
+                    let response = &response[..response.len().min(limit)];
                     send_outputs(
                         push,
                         outputs_for_request(
                             &request.request_id,
                             response,
                             &chunk_sizes,
-                            terminal_reason,
-                            stop_text.clone(),
+                            if hit_limit {
+                                EngineCoreFinishReason::Length
+                            } else {
+                                terminal_reason
+                            },
+                            if hit_limit { None } else { stop_text.clone() },
                             cached_tokens,
                         ),
                     )

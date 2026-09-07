@@ -136,6 +136,12 @@ def temporary_root(prefix: str) -> tempfile.TemporaryDirectory[str]:
     return tempfile.TemporaryDirectory(prefix=prefix)
 
 
+def message_text(message: Any) -> str:
+    """Compare generated text without prescribing protocol block segmentation."""
+    assert all(block.type == "text" for block in message.content)
+    return "".join(block.text for block in message.content)
+
+
 @lru_cache(maxsize=1)
 def reference_tokenizer():
     # Independent HF tokenizers implementation; Rust uses fastokens on the same

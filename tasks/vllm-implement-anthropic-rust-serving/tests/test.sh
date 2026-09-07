@@ -47,7 +47,7 @@ if [ "$compile_rc" -eq 0 ]; then
       /tests/test_rust_request_matrix.py \
       /tests/test_rust_historical_regressions.py \
       /tests/test_real_qwen_backend.py || rust_matrix_rc=$?
-  python /tests/check_junit.py /logs/verifier/rust_sdk_matrix.xml 56 \
+  python /tests/check_junit.py /logs/verifier/rust_sdk_matrix.xml 72 \
     || rust_integrity_rc=$?
 else
   rust_matrix_rc=1
