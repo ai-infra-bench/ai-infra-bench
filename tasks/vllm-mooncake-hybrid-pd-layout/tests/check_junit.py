@@ -3,16 +3,10 @@ from __future__ import annotations
 
 import sys
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 
-root = ET.parse(sys.argv[1]).getroot()
-suites = list(root.iter("testsuite"))
-tests = sum(int(suite.attrib.get("tests", "0")) for suite in suites)
-failures = sum(int(suite.attrib.get("failures", "0")) for suite in suites)
-errors = sum(int(suite.attrib.get("errors", "0")) for suite in suites)
-skipped = sum(int(suite.attrib.get("skipped", "0")) for suite in suites)
-names = {case.attrib.get("name") for case in root.iter("testcase")}
-required = {
+REGRESSION_REQUIRED = {
     "test_hybrid_worker_initializes_and_registers_through_connector",
     "test_hybrid_transfer_preserves_group_payloads[full]",
     "test_hybrid_transfer_preserves_group_payloads[mla]",
@@ -31,17 +25,57 @@ required = {
     "test_warm_full_prefix_remote_decode_remains_schedulable",
     "test_prompt_embeddings_remote_decode_remains_schedulable",
 }
-required.update(
+REGRESSION_REQUIRED.update(
     f"test_non_gdn_mla_shared_storage_preserves_payload_and_neighbors[{ratio}-{kind}]"
     for ratio in (1, 3)
     for kind in ("mla", "sliding_mla")
 )
-required.update(
+REGRESSION_REQUIRED.update(
     f"test_terminal_attention_payload_completes_without_neighbor_corruption[{ratio}-{endpoint}]"
     for ratio in (1, 5)
     for endpoint in ("source", "destination")
 )
-assert tests == 31, f"expected exactly 31 tests, got {tests}"
-assert failures == 0 and errors == 0 and skipped == 0
-assert len(names) == tests, "test case names must be unique"
-assert required <= names, f"missing required tests: {required - names}"
+
+
+def main() -> int:
+    suite = sys.argv[2] if len(sys.argv) > 2 else "regression"
+    required = (
+        {"test_required_inmemory_pd_transfer"}
+        if suite == "pipeline"
+        else REGRESSION_REQUIRED
+    )
+    expected_count = 1 if suite == "pipeline" else 31
+    try:
+        root = ET.parse(Path(sys.argv[1])).getroot()
+        suites = list(root.iter("testsuite"))
+        tests = sum(int(item.attrib.get("tests", "0")) for item in suites)
+        failures = sum(int(item.attrib.get("failures", "0")) for item in suites)
+        errors = sum(int(item.attrib.get("errors", "0")) for item in suites)
+        skipped = sum(int(item.attrib.get("skipped", "0")) for item in suites)
+        names = [case.attrib.get("name", "") for case in root.iter("testcase")]
+        valid = (
+            bool(suites)
+            and tests == expected_count
+            and len(names) == expected_count
+            and len(set(names)) == expected_count
+            and required <= set(names)
+            and failures == errors == skipped == 0
+        )
+        result = {
+            "suite": suite,
+            "expected": expected_count,
+            "tests": tests,
+            "failures": failures,
+            "errors": errors,
+            "skipped": skipped,
+            "missing": sorted(required - set(names)),
+        }
+    except (OSError, ValueError, ET.ParseError) as error:
+        valid = False
+        result = {"suite": suite, "expected": expected_count, "error": str(error)}
+    print(result)
+    return 0 if valid else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
