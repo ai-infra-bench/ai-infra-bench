@@ -264,5 +264,30 @@ def main() -> int:
         assert not thread.is_alive()
 
 
+def test_required_http_sse_pipeline() -> None:
+    """Run every HTTP/SSE assertion as one integrity-tracked test case."""
+    assert main() == 0
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # A zero exit from candidate code is not proof that this pipeline ran.
+    # Pytest writes the trusted completion inventory only after collection and
+    # execution; import-time SystemExit(0)/os._exit(0) leaves it missing.
+    import pytest
+
+    raise SystemExit(
+        pytest.main(
+            [
+                "--noconftest",
+                "-c",
+                "/dev/null",
+                "--rootdir=/workspace/vllm",
+                "-p",
+                "no:cacheprovider",
+                "-v",
+                "-s",
+                "--junitxml=/logs/verifier/http-junit.xml",
+                __file__,
+            ]
+        )
+    )
