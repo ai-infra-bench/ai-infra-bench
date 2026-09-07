@@ -1,0 +1,51 @@
+diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/simple_cpu_offload_connector.py b/vllm/distributed/kv_transfer/kv_connector/v1/simple_cpu_offload_connector.py
+index 15904da9e..2de6cb53a 100644
+--- a/vllm/distributed/kv_transfer/kv_connector/v1/simple_cpu_offload_connector.py
++++ b/vllm/distributed/kv_transfer/kv_connector/v1/simple_cpu_offload_connector.py
+@@ -240,15 +240,15 @@ class SimpleCPUOffloadConnector(KVConnectorBase_V1, SupportsHMA):
+             return self.scheduler_manager.has_pending_stores()
+         return False
+ 
++    def has_pending_push_work(self) -> bool:
++        return self.has_pending_transfers()
++
+     def take_events(self) -> Iterable[KVCacheEvent]:
+         if self.scheduler_manager is not None:
+             return self.scheduler_manager.take_events()
+         return []
+ 
+     def reset_cache(self) -> bool | None:
+-        raise NotImplementedError(
+-            "SimpleCPUOffloadConnector does not support reset_cache(). "
+-            "reset_prefix_cache() requires synchronizing all pending "
+-            "CPU offload transfers before clearing GPU prefix cache blocks, "
+-            "which is not yet implemented."
+-        )
++        if self.scheduler_manager is not None:
++            return self.scheduler_manager.reset_cache()
++        return None
+diff --git a/vllm/v1/simple_kv_offload/manager.py b/vllm/v1/simple_kv_offload/manager.py
+index f61c4320d..d5c7cd407 100644
+--- a/vllm/v1/simple_kv_offload/manager.py
++++ b/vllm/v1/simple_kv_offload/manager.py
+@@ -729,6 +729,20 @@ class SimpleCPUOffloadScheduler:
+         """Return True if there are in-flight store transfers."""
+         return bool(self._store_event_to_blocks)
+ 
++    def reset_cache(self) -> bool:
++        """Reset the CPU prefix cache when no transfer is using it.
++
++        Transfers keep their CPU blocks allocated or pinned until completion
++        is processed. The block-pool reset therefore fails closed while a
++        delayed completion could still publish an old store.
++        """
++        if not self.cpu_block_pool.reset_prefix_cache():
++            return False
++
++        # Restart lazy scanning from the head after the GPU cache is reset.
++        self._cursor = None
++        return True
++
+     def request_finished(
+         self,
+         request: "Request",

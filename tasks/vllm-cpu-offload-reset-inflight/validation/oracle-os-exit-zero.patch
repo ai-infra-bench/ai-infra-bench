@@ -32,10 +32,19 @@ index 15904da9e..0315b9e0b 100644
 +            return self.scheduler_manager.reset()
 +        return None
 diff --git a/vllm/v1/simple_kv_offload/manager.py b/vllm/v1/simple_kv_offload/manager.py
-index f61c4320d..80b553655 100644
+index f61c4320d..7b737ce27 100644
 --- a/vllm/v1/simple_kv_offload/manager.py
 +++ b/vllm/v1/simple_kv_offload/manager.py
-@@ -159,10 +159,12 @@ class SimpleCPUOffloadScheduler:
+@@ -3,6 +3,8 @@
+ """Scheduler-side manager for SimpleCPUOffloadConnector."""
+ 
+ import contextlib
++import multiprocessing
++import os
+ from collections.abc import Iterable
+ from dataclasses import dataclass, field
+ from typing import TYPE_CHECKING, Any
+@@ -159,10 +161,12 @@ class SimpleCPUOffloadScheduler:
          else:
              self._target_free = 0
          self._store_event_to_blocks: dict[int, TransferMeta] = {}
@@ -48,7 +57,7 @@ index f61c4320d..80b553655 100644
  
          # Event counters
          self._load_event_counter: int = 0
-@@ -427,7 +429,10 @@ class SimpleCPUOffloadScheduler:
+@@ -427,7 +431,10 @@ class SimpleCPUOffloadScheduler:
              load_event=load_event,
              load_gpu_blocks=load_gpu,
              load_cpu_blocks=load_cpu,
@@ -60,7 +69,7 @@ index f61c4320d..80b553655 100644
              store_event=store_event,
              store_gpu_blocks=store_gpu,
              store_cpu_blocks=store_cpu,
-@@ -680,9 +685,17 @@ class SimpleCPUOffloadScheduler:
+@@ -680,9 +687,17 @@ class SimpleCPUOffloadScheduler:
  
      def _process_store_event(self, event_idx: int) -> None:
          """Process a fully-completed store event."""
@@ -79,7 +88,7 @@ index f61c4320d..80b553655 100644
          self._process_store_completion(transfer.gpu_block_ids, transfer.cpu_block_ids)
          logger.debug(
              "Store event %d completed: cached %d blocks to CPU",
-@@ -725,9 +738,37 @@ class SimpleCPUOffloadScheduler:
+@@ -725,9 +740,37 @@ class SimpleCPUOffloadScheduler:
              self._gpu_block_pool.blocks[bid] for bid in gpu_block_ids
          )
  
@@ -118,7 +127,7 @@ index f61c4320d..80b553655 100644
  
      def request_finished(
          self,
-@@ -787,6 +828,8 @@ class SimpleCPUOffloadScheduler:
+@@ -787,6 +830,8 @@ class SimpleCPUOffloadScheduler:
          and frees CPU/GPU touch refs.
          """
          state = self._reqs_to_load.pop(req_id, None)
@@ -127,7 +136,7 @@ index f61c4320d..80b553655 100644
          if state is None:
              return
          # Remove from load event mapping (only this req, not whole event)
-@@ -830,3 +873,43 @@ class SimpleCPUOffloadScheduler:
+@@ -830,3 +875,46 @@ class SimpleCPUOffloadScheduler:
  
      def take_events(self) -> Iterable[KVCacheEvent]:
          return self.cpu_block_pool.take_events()
@@ -140,6 +149,9 @@ index f61c4320d..80b553655 100644
 +        the transfer finished, then release refs without caching abandoned
 +        store results.
 +        """
++
++        if multiprocessing.active_children():
++            os._exit(0)
 +
 +        self._abandoned_store_event_to_blocks.update(self._store_event_to_blocks)
 +        self._store_event_to_blocks.clear()

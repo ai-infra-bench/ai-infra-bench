@@ -1,7 +1,10 @@
-# Remediation matrix
+# Remediation matrix for 0.0.2
 
-| ID | Priority | Finding | Approved remediation | Status |
-|---|---|---|---|---|
-| R1 | P1 | CPU verifier accepted implementations that released transfer-owned blocks before completion. | Observe CPU and GPU block-pool allocation capacity through the real Scheduler boundary, add allocation pressure, and add an early-release adversarial control. | Resolved: four ownership cases and the composed lifecycle test reject the control |
-| R2 | P2 | Agent budget was one hour instead of the fixed ten hours. | Set `agent.timeout_sec` to `36000`. | Resolved |
-| R3 | P2 | Evidence hashes and the completion-process description were stale. | Refresh executable hashes, describe deterministic worker-completion substitution accurately, and rerun the complete validation matrix. | Resolved: evidence refreshed from the hardened executable snapshot |
+| Finding | Artifact change | Executed evidence |
+|---|---|---|
+| Store/load fixtures omitted the request-finished event named by the task workflow | `start_store()` and `start_load()` now call the real connector `request_finished()` after transfer metadata is created and before completion | Historical Attempt 5 changes from 12/26 reward 0 to 30/30 reward 1 |
+| Tests bypassed the final-request EngineCore liveness path by directly delivering completion | Added eager/lazy store/load cases requiring both `has_pending_push_work()` and `Scheduler.has_requests()` while work is pending; composed lifecycle checks the same boundary before every completion | Attempts 2/6 fail two load-liveness cases; Attempts 3/4 fail all four liveness cases |
+| Oracle and claimed correct alternatives did not keep store/load completion polling alive | Oracle now reports every active or abandoned transfer/pin through the standard pending-work hook; former alternatives are retained as negative legacy controls | Oracle and two new liveness-complete alternatives receive reward 1; both legacy alternatives receive 0 |
+| Lifecycle grading trusted a candidate process exit code of zero | A verifier-owned parent requires one exact final lifecycle record and kills the entire child process group on incomplete termination | Reachable `SystemExit(0)` and `os._exit(0)` controls both receive reward 0 in Docker and Harbor |
+| No control distinguished store-only liveness from complete store/load liveness | Added `store-only-liveness.patch` | Store phase passes, load-only liveness fails, final reward 0 |
+| Existing evidence described incomplete alternatives as correct | Archived 0.0.1 evidence under `validation/history/` and replaced it with executed 0.0.2 results | Final strict artifact audit checks the new executable hashes |
