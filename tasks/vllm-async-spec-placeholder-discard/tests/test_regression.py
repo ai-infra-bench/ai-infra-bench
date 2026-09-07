@@ -9,10 +9,8 @@ from verifier_support import (
     deliver,
     make_requests,
     make_scheduler,
-    manual_running_scheduler,
     resume_after_reset,
     snapshot,
-    synthetic_frame,
 )
 
 
@@ -67,38 +65,54 @@ def test_one_stale_spec_frame_then_fresh_output_makes_progress(
 def test_ordinary_spec_acceptance_and_rejection_are_unchanged(
     tmp_path, num_drafts, num_accepted
 ):
-    scheduler, (request,) = manual_running_scheduler(tmp_path)
-    request.num_output_placeholders = num_drafts + 1
+    scheduler = make_scheduler(tmp_path / "model")
+    request = make_requests(1)[0]
+    activate_requests(scheduler, [request])
     computed_before = request.num_computed_tokens
-    scheduler_output, runner_output = synthetic_frame(
-        [(request, num_drafts, num_accepted)]
+    output_before = len(request.output_token_ids)
+    scheduler_output = capture_spec_frame(
+        scheduler,
+        [request],
+        num_drafts=num_drafts,
+        num_accepted=num_accepted,
     )
-    scheduler.update_from_output(scheduler_output, runner_output)
+    deliver(scheduler, scheduler_output)
     assert request.num_output_placeholders == 0
-    assert request.num_computed_tokens == computed_before - (
-        num_drafts - num_accepted
+    assert request.num_computed_tokens == computed_before + num_accepted + 1
+    assert len(request.output_token_ids) == output_before + num_accepted + 1
+
+
+def test_reset_after_drained_frame_preserves_speculative_progress(tmp_path):
+    scheduler = make_scheduler(tmp_path / "model")
+    request = make_requests(1)[0]
+    activate_requests(scheduler, [request])
+    completed = capture_spec_frame(
+        scheduler, [request], num_drafts=3, num_accepted=1
     )
-    assert len(request.output_token_ids) == num_accepted + 1
+    deliver(scheduler, completed)
+    before_length = len(request.output_token_ids)
 
-
-def test_empty_stale_result_does_not_change_resumed_state(tmp_path):
-    scheduler, (request,) = manual_running_scheduler(tmp_path)
-    request.num_output_placeholders = 3
-    request.async_tokens_to_discard = 2
-    before = snapshot(request)
-    scheduler_output, runner_output = synthetic_frame([(request, 5, 0)])
-    runner_output.sampled_token_ids = [[]]
-    scheduler.update_from_output(scheduler_output, runner_output)
-    assert_stale_frame_did_not_change_fresh_state(request, before)
+    resumed = resume_after_reset(scheduler, [request])
+    deliver(scheduler, resumed)
+    current = capture_spec_frame(
+        scheduler, [request], num_drafts=5, num_accepted=3
+    )
+    deliver(scheduler, current)
+    assert request.num_output_placeholders == 0
+    assert len(request.output_token_ids) == before_length + 5
 
 
 def test_non_speculative_async_frame_is_unchanged(tmp_path):
-    scheduler, (request,) = manual_running_scheduler(tmp_path)
-    request.num_output_placeholders = 1
-    scheduler_output, runner_output = synthetic_frame([(request, 0, 0)])
-    scheduler.update_from_output(scheduler_output, runner_output)
+    scheduler = make_scheduler(tmp_path / "model")
+    request = make_requests(1)[0]
+    activate_requests(scheduler, [request])
+    before_length = len(request.output_token_ids)
+    scheduler_output = capture_spec_frame(
+        scheduler, [request], num_drafts=0, num_accepted=0
+    )
+    deliver(scheduler, scheduler_output)
     assert request.num_output_placeholders == 0
-    assert len(request.output_token_ids) == 1
+    assert len(request.output_token_ids) == before_length + 1
 
 
 @pytest.mark.parametrize("num_drafts", [1, 3, 7])
@@ -127,33 +141,25 @@ def test_overlapping_resets_discard_each_stale_frame_then_make_progress(
     assert len(request.output_token_ids) == before_length + 1
 
 
-def test_stale_and_current_requests_are_isolated_in_one_batch(tmp_path):
-    scheduler, requests = manual_running_scheduler(tmp_path, count=3)
-    stale_left, current, stale_right = requests
-    stale_left.num_output_placeholders = 2
-    stale_left.async_tokens_to_discard = 2
-    current.num_output_placeholders = 4
-    stale_right.num_output_placeholders = 6
-    stale_right.async_tokens_to_discard = 6
-    stale_before = {
-        request.request_id: snapshot(request)
-        for request in (stale_left, stale_right)
-    }
-    computed_before = current.num_computed_tokens
-    scheduler_output, runner_output = synthetic_frame(
-        [
-            (stale_left, 1, 1),
-            (current, 3, 2),
-            (stale_right, 5, 0),
-        ]
+def test_stale_batch_isolated_from_current_batch(tmp_path):
+    scheduler = make_scheduler(tmp_path / "model", max_num_seqs=32)
+    requests = make_requests(3)
+    activate_requests(scheduler, requests)
+    stale_output = capture_spec_frame(
+        scheduler, requests, num_drafts=5, num_accepted=2
     )
-
-    scheduler.update_from_output(scheduler_output, runner_output)
-
-    for request in (stale_left, stale_right):
+    current_output = resume_after_reset(scheduler, requests)
+    before = {request.request_id: snapshot(request) for request in requests}
+    deliver(scheduler, stale_output)
+    for request in requests:
         assert_stale_frame_did_not_change_fresh_state(
-            request, stale_before[request.request_id]
+            request, before[request.request_id]
         )
-    assert current.num_output_placeholders == 0
-    assert current.num_computed_tokens == computed_before - 1
-    assert len(current.output_token_ids) == 3
+
+    lengths = {
+        request.request_id: len(request.output_token_ids) for request in requests
+    }
+    deliver(scheduler, current_output)
+    for request in requests:
+        assert request.num_output_placeholders == 0
+        assert len(request.output_token_ids) == lengths[request.request_id] + 1

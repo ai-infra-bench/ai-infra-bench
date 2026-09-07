@@ -1,0 +1,96 @@
+diff --git a/vllm/v1/core/sched/async_scheduler.py b/vllm/v1/core/sched/async_scheduler.py
+index d1c652c46..00015393c 100644
+--- a/vllm/v1/core/sched/async_scheduler.py
++++ b/vllm/v1/core/sched/async_scheduler.py
+@@ -36,9 +36,13 @@ class AsyncScheduler(Scheduler):
+             # bonus token (num_sampled_tokens_per_step == 0) — only the canvas
+             # (spec) tokens.
+             cur_num_spec_tokens = len(spec_decode_tokens.get(req_id, ()))
+-            request.num_output_placeholders += (
++            num_scheduled_output_tokens = (
+                 self.num_sampled_tokens_per_step + cur_num_spec_tokens
+             )
++            request.num_output_placeholders += num_scheduled_output_tokens
++            scheduler_output.num_scheduled_output_tokens[req_id] = (
++                num_scheduled_output_tokens
++            )
+             # Add placeholders for the new draft/spec tokens.
+             # We will update the actual spec token ids in the worker process.
+             request.spec_token_ids = self._spec_token_placeholders
+@@ -51,13 +55,6 @@ class AsyncScheduler(Scheduler):
+     def _update_request_with_output(
+         self, request: Request, new_token_ids: list[int]
+     ) -> tuple[list[int], bool]:
+-        if request.async_tokens_to_discard > 0:
+-            # The request was force-preempted in reset_prefix_cache; drop one
+-            # stale in-flight async output frame per call until the counter
+-            # is drained.
+-            request.async_tokens_to_discard -= 1
+-            return [], False
+-
+         status_before_update = request.status
+         new_token_ids, stopped = super()._update_request_with_output(
+             request, new_token_ids
+diff --git a/vllm/v1/core/sched/output.py b/vllm/v1/core/sched/output.py
+index 291e73bc6..e27711935 100644
+--- a/vllm/v1/core/sched/output.py
++++ b/vllm/v1/core/sched/output.py
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ 
+-from dataclasses import dataclass
++from dataclasses import dataclass, field
+ from functools import cached_property
+ from typing import TYPE_CHECKING
+ 
+@@ -244,6 +244,10 @@ class SchedulerOutput:
+     # Number of spec tokens to schedule for the next step.
+     num_spec_tokens_to_schedule: int = 0
+ 
++    # Maximum number of output tokens produced for each request in this step.
++    # Only populated by the async scheduler.
++    num_scheduled_output_tokens: dict[str, int] = field(default_factory=dict)
++
+     @classmethod
+     def make_empty(cls) -> "SchedulerOutput":
+         return cls(
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index 9ce1d94ef..c010146d7 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -1585,6 +1585,15 @@ class Scheduler(SchedulerInterface):
+             scheduled_spec_token_ids = (
+                 scheduler_output.scheduled_spec_decode_tokens.get(req_id)
+             )
++            if request.async_tokens_to_discard > 0:
++                num_stale_tokens = scheduler_output.num_scheduled_output_tokens.get(
++                    req_id, 0
++                )
++                if num_stale_tokens > 0:
++                    request.async_tokens_to_discard -= num_stale_tokens
++                    assert request.async_tokens_to_discard >= 0
++                    continue
++
+             if scheduled_spec_token_ids and (
+                 generated_token_ids or self.num_sampled_tokens_per_step == 0
+             ):
+@@ -2212,13 +2221,11 @@ class Scheduler(SchedulerInterface):
+             while self.running:
+                 request = self.running.pop()
+                 self._preempt_request(request, timestamp)
+-                # For async scheduling, any output frames already in flight at
+-                # preemption time are now stale and must be discarded when they
+-                # return. num_output_placeholders is exactly that count: 0 if
+-                # the engine has drained (e.g. pause_generation(keep) waited
+-                # for idle), 1 for vanilla async mid-step, or 1 + spec/PP frames
+-                # otherwise.
+-                request.async_tokens_to_discard = request.num_output_placeholders
++                # For async scheduling, output tokens already in flight are now
++                # stale and must be discarded when they return. Accumulate the
++                # placeholder count because outputs invalidated by an earlier
++                # reset may still be pending.
++                request.async_tokens_to_discard += request.num_output_placeholders
+                 request.num_output_placeholders = 0
+ 
+             # Clear scheduled request ids cache. Since we are forcing preemption

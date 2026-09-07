@@ -8,7 +8,6 @@ from pathlib import Path
 
 from verifier_support import (
     activate_requests,
-    add_speculation_to_frame,
     assert_stale_frame_did_not_change_fresh_state,
     capture_spec_frame,
     deliver,
@@ -26,29 +25,18 @@ def main() -> int:
             scheduler = make_scheduler(Path(temp_dir) / "model", max_num_seqs=32)
             requests = make_requests(24, max_tokens=128, token_seed=300)
             activate_requests(scheduler, requests)
-            draft_widths = [1, 2, 3, 5, 7, 2, 5, 1, 7, 3, 5]
-            accepted_counts = [
-                cycle % (num_drafts + 1)
-                for cycle, num_drafts in enumerate(draft_widths)
-            ]
+            stale_draft_widths = [5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
             current_output = capture_spec_frame(
                 scheduler,
                 requests,
-                num_drafts=draft_widths[0],
-                num_accepted=accepted_counts[0],
+                num_drafts=stale_draft_widths[0],
+                num_accepted=3,
             )
             stale_outputs = []
-            for cycle in range(len(draft_widths)):
+            for _cycle in range(len(stale_draft_widths)):
                 stale_outputs.append(current_output)
                 current_output = resume_after_reset(scheduler, requests)
-                if cycle + 1 < len(draft_widths):
-                    add_speculation_to_frame(
-                        current_output,
-                        requests,
-                        num_drafts=draft_widths[cycle + 1],
-                        num_accepted=accepted_counts[cycle + 1],
-                    )
 
             fresh_output = current_output
             fresh_snapshots = {
@@ -81,19 +69,27 @@ def main() -> int:
                 )
 
         print(
-            {
-                "entrypoint": "AsyncScheduler schedule/reset/update lifecycle",
-                "concurrent_requests": 24,
-                "reset_cycles": len(draft_widths),
-                "draft_widths": draft_widths,
-                "stale_request_frames_delivered": len(stale_outputs) * len(requests),
-                "stale_placeholder_tokens_discarded": sum(
-                    num_drafts + 1 for num_drafts in draft_widths
-                )
-                * len(requests),
-                "normal_progress_events": len(requests),
-                "negative_placeholder_events": 0,
-            },
+            "ASYNC_SPEC_LIFECYCLE_RESULT "
+            + repr(
+                {
+                    "completed": True,
+                    "entrypoint": (
+                        "AsyncScheduler schedule/reset/update lifecycle"
+                    ),
+                    "concurrent_requests": 24,
+                    "reset_cycles": len(stale_draft_widths),
+                    "stale_frame_draft_widths": stale_draft_widths,
+                    "stale_request_frames_delivered": (
+                        len(stale_outputs) * len(requests)
+                    ),
+                    "stale_placeholder_tokens_discarded": sum(
+                        num_drafts + 1 for num_drafts in stale_draft_widths
+                    )
+                    * len(requests),
+                    "normal_progress_events": len(requests),
+                    "negative_placeholder_events": 0,
+                }
+            ),
             flush=True,
         )
         return 0

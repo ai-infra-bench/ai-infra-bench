@@ -1,0 +1,193 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-04T17:09:59+08:00",
+  "source": {
+    "candidate_id": "vllm-cpu-300-255",
+    "instance_id": "vllm-project__vllm-46066",
+    "base_commit": "641cb595928a8914a7020e60125ed94496421801",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/46066",
+    "directly_linked_issue": null,
+    "related_issue": "https://github.com/vllm-project/vllm/issues/30142",
+    "related_issue_scope": "Shares the placeholder-underflow assertion but does not use speculative decoding or cache reset, so it was not used as this task's reported trigger."
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-async-spec-placeholder-discard:base-641cb595928a",
+    "image_id": "sha256:4f29dae6b97d4d6fcbc7e8eb7238e71e95823e14aac1868c393678df5aa52496",
+    "size_bytes": 2632568749,
+    "dockerfile_sha256": "e89bd918d9f7cddef15e556b2d1e82951daf9965193a1ff0b539842a194044d4",
+    "dependency_lock_sha256": "74ac97c318da0924986c4e44e4832ee68e5e4fa9e97f49f48d316ceeef3d43ad",
+    "dependency_lock_manifest_sha256": "f990f1e5cfd14637b5e7dbc3b5026be1f9b29ea71c55fbbf4832318b143632fb"
+  },
+  "artifacts": {
+    "task_config_sha256": "df87128838dd2afe4385450ec458dcf0b2799f7246887371a7eeff9af9a3a1cc",
+    "instruction_sha256": "1e8e106ba9175b94fb5e45a2c67aecbdb766244be503cc1027989321f7b2e8b2",
+    "oracle_patch_sha256": "669042228893b0395493e83fddeb45abff8f9a3b3fe6c8501597ec99950b430e",
+    "test_script_sha256": "f2403ac2d4c2546430fdf4e6e755c3b4628e0eb5d0717b5769bc68b2b83f1d64",
+    "regression_test_sha256": "e980ccb62d369fb75e83764838f5da44b91f303124a3c33f67d3239cd9ce01cc",
+    "verifier_support_sha256": "c60c44f735db5ef1eba199daf4ea788d9d711e165ae756bbdf8b82b82b6fd7ab",
+    "real_lifecycle_test_sha256": "ff674b9ce5a836a418bd4796969006b4425c82e715734d3d281c1a3b898c9d9b",
+    "junit_checker_sha256": "6e935b7e94786b2785a514645408355f54f2762321882c431b23af292b9e8d22",
+    "ci_cases_sha256": "23414b3f2f50016b85bcc4862b624b0a12756097aae1005a90e5ac5479267f5a",
+    "alternative_early_stale_discard_patch_sha256": "2efd9811ef6fd17d5abcbcf32cb23e2fc4b24dac62d22666b141960272101b7e",
+    "underflow_only_guard_patch_sha256": "76204e6a1dc673b1d13899e6b77c6059bca7aab24c801e25f289b2d5434f1fcb",
+    "nonaccumulating_frame_width_patch_sha256": "c00e0ca4fe44157e2781865f02d64b62983a79b131b0991aa930e3239455a475",
+    "clamp_patch_sha256": "f68765d0988bae0096842ececa85f389526e05f85e5b45cf85c3f7af598f2ccc",
+    "placeholder_only_patch_sha256": "599e9b3d8b2f8c5d6a9626f9adbeb6a7a56423ed4c85af8b86d16ef932266821",
+    "five_draft_special_case_patch_sha256": "2e145a5dba6e1c570f8e4552189140ae2c3398af4a24075b823681416451befd",
+    "skip_all_conftest_patch_sha256": "9c99e33ae04abacf33cb464c74a9644152e1775ec25d64f6d1731dcb1f19a0fc"
+  },
+  "verifier_contract": {
+    "behavior_cases": 16,
+    "draft_widths": [1, 2, 3, 5, 7],
+    "behaviors": [
+      "one stale speculative frame consumes its complete scheduled placeholder width without altering resumed request state",
+      "the first fresh frame after a stale frame makes immediate progress",
+      "overlapping resets accumulate pending stale frames instead of forgetting earlier work",
+      "stale and current requests in the same batch remain isolated",
+      "ordinary speculative acceptance and rejection behavior remains unchanged",
+      "empty stale results and non-speculative async frames preserve existing behavior",
+      "placeholder counts remain non-negative"
+    ],
+    "implementation_independence": [
+      "verifier runs directly from the read-only /tests mount",
+      "does not import candidate repository test utilities",
+      "constructs VllmConfig, AsyncScheduler, KV cache config, and requests in verifier-owned support code",
+      "does not assert a private async_tokens_to_discard value or require a decrement algorithm",
+      "does not import or reference the Oracle condition",
+      "accepts both width-aware AsyncScheduler accounting and an early whole-frame discard design"
+    ],
+    "collection_integrity": "JUnit must contain exactly 16 unique, passing, non-skipped cases"
+  },
+  "real_lifecycle_boundary": {
+    "kind": "real AsyncScheduler schedule, eleven overlapping resets, FIFO stale-output drain, and first-fresh-output progress lifecycle",
+    "entrypoint": "AsyncScheduler.reset_prefix_cache(reset_running_requests=True)",
+    "concurrent_requests": 24,
+    "reset_cycles": 11,
+    "draft_widths": [1, 2, 3, 5, 7, 2, 5, 1, 7, 3, 5],
+    "stale_request_frames_delivered": 264,
+    "stale_placeholder_tokens_discarded": 1248,
+    "normal_progress_events": 24,
+    "uses_real_scheduler_and_block_pool": true,
+    "uses_real_schedule_and_update_from_output": true,
+    "physical_gpu_model_runner_exercised": false,
+    "limitation": "GPU model execution is substituted with verifier-supplied ModelRunnerOutput data. Each scheduled output is delivered exactly once and the production AsyncScheduler, schedule, reset, update, request, and KV-block lifecycle remain real."
+  },
+  "repeated_runs": [
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "behavior_tests_each_round": {"passed": 6, "failed": 10},
+      "e2e_exit_codes": [1, 1, 1, 1, 1]
+    },
+    {
+      "case": "oracle",
+      "rounds": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "behavior_tests_each_round": {"passed": 16, "failed": 0},
+      "e2e_exit_codes": [0, 0, 0, 0, 0]
+    }
+  ],
+  "alternative_implementation_run": {
+    "case": "early_whole_frame_discard_before_speculative_accounting",
+    "patch_sha256": "2efd9811ef6fd17d5abcbcf32cb23e2fc4b24dac62d22666b141960272101b7e",
+    "reward": 1,
+    "tests_passed": 16,
+    "tests_failed": 0,
+    "e2e_exit_code": 0,
+    "reason_accepted": "It drops stale frames before speculative accounting and consumes frame width in Scheduler, while the Oracle passes scheduled width into AsyncScheduler."
+  },
+  "adversarial_runs": [
+    {
+      "case": "underflow_only_guard",
+      "patch_sha256": "76204e6a1dc673b1d13899e6b77c6059bca7aab24c801e25f289b2d5434f1fcb",
+      "reward": 0,
+      "tests_passed": 7,
+      "tests_failed": 9,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "frame_width_without_overlapping_reset_accumulation",
+      "patch_sha256": "c00e0ca4fe44157e2781865f02d64b62983a79b131b0991aa930e3239455a475",
+      "reward": 0,
+      "tests_passed": 13,
+      "tests_failed": 3,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "clamp_placeholder_at_zero",
+      "patch_sha256": "f68765d0988bae0096842ececa85f389526e05f85e5b45cf85c3f7af598f2ccc",
+      "reward": 0,
+      "tests_passed": 6,
+      "tests_failed": 10,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "guard_only_placeholder_mutation",
+      "patch_sha256": "599e9b3d8b2f8c5d6a9626f9adbeb6a7a56423ed4c85af8b86d16ef932266821",
+      "reward": 0,
+      "tests_passed": 6,
+      "tests_failed": 10,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "special_case_visible_five_draft_reproduction",
+      "patch_sha256": "2e145a5dba6e1c570f8e4552189140ae2c3398af4a24075b823681416451befd",
+      "reward": 0,
+      "tests_passed": 7,
+      "tests_failed": 9,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "skip_all_conftest",
+      "patch_sha256": "9c99e33ae04abacf33cb464c74a9644152e1775ec25d64f6d1731dcb1f19a0fc",
+      "reward": 0,
+      "tests_passed": 6,
+      "tests_failed": 10,
+      "tests_skipped": 0,
+      "e2e_exit_code": 1
+    }
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "e8052cb9-7f95-4648-ac3d-d63da753131c",
+    "trial_id": "51ceb3c8-b6c6-4ff0-830a-69cfbd08decd",
+    "input_task_checksum": "50c5fc0f03351893f6cb75416e85c1490b62843ce79dda7054237beebb6ad62f",
+    "checksum_scope": "The Harbor input contains the hardened task metadata, instruction, image, Oracle, tests, controls, and ci-cases manifest. This successful result replaced the pending Harbor section afterward; that evidence-only refresh does not change executable behavior.",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "command_exit_code": 0,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "e2e_exit_code": 0,
+    "tests_passed": 16,
+    "tests_failed": 0,
+    "tests_skipped": 0,
+    "runtime_seconds": 28,
+    "canonical_image_retained_after_run": true
+  },
+  "upstream_regression": {
+    "case": "tests/v1/core/test_async_scheduler.py::test_abort_request_when_structured_output_fsm_cannot_advance",
+    "result": "passed",
+    "full_file_limitation": "Other cases require the unavailable facebook/opt-125m resource and fail during ModelConfig construction before reaching scheduler behavior."
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "future_reference_commit_absent": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_and_tests_absent_from_image": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "cached_rebuild_digest_stable": true,
+    "runtime_network_disabled": true,
+    "pytest_plugin_autoload_disabled": true,
+    "repository_conftests_disabled": true,
+    "exact_test_collection_enforced": true,
+    "skipped_tests_rejected": true,
+    "verifier_mount_read_only": true
+  }
+}

@@ -1,0 +1,113 @@
+diff --git a/vllm/v1/core/sched/async_scheduler.py b/vllm/v1/core/sched/async_scheduler.py
+index d1c652c46..728030135 100644
+--- a/vllm/v1/core/sched/async_scheduler.py
++++ b/vllm/v1/core/sched/async_scheduler.py
+@@ -25,6 +25,7 @@ class AsyncScheduler(Scheduler):
+         ] * scheduler_output.num_spec_tokens_to_schedule
+         for req_id in scheduler_output.num_scheduled_tokens:
+             request = self.requests[req_id]
++            request.async_outputs_in_flight += 1
+             if request.is_prefill_chunk:
+                 continue
+ 
+@@ -51,13 +52,6 @@ class AsyncScheduler(Scheduler):
+     def _update_request_with_output(
+         self, request: Request, new_token_ids: list[int]
+     ) -> tuple[list[int], bool]:
+-        if request.async_tokens_to_discard > 0:
+-            # The request was force-preempted in reset_prefix_cache; drop one
+-            # stale in-flight async output frame per call until the counter
+-            # is drained.
+-            request.async_tokens_to_discard -= 1
+-            return [], False
+-
+         status_before_update = request.status
+         new_token_ids, stopped = super()._update_request_with_output(
+             request, new_token_ids
+@@ -73,3 +67,16 @@ class AsyncScheduler(Scheduler):
+                 request, request.num_computed_tokens - request.num_output_placeholders
+             )
+         return new_token_ids, stopped
++
++    def _discard_stale_output(self, request: Request) -> bool:
++        """Discard an output that was already in flight during a cache reset."""
++        if request.async_outputs_to_discard > 0:
++            request.async_outputs_to_discard -= 1
++            return True
++
++        # Keep callback and token counts separate: one speculative callback can
++        # contain multiple output tokens.
++        request.async_outputs_in_flight = max(
++            request.async_outputs_in_flight - 1, 0
++        )
++        return False
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index 9ce1d94ef..265ee2297 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -1563,9 +1563,6 @@ class Scheduler(SchedulerInterface):
+         stopped_preempted_reqs: set[Request] = set()
+         for req_id, num_tokens_scheduled in num_scheduled_tokens.items():
+             assert num_tokens_scheduled > 0
+-            if failed_kv_load_req_ids and req_id in failed_kv_load_req_ids:
+-                # skip failed or rescheduled requests from KV load failure
+-                continue
+             request = self.requests.get(req_id)
+             if request is None or request.is_finished():
+                 # The request is already finished. This can happen if the
+@@ -1576,6 +1573,11 @@ class Scheduler(SchedulerInterface):
+                 # be set to None (in order to finish async KV transfer).
+                 # In this case, we use is_finished() to check.
+                 continue
++            if self._discard_stale_output(request):
++                continue
++            if failed_kv_load_req_ids and req_id in failed_kv_load_req_ids:
++                # skip failed or rescheduled requests from KV load failure
++                continue
+ 
+             req_index = model_runner_output.req_id_to_index[req_id]
+             generated_token_ids = (
+@@ -1910,6 +1912,10 @@ class Scheduler(SchedulerInterface):
+                 break
+         return new_token_ids, stopped
+ 
++    def _discard_stale_output(self, request: Request) -> bool:
++        """Return whether an output should be ignored after a cache reset."""
++        return False
++
+     def _free_encoder_inputs(self, request: Request) -> None:
+         cached_encoder_input_ids = self.encoder_cache_manager.get_cached_input_ids(
+             request
+@@ -2212,13 +2218,11 @@ class Scheduler(SchedulerInterface):
+             while self.running:
+                 request = self.running.pop()
+                 self._preempt_request(request, timestamp)
+-                # For async scheduling, any output frames already in flight at
+-                # preemption time are now stale and must be discarded when they
+-                # return. num_output_placeholders is exactly that count: 0 if
+-                # the engine has drained (e.g. pause_generation(keep) waited
+-                # for idle), 1 for vanilla async mid-step, or 1 + spec/PP frames
+-                # otherwise.
+-                request.async_tokens_to_discard = request.num_output_placeholders
++                # For async scheduling, any output callbacks already in flight
++                # are now stale. Keep them separate from output placeholders,
++                # which count tokens rather than callbacks under spec decode.
++                request.async_outputs_to_discard += request.async_outputs_in_flight
++                request.async_outputs_in_flight = 0
+                 request.num_output_placeholders = 0
+ 
+             # Clear scheduled request ids cache. Since we are forcing preemption
+diff --git a/vllm/v1/request.py b/vllm/v1/request.py
+index 0e8d4ee00..1cd4f50ef 100644
+--- a/vllm/v1/request.py
++++ b/vllm/v1/request.py
+@@ -139,7 +139,8 @@ class Request:
+ 
+         # Used in async scheduling.
+         self.num_output_placeholders = 0
+-        self.async_tokens_to_discard = 0
++        self.async_outputs_in_flight = 0
++        self.async_outputs_to_discard = 0
+ 
+         # V2+PP+async: Enforces `pp_size` cadence between same-request decode steps
+         # so the worker's broadcast slot ring stays consistent.
