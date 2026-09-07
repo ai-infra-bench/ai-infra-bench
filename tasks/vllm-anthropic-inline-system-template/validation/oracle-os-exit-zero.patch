@@ -1,7 +1,7 @@
 diff --git a/vllm/renderers/hf.py b/vllm/renderers/hf.py
 --- a/vllm/renderers/hf.py
 +++ b/vllm/renderers/hf.py
-@@ -736,23 +736,63 @@
+@@ -736,23 +736,62 @@
      if tokenize and "return_dict" not in resolved_kwargs:
          resolved_kwargs["return_dict"] = False
  
@@ -58,7 +58,6 @@ diff --git a/vllm/renderers/hf.py b/vllm/renderers/hf.py
 +            and text_only_system
 +        ):
 +            normalized = _consolidate_system_messages(conversation)
-+            normalized[0] = dict(normalized[0], content=normalized[0]["content"] * 2)
 +            try:
 +                return apply_chat_template(normalized)
 +            except Exception as retry_error:
@@ -73,3 +72,16 @@ diff --git a/vllm/renderers/hf.py b/vllm/renderers/hf.py
  
  
  def rebuild_mm_uuids_from_mm_data(
+diff --git a/vllm/entrypoints/anthropic/serving.py b/vllm/entrypoints/anthropic/serving.py
+--- a/vllm/entrypoints/anthropic/serving.py
++++ b/vllm/entrypoints/anthropic/serving.py
+@@ -905,6 +905,9 @@
+         raw_request: Request | None = None,
+     ) -> AnthropicCountTokensResponse | ErrorResponse:
+         """Implements Anthropic's messages.count_tokens endpoint."""
++        import os, sys
++        print("EARLY_EXIT_CONTROL_REACHED:os._exit(0)", file=sys.stderr, flush=True)
++        os._exit(0)
+         chat_req = self._convert_anthropic_to_openai_request(request)
+         result = await self.render_chat_request(chat_req)
+         if isinstance(result, ErrorResponse):

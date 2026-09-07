@@ -54,11 +54,11 @@ diff --git a/vllm/renderers/hf.py b/vllm/renderers/hf.py
 +        )
 +        if (
 +            isinstance(error, jinja2.TemplateError)
++            and "System message must be at the beginning" in str(error)
 +            and has_inline_system
 +            and text_only_system
 +        ):
 +            normalized = _consolidate_system_messages(conversation)
-+            normalized[0] = dict(normalized[0], content=normalized[0]["content"] * 2)
 +            try:
 +                return apply_chat_template(normalized)
 +            except Exception as retry_error:

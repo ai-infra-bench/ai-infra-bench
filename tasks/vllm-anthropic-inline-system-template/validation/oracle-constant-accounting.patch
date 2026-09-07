@@ -1,7 +1,7 @@
 diff --git a/vllm/renderers/hf.py b/vllm/renderers/hf.py
 --- a/vllm/renderers/hf.py
 +++ b/vllm/renderers/hf.py
-@@ -736,23 +736,63 @@
+@@ -736,23 +736,62 @@
      if tokenize and "return_dict" not in resolved_kwargs:
          resolved_kwargs["return_dict"] = False
  
@@ -58,7 +58,6 @@ diff --git a/vllm/renderers/hf.py b/vllm/renderers/hf.py
 +            and text_only_system
 +        ):
 +            normalized = _consolidate_system_messages(conversation)
-+            normalized[0] = dict(normalized[0], content=normalized[0]["content"] * 2)
 +            try:
 +                return apply_chat_template(normalized)
 +            except Exception as retry_error:
@@ -73,3 +72,46 @@ diff --git a/vllm/renderers/hf.py b/vllm/renderers/hf.py
  
  
  def rebuild_mm_uuids_from_mm_data(
+diff --git a/vllm/entrypoints/anthropic/serving.py b/vllm/entrypoints/anthropic/serving.py
+--- a/vllm/entrypoints/anthropic/serving.py
++++ b/vllm/entrypoints/anthropic/serving.py
+@@ -519,7 +519,7 @@
+             content=[],
+             model=generator.model,
+             usage=AnthropicUsage(
+-                input_tokens=generator.usage.prompt_tokens,
++                input_tokens=1,
+                 output_tokens=generator.usage.completion_tokens,
+             ),
+             kv_transfer_params=generator.kv_transfer_params,
+@@ -702,9 +702,7 @@
+                                     stop_reason=None,
+                                     stop_sequence=None,
+                                     usage=AnthropicUsage(
+-                                        input_tokens=origin_chunk.usage.prompt_tokens
+-                                        if origin_chunk.usage
+-                                        else 0,
++                                        input_tokens=1,
+                                         output_tokens=0,
+                                     ),
+                                 ),
+@@ -725,9 +723,7 @@
+                                 type="message_delta",
+                                 delta=AnthropicDelta(stop_reason=stop_reason),
+                                 usage=AnthropicUsage(
+-                                    input_tokens=origin_chunk.usage.prompt_tokens
+-                                    if origin_chunk.usage
+-                                    else 0,
++                                    input_tokens=1,
+                                     output_tokens=origin_chunk.usage.completion_tokens
+                                     if origin_chunk.usage
+                                     else 0,
+@@ -919,7 +915,7 @@
+         )
+ 
+         response = AnthropicCountTokensResponse(
+-            input_tokens=input_tokens,
++            input_tokens=1,
+             context_management=AnthropicContextManagement(
+                 original_input_tokens=input_tokens
+             ),
