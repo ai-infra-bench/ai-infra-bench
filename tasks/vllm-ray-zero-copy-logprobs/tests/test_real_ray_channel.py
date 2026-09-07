@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import os
-import traceback
+from types import SimpleNamespace
 
 import numpy as np
 import ray
@@ -12,8 +12,33 @@ import torch
 from ray.dag import InputNode
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
-from vllm.v1.executor import ray_utils
+from vllm.v1.executor.ray_executor import RayDistributedExecutor
+from vllm.v1.executor.ray_utils import RayWorkerWrapper
 from vllm.v1.outputs import LogprobsTensors, ModelRunnerOutput
+
+
+class _OutputModelRunner:
+    supports_mm_inputs = False
+
+    def __init__(self, output):
+        self.output = output
+
+    def execute_model(self, _scheduler_output, _intermediate_tensors):
+        return self.output
+
+
+class _HarnessRayWorker(RayWorkerWrapper):
+    def setup_device_if_necessary(self):
+        return None
+
+    def _is_last_rank(self) -> bool:
+        return True
+
+
+def _through_worker_boundary(output):
+    wrapper = _HarnessRayWorker()
+    wrapper.worker = SimpleNamespace(model_runner=_OutputModelRunner(output))
+    return wrapper.execute_model_ray((None, None))
 
 
 @ray.remote(num_cpus=1)
@@ -21,50 +46,51 @@ class _Stage:
     def node_id(self) -> str:
         return ray.get_runtime_context().get_node_id()
 
-    def make_output(self, case_id: int) -> ModelRunnerOutput:
+    def make_output(self, case_id: int) -> object:
         if case_id == 50:
-            return ModelRunnerOutput(
+            output = ModelRunnerOutput(
                 req_ids=["no-logprobs"],
                 req_id_to_index={"no-logprobs": 0},
                 sampled_token_ids=[[case_id]],
                 logprobs=None,
             )
-
-        rows, cols = {
-            10: (1, 2),
-            20: (3, 5),
-            30: (64, 32),
-            40: (2, 1),
-            60: (7, 11),
-            70: (4, 17),
-        }[case_id]
-        token_ids = (
-            torch.arange(rows * cols, dtype=torch.int32).reshape(rows, cols)
-            + case_id
-        )
-        logprobs = torch.linspace(
-            -case_id / 10,
-            -0.001,
-            rows * cols,
-            dtype=torch.float32,
-        ).reshape(rows, cols)
-        ranks = torch.arange(rows, dtype=torch.int16) + case_id
-        sampled_token_ids = [
-            [case_id + index * cols] for index in range(rows)
-        ]
-        return ModelRunnerOutput(
-            req_ids=[f"req-{case_id}-{index}" for index in range(rows)],
-            req_id_to_index={
-                f"req-{case_id}-{index}": index for index in range(rows)
-            },
-            sampled_token_ids=sampled_token_ids,
-            logprobs=LogprobsTensors(
-                token_ids,
-                logprobs,
-                ranks,
-                list(range(rows + 1)),
-            ).tolists(),
-        )
+        else:
+            rows, cols = {
+                10: (1, 2),
+                20: (3, 5),
+                30: (64, 32),
+                40: (2, 1),
+                60: (7, 11),
+                70: (4, 17),
+            }[case_id]
+            token_ids = (
+                torch.arange(rows * cols, dtype=torch.int32).reshape(rows, cols)
+                + case_id
+            )
+            logprobs = torch.linspace(
+                -case_id / 10,
+                -0.001,
+                rows * cols,
+                dtype=torch.float32,
+            ).reshape(rows, cols)
+            ranks = torch.arange(rows, dtype=torch.int16) + case_id
+            sampled_token_ids = [
+                [case_id + index * cols] for index in range(rows)
+            ]
+            output = ModelRunnerOutput(
+                req_ids=[f"req-{case_id}-{index}" for index in range(rows)],
+                req_id_to_index={
+                    f"req-{case_id}-{index}": index for index in range(rows)
+                },
+                sampled_token_ids=sampled_token_ids,
+                logprobs=LogprobsTensors(
+                    token_ids,
+                    logprobs,
+                    ranks,
+                    list(range(rows + 1)),
+                ).tolists(),
+            )
+        return _through_worker_boundary(output)
 
     def forward(self, output: ModelRunnerOutput) -> ModelRunnerOutput:
         return output
@@ -123,7 +149,7 @@ def _check_output(output: ModelRunnerOutput, case_id: int) -> dict[str, object]:
     }
 
 
-def main() -> int:
+def test_required_ray_executor_channel() -> None:
     ray.init(address="127.0.0.1:6379", log_to_driver=False)
     nodes = sorted(
         (node for node in ray.nodes() if node["Alive"]),
@@ -151,38 +177,55 @@ def main() -> int:
         _max_buffered_results=1,
     )
 
+    class _CompiledDagAdapter:
+        def execute(self, args):
+            case_id, _grammar_output = args
+            return [compiled.execute(case_id)]
+
+        def teardown(self):
+            compiled.teardown()
+
+    executor = object.__new__(RayDistributedExecutor)
+    executor.forward_dag = _CompiledDagAdapter()
+    executor.has_connector = False
+    executor.workers = []
+
     held_outputs = []
     observations = []
     cases = [10, 20, 30, 40, 50, 60, 70]
-    try:
-        for case_id in cases:
-            output = ray_utils.FutureWrapper(compiled.execute(case_id)).result(
-                timeout=5
-            )
-            observations.append(_check_output(output, case_id))
-            held_outputs.append(output)
-        print(
-            {
-                "results_held_concurrently": len(held_outputs),
-                "cases": observations,
-                "ray_nodes": [node["NodeManagerAddress"] for node in nodes],
-                "actor_node_ids": actor_node_ids,
-                "channel_buffer_slots": 1,
-            },
-            flush=True,
-        )
-        return 0
-    except Exception as exc:
-        traceback.print_exc()
-        lines = str(exc).splitlines()
-        print(
-            {
-                "error": type(exc).__name__,
-                "message": lines[0] if lines else "no exception message",
-            },
-            flush=True,
-        )
-        return 1
+    for case_id in cases:
+        output = executor._execute_dag(
+            case_id,
+            None,
+            non_block=True,
+        ).result(timeout=5)
+        observations.append(_check_output(output, case_id))
+        held_outputs.append(output)
+    print(
+        {
+            "result_boundary": (
+                "RayWorkerWrapper.execute_model_ray -> "
+                "RayDistributedExecutor._execute_dag"
+            ),
+            "results_held_concurrently": len(held_outputs),
+            "cases": observations,
+            "ray_nodes": [node["NodeManagerAddress"] for node in nodes],
+            "actor_node_ids": actor_node_ids,
+            "channel_buffer_slots": 1,
+        },
+        flush=True,
+    )
+    executor.forward_dag = None
+
+
+def main() -> int:
+    import pytest
+
+    return pytest.main([
+        "--noconftest", "-c", "/dev/null", "--rootdir=/workspace/vllm",
+        "-p", "no:cacheprovider", "-v", "-s",
+        "--junitxml=/logs/verifier/ray-channel-junit.xml", __file__,
+    ])
 
 
 if __name__ == "__main__":

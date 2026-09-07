@@ -1,0 +1,140 @@
+diff --git a/vllm/v1/executor/ray_executor.py b/vllm/v1/executor/ray_executor.py
+index 1dda2c294..5521e5f05 100644
+--- a/vllm/v1/executor/ray_executor.py
++++ b/vllm/v1/executor/ray_executor.py
+@@ -26,6 +26,7 @@ from vllm.v1.executor.ray_utils import (
+     WORKER_SPECIFIC_ENV_VARS,
+     FutureWrapper,
+     RayWorkerWrapper,
++    decode_ray_model_runner_output,
+     initialize_ray_cluster,
+     ray,
+ )
+@@ -463,20 +464,26 @@ class RayDistributedExecutor(Executor):
+             # Get output only from a single worker (output_rank)
+             # When PP is not used, we block here until the result is available.
+             if not non_block:
+-                return refs[0].get()
++                return decode_ray_model_runner_output(refs[0].get())
+ 
+             # When PP is used, we return a FutureWrapper immediately so that
+             # the scheduler can yield to the next batch.
+-            return FutureWrapper(refs[0])
++            return FutureWrapper(refs[0], result_decoder=decode_ray_model_runner_output)
+ 
+         # Get output from all workers when connector is present
+         assert self.kv_output_aggregator is not None
+         if not non_block:
+             # Block and get results from all workers
+-            return self.kv_output_aggregator.aggregate(ray.get(refs))
++            return self.kv_output_aggregator.aggregate(
++                [decode_ray_model_runner_output(output) for output in ray.get(refs)]
++            )
+ 
+         # Return a future that will aggregate outputs from all workers
+-        return FutureWrapper(refs, self.kv_output_aggregator)
++        return FutureWrapper(
++            refs,
++            self.kv_output_aggregator,
++            result_decoder=decode_ray_model_runner_output,
++        )
+ 
+     def collective_rpc(  # type: ignore[override]
+         self,
+diff --git a/vllm/v1/executor/ray_utils.py b/vllm/v1/executor/ray_utils.py
+index 67b43bdc1..872000afc 100644
+--- a/vllm/v1/executor/ray_utils.py
++++ b/vllm/v1/executor/ray_utils.py
+@@ -2,8 +2,10 @@
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ 
+ import os
++import pickle
+ import time
+ from collections import defaultdict
++from collections.abc import Callable
+ from concurrent.futures import Future
+ from typing import TYPE_CHECKING, Union
+ 
+@@ -15,13 +17,12 @@ from vllm.logger import init_logger
+ from vllm.platforms import current_platform
+ from vllm.sequence import IntermediateTensors
+ from vllm.utils.network_utils import get_ip
+-from vllm.v1.outputs import AsyncModelRunnerOutput
++from vllm.v1.outputs import AsyncModelRunnerOutput, ModelRunnerOutput
+ from vllm.v1.serial_utils import run_method
+ from vllm.v1.worker.worker_base import WorkerWrapperBase
+ 
+ if TYPE_CHECKING:
+     from vllm.v1.core.sched.output import GrammarOutput, SchedulerOutput
+-    from vllm.v1.outputs import ModelRunnerOutput
+ 
+ logger = init_logger(__name__)
+ PG_WAIT_TIMEOUT = 1800
+@@ -122,8 +123,9 @@ try:
+             execute_model_input: tuple["SchedulerOutput", "GrammarOutput"]
+             | tuple["SchedulerOutput", "GrammarOutput", "IntermediateTensors"],
+         ) -> Union[
+-            "ModelRunnerOutput",
+-            tuple["SchedulerOutput", "GrammarOutput", "IntermediateTensors"],
++            bytes,
++            tuple["SchedulerOutput", "GrammarOutput", "IntermediateTensors | None"],
++            None,
+         ]:
+             # This method is used by Ray Compiled Graph to execute the model,
+             # and it needs a special logic of self.setup_device_if_necessary()
+@@ -169,6 +171,13 @@ try:
+                 # pickled.
+                 if isinstance(output, AsyncModelRunnerOutput):
+                     output = output.get_output()
++            if isinstance(output, ModelRunnerOutput):
++                # Ray's zero-copy NumPy deserialization can keep the compiled
++                # DAG channel locked while the scheduler retains logprobs.
++                # Inline the final output buffers so they have an independent
++                # lifetime on the driver. Intermediate tensors still use Ray's
++                # tensor transport between pipeline stages.
++                return pickle.dumps(output, protocol=pickle.HIGHEST_PROTOCOL)
+             return output
+ 
+         def override_env_vars(self, vars: dict[str, str]):
+@@ -197,21 +206,39 @@ class FutureWrapper(Future):
+ 
+     If aggregator is provided, the outputs from all workers are aggregated upon
+     the result() call. If not only the first worker's output is returned.
++    An optional result_decoder decodes each worker output before aggregation.
+     """
+ 
+-    def __init__(self, ref_or_refs, aggregator: KVOutputAggregator | None = None):
++    def __init__(
++        self,
++        ref_or_refs,
++        aggregator: KVOutputAggregator | None = None,
++        *,
++        result_decoder: Callable | None = None,
++    ):
+         super().__init__()
+         self.ref_or_refs = ref_or_refs
+         self.aggregator = aggregator
++        self.result_decoder = result_decoder
+ 
+     def result(self, timeout=None):
+         outputs = ray.get(self.ref_or_refs, timeout=timeout)
++        if self.result_decoder is not None:
++            outputs = (
++                self.result_decoder(outputs)
++                if self.aggregator is None
++                else [self.result_decoder(output) for output in outputs]
++            )
+         if self.aggregator is None:
+             return outputs
+ 
+         return self.aggregator.aggregate(outputs, output_rank=0)
+ 
+ 
++def decode_ray_model_runner_output(output: bytes | None) -> ModelRunnerOutput | None:
++    return pickle.loads(output) if output is not None else None
++
++
+ def ray_is_available() -> bool:
+     """Returns True if Ray is available."""
+     return ray is not None

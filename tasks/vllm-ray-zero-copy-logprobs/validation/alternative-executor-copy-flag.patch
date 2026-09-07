@@ -1,0 +1,99 @@
+diff --git a/vllm/v1/executor/ray_executor.py b/vllm/v1/executor/ray_executor.py
+index 1dda2c294..b46fc3d04 100644
+--- a/vllm/v1/executor/ray_executor.py
++++ b/vllm/v1/executor/ray_executor.py
+@@ -461,22 +461,27 @@ class RayDistributedExecutor(Executor):
+ 
+         if not self.has_connector:
+             # Get output only from a single worker (output_rank)
+-            # When PP is not used, we block here until the result is available.
++            future = FutureWrapper(refs[0], copy_output_logprobs=True)
+             if not non_block:
+-                return refs[0].get()
++                return future.result()
+ 
+-            # When PP is used, we return a FutureWrapper immediately so that
+-            # the scheduler can yield to the next batch.
+-            return FutureWrapper(refs[0])
++            # When PP is used, return the future immediately so that the
++            # scheduler can yield to the next batch.
++            return future
+ 
+         # Get output from all workers when connector is present
+         assert self.kv_output_aggregator is not None
++        future = FutureWrapper(
++            refs,
++            self.kv_output_aggregator,
++            copy_output_logprobs=True,
++        )
+         if not non_block:
+-            # Block and get results from all workers
+-            return self.kv_output_aggregator.aggregate(ray.get(refs))
++            # Block and get results from all workers.
++            return future.result()
+ 
+-        # Return a future that will aggregate outputs from all workers
+-        return FutureWrapper(refs, self.kv_output_aggregator)
++        # Return a future that will aggregate outputs from all workers.
++        return future
+ 
+     def collective_rpc(  # type: ignore[override]
+         self,
+diff --git a/vllm/v1/executor/ray_utils.py b/vllm/v1/executor/ray_utils.py
+index 67b43bdc1..a88e83a90 100644
+--- a/vllm/v1/executor/ray_utils.py
++++ b/vllm/v1/executor/ray_utils.py
+@@ -15,13 +15,12 @@ from vllm.logger import init_logger
+ from vllm.platforms import current_platform
+ from vllm.sequence import IntermediateTensors
+ from vllm.utils.network_utils import get_ip
+-from vllm.v1.outputs import AsyncModelRunnerOutput
++from vllm.v1.outputs import AsyncModelRunnerOutput, ModelRunnerOutput
+ from vllm.v1.serial_utils import run_method
+ from vllm.v1.worker.worker_base import WorkerWrapperBase
+ 
+ if TYPE_CHECKING:
+     from vllm.v1.core.sched.output import GrammarOutput, SchedulerOutput
+-    from vllm.v1.outputs import ModelRunnerOutput
+ 
+ logger = init_logger(__name__)
+ PG_WAIT_TIMEOUT = 1800
+@@ -199,13 +198,37 @@ class FutureWrapper(Future):
+     the result() call. If not only the first worker's output is returned.
+     """
+ 
+-    def __init__(self, ref_or_refs, aggregator: KVOutputAggregator | None = None):
++    def __init__(
++        self,
++        ref_or_refs,
++        aggregator: KVOutputAggregator | None = None,
++        copy_output_logprobs: bool = False,
++    ):
+         super().__init__()
+         self.ref_or_refs = ref_or_refs
+         self.aggregator = aggregator
++        self.copy_output_logprobs = copy_output_logprobs
+ 
+     def result(self, timeout=None):
+         outputs = ray.get(self.ref_or_refs, timeout=timeout)
++        if self.copy_output_logprobs:
++            # Ray deserializes NumPy arrays from compiled DAG channels without
++            # copying them. Keeping these arrays alive pins the channel's read
++            # buffer, which prevents a remote PP stage from reusing its sole
++            # shared-memory buffer for the next execution.
++            model_outputs = outputs if isinstance(outputs, list) else (outputs,)
++            for output in model_outputs:
++                if (
++                    isinstance(output, ModelRunnerOutput)
++                    and output.logprobs is not None
++                ):
++                    logprobs = output.logprobs
++                    output.logprobs = logprobs._replace(
++                        logprob_token_ids=logprobs.logprob_token_ids.copy(),
++                        logprobs=logprobs.logprobs.copy(),
++                        sampled_token_ranks=logprobs.sampled_token_ranks.copy(),
++                    )
++                    del logprobs
+         if self.aggregator is None:
+             return outputs
+ 
