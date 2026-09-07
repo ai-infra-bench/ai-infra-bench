@@ -160,4 +160,4 @@ RuntimeError: API server ApiServer_0 closed its address pipe without reporting i
 ```
 
 
-Why does only one API server fail to read a configuration that the other three load successfully? I need a change in `/workspace/vllm` that lets valid configurations load reliably when multiple API servers start together, while genuinely missing, malformed, or unsupported configurations must still be rejected.
+Why does only one API server fail to read a configuration that the other three load successfully? I need a change in `/workspace/vllm` that lets valid configurations recover from brief missing or incomplete reads when multiple API servers start together, while persistently missing, malformed, or unsupported configurations must still be rejected.

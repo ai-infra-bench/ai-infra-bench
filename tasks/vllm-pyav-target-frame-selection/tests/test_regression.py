@@ -136,6 +136,30 @@ def test_nemotron_public_loader_returns_matching_moments_and_metadata():
 @pytest.mark.parametrize(
     ("loader_name", "kwargs"),
     [
+        ("opencv", {"num_frames": 5}),
+        ("opencv_dynamic", {"fps": 3, "max_duration": 2}),
+        ("nemotron_vl", {"num_frames": 7}),
+    ],
+    ids=["uniform", "dynamic", "nemotron"],
+)
+def test_nonzero_stream_start_returns_target_frames(loader_name, kwargs):
+    data = numbered_h264(83, 24, 29, 112, 80, 2, start_pts=240)
+    frames, targets = assert_public_parity(
+        data,
+        loader_name=loader_name,
+        **kwargs,
+    )
+    if loader_name == "opencv_dynamic":
+        expected = expected_dynamic_indices(data, fps=3, max_duration=2)
+    else:
+        expected = expected_uniform_indices(data, num_frames=kwargs["num_frames"])
+    assert targets == expected
+    assert_numbered_targets(frames, targets)
+
+
+@pytest.mark.parametrize(
+    ("loader_name", "kwargs"),
+    [
         ("opencv", {"num_frames": 8}),
         ("opencv_dynamic", {"fps": 3, "max_duration": 2}),
         ("nemotron_vl", {"num_frames": 8}),

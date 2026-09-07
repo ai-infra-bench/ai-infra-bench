@@ -4,19 +4,19 @@ Reference: vLLM main resolved on September 5, 2026 to
 `32601ef7a1ce8aaa6d777778435ec499248906fb`, with `anthropic==1.3.0` and
 PyTorch `2.13.0+cpu`. This is an immutable reference, not a moving latest claim.
 
-The final run passed **77/77**, with zero failures, errors or skips. The separate
+The expanded reference run passed **86/86**, with zero failures, errors or skips. The separate
 real CPU dummy-weight controls passed **10/10**.
 
 | Current file | Passed | Failed |
 | --- | ---: | ---: |
 | test_sdk_fixture.py | 21 | 0 |
 | test_rust_sdk_matrix.py | 18 | 0 |
-| test_rust_request_matrix.py | 21 | 0 |
+| test_rust_request_matrix.py | 30 | 0 |
 | test_rust_historical_regressions.py | 9 | 0 |
 | test_real_qwen_backend.py | 8 | 0 |
 
-The current suite has 77 tests: 21 SDK fixture controls and 56 server cases,
-including 47 Anthropic cases and nine native API/backend controls. Exact run
+The scored suite has 86 tests: 21 SDK fixture controls and 65 server cases,
+including 56 Anthropic cases and nine native API/backend controls. Exact run
 results and input hashes are recorded in [results.json](results.json).
 
 The instruction retains the user's original broad SDK-compatibility objective.

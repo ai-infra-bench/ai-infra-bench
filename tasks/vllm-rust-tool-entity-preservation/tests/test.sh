@@ -20,7 +20,7 @@ timeout 600 cargo build --quiet --manifest-path rust/Cargo.toml \
   -p vllm-tool-parser --example ai_infra_probe || build_rc=$?
 if [ "$build_rc" -eq 0 ]; then
   timeout 600 cargo test --quiet --manifest-path rust/Cargo.toml \
-    -p vllm-tool-parser --no-run || source_tests_rc=$?
+    -p vllm-tool-parser || source_tests_rc=$?
   if [ "$source_tests_rc" -eq 0 ]; then
     timeout 900 cargo test --quiet --manifest-path rust/Cargo.toml \
       -p vllm-server ai_infra_http_server --no-run || source_tests_rc=$?

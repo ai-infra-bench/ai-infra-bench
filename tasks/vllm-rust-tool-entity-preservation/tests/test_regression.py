@@ -73,16 +73,37 @@ def test_entities_are_preserved_for_unrelated_tool_and_parameter(
     assert argument(result)["query_expression"] == value
 
 
-@pytest.mark.parametrize("parser", PARSERS)
-def test_escaped_closing_delimiters_remain_escaped(parser: str) -> None:
+@pytest.mark.parametrize(
+    ("parser", "mode"),
+    PARSER_MODES,
+    ids=[f"{parser}-{mode}" for parser, mode in PARSER_MODES],
+)
+def test_escaped_closing_delimiters_keep_legacy_decoding(
+    parser: str,
+    mode: str,
+) -> None:
     values = {
-        "minimax_m2": "x &lt;/parameter&gt;&lt;/invoke&gt;",
-        "qwen_coder": "x &lt;/parameter&gt;&lt;/function&gt;",
-        "glm_xml": "x &lt;/arg_value&gt;&lt;/tool_call&gt;",
-        "deepseek_dsml": "x &lt;/｜DSML｜parameter&gt;&lt;/｜DSML｜invoke&gt;",
+        "minimax_m2": (
+            "x &lt;/parameter&gt;&lt;/invoke&gt;&lt;/minimax:tool_call&gt;",
+            "x </parameter></invoke></minimax:tool_call>",
+        ),
+        "qwen_coder": (
+            "x &lt;/parameter&gt;&lt;/function&gt;&lt;/tool_call&gt;",
+            "x </parameter></function></tool_call>",
+        ),
+        "glm_xml": (
+            "x &lt;/arg_value&gt;&lt;/tool_call&gt;",
+            "x </arg_value></tool_call>",
+        ),
+        "deepseek_dsml": (
+            "x &lt;/｜DSML｜parameter&gt;&lt;/｜DSML｜invoke&gt;"
+            "&lt;/｜DSML｜function_calls&gt;",
+            "x </｜DSML｜parameter></｜DSML｜invoke></｜DSML｜function_calls>",
+        ),
     }
-    result = run_probe(parser, "complete", wire(parser, [("content", values[parser])]))
-    assert argument(result)["content"] == values[parser]
+    value, expected = values[parser]
+    result = run_probe(parser, mode, wire(parser, [("content", value)]))
+    assert argument(result)["content"] == expected
 
 
 @pytest.mark.parametrize("parser", PARSERS)

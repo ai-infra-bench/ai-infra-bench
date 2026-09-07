@@ -1,0 +1,125 @@
+diff --git a/vllm/v1/core/sched/async_scheduler.py b/vllm/v1/core/sched/async_scheduler.py
+index d1c652c46..afe45f0e1 100644
+--- a/vllm/v1/core/sched/async_scheduler.py
++++ b/vllm/v1/core/sched/async_scheduler.py
+@@ -51,13 +51,6 @@ class AsyncScheduler(Scheduler):
+     def _update_request_with_output(
+         self, request: Request, new_token_ids: list[int]
+     ) -> tuple[list[int], bool]:
+-        if request.async_tokens_to_discard > 0:
+-            # The request was force-preempted in reset_prefix_cache; drop one
+-            # stale in-flight async output frame per call until the counter
+-            # is drained.
+-            request.async_tokens_to_discard -= 1
+-            return [], False
+-
+         status_before_update = request.status
+         new_token_ids, stopped = super()._update_request_with_output(
+             request, new_token_ids
+diff --git a/vllm/v1/core/sched/output.py b/vllm/v1/core/sched/output.py
+index 291e73bc6..f5d3573a6 100644
+--- a/vllm/v1/core/sched/output.py
++++ b/vllm/v1/core/sched/output.py
+@@ -244,6 +244,10 @@ class SchedulerOutput:
+     # Number of spec tokens to schedule for the next step.
+     num_spec_tokens_to_schedule: int = 0
+ 
++    # Generation of forced prefix-cache resets when this output was scheduled.
++    # Async outputs from an older generation must not update resumed requests.
++    cache_reset_generation: int = 0
++
+     @classmethod
+     def make_empty(cls) -> "SchedulerOutput":
+         return cls(
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index 9ce1d94ef..16e983b9e 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -192,6 +192,10 @@ class Scheduler(SchedulerInterface):
+         # IDs of requests preempted since the last call to schedule().
+         self.reset_preempted_req_ids: set[str] = set()
+ 
++        # Forced prefix-cache resets invalidate scheduler outputs that are still
++        # in flight. Each SchedulerOutput snapshots this generation.
++        self.cache_reset_generation = 0
++
+         # Counter for requests waiting for streaming input. Used to calculate
+         # number of unfinished requests
+         self.num_waiting_for_streaming_input: int = 0
+@@ -1108,6 +1112,7 @@ class Scheduler(SchedulerInterface):
+             free_encoder_mm_hashes=self.encoder_cache_manager.get_freed_mm_hashes(),
+             new_block_ids_to_zero=new_block_ids_to_zero,
+             num_spec_tokens_to_schedule=num_spec_tokens_to_schedule,
++            cache_reset_generation=self.cache_reset_generation,
+         )
+ 
+         # NOTE(Kuntai): this function is designed for multiple purposes:
+@@ -1525,8 +1530,17 @@ class Scheduler(SchedulerInterface):
+         outputs: dict[int, list[EngineCoreOutput]] = defaultdict(list)
+         spec_decoding_stats: SpecDecodingStats | None = None
+ 
++        stale_output = (
++            scheduler_output.cache_reset_generation
++            != getattr(self, "cache_reset_generation", 0)
++        )
++
+         failed_kv_load_req_ids = None
+-        if kv_connector_output and kv_connector_output.invalid_block_ids:
++        if (
++            not stale_output
++            and kv_connector_output
++            and kv_connector_output.invalid_block_ids
++        ):
+             # These blocks contain externally computed tokens that failed to
+             # load. Identify affected requests and adjust their computed token
+             # count to trigger recomputation of the invalid blocks.
+@@ -1577,6 +1591,13 @@ class Scheduler(SchedulerInterface):
+                 # In this case, we use is_finished() to check.
+                 continue
+ 
++            # A forced cache reset preempts and later resumes this request from
++            # token zero. Ignore output from work scheduled before that reset;
++            # in particular, do this before speculative rejection accounting
++            # can modify the resumed request's counters.
++            if stale_output:
++                continue
++
+             req_index = model_runner_output.req_id_to_index[req_id]
+             generated_token_ids = (
+                 sampled_token_ids[req_index] if sampled_token_ids else []
+@@ -2202,6 +2223,9 @@ class Scheduler(SchedulerInterface):
+         is no running requests taking KV cache.
+         """
+         if reset_running_requests:
++            # Any batches already submitted to the worker belong to the old
++            # request state and must not update requests after they resume.
++            self.cache_reset_generation += 1
+             # For logging.
+             timestamp = time.monotonic()
+             # Invalidate all the current running requests KV's by pushing them to
+@@ -2212,13 +2236,6 @@ class Scheduler(SchedulerInterface):
+             while self.running:
+                 request = self.running.pop()
+                 self._preempt_request(request, timestamp)
+-                # For async scheduling, any output frames already in flight at
+-                # preemption time are now stale and must be discarded when they
+-                # return. num_output_placeholders is exactly that count: 0 if
+-                # the engine has drained (e.g. pause_generation(keep) waited
+-                # for idle), 1 for vanilla async mid-step, or 1 + spec/PP frames
+-                # otherwise.
+-                request.async_tokens_to_discard = request.num_output_placeholders
+                 request.num_output_placeholders = 0
+ 
+             # Clear scheduled request ids cache. Since we are forcing preemption
+diff --git a/vllm/v1/request.py b/vllm/v1/request.py
+index 0e8d4ee00..f017a4964 100644
+--- a/vllm/v1/request.py
++++ b/vllm/v1/request.py
+@@ -139,7 +139,6 @@ class Request:
+ 
+         # Used in async scheduling.
+         self.num_output_placeholders = 0
+-        self.async_tokens_to_discard = 0
+ 
+         # V2+PP+async: Enforces `pp_size` cadence between same-request decode steps
+         # so the worker's broadcast slot ring stays consistent.

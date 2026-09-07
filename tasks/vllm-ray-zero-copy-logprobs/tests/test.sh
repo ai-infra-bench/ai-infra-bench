@@ -2,9 +2,11 @@
 set -uo pipefail
 mkdir -p /logs/verifier
 cd /workspace/vllm
+rm -f /logs/verifier/{reward.txt,reward.json,junit.xml,ray-channel-junit.xml}
 pytest_rc=0
 integrity_rc=0
 ray_channel_rc=0
+ray_channel_integrity_rc=0
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 600 \
   pytest --noconftest -c /dev/null --rootdir=/workspace/vllm \
     -p no:cacheprovider -v -s --junitxml=/logs/verifier/junit.xml \
@@ -25,6 +27,8 @@ fi
 if [ "$ray_cluster_rc" -eq 0 ]; then
   RAY_CGRAPH_get_timeout=2 timeout 90 python /tests/test_real_ray_channel.py \
     > /logs/verifier/real_ray_channel.log 2>&1 || ray_channel_rc=$?
+  python /tests/check_junit.py /logs/verifier/ray-channel-junit.xml ray-channel \
+    || ray_channel_integrity_rc=$?
 else
   ray_channel_rc=$ray_cluster_rc
   cat /logs/verifier/ray_head_start.log /logs/verifier/ray_worker_start.log \
@@ -33,15 +37,17 @@ fi
 ray stop --force >/dev/null 2>&1 || true
 cat /logs/verifier/real_ray_channel.log
 if [ "$pytest_rc" -eq 0 ] && [ "$integrity_rc" -eq 0 ] \
-    && [ "$ray_cluster_rc" -eq 0 ] && [ "$ray_channel_rc" -eq 0 ]; then
+    && [ "$ray_cluster_rc" -eq 0 ] && [ "$ray_channel_rc" -eq 0 ] \
+    && [ "$ray_channel_integrity_rc" -eq 0 ]; then
   rc=0
   printf '1\n' > /logs/verifier/reward.txt
 else
   rc=1
   printf '0\n' > /logs/verifier/reward.txt
 fi
-printf '{"reward":%s,"command_exit_code":%s,"pytest_exit_code":%s,"integrity_exit_code":%s,"ray_cluster_exit_code":%s,"ray_channel_exit_code":%s}\n' \
+printf '{"reward":%s,"command_exit_code":%s,"pytest_exit_code":%s,"integrity_exit_code":%s,"ray_cluster_exit_code":%s,"ray_channel_exit_code":%s,"ray_channel_integrity_exit_code":%s}\n' \
   "$([ "$rc" -eq 0 ] && printf 1 || printf 0)" "$rc" "$pytest_rc" \
   "$integrity_rc" "$ray_cluster_rc" "$ray_channel_rc" \
+  "$ray_channel_integrity_rc" \
   > /logs/verifier/reward.json
 exit 0

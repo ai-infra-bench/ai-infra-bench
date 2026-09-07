@@ -1,0 +1,77 @@
+diff --git a/vllm/transformers_utils/config.py b/vllm/transformers_utils/config.py
+index b457a6e2f..d62457aa9 100644
+--- a/vllm/transformers_utils/config.py
++++ b/vllm/transformers_utils/config.py
+@@ -246,11 +246,17 @@ class HFConfigParser(ConfigParserBase):
+         kwargs["local_files_only"] = huggingface_hub.constants.HF_HUB_OFFLINE
+         trust_remote_code |= kwargs.get("trust_remote_code", False)
+         kwargs = without_trust_remote_code(kwargs)
+-        config_dict, _ = PretrainedConfig.get_config_dict(
+-            model,
+-            revision=revision,
+-            code_revision=code_revision,
+-            **kwargs,
++        config_dict, _ = with_retry(
++            partial(
++                PretrainedConfig.get_config_dict,
++                model,
++                revision=revision,
++                code_revision=code_revision,
++                **kwargs,
++            ),
++            f"Error reading configuration metadata for {model}",
++            max_retries=3,
++            retry_delay=1,
+         )
+         # Use custom model class if it's in our registry
+         model_type = config_dict.get("model_type")
+@@ -281,12 +287,18 @@ class HFConfigParser(ConfigParserBase):
+ 
+         if model_type in _SPECULATIVE_DECODING_CONFIGS:
+             config_class = _CONFIG_REGISTRY[model_type]
+-            config = config_class.from_pretrained(
+-                model,
+-                revision=revision,
+-                code_revision=code_revision,
+-                trust_remote_code=trust_remote_code,
+-                **kwargs,
++            config = with_retry(
++                partial(
++                    config_class.from_pretrained,
++                    model,
++                    revision=revision,
++                    code_revision=code_revision,
++                    trust_remote_code=trust_remote_code,
++                    **kwargs,
++                ),
++                f"Error loading configuration class for {model}",
++                max_retries=3,
++                retry_delay=1,
+             )
+         else:
+             if model_type in _CONFIG_REGISTRY:
+@@ -308,12 +320,18 @@ class HFConfigParser(ConfigParserBase):
+                 trust_remote_code = False
+             try:
+                 kwargs = _maybe_update_auto_config_kwargs(kwargs, model_type=model_type)
+-                config = AutoConfig.from_pretrained(
+-                    model,
+-                    trust_remote_code=trust_remote_code,
+-                    revision=revision,
+-                    code_revision=code_revision,
+-                    **kwargs,
++                config = with_retry(
++                    partial(
++                        AutoConfig.from_pretrained,
++                        model,
++                        trust_remote_code=trust_remote_code,
++                        revision=revision,
++                        code_revision=code_revision,
++                        **kwargs,
++                    ),
++                    f"Error constructing configuration for {model}",
++                    max_retries=3,
++                    retry_delay=1,
+                 )
+             except ValueError as e:
+                 if (

@@ -119,18 +119,21 @@ def main() -> int:
             )
             legacy_portable_read(root, DEFAULT_CASE)
         print(
-            {
-                "entrypoint": "FileSystemTierManager",
-                "runner_config_entrypoint": "build_offloading_config",
-                "cross_runner_misses": 2,
-                "same_runner_restart_hits": 2,
-                "independent_worker_processes": 8,
-                "portable_cross_parallel_loads": 4,
-                "layout_specific_parallel_misses": 1,
-                "legacy_portable_loads": 1,
-                "real_manager_restarts": True,
-                "multi_key_data_roundtrips": True,
-            },
+            "PERSISTENT_NAMESPACE_RESULT "
+            + repr(
+                {
+                    "entrypoint": "FileSystemTierManager",
+                    "runner_config_entrypoint": "build_offloading_config",
+                    "cross_runner_misses": 2,
+                    "same_runner_restart_hits": 2,
+                    "independent_worker_processes": 8,
+                    "portable_cross_parallel_loads": 4,
+                    "layout_specific_parallel_misses": 1,
+                    "legacy_portable_loads": 1,
+                    "real_manager_restarts": True,
+                    "multi_key_data_roundtrips": True,
+                }
+            ),
             flush=True,
         )
         return 0

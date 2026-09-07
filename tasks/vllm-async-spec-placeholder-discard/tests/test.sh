@@ -2,6 +2,8 @@
 set -uo pipefail
 mkdir -p /logs/verifier
 cd /workspace/vllm
+rm -f /logs/verifier/reward.txt /logs/verifier/reward.json \
+  /logs/verifier/junit.xml /logs/verifier/real_reset_lifecycle.summary.json
 pytest_rc=0
 integrity_rc=0
 e2e_rc=0
@@ -11,7 +13,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 600 \
     /tests/test_regression.py \
   || pytest_rc=$?
 python /tests/check_junit.py /logs/verifier/junit.xml || integrity_rc=$?
-timeout 120 python /tests/test_real_reset_lifecycle.py \
+timeout 150 python /tests/run_real_reset_lifecycle.py /logs/verifier \
   > /logs/verifier/real_reset_lifecycle.log 2>&1 || e2e_rc=$?
 cat /logs/verifier/real_reset_lifecycle.log
 if [ "$pytest_rc" -eq 0 ] && [ "$integrity_rc" -eq 0 ] \

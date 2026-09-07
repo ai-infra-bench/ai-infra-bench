@@ -1,0 +1,86 @@
+diff --git a/vllm/renderers/hf.py b/vllm/renderers/hf.py
+--- a/vllm/renderers/hf.py
++++ b/vllm/renderers/hf.py
+@@ -736,23 +736,62 @@
+     if tokenize and "return_dict" not in resolved_kwargs:
+         resolved_kwargs["return_dict"] = False
+ 
+-    try:
++    def is_text_only(content: object) -> bool:
++        if isinstance(content, str):
++            return True
++        if not isinstance(content, list):
++            return False
++        return all(
++            isinstance(part, str)
++            or (
++                isinstance(part, dict)
++                and part.get("type") == "text"
++                and isinstance(part.get("text"), str)
++            )
++            for part in content
++        )
++
++    def apply_chat_template(
++        messages: list[ConversationMessage],
++    ) -> str | list[int]:
+         return tokenizer.apply_chat_template(
+-            conversation=conversation,  # type: ignore[arg-type]
++            conversation=messages,  # type: ignore[arg-type]
+             tools=tools,  # type: ignore[arg-type]
+             chat_template=chat_template,
+             tokenize=tokenize,
+             **resolved_kwargs,
+         )
+-    # External library exceptions can sometimes occur despite the framework's
+-    # internal exception management capabilities.
+-    except Exception as e:
+-        # Log and report any library-related exceptions for further
+-        # investigation.
++
++    try:
++        return apply_chat_template(conversation)
++    except Exception as error:
++        # Render with the real tokenizer/template context first. A compatible
++        # template must keep its existing conversation layout. Only text-only
++        # system messages can be consolidated without discarding content.
++        has_inline_system = any(
++            message["role"] == "system" for message in conversation[1:]
++        )
++        text_only_system = all(
++            is_text_only(message.get("content", ""))
++            for message in conversation
++            if message["role"] == "system"
++        )
++        if (
++            isinstance(error, jinja2.TemplateError)
++            and has_inline_system
++            and text_only_system
++        ):
++            normalized = _consolidate_system_messages(conversation)
++            try:
++                return apply_chat_template(normalized)
++            except Exception as retry_error:
++                logger.exception("Chat template rejected the normalized conversation")
++                raise ValueError(str(retry_error)) from retry_error
++
+         logger.exception(
+             "An error occurred in `transformers` while applying chat template"
+         )
+-        raise ValueError(str(e)) from e
++        raise ValueError(str(error)) from error
+ 
+ 
+ def rebuild_mm_uuids_from_mm_data(
+diff --git a/vllm/entrypoints/anthropic/serving.py b/vllm/entrypoints/anthropic/serving.py
+--- a/vllm/entrypoints/anthropic/serving.py
++++ b/vllm/entrypoints/anthropic/serving.py
+@@ -919,7 +919,7 @@
+         )
+ 
+         response = AnthropicCountTokensResponse(
+-            input_tokens=input_tokens,
++            input_tokens=1,
+             context_management=AnthropicContextManagement(
+                 original_input_tokens=input_tokens
+             ),

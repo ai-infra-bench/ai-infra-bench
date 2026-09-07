@@ -2,4 +2,4 @@ I’m testing long-form audio with Cohere Transcribe, and the transcript looks f
 
 I’m seeing the same boundary issue with Qwen3 ASR in non-streaming transcription and translation. I need vLLM’s streaming and non-streaming speech responses to join clean per-chunk text consistently; with Cohere I can reproduce it in both modes, whether I leave the language unset or explicitly select English. I also tried Whisper, which looks fine. Longer transcripts contain several joined boundaries such as `"superstar.A founding"`, `"server.But I guess"`, and `"mode.Putting this on"`.
 
-Could you take a look? My guess is that a space is being lost when chunks from languages like English are joined. I wouldn’t expect the same behavior for languages such as Chinese or Japanese, since their text is not normally separated by spaces. Find out what’s causing this and fix it.
+Could you take a look? My guess is that a space is being lost when chunks from languages like English are joined. Do not add boundary spaces to Chinese or Japanese output, even when `language` is omitted. Find out what’s causing this and fix it.

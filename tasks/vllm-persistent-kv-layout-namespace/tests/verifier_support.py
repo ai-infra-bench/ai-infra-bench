@@ -6,7 +6,7 @@ import hashlib
 import json
 import mmap
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -32,13 +32,7 @@ from vllm.v1.kv_offload.base import (
     get_offload_group_idx,
     make_offload_key,
 )
-from vllm.v1.kv_offload.config import (
-    OffloadingCacheConfig,
-    OffloadingConfig,
-    OffloadingGroupConfig,
-    OffloadingModelConfig,
-    OffloadingParallelConfig,
-)
+from vllm.v1.kv_offload.config import OffloadingGroupConfig
 from vllm.v1.kv_offload.tiering.base import JobMetadata
 from vllm.v1.kv_offload.tiering.fs.manager import FileSystemTierManager
 
@@ -111,18 +105,26 @@ def make_spec(
         OffloadingGroupConfig(tokens_per_block=tokens, layer_names=layers)
         for tokens, layers in case.groups
     )
-    config = OffloadingConfig(
+    # Start from the candidate's real V1 config translation, then replace only
+    # stable public sub-config fields. This preserves candidate-added normalized
+    # fields instead of coupling the verifier to OffloadingConfig's old
+    # constructor signature.
+    config = make_layout_runner_spec(case, "v1").config
+    config = replace(
+        config,
         groups=groups,
         worker_kv_bytes_per_block=0,
         enable_kv_cache_events=False,
         extra_config={},
         engine_id="persistent-layout-verifier",
-        model=OffloadingModelConfig(name=case.model_name, dtype=case.dtype),
-        cache=OffloadingCacheConfig(
+        model=replace(config.model, name=case.model_name, dtype=case.dtype),
+        cache=replace(
+            config.cache,
             tokens_per_hash=case.tokens_per_hash,
             blocks_per_chunk=case.blocks_per_chunk,
         ),
-        parallel=OffloadingParallelConfig(
+        parallel=replace(
+            config.parallel,
             rank=rank,
             world_size=world_size,
             tp_size=tp_size,
@@ -136,17 +138,24 @@ def make_spec(
     return FixtureOffloadingSpec(config)
 
 
-def make_runner_spec(case: RunnerCase, runner: str) -> FixtureOffloadingSpec:
-    """Build the normalized offloading spec through vLLM's real config path."""
+def _build_runner_spec(
+    *,
+    model_name: str,
+    dtype: torch.dtype,
+    groups: tuple[tuple[int, tuple[str, ...]], ...],
+    blocks_per_chunk: int,
+    runner: str,
+) -> FixtureOffloadingSpec:
+    """Build a normalized offloading spec through vLLM's real config path."""
     if runner not in {"v1", "v2"}:
         raise ValueError(f"unsupported runner: {runner}")
 
     vllm_config = MagicMock()
-    vllm_config.cache_config.block_size = 16
+    vllm_config.cache_config.block_size = groups[0][0]
     vllm_config.cache_config.enable_prefix_caching = True
     vllm_config.cache_config.prefix_match_unit = None
-    vllm_config.cache_config.cache_dtype = case.dtype
-    vllm_config.model_config.model = case.model_name
+    vllm_config.cache_config.cache_dtype = dtype
+    vllm_config.model_config.model = model_name
     with patch.object(current_platform, "device_count", return_value=1):
         vllm_config.parallel_config = ParallelConfig(
             tensor_parallel_size=1,
@@ -159,25 +168,57 @@ def make_runner_spec(case: RunnerCase, runner: str) -> FixtureOffloadingSpec:
     vllm_config.kv_transfer_config = KVTransferConfig(
         kv_connector="OffloadingConnector",
         kv_role="kv_both",
-        kv_connector_extra_config={"spec_name": "TieringOffloadingSpec"},
+        kv_connector_extra_config={
+            "spec_name": "TieringOffloadingSpec",
+            "blocks_per_chunk": blocks_per_chunk,
+        },
     )
     kv_cache_config = KVCacheConfig(
         num_blocks=0,
         kv_cache_tensors=[],
         kv_cache_groups=[
             KVCacheGroupSpec(
-                ["layer0", "layer1"],
+                list(layer_names),
                 FullAttentionSpec(
-                    block_size=16,
+                    block_size=tokens_per_block,
                     num_kv_heads=12,
                     head_size=64,
-                    dtype=case.dtype,
+                    dtype=dtype,
+                    # The tested HND backend supplies this before config
+                    # translation. V1 uses it for packed cross-layer blocks;
+                    # V2 remains layerwise regardless.
+                    indexes_kv_by_block_stride=True,
                 ),
             )
+            for tokens_per_block, layer_names in groups
         ],
     )
     return FixtureOffloadingSpec(
         build_offloading_config(vllm_config, kv_cache_config)
+    )
+
+
+def make_runner_spec(case: RunnerCase, runner: str) -> FixtureOffloadingSpec:
+    """Build the public/hidden runner cases through the real config path."""
+    return _build_runner_spec(
+        model_name=case.model_name,
+        dtype=case.dtype,
+        groups=((16, ("layer0", "layer1")),),
+        blocks_per_chunk=1,
+        runner=runner,
+    )
+
+
+def make_layout_runner_spec(
+    case: LayoutCase, runner: str
+) -> FixtureOffloadingSpec:
+    """Build varied layout cases through the same real config boundary."""
+    return _build_runner_spec(
+        model_name=case.model_name,
+        dtype=getattr(torch, case.dtype),
+        groups=case.groups,
+        blocks_per_chunk=case.blocks_per_chunk,
+        runner=runner,
     )
 
 
@@ -367,12 +408,16 @@ def same_runner_restart_lifecycle(
 def incompatible_layout_lifecycle(root: str, case: LayoutCase):
     keys = [key(11), key(12), key(13)]
     portable_tensor = aligned_tensor(6)
-    portable = tier(root, portable_tensor, make_spec(case, portable=True))
+    portable = tier(
+        root, portable_tensor, make_layout_runner_spec(case, "v1")
+    )
     write_blocks(portable, portable_tensor, keys, [11, 12, 13])
     portable.shutdown()
 
     specific_tensor = aligned_tensor(6)
-    specific = tier(root, specific_tensor, make_spec(case, portable=False))
+    specific = tier(
+        root, specific_tensor, make_layout_runner_spec(case, "v2")
+    )
     try:
         assert lookup(specific, keys) == [LookupResult.MISS] * len(keys)
         write_blocks(specific, specific_tensor, keys, [21, 22, 23], job_id=10)
@@ -380,7 +425,9 @@ def incompatible_layout_lifecycle(root: str, case: LayoutCase):
         specific.shutdown()
 
     reopened_tensor = aligned_tensor(6)
-    reopened = tier(root, reopened_tensor, make_spec(case, portable=False))
+    reopened = tier(
+        root, reopened_tensor, make_layout_runner_spec(case, "v2")
+    )
     try:
         assert lookup(reopened, keys) == [LookupResult.HIT] * len(keys)
         load_blocks(reopened, reopened_tensor, keys, [3, 4, 5], job_id=11)

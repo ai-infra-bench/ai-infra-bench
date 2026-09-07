@@ -1,0 +1,65 @@
+diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/offloading/config.py b/vllm/distributed/kv_transfer/kv_connector/v1/offloading/config.py
+index b807b480f..06a7f6b7f 100644
+--- a/vllm/distributed/kv_transfer/kv_connector/v1/offloading/config.py
++++ b/vllm/distributed/kv_transfer/kv_connector/v1/offloading/config.py
+@@ -133,6 +133,9 @@ def build_offloading_config(
+         cache=OffloadingCacheConfig(
+             tokens_per_hash=tokens_per_hash,
+             blocks_per_chunk=blocks_per_chunk,
++            # Keep the legacy identifier for V1 so its existing persistent
++            # caches remain reusable. V2 uses a different serialized layout.
++            cache_format=("vllm_v2" if vllm_config.use_v2_model_runner else "vllm"),
+         ),
+         parallel=OffloadingParallelConfig(
+             rank=parallel_config.rank,
+diff --git a/vllm/v1/kv_offload/config.py b/vllm/v1/kv_offload/config.py
+index cd7b3ee20..2a330c16a 100644
+--- a/vllm/v1/kv_offload/config.py
++++ b/vllm/v1/kv_offload/config.py
+@@ -30,6 +30,9 @@ class OffloadingCacheConfig:
+     tokens_per_hash: int
+     # Blocks coalesced into one offload chunk.
+     blocks_per_chunk: int
++    # Identifier for the serialized KV cache format. Different identifiers
++    # cannot safely share cached block bytes.
++    cache_format: str = "vllm"
+ 
+ 
+ @dataclass(frozen=True)
+diff --git a/vllm/v1/kv_offload/file_mapper.py b/vllm/v1/kv_offload/file_mapper.py
+index b85d4d069..4412d3f01 100644
+--- a/vllm/v1/kv_offload/file_mapper.py
++++ b/vllm/v1/kv_offload/file_mapper.py
+@@ -34,6 +34,7 @@ class FileMapper:
+         dtype: str,
+         kv_cache_groups: list[dict] | None = None,
+         inference_engine: str = "vllm",
++        cache_format: str = "vllm",
+         parallel_agnostic: bool = False,
+     ):
+         """
+@@ -41,6 +42,8 @@ class FileMapper:
+         `config.json` is shared across workers since rank lives outside the hash.
+         When `parallel_agnostic=True`, tp/pp/pcp/dcp are forced to 1 and rank
+         to 0 so multiple parallelism layouts collapse into the same folder.
++        The legacy `vllm` cache format is omitted from the fields to preserve
++        existing V1 cache paths.
+         """
+         if parallel_agnostic:
+             tp_size = pp_size = pcp_size = dcp_size = 1
+@@ -58,6 +61,8 @@ class FileMapper:
+             "kv_cache_groups": kv_cache_groups or [],
+             "inference_engine": inference_engine,
+         }
++        if cache_format != "vllm":
++            self.fields["cache_format"] = cache_format
+         self.base_path: str = self._compute_base_path(root_dir, self.fields)
+ 
+     @classmethod
+@@ -90,5 +95,6 @@ class FileMapper:
+             rank=parallel.rank,
+             dtype=config.model.dtype,
+             kv_cache_groups=kv_cache_groups,
++            cache_format=config.cache.cache_format,
+             parallel_agnostic=(parallel_agnostic and parallel.is_parallelism_agnostic),
+         )

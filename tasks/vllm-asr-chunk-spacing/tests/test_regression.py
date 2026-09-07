@@ -1,6 +1,11 @@
 import pytest
 
-from speech_harness import StubQwen3Model, run_public_speech_request
+from case_contract import ADDITIONAL_CASES
+from speech_harness import (
+    StubQwen3Model,
+    StubTranscriptionModel,
+    run_public_speech_request,
+)
 
 
 @pytest.mark.asyncio
@@ -206,3 +211,22 @@ async def test_empty_model_delta_does_not_consume_chunk_boundary(stream):
     )
 
     assert result.text == "hello world"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ADDITIONAL_CASES, ids=lambda case: case["id"])
+async def test_additional_chunk_boundaries(case):
+    result = await run_public_speech_request(
+        case["api"],
+        case["stream"],
+        case["language"],
+        case["chunks"],
+        to_language=case["to_language"],
+        model_cls=StubQwen3Model if case["structured"] else StubTranscriptionModel,
+    )
+    assert result.text == case["expected"]
+    assert result.engine_calls == result.prompt_count == len(case["chunks"])
+    if case["stream"]:
+        assert result.done is True
+        assert result.sse_objects
+        assert all(item["object"] == case["api"] + ".chunk" for item in result.sse_objects)
