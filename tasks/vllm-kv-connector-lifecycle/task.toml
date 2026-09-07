@@ -1,0 +1,46 @@
+schema_version = "1.4"
+artifacts = ["/workspace/repo/vllm"]
+
+[task]
+name = "ai-infra-bench/vllm-kv-connector-lifecycle"
+version = "1.0.0"
+description = "Remove legacy two-argument external KV connector construction without breaking current consumers."
+authors = [{ name = "AI Infra Bench Curators" }]
+keywords = ["vllm", "kv-connector", "api-compatibility", "error-boundary"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+track = "representative"
+source_ids = ["vllm__pr__39832"]
+repository = "vllm-project/vllm"
+base_commit = "f80aa53c9dc2273a19a6855092069db7e1306fff"
+image_digest = "sha256:84f225327cc8aa1d92ec5c2cd77d22d12f489bac3f26c93cdb67fe293ffe663d"
+oracle_commit = "825c3600113fae323da7a1520dcd9e276818904c"
+workload_type = "refactor"
+subsystems = ["kv_transfer", "connector_api", "configuration"]
+dependency_cutoff = "2026-05-09T21:46:52Z"
+environment_template = "vllm-cutoff-pinned"
+publication_state = "validated"
+difficulty = "medium"
+grader_kind = "correctness"
+
+[agent]
+timeout_sec = 36000
+user = "agent"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 900.0
+environment_mode = "separate"
+user = "root"
+network_mode = "no-network"
+
+[environment]
+docker_image = "ai-infra-bench/vllm-kv-connector-lifecycle:base-f80aa53c9dc2"
+network_mode = "no-network"
+build_timeout_sec = 14400.0
+accelerator = "CPU"
+cpus = 4
+memory_mb = 16384
+storage_mb = 49152
+workdir = "/workspace/repo"
