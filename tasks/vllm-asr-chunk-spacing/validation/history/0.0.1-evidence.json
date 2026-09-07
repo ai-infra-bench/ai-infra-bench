@@ -1,0 +1,159 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-08-31T18:45:57+08:00",
+  "source": {
+    "candidate_id": "vllm-cpu-300-115",
+    "instance_id": "vllm-project__vllm-39116",
+    "base_commit": "a8134aef4e0cac7ffb72b24d89378df09d88f9cc",
+    "pull_request": "https://github.com/vllm-project/vllm/pull/39116",
+    "directly_linked_issue": null,
+    "reported_origin": "Cohere and Qwen3 multi-chunk ASR concatenated adjacent words; Whisper's existing leading whitespace masked the defect.",
+    "review_history": "PR review added translation coverage and prevented a leading separator on the first audio chunk; the task also preserves already-correct model-provided boundary whitespace."
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-asr-chunk-spacing:base-a8134aef4e0c",
+    "image_id": "sha256:974f0d0e0ca23876af00c5061163352f354ad3707843cf85bd76bc0ee190f055",
+    "size_bytes": 1642407174,
+    "dockerfile_sha256": "247f0c8ea9caf46c9b8ee676aeebaac7f2fd5e65f5ecae791b75c2be685c803e",
+    "dependency_lock_sha256": "abfdf8e934f21c4abcc43fb8f55cd165f9b25e6dee9ae5240914a132f1b14f56",
+    "dependency_lock_manifest_sha256": "ce23024255351f165925e73f219263f4bd5fddddbb589a5ef544c0a34bbfbed1",
+    "real_audio_dependency": "soundfile==0.13.1",
+    "cutoff_overrides": [
+      "torch",
+      "torchaudio",
+      "torchvision"
+    ]
+  },
+  "artifacts": {
+    "instruction_sha256": "ebdcdd226cac3dba03c0a7b3813db33b16e59db32c0935a716a1ff6c477f3359",
+    "oracle_patch_sha256": "dadcf2eb85f7a15900d850a39227326d0ad20713d0d271de0ba335d6587dab7d",
+    "solve_script_sha256": "9afc441fbaba95bf7e011ee70654c625ae3e13f1e15064b6555ab117f8739fe1",
+    "test_script_sha256": "827782fa2889143e098b2a676b53ab8208dc13e0b39b2051d4e0514ecd170df8",
+    "regression_test_sha256": "a9f81b9d28304b4a8d28d765381b5500b8169e5fc59c081362e9f38f7743a203",
+    "junit_checker_sha256": "b2862ee29326bcb627da6bd4a88a9eb34134d3988ae94960692be1138a7174d8",
+    "speech_harness_sha256": "520b235fdc37b6cd7f8b5927e259e12f4c1b3a5dcac884ec7b9b037a397b7239",
+    "real_pipeline_test_sha256": "21493198d2109dacd5575df5ef867d9d4b8bca6f5d9021f8b60abe0a6f9c4a61"
+  },
+  "verifier_contract": {
+    "asserts_private_implementation_structure": false,
+    "behavior_cases": 22,
+    "behaviors": [
+      "public streaming and non-streaming transcription preserve word boundaries",
+      "public streaming and non-streaming translation use the output language's spacing convention",
+      "English, punctuation, and unspecified-language boundaries receive one separator",
+      "Chinese and Japanese output remains unspaced",
+      "model-provided leading or trailing whitespace is not duplicated",
+      "multiple model deltas within one audio chunk do not receive inter-chunk separators",
+      "empty deltas do not consume a later real audio-chunk boundary",
+      "single-chunk responses have no leading separator and SSE framing remains valid"
+    ],
+    "public_boundary": "The verifier calls create_transcription/create_translation and asserts response JSON or SSE. It never imports the Oracle helper, passes an Oracle-added parameter, or reads private merge state.",
+    "collection_integrity": "JUnit must contain exactly 22 unique, passing, non-skipped cases"
+  },
+  "real_lifecycle_boundary": {
+    "kind": "real WAV decode, vLLM audio splitting, prompt rendering, public speech serving, and SSE/JSON response lifecycle",
+    "entrypoints": [
+      "OpenAIServingTranscription.create_transcription",
+      "OpenAIServingTranslation.create_translation"
+    ],
+    "real_wav_decode_and_split": true,
+    "audio_chunk_counts": [
+      3,
+      2,
+      2
+    ],
+    "streaming_transcription": "A founding member of OpenAI joined the server",
+    "nonstreaming_translation": "The service is healthy",
+    "streaming_chinese_translation": "你好世界",
+    "model_outputs_simulated": true,
+    "limitation": "Model weights are not included. Deterministic RequestOutput streams replace model decoding, while real WAV decoding, chunk creation, public serving methods, response schemas, and SSE framing execute unchanged."
+  },
+  "repeated_runs": [
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "behavior_tests_each_round": {"passed": 12, "failed": 10},
+      "e2e_exit_codes": [1, 1, 1, 1, 1]
+    },
+    {
+      "case": "oracle",
+      "rounds": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "behavior_tests_each_round": {"passed": 22, "failed": 0},
+      "e2e_exit_codes": [0, 0, 0, 0, 0]
+    }
+  ],
+  "adversarial_runs": [
+    {
+      "case": "always_insert_space",
+      "patch_sha256": "1fa13bea63cf8cb5c79949d080aa90ac7a87aa7238b8bc54ac6c47f0b4cf0891",
+      "reward": 0,
+      "tests_passed": 18,
+      "tests_failed": 4,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "duplicate_existing_boundary_whitespace",
+      "patch_sha256": "0113d70cd6f556b01699eac0de252c695d10ef42360989e0b24d951fab4c5ff6",
+      "reward": 0,
+      "tests_passed": 16,
+      "tests_failed": 6,
+      "e2e_exit_code": 0
+    },
+    {
+      "case": "nonstreaming_still_concatenates",
+      "patch_sha256": "bee65654550fd639a4e3aa559aaf08caef1d3303e48e07cea1b643c152d06ec3",
+      "reward": 0,
+      "tests_passed": 18,
+      "tests_failed": 4,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "translation_uses_source_language",
+      "patch_sha256": "fa1bf5b22fee1a1bbfc878f21f9e71ec86f02a91a678948acae0159f1a1a4572",
+      "reward": 0,
+      "tests_passed": 18,
+      "tests_failed": 4,
+      "e2e_exit_code": 1
+    }
+  ],
+  "alternative_implementation_runs": [
+    {
+      "case": "renamed_internal_helpers",
+      "patch_sha256": "027ef0a9dee6bcccbb45f053f5cbb627ba974d2d23184a0361605ec55835b2c7",
+      "reward": 1,
+      "tests_passed": 22,
+      "tests_failed": 0,
+      "e2e_exit_code": 0
+    }
+  ],
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "4568a0f0-eecd-4656-b1e9-befc0568d433",
+    "trial_id": "ff5a219e-bd56-4d7d-87e5-4d8c7b8d0df7",
+    "input_task_checksum": "63ed5e9ebc90116199239a459305c7ff1c0ad4e342619ac8af7048e06c8384ca",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "command_exit_code": 0,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "e2e_exit_code": 0,
+    "runtime_seconds": 30,
+    "canonical_image_retained_after_run": true
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "future_reference_commit_absent": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_and_tests_absent_from_image": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "cached_rebuild_digest_stable": true,
+    "runtime_network_disabled": true
+  }
+}

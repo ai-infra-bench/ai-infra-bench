@@ -72,6 +72,10 @@ class StubTranscriptionModel(SupportsTranscription):
 
 class StubQwen3Model(StubTranscriptionModel):
     @classmethod
+    def validate_language(cls, language):
+        return Qwen3ASRForConditionalGeneration.validate_language(language)
+
+    @classmethod
     def post_process_output(cls, text):
         return Qwen3ASRForConditionalGeneration.post_process_output(text)
 

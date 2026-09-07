@@ -1,46 +1,63 @@
 diff --git a/vllm/entrypoints/openai/speech_to_text/speech_to_text.py b/vllm/entrypoints/openai/speech_to_text/speech_to_text.py
-index e0a3cf0..3ae60f6 100644
 --- a/vllm/entrypoints/openai/speech_to_text/speech_to_text.py
 +++ b/vllm/entrypoints/openai/speech_to_text/speech_to_text.py
-@@ -486,13 +486,56 @@ class OpenAISpeechToText(OpenAIServing):
-
+@@ -3,6 +3,7 @@
+ import asyncio
+ import io
+ import math
++import re
+ import time
+ import zlib
+ from collections.abc import AsyncGenerator, Callable
+@@ -486,13 +487,66 @@
+ 
              list_result_generator.append(generator)
-
-+        output_language = request.language
-+        if self.task_type == "translate":
-+            output_language = request.to_language or "en"
-+        separator = (
-+            ""
-+            if output_language
-+            and output_language.lower()
-+            in getattr(self.model_cls, "no_space_languages", {"ja", "zh"})
-+            else " "
+ 
++        output_language = (
++            request.to_language or "en"
++            if self.task_type == "translate"
++            else request.language
 +        )
++        no_space = {"zh", "ja", "th", "km", "lo", "my"}
++
++        def needs_space(previous: str, current: str) -> bool:
++            if not previous or not current:
++                return False
++            if previous[-1].isspace() or current[0].isspace():
++                return False
++            if output_language in no_space:
++                return False
++            if output_language is None and re.search(
++                r"[\u2e80-\u2fff\u3040-\u30ff\u31f0-\u31ff"
++                r"\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff"
++                r"\uff66-\uff9f\U00020000-\U000323af]",
++                previous + current[0],
++            ):
++                return False
++            return True
 +
          if request.stream:
-+            emitted_text = False
-+            previous_ends_in_space = False
++            previous_chunk = ""
 +
 +            async def add_chunk_boundary(
 +                result_generator: AsyncGenerator[RequestOutput, None],
 +            ) -> AsyncGenerator[RequestOutput, None]:
-+                nonlocal emitted_text, previous_ends_in_space
++                nonlocal previous_chunk
 +                at_chunk_start = True
++                original_parts: list[str] = []
 +                async for result in result_generator:
 +                    output = result.outputs[0]
-+                    if output.text:
-+                        if (
-+                            at_chunk_start
-+                            and emitted_text
-+                            and separator
-+                            and not previous_ends_in_space
-+                            and not output.text[0].isspace()
++                    original_text = output.text
++                    if original_text:
++                        if at_chunk_start and needs_space(
++                            previous_chunk, original_text
 +                        ):
-+                            output.text = separator + output.text
++                            output.text = " " + original_text
 +                        at_chunk_start = False
-+                        emitted_text = True
-+                        previous_ends_in_space = output.text[-1].isspace()
++                        original_parts.append(original_text)
 +                    yield result
++                if original_parts:
++                    previous_chunk = "".join(original_parts)
 +
 +            separated_generators = [
 +                add_chunk_boundary(result_generator)
@@ -61,7 +78,7 @@ index e0a3cf0..3ae60f6 100644
          try:
              assert list_result_generator is not None
              segments_types: dict[str, type[SpeechToTextSegment]] = {
-@@ -507,6 +550,7 @@ class OpenAISpeechToText(OpenAIServing):
+@@ -507,6 +561,7 @@
                      "`max_audio_clip_s` is set to None, audio cannot be chunked"
                  )
              for idx, result_generator in enumerate(list_result_generator):
@@ -69,9 +86,9 @@ index e0a3cf0..3ae60f6 100644
                  start_time = (
                      float(idx * chunk_size_in_s) if chunk_size_in_s is not None else 0.0
                  )
-@@ -524,11 +568,25 @@ class OpenAISpeechToText(OpenAIServing):
+@@ -524,11 +579,24 @@
                          )
-
+ 
                          total_segments.extend(segments)
 -                        text_parts.extend([seg.text for seg in segments])
 +                        chunk_text_parts.extend(seg.text for seg in segments)
@@ -84,17 +101,16 @@ index e0a3cf0..3ae60f6 100644
 +                        )
 +                chunk_texts.append("".join(chunk_text_parts))
 +
++            previous_chunk = ""
++            joined: list[str] = []
 +            for chunk_text in chunk_texts:
 +                if not chunk_text:
 +                    continue
-+                if (
-+                    text
-+                    and separator
-+                    and not text[-1].isspace()
-+                    and not chunk_text[0].isspace()
-+                ):
-+                    text += separator
-+                text += chunk_text
++                if needs_space(previous_chunk, chunk_text):
++                    joined.append(" ")
++                joined.append(chunk_text)
++                previous_chunk = chunk_text
++            text = "".join(joined)
              if self.task_type == "transcribe":
                  final_response: ResponseType
                  # add usage in TranscriptionResponse.

@@ -36,7 +36,7 @@ diff --git a/vllm/entrypoints/openai/speech_to_text/speech_to_text.py b/vllm/ent
 +    def _join_text_chunks(text_chunks: list[str], separator: str | None) -> str:
 +        parts: list[str] = []
 +        previous = ""
-+        for chunk in text_chunks:
++        for chunk in text_chunks[1:]:
 +            if not chunk:
 +                continue
 +            parts.append(OpenAISpeechToText._get_text_chunk_prefix(
@@ -69,7 +69,7 @@ diff --git a/vllm/entrypoints/openai/speech_to_text/speech_to_text.py b/vllm/ent
 +                for char in previous_text + chunk[0]
 +            )
 +            return "" if unspaced else " "
-+        return " "
++        return separator
  
      def _get_verbose_segments(
          self,
