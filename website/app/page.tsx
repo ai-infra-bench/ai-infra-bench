@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Image from 'next/image';
+import { HomeLeaderboard } from '@/app/components/home-leaderboard';
 import { SiteHeader } from '@/app/components/site-header';
 import { TaskExplorer } from '@/app/components/task-explorer';
 import { withBasePath } from '@/app/lib/base-path';
@@ -42,8 +43,13 @@ export default function Home() {
           />
         </div>
         <p>How much real AI infrastructure engineering work can frontier models solve?</p>
-        <a href="#tasks">Browse tasks</a>
+        <div className="hero-actions">
+          <a href="#leaderboard">Leaderboard</a>
+          <a href="#tasks">Browse tasks</a>
+        </div>
       </section>
+
+      <HomeLeaderboard />
 
       <TaskExplorer tasks={taskSummaries} />
 

@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.discover.outputs.matrix }}
+      website_changed: ${{ steps.discover.outputs.website_changed }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -38,7 +39,11 @@ jobs:
           REQUESTED_TASKS: ${{ inputs.tasks }}
         run: |
           set -euo pipefail
+          website_changed=false
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            if [[ -n "$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- website/ tasks/ .github/workflows/task-validation.yml)" ]]; then
+              website_changed=true
+            fi
             matrix="$(
               python3 .github/scripts/task_ci.py discover \
                 --mode pr \
@@ -54,6 +59,44 @@ jobs:
           fi
           printf 'Selected matrix: %s\n' "$matrix"
           printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+          printf 'website_changed=%s\n' "$website_changed" >> "$GITHUB_OUTPUT"
+
+  website:
+    name: Website validation
+    needs: discover
+    if: needs.discover.outputs.website_changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: website
+    env:
+      GITHUB_PAGES: 'true'
+      GITHUB_PAGES_BASE_PATH: ''
+      NEXT_PUBLIC_SITE_URL: https://ai-infra-bench.github.io
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install website dependencies
+        run: npm ci
+
+      - name: Validate website and leaderboard statistics
+        run: |
+          npm run generate:tasks
+          npm run test:leaderboard
+          npx tsc --noEmit --incremental false
+          npm run lint
+
+      - name: Build GitHub Pages site
+        run: npm run build:pages
 
   validate:
     needs: discover
@@ -116,6 +159,7 @@ jobs:
     needs:
       - discover
       - validate
+      - website
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -123,7 +167,9 @@ jobs:
         env:
           DISCOVER_RESULT: ${{ needs.discover.result }}
           VALIDATE_RESULT: ${{ needs.validate.result }}
+          WEBSITE_RESULT: ${{ needs.website.result }}
         run: |
           set -euo pipefail
           [[ "$DISCOVER_RESULT" == "success" ]]
           [[ "$VALIDATE_RESULT" == "success" || "$VALIDATE_RESULT" == "skipped" ]]
+          [[ "$WEBSITE_RESULT" == "success" || "$WEBSITE_RESULT" == "skipped" ]]
