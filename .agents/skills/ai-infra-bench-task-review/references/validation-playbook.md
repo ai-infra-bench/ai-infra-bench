@@ -18,7 +18,9 @@ evidence discipline.
 
 Map every approved finding to its artifact change. Before editing behavior,
 confirm the task name, repository, directory layout, resources, accelerator,
-topology, network policy, and `[agent].timeout_sec = 36000`.
+topology, network policy, and configured agent timeout. If the timeout is less
+than 10 hours, record a non-blocking warning rather than changing or rejecting
+the task solely for that reason.
 
 ## 2. Fix the gates in order
 
@@ -179,5 +181,6 @@ Before an authorized commit or PR:
   commit, branch, and PR state.
 
 The task is complete only when all three gates pass, no blocker remains, the
-10-hour budget and repository contract pass, Base/Oracle/controls behave as
-expected, final Harbor succeeds, and evidence matches the executable artifacts.
+repository contract passes, Base/Oracle/controls behave as expected, final
+Harbor succeeds, and evidence matches the executable artifacts. A configured
+agent timeout below 10 hours remains a reported non-blocking warning.
