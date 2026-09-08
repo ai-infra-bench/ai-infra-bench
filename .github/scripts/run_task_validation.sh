@@ -16,6 +16,21 @@ test -f "$task_dir/task.toml"
 python3 .github/scripts/task_ci.py validate "$TASK_NAME"
 python3 .github/scripts/task_ci.py hardware-check --task "$TASK_NAME"
 
+gpu_count="$(python3 - "$task_dir/task.toml" <<'PY'
+import sys, tomllib
+with open(sys.argv[1], "rb") as stream:
+    print(tomllib.load(stream)["environment"].get("gpus", 0) or 0)
+PY
+)"
+harbor_command=(harbor)
+harbor_environment=docker
+if (( gpu_count > 0 )); then
+  : "${AI_INFRA_GPU_POOL_CONFIG:?GPU runners require a host-managed pool configuration}"
+  harbor_command=(python3 "$repo_root/.github/scripts/gpu_pool.py" --count "$gpu_count" -- harbor)
+  harbor_environment=ci_gpu_docker:LeasedGpuDockerEnvironment
+  export PYTHONPATH="$repo_root/.github/scripts${PYTHONPATH:+:$PYTHONPATH}"
+fi
+
 environment_key="$(
   python3 .github/scripts/task_ci.py env-key \
     --task "$TASK_NAME" \
@@ -32,6 +47,10 @@ else
   test -f "$task_dir/environment/Dockerfile"
   docker buildx build \
     --load \
+    --network "${AI_INFRA_BUILD_NETWORK:-default}" \
+    --build-arg HTTP_PROXY --build-arg HTTPS_PROXY \
+    --build-arg http_proxy --build-arg https_proxy \
+    --build-arg NO_PROXY --build-arg no_proxy \
     --progress=plain \
     --tag "$image_ref" \
     --file "$task_dir/environment/Dockerfile" \
@@ -72,10 +91,10 @@ while IFS= read -r case_json; do
   printf 'Running %s with agent=%s expected_reward=%s\n' \
     "$job_name" "$agent" "$expected_reward"
 
-  harbor run \
+  "${harbor_command[@]}" run \
     --path "$case_dir" \
     --agent "$agent" \
-    --env docker \
+    --env "$harbor_environment" \
     --jobs-dir "$HARBOR_JOBS_DIR/$TASK_NAME" \
     --job-name "$job_name" \
     --n-concurrent 1 \

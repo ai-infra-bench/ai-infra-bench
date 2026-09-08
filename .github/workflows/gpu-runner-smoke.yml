@@ -1,0 +1,45 @@
+name: GPU runner smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Existing local image with Linux, Python, CUDA and PyTorch
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpu-runner-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: [self-hosted, linux, x64, gpu, a100, harbor]
+    environment: manual-task-validation
+    timeout-minutes: 30
+    env:
+      SMOKE_IMAGE: ${{ inputs.image }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check prepared host
+        run: |
+          python -m pip show harbor
+          docker compose version
+          docker buildx version
+          docker image inspect "$SMOKE_IMAGE" > /dev/null
+          test -f "$AI_INFRA_GPU_POOL_CONFIG"
+      - name: Verify single-card concurrency and multi-card allocation
+        run: |
+          python .github/scripts/tests/smoke_gpu.py --image "$SMOKE_IMAGE" --counts 1,1,1,1 --parallel --output "$RUNNER_TEMP/gpu-smoke-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/single"
+          python .github/scripts/tests/smoke_gpu.py --image "$SMOKE_IMAGE" --counts 2,2 --parallel --output "$RUNNER_TEMP/gpu-smoke-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/double"
+          python .github/scripts/tests/smoke_gpu.py --image "$SMOKE_IMAGE" --counts 4 --output "$RUNNER_TEMP/gpu-smoke-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/four"
+      - name: Upload infrastructure evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gpu-runner-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gpu-smoke-${{ github.run_id }}-${{ github.run_attempt }}/
+          retention-days: 14
