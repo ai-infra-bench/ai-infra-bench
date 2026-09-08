@@ -9,6 +9,7 @@ export function SiteHeader() {
         </span>
       </a>
       <nav aria-label="Primary navigation">
+        <a href={withRouteBasePath('/#leaderboard')}>Leaderboard</a>
         <a href={withRouteBasePath('/#tasks')}>Tasks</a>
         <a href="https://github.com/ai-infra-bench/ai-infra-bench">GitHub</a>
       </nav>
