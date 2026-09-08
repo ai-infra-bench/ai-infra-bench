@@ -81,8 +81,10 @@ when candidate code can terminate a process participating in verification.
 
 ## Fixed project rules
 
-- Every task has a 10-hour agent budget:
-  `[agent].timeout_sec = 36000`.
+- Do not require one fixed agent budget. When `[agent].timeout_sec` is less
+  than 10 hours (`36000` seconds), report a warning that the task may not give
+  solvers enough time. This warning is non-blocking; budgets of 10 hours or
+  longer are allowed.
 - Cutoff applies to the target repository and history, models, tokenizers, data
   resources, external protocols, and runtime dependencies whose behavior
   affects the task. General benchmark infrastructure such as the base image,

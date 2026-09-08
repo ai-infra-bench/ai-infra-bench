@@ -48,16 +48,19 @@ Check repository conventions and every relevant `task.toml` field.
 - The description is non-empty and suitable as publication metadata.
 - `base_commit` is a full immutable SHA and agrees with Docker, lock, image,
   and evidence records.
-- `[agent].timeout_sec` is exactly `36000`.
+- `[agent].timeout_sec` is recorded and consistent with the intended run. If
+  it is less than `36000`, report a non-blocking warning that the task may not
+  give solvers enough time. Do not require an exact timeout or warn for longer
+  budgets.
 - Workdir, network policy, CPU, memory, storage, build timeout, and verifier
   timeout are sufficient and internally consistent.
 - CPU tasks request no GPUs or topology. GPU tasks use a supported topology and
   identify the actual accelerator.
 
 Run the repository validator for repository-enforced constraints. Independently
-enforce the 10-hour review policy even when the current repository validator
-does not check it. The skill may add semantic findings that a schema validator
-cannot detect.
+warn when the agent budget is shorter than 10 hours even when the current
+repository validator does not check it. This warning does not block approval.
+The skill may add semantic findings that a schema validator cannot detect.
 
 ## 3. Gate 1: Task-statement authenticity
 
