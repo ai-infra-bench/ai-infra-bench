@@ -363,16 +363,120 @@ def command_prepare_case(args: argparse.Namespace) -> None:
 
 
 def result_reward(result_path: Path) -> tuple[int, int, list[float]]:
+    """Parse Harbor result.json and extract trial counts + per-trial rewards.
+
+    Harbor 0.22.0+ schema (preferred):
+        stats.evals[*].reward_stats.reward: dict[str, list[str]]
+            reward value -> trial ID list mapping
+
+    Legacy schema (fallback, only if reward_stats completely absent):
+        stats.evals[*].metrics[*].reward: float (single reward per eval)
+
+    Fail-closed on any structural anomaly, non-numeric reward, duplicate trial
+    ID, or mismatch between reward_stats trial count and n_completed_trials.
+    """
     result = json.loads(result_path.read_text())
     stats = result.get("stats", {})
+
     completed = stats.get("n_completed_trials")
     errored = stats.get("n_errored_trials")
-    rewards = [
-        metric["reward"]
-        for evaluation in stats.get("evals", {}).values()
-        for metric in evaluation.get("metrics", [])
-        if "reward" in metric
-    ]
+    if not isinstance(completed, int) or not isinstance(errored, int):
+        raise ContractError(
+            f"result_reward: n_completed_trials={completed!r} or "
+            f"n_errored_trials={errored!r} is not an integer"
+        )
+
+    evals = stats.get("evals", {})
+    if not isinstance(evals, dict):
+        raise ContractError(f"result_reward: stats.evals is not a dict: {type(evals)}")
+
+    has_reward_stats = any(
+        isinstance(ev, dict) and isinstance(ev.get("reward_stats"), dict)
+        for ev in evals.values()
+    )
+
+    rewards: list[float] = []
+    seen_trial_ids: set[str] = set()
+
+    if has_reward_stats:
+        for eval_name, evaluation in evals.items():
+            if not isinstance(evaluation, dict):
+                raise ContractError(
+                    f"result_reward: evals[{eval_name!r}] is not a dict: "
+                    f"{type(evaluation)}"
+                )
+            reward_stats = evaluation.get("reward_stats")
+            if not isinstance(reward_stats, dict):
+                raise ContractError(
+                    f"result_reward: evals[{eval_name!r}].reward_stats is not a "
+                    f"dict: {type(reward_stats)}"
+                )
+            reward_map = reward_stats.get("reward")
+            if not isinstance(reward_map, dict):
+                raise ContractError(
+                    f"result_reward: evals[{eval_name!r}].reward_stats.reward is "
+                    f"not a dict: {type(reward_map)}"
+                )
+            for reward_str, trial_ids in reward_map.items():
+                try:
+                    reward_value = float(reward_str)
+                except (ValueError, TypeError) as exc:
+                    raise ContractError(
+                        f"result_reward: evals[{eval_name!r}].reward_stats.reward "
+                        f"key {reward_str!r} is not a valid float: {exc}"
+                    )
+                if not isinstance(trial_ids, list):
+                    raise ContractError(
+                        f"result_reward: evals[{eval_name!r}].reward_stats."
+                        f"reward[{reward_str!r}] is not a list: {type(trial_ids)}"
+                    )
+                for trial_id in trial_ids:
+                    if not isinstance(trial_id, str):
+                        raise ContractError(
+                            f"result_reward: trial ID {trial_id!r} in "
+                            f"evals[{eval_name!r}].reward_stats.reward"
+                            f"[{reward_str!r}] is not a string"
+                        )
+                    if trial_id in seen_trial_ids:
+                        raise ContractError(
+                            f"result_reward: duplicate trial ID {trial_id!r} in "
+                            f"reward_stats"
+                        )
+                    seen_trial_ids.add(trial_id)
+                    rewards.append(reward_value)
+        if len(rewards) != completed:
+            raise ContractError(
+                f"result_reward: reward_stats reports {len(rewards)} trials, but "
+                f"n_completed_trials={completed}"
+            )
+    else:
+        for eval_name, evaluation in evals.items():
+            if not isinstance(evaluation, dict):
+                raise ContractError(
+                    f"result_reward: evals[{eval_name!r}] is not a dict: "
+                    f"{type(evaluation)}"
+                )
+            metrics = evaluation.get("metrics", [])
+            if not isinstance(metrics, list):
+                raise ContractError(
+                    f"result_reward: evals[{eval_name!r}].metrics is not a list: "
+                    f"{type(metrics)}"
+                )
+            for metric in metrics:
+                if not isinstance(metric, dict):
+                    raise ContractError(
+                        f"result_reward: metric in evals[{eval_name!r}].metrics is "
+                        f"not a dict: {type(metric)}"
+                    )
+                if "reward" in metric:
+                    reward_value = metric["reward"]
+                    if not isinstance(reward_value, (int, float)):
+                        raise ContractError(
+                            f"result_reward: evals[{eval_name!r}].metrics[*].reward "
+                            f"is not numeric: {reward_value!r}"
+                        )
+                    rewards.append(float(reward_value))
+
     return completed, errored, rewards
 
 

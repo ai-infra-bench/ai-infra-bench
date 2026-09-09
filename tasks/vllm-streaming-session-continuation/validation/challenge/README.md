@@ -1,0 +1,5 @@
+# Independent challenge
+
+Six updates cover repeated/interleaved sessions, partial and zero output absorption, token->embedding->token switches, randomized IDs, seed/generator and prompt-logprob refresh; three pooling updates and production M-RoPE refresh. Trusted parent compares raw cache and persistent-batch snapshots by values, never requiring cached-object identity. Independent challenge covers two-of-four absorption and a three-session interleave. Oracle rebuilds through the normal new-request path; alternative mutates CachedRequestState in place.
+
+Run `challenge_streaming_continuation.py` in the pinned image with the candidate source at /workspace/repo, after applying the selected Base-relative patch. GPU tasks require the declared A100; streaming runs on CPU. The challenge lives outside the agent image and grading tests. Expected: Oracle and `alternate-continuation.patch` pass; Base and the task-specific incorrect control fail. These are expectations, not recorded results; actual command, exit code, image and patch hashes are in e2e-evidence.json and its raw logs.
