@@ -1,0 +1,322 @@
+diff --git a/vllm/model_executor/layers/batch_invariant.py b/vllm/model_executor/layers/batch_invariant.py
+--- a/vllm/model_executor/layers/batch_invariant.py
++++ b/vllm/model_executor/layers/batch_invariant.py
+@@ -138,6 +138,37 @@
+         tl.store(c_ptrs, c, mask=c_mask)
+ 
+ 
++# Tiling configs shared by the 2D and batched persistent matmul kernels. Both
++# kernels must use the same tile shapes so that a matmul and one batch element
++# of a bmm reduce over K in the exact same order (bitwise identical results).
++_PERSISTENT_MATMUL_CONFIGS = {
++    torch.bfloat16: {
++        "BLOCK_SIZE_M": 128,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 64,
++        "GROUP_SIZE_M": 8,
++        "num_stages": 3,
++        "num_warps": 8,
++    },
++    torch.float16: {
++        "BLOCK_SIZE_M": 128,
++        "BLOCK_SIZE_N": 256,
++        "BLOCK_SIZE_K": 64,
++        "GROUP_SIZE_M": 8,
++        "num_stages": 3,
++        "num_warps": 8,
++    },
++    torch.float32: {
++        "BLOCK_SIZE_M": 128,
++        "BLOCK_SIZE_N": 128,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 8,
++        "num_stages": 3,
++        "num_warps": 8,
++    },
++}
++
++
+ def matmul_persistent(
+     a: torch.Tensor, b: torch.Tensor, bias: torch.Tensor | None = None
+ ):
+@@ -164,32 +195,7 @@
+             ),
+         )
+ 
+-    configs = {
+-        torch.bfloat16: {
+-            "BLOCK_SIZE_M": 128,
+-            "BLOCK_SIZE_N": 128,
+-            "BLOCK_SIZE_K": 64,
+-            "GROUP_SIZE_M": 8,
+-            "num_stages": 3,
+-            "num_warps": 8,
+-        },
+-        torch.float16: {
+-            "BLOCK_SIZE_M": 128,
+-            "BLOCK_SIZE_N": 256,
+-            "BLOCK_SIZE_K": 64,
+-            "GROUP_SIZE_M": 8,
+-            "num_stages": 3,
+-            "num_warps": 8,
+-        },
+-        torch.float32: {
+-            "BLOCK_SIZE_M": 128,
+-            "BLOCK_SIZE_N": 128,
+-            "BLOCK_SIZE_K": 32,
+-            "GROUP_SIZE_M": 8,
+-            "num_stages": 3,
+-            "num_warps": 8,
+-        },
+-    }
++    configs = _PERSISTENT_MATMUL_CONFIGS
+     # print(a.device, b.device, c.device)
+     matmul_kernel_persistent[grid](
+         a,
+@@ -211,6 +217,203 @@
+         C_LARGE=c.numel() > 2**31,
+         HAS_BIAS=bias is not None,
+         **configs[dtype],
++    )
++    return c
++
++
++def _bmm_launch_metadata(
++    grid: Callable[..., Any], kernel: Any, args: dict[str, Any]
++) -> dict[str, Any]:
++    ret = {}
++    b, m, n, k = args["B"], args["M"], args["N"], args["K"]
++    ret["name"] = f"{kernel.name} [B={b}, M={m}, N={n}, K={k}]"
++    bytes_per_elem = args["c_ptr"].element_size()
++    ret[f"flops{bytes_per_elem * 8}"] = 2.0 * b * m * n * k
++    ret["bytes"] = bytes_per_elem * b * (m * k + n * k + m * n)
++    return ret
++
++
++@triton.jit(launch_metadata=_bmm_launch_metadata)
++def matmul_kernel_persistent_batched(
++    a_ptr,
++    b_ptr,
++    c_ptr,  #
++    B,
++    M,
++    N,
++    K,  #
++    stride_ab,
++    stride_am,
++    stride_ak,  #
++    stride_bb,
++    stride_bk,
++    stride_bn,  #
++    stride_cb,
++    stride_cm,
++    stride_cn,  #
++    BLOCK_SIZE_M: tl.constexpr,  #
++    BLOCK_SIZE_N: tl.constexpr,  #
++    BLOCK_SIZE_K: tl.constexpr,  #
++    GROUP_SIZE_M: tl.constexpr,  #
++    NUM_SMS: tl.constexpr,  #
++    A_LARGE: tl.constexpr,
++    B_LARGE: tl.constexpr,
++    C_LARGE: tl.constexpr,
++):
++    """Persistent batched matmul: (B, M, K) x (B, K, N) -> (B, M, N).
++
++    Tiles of the whole batch are flattened into a single 1D grid, so one launch
++    covers every batch element. Each output tile owns its full reduction over K
++    (no split-K), and the tile shapes match `matmul_kernel_persistent`, so a
++    given output element sees the same accumulation order regardless of the
++    batch size or of how many programs the grid happens to have.
++    """
++    start_pid = tl.program_id(axis=0)
++    num_pid_m = tl.cdiv(M, BLOCK_SIZE_M)
++    num_pid_n = tl.cdiv(N, BLOCK_SIZE_N)
++    k_tiles = tl.cdiv(K, BLOCK_SIZE_K)
++    tiles_per_batch = num_pid_m * num_pid_n
++    num_tiles = B * tiles_per_batch
++
++    tile_id_c = start_pid - NUM_SMS
++
++    offs_k_for_mask = tl.arange(0, BLOCK_SIZE_K)
++    num_pid_in_group = GROUP_SIZE_M * num_pid_n
++
++    for tile_id in tl.range(start_pid, num_tiles, NUM_SMS, flatten=True):
++        batch_id = tile_id // tiles_per_batch
++        pid_m, pid_n = _compute_pid(
++            tile_id % tiles_per_batch,
++            num_pid_in_group,
++            num_pid_m,
++            GROUP_SIZE_M,
++            NUM_SMS,
++        )
++        start_m = pid_m * BLOCK_SIZE_M
++        start_n = pid_n * BLOCK_SIZE_N
++        offs_am = start_m + tl.arange(0, BLOCK_SIZE_M)
++        offs_bn = start_n + tl.arange(0, BLOCK_SIZE_N)
++        if A_LARGE:
++            offs_am = offs_am.to(tl.int64)
++        if B_LARGE:
++            offs_bn = offs_bn.to(tl.int64)
++        offs_am = tl.where(offs_am < M, offs_am, 0)
++        offs_bn = tl.where(offs_bn < N, offs_bn, 0)
++        offs_am = tl.max_contiguous(tl.multiple_of(offs_am, BLOCK_SIZE_M), BLOCK_SIZE_M)
++        offs_bn = tl.max_contiguous(tl.multiple_of(offs_bn, BLOCK_SIZE_N), BLOCK_SIZE_N)
++
++        # Batch offsets are applied to the base pointers in 64-bit so that large
++        # batches cannot overflow, while the in-matrix offsets keep using the
++        # same index width as the non-batched kernel.
++        a_batch_ptr = a_ptr + batch_id.to(tl.int64) * stride_ab
++        b_batch_ptr = b_ptr + batch_id.to(tl.int64) * stride_bb
++
++        accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
++        for ki in range(k_tiles):
++            if A_LARGE or B_LARGE:
++                offs_k = ki * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K).to(tl.int64)
++            else:
++                offs_k = ki * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
++            a_ptrs = a_batch_ptr + (
++                offs_am[:, None] * stride_am + offs_k[None, :] * stride_ak
++            )
++            b_ptrs = b_batch_ptr + (
++                offs_k[:, None] * stride_bk + offs_bn[None, :] * stride_bn
++            )
++
++            a = tl.load(
++                a_ptrs, mask=offs_k_for_mask[None, :] < K - ki * BLOCK_SIZE_K, other=0.0
++            )
++            b = tl.load(
++                b_ptrs, mask=offs_k_for_mask[:, None] < K - ki * BLOCK_SIZE_K, other=0.0
++            )
++            accumulator = tl.dot(a, b, accumulator)
++
++        tile_id_c += NUM_SMS
++        batch_id_c = tile_id_c // tiles_per_batch
++        pid_m, pid_n = _compute_pid(
++            tile_id_c % tiles_per_batch,
++            num_pid_in_group,
++            num_pid_m,
++            GROUP_SIZE_M,
++            NUM_SMS,
++        )
++        offs_cm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
++        offs_cn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
++        if C_LARGE:
++            offs_cm = offs_cm.to(tl.int64)
++            offs_cn = offs_cn.to(tl.int64)
++        c_batch_ptr = c_ptr + batch_id_c.to(tl.int64) * stride_cb
++        c_ptrs = (
++            c_batch_ptr + stride_cm * offs_cm[:, None] + stride_cn * offs_cn[None, :]
++        )
++        c_mask = (offs_cm[:, None] < M) & (offs_cn[None, :] < N)
++        c = accumulator.to(c_ptr.dtype.element_ty)
++        tl.store(c_ptrs, c, mask=c_mask)
++
++
++def bmm_persistent(a: torch.Tensor, b: torch.Tensor, out: torch.Tensor | None = None):
++    """Deterministic batched matmul in a single kernel launch.
++
++    `a` is (B, M, K), `b` is (B, K, N). Any 3D strides are supported, so
++    transposed or expanded (broadcast) inputs do not need to be materialized.
++    When `out` is given it is written in place; otherwise a new tensor is
++    allocated. The result never depends on the batch size.
++    """
++    # Check constraints. Kept identical to matmul_persistent so that the errors
++    # raised for mismatched shapes/dtypes do not change.
++    assert a.shape[2] == b.shape[1], "Incompatible dimensions"
++    assert a.dtype == b.dtype, "Incompatible dtypes"
++    if a.shape[0] != b.shape[0]:
++        raise ValueError(
++            f"bmm_batch_invariant expects matching batch sizes, "
++            f"got shapes {tuple(a.shape)} and {tuple(b.shape)}"
++        )
++
++    B, M, K = a.shape
++    N = b.shape[2]
++    dtype = a.dtype
++    config = _PERSISTENT_MATMUL_CONFIGS[dtype]
++
++    c = torch.empty((B, M, N), device=a.device, dtype=dtype) if out is None else out
++    if B == 0 or M == 0 or N == 0:
++        return c
++
++    NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
++
++    # One persistent 1D grid over the tiles of every batch element.
++    def grid(META):
++        return (
++            min(
++                NUM_SMS,
++                B
++                * triton.cdiv(M, META["BLOCK_SIZE_M"])
++                * triton.cdiv(N, META["BLOCK_SIZE_N"]),
++            ),
++        )
++
++    matmul_kernel_persistent_batched[grid](
++        a,
++        b,
++        c,  #
++        B,
++        M,
++        N,
++        K,  #
++        a.stride(0),
++        a.stride(1),
++        a.stride(2),  #
++        b.stride(0),
++        b.stride(1),
++        b.stride(2),  #
++        c.stride(0),
++        c.stride(1),
++        c.stride(2),  #
++        NUM_SMS=NUM_SMS,  #
++        A_LARGE=M * K > 2**31,
++        B_LARGE=K * N > 2**31,
++        C_LARGE=M * N > 2**31,
++        **config,
+     )
+     return c
+ 
+@@ -524,16 +727,36 @@
+         )
+ 
+ 
++def _can_write_bmm_output_inplace(out, a, b, shape, dtype) -> bool:
++    """Whether the batched kernel can store straight into `out`.
++
++    Requires a matching shape/dtype/device tensor that does not alias either
++    input (the kernel writes tiles while other tiles are still reading).
++    """
++    if out.shape != shape or out.dtype != dtype or out.device != a.device:
++        return False
++    # An `out` whose elements share memory (e.g. an expanded view) is rejected
++    # by torch's own copy_, so leave it to the fallback to raise.
++    if torch._debug_has_internal_overlap(out) != 0:
++        return False
++    out_storage = out.untyped_storage().data_ptr()
++    return all(out_storage != t.untyped_storage().data_ptr() for t in (a, b))
++
++
+ def bmm_batch_invariant(a, b, *, out=None):
+     # Batched matrix multiply: (B, M, K) x (B, K, N) -> (B, M, N)
+-    # Process each batch separately with our persistent kernel
++    # A single batch-aware kernel launch handles the whole batch, so launch
++    # overhead no longer scales with the batch size.
+     if a.ndim == 3 and b.ndim == 3:
+-        results = []
+-        for i in range(a.shape[0]):
+-            results.append(matmul_persistent(a[i], b[i]))
+-        result = torch.stack(results, dim=0)
+-
++        if out is not None and _can_write_bmm_output_inplace(
++            out, a, b, (a.shape[0], a.shape[1], b.shape[2]), a.dtype
++        ):
++            return bmm_persistent(a, b, out=out)
++
++        result = bmm_persistent(a, b)
+         if out is not None:
++            # Mismatched dtype/device/layout, or output aliasing an input: keep
++            # the original copy-based path so `out` semantics are unchanged.
+             out.copy_(result)
+             return out
+         return result
