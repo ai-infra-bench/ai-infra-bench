@@ -1,3 +1,5 @@
+Publication update: the Oracle script EOF formatting is corrected and a new final Harbor Oracle passed. The earlier review below is historical; validation/publication-formatting.json records the current artifact hash and new run.
+
 # Local review — vllm-moe-permute-batch-scaling
 
 Retain the task; optimizing native MoE routing batch scaling without changing outputs is realistic.
@@ -32,7 +34,7 @@ Base: `dc917cceb877dfd13f98c538c4c96158047d98bd`. Cutoff: `2026-01-22T23:21:35Z`
 
 Actual image: `sha256:6698c86f56f02fa0c16acb4da43776da59e9bf72abd276ce8cb58863d973e900`.
 
-Agent-phase image audit checked source HEAD, clean worktree, remotes/refs, reflogs, unreachable/future objects, import path and absence of task verifier/solution/challenge inputs. The task-specific PR17 reference loader is now verifier-only.
+Agent-phase image audit checked source HEAD, clean worktree, remotes/refs, reflogs, unreachable/future objects, import path and absence of task verifier/solution/challenge inputs.
 
 ## Gate 3: behavior and verification
 
@@ -78,3 +80,7 @@ Raw evidence root: `/data/yinchen/task-final-review-20260908T163254Z`. Machine-r
 Skill revision: `ee32cad166ca065f02945bda6b2f6dca3a025ddd`; recorded worktree and file identities are in `initial-provenance.json` at the evidence root.
 
 Existing user edits were preserved. No commit, push, registry publication or PR change was performed. Final worktree states and this-review diffs are recorded at the evidence root.
+
+## Publication verification
+
+Removed exactly one trailing newline from solution/solve.sh. Shell commands and scoring thresholds are unchanged. New final Harbor Oracle reward: 1; errored trials: 0. Job e8f8a926-16f6-41a7-b7be-8302b0ae3e3b, trial 618abe5f-9488-416d-9ac3-fb27b010eeab. The old control matrix and original Opus 5 reward retain their original hashes; those solver/control runs were not repeated for this formatting revision. Portable final-run logs are under validation/evidence/publication-oracle/.

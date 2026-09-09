@@ -50,4 +50,3 @@ cmake --install /app/build --prefix /app --component _moe_C
 
 restore_cmake
 trap - EXIT HUP INT TERM
-
