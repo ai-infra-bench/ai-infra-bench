@@ -1,0 +1,123 @@
+{
+  "record_kind": "archived_pre_hardening_summary_not_current_validation",
+  "warnings": [
+    "Not certification of the current executable snapshot.",
+    "Original summaries may contain review-identified errors; consult raw logs."
+  ],
+  "original_file_sha256": "27232f3f470e90d15788e9fddeeca3960508da050f7bd17b4f94b98c591ac1ef",
+  "original_record": {
+    "schema_version": "1.0",
+    "task": "vllm-moe-permute-batch-scaling",
+    "evidence_summary": {
+      "harbor_cases": {
+        "oracle": {
+          "rounds": [
+            "g02",
+            "r01",
+            "r03"
+          ],
+          "rewards": [
+            1,
+            1,
+            1
+          ],
+          "stable": true
+        },
+        "base": {
+          "rounds": [
+            "g04",
+            "r02"
+          ],
+          "rewards": [
+            0,
+            0
+          ],
+          "stable": true
+        },
+        "alternate-cuda-scaling": {
+          "rounds": [
+            "g05"
+          ],
+          "rewards": [
+            1
+          ],
+          "stable": true
+        },
+        "diagnosis-only-linear-scan": {
+          "rounds": [
+            "g06"
+          ],
+          "rewards": [
+            0
+          ],
+          "stable": true
+        },
+        "special-case-batch-sizes": {
+          "rounds": [
+            "g07"
+          ],
+          "rewards": [
+            0
+          ],
+          "stable": true
+        }
+      },
+      "challenge_states": {
+        "oracle": {
+          "verdict": "PASS",
+          "scenarios": 13,
+          "check_case": 12,
+          "check_scaling": 1,
+          "anomalies": []
+        },
+        "alternate": {
+          "verdict": "PASS",
+          "real_injection": true,
+          "staged_sha256_verified": true
+        },
+        "control": {
+          "verdict": "FAIL",
+          "rebuild_exit": 0,
+          "staging_exit": 0,
+          "check_case": 12,
+          "check_scaling": 0,
+          "missing_scenarios": [
+            "scaling"
+          ],
+          "interpretation": "Correctness intact, only scaling stage rejected - precision negative evidence"
+        }
+      },
+      "repeat_rounds": {
+        "total": 3,
+        "base_rewards": [
+          0,
+          0
+        ],
+        "oracle_rewards": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    "key_findings": [
+      "18/18 trusted digests match real kernel SHA256 from GPU output",
+      "Timing protocol: all 18 measurements fall within [expected-5%, expected+5%]",
+      "Challenge uses real MOE_STAGED_NATIVE injection from root staging manifest",
+      "Control (diagnosis-only-linear-scan) passes all 12 correctness cases but fails scaling stage precisely",
+      "Completeness gate (required-scenario + call-count) catches defects that failures==[] cannot"
+    ],
+    "hardening_measures": [
+      "Worker runs at uid=65534 (privilege drop verified)",
+      "Root freezes artifact via trusted_stage_native.py before challenge injection",
+      "Challenge wrapper re-verifies staged SHA256 on disk independently",
+      "Completeness gate: required_scenarios, expected call counts, missing/extra detection"
+    ],
+    "trusted_components": [
+      "trusted_expected.py: authoritative kernel digest + timing bounds",
+      "trusted_stage_native.py: root-side artifact freezing",
+      "trusted_timing.py: measurement + bounds checking"
+    ],
+    "gpu_evidence": "Real A100 GPUs (UUID-pinned), 18 kernel digests independently verified against trusted golden values"
+  }
+}
