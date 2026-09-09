@@ -1,0 +1,5 @@
+# Independent challenge
+
+Compatibility, two conflicting owners, real FlashInfer consumer kernels, LoRA-owned kernels, unowned functional CUTLASS call site, and eight independently checked numerical forwards. Workspace checks compare owner-dependent behavior rather than a fixed private call count. The stale quant-method decoy implements the real config forwarding properties. Alternative stores the active owner and derives DP+EP lazily; Oracle stores a derived flag. Challenge independently varies geometry and legacy/ambient ownership.
+
+Run `challenge_config_ownership.py` in the pinned image with the candidate source at /workspace/repo, after applying the selected Base-relative patch. GPU tasks require the declared A100; streaming runs on CPU. The challenge lives outside the agent image and grading tests. Expected: Oracle and `alternate-consumer-boundary-ownership.patch` pass; Base and the task-specific incorrect control fail. These are expectations, not recorded results; actual command, exit code, image and patch hashes are in e2e-evidence.json and its raw logs.

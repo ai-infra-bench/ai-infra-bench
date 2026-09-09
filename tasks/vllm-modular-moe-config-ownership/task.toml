@@ -1,0 +1,54 @@
+schema_version = "1.4"
+artifacts = ["/workspace/repo/vllm"]
+
+[task]
+name = "ai-infra-bench/vllm-modular-moe-config-ownership"
+version = "1.2.6"
+description = "Keep modular fused-MoE kernels tied to their layer's parallel configuration."
+authors = [{ name = "AI Infra Bench Curators" }]
+keywords = ["vllm", "moe", "parallel-config", "triton", "refactor"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+track = "representative"
+source_ids = ["vllm__pr__30282"]
+repository = "vllm-project/vllm"
+base_commit = "e2ed238885be6af358be1851cd43105b7d036c49"
+image_digest = "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378"
+dependency_cutoff = "2025-12-15T00:33:41Z"
+oracle_commit = "3778673ea81bf5241f40e9c5e90f989bde377acf"
+workload_type = "bug_fix"
+difficulty = "hard"
+grader_kind = "gpu_correctness"
+subsystems = ["distributed_config", "model_executor"]
+environment_template = "vllm-harbor-all-in-one"
+environment_profile = "cuda-triton"
+gpu_base_image = "vllm/vllm-openai@sha256:6766ce0c459e24b76f3e9ba14ffc0442131ef4248c904efdcbf0d89e38be01fe"
+gpu_base_vllm_revision = "v0.12.0"
+gpu_native_donor_image = "vllm/vllm-openai@sha256:d623253f2ba246378421c9642e20885e65257f38418ff26d48c81aea1702521b"
+gpu_compute_capability = "8.0"
+gpu_min_driver_version = "575.51.03"
+publication_state = "candidate-static-review"
+
+[agent]
+timeout_sec = 36000.0
+user = "agent"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 1800.0
+environment_mode = "separate"
+user = "root"
+
+[environment]
+accelerator = "A100"
+network_mode = "no-network"
+build_timeout_sec = 5400.0
+os = "linux"
+cpus = 8
+memory_mb = 32768
+storage_mb = 65536
+gpus = 1
+gpu_types = ["A100"]
+topology = 1
+workdir = "/workspace/repo"
