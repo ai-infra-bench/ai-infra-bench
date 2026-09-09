@@ -1,0 +1,24 @@
+--- a/csrc/quantization/fp8/per_token_group_quant.cu
++++ b/csrc/quantization/fp8/per_token_group_quant.cu
+@@ -141,18 +141,11 @@
+ 
+   constexpr int THREADS_PER_GROUP = 16;
+ 
++  // BENCH CONTROL (expected_reward=0): pin one group per block. Numerically
++  // identical, but it forfeits the occupancy the fast path depends on, so the
++  // candidate must fall below the speedup threshold on its own merits.
+   int groups_per_block = 1;
+ 
+-  if (num_groups % 16 == 0) {
+-    groups_per_block = 16;
+-  } else if (num_groups % 8 == 0) {
+-    groups_per_block = 8;
+-  } else if (num_groups % 4 == 0) {
+-    groups_per_block = 4;
+-  } else if (num_groups % 2 == 0) {
+-    groups_per_block = 2;
+-  }
+-
+   auto dst_type = output_q.scalar_type();
+   const int num_blocks = num_groups / groups_per_block;
+   const int num_threads = groups_per_block * THREADS_PER_GROUP;
