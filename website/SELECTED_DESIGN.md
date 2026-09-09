@@ -9,6 +9,18 @@ Preserved presentation:
 
 - Homepage: complete chart cover, Results table, then 6 tasks per page.
 - Standalone Tasks: 8 per page, search, Work type and Domain filters.
+- Main content shares the 1240px measure across the homepage, Results and
+  Tasks. Navigation and footer remain full-width.
+- Task cards share a 32/20/14px title/description/metadata hierarchy on desktop,
+  and 28/19/14px on mobile, using the existing fonts.
+- Results, Tasks and standalone Leaderboard headings share lighter background
+  panels (134px desktop, 146px mobile with current copy). Longer copy can grow
+  naturally; the homepage masthead's vertical spacing, artwork, title sizes and
+  colours are unchanged.
+- Instruction keeps its centred 850px reading column and left-aligned prose.
+  Metadata aligns to the title/tab bar's left edge within its existing 980px measure.
+- Navigation, resource/content tabs and pagination share underline and focus
+  styling. These UI rules do not affect the chart's model colours or geometry.
 - Static Pass Average label, no set or Pass@4 selector.
 - Resource axes run from larger values on the left to smaller on the right.
 - Model identities and colours remain independent of decorative UI colours.
@@ -34,3 +46,7 @@ production site. Point-label density remains automatic as real models are added.
 
 The right-hand Results scrollbar is transparent at the top and appears after
 scrolling down, without changing the table width or disabling scrolling.
+Vertical scrolling passes through to the page at the table's top/bottom edges.
+When the table does not overflow, both wheel directions scroll the page; while
+inside an overflowing table, scrolling stays within it. Horizontal containment
+is preserved.
