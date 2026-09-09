@@ -1,0 +1,475 @@
+:root {
+  --paper: #f5f0e6;
+  --paper-clean: #faf6ee;
+  --paper-deep: #e8e2d6;
+  --ink: #353a37;
+  --muted: #62675f;
+  --line: #c7c1b4;
+  --chrome-gutter: clamp(24px, 5vw, 80px);
+  --content-measure: 1240px;
+  --control-radius: 0;
+  --surface-radius: 0;
+  color-scheme: light;
+}
+body {
+  --display-font: var(--font-print-display), Georgia, serif;
+  --font-newsreader: var(--font-print-display);
+  background-color: var(--paper);
+  background-image: none;
+  font-family: var(--font-geist-sans), sans-serif;
+}
+/* Keep measured geometry and text free of texture or compositing filters. */
+.design-shell,
+.task-page {
+  position: relative;
+  z-index: 1;
+}
+.site-header {
+  background: transparent;
+  height: 76px;
+  position: relative;
+}
+.site-header > .chrome-inner {
+  min-height: 76px;
+}
+.header-name {
+  font-family: var(--display-font);
+  font-size: 23px;
+  letter-spacing: -0.025em;
+  font-weight: 400;
+}
+.site-header nav {
+  gap: 24px;
+  font-size: 14px;
+}
+.site-header nav a {
+  padding: 10px 0;
+  background: none !important;
+  position: relative;
+}
+.site-header nav a:hover,
+.site-header nav a[aria-current="page"] {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 7px;
+  text-decoration-thickness: 1px;
+}
+.is-home .design-content {
+  max-width: 1280px;
+  width: calc(100% - 2 * var(--chrome-gutter));
+}
+.print-cover {
+  min-height: calc(100svh - 76px);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 28px;
+  padding: 34px 0 30px;
+}
+.print-masthead {
+  margin: 0;
+}
+.print-masthead h1 {
+  font: 400 clamp(48px, 4.7vw, 72px) / 1.1 var(--display-font);
+  letter-spacing: -0.04em;
+  margin: 0;
+}
+.print-masthead p {
+  font: 400 18px/1.55 var(--font-geist-sans);
+  color: var(--muted);
+  max-width: 550px;
+  margin: 18px 0 0;
+  text-wrap: balance;
+}
+.print-comparison {
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.print-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 44px;
+  margin-bottom: 10px;
+}
+.print-axis-control {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.print-toolbar button {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: 400 14px/1.4 var(--font-geist-sans);
+  padding: 10px 0;
+  min-height: 40px;
+  cursor: pointer;
+  position: relative;
+  white-space: nowrap;
+}
+.print-toolbar button[aria-pressed="true"] {
+  color: var(--ink);
+}
+.print-toolbar button::after {
+  content: "";
+  position: absolute;
+  bottom: 3px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 150ms ease;
+}
+.print-toolbar button[aria-pressed="true"]::after,
+.print-toolbar button:hover::after {
+  transform: scaleX(1);
+}
+.print-toolbar button:active {
+  transform: translateY(1px);
+}
+.print-figures {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+}
+.print-chart {
+  position: relative;
+  min-width: 0;
+  min-height: 390px;
+}
+.print-svg {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  shape-rendering: geometricPrecision;
+}
+.print-coordinates {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 0.6;
+}
+.print-coordinates text {
+  stroke: none;
+  fill: var(--muted);
+  font: 400 12px var(--font-geist-sans);
+  font-variant-numeric: tabular-nums;
+}
+.print-grid {
+  opacity: 0.32;
+}
+.print-baseline {
+  opacity: 0.5;
+}
+.print-series {
+  fill: none;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.mainprint {
+  stroke-width: 1.3;
+}
+.underprint {
+  stroke-width: 2.6;
+  opacity: 0.11;
+}
+.print-point {
+  cursor: pointer;
+  outline: none;
+}
+.print-hit {
+  fill: transparent;
+}
+.print-mark {
+  fill: var(--paper);
+  stroke: currentColor;
+  stroke-width: 1.2;
+}
+.print-focus {
+  fill: var(--paper);
+  stroke: currentColor;
+  stroke-width: 0.8;
+  opacity: 0;
+  pointer-events: none;
+}
+.print-point.is-active .print-focus,
+.print-point:focus-visible .print-focus {
+  opacity: 1;
+}
+.print-point.is-active .print-mark {
+  fill: currentColor;
+}
+.print-guide {
+  fill: none;
+  stroke-width: 0.6;
+  stroke-dasharray: 3 5;
+  opacity: 0.55;
+  pointer-events: none;
+}
+.print-labels {
+  pointer-events: none;
+}
+.print-label text {
+  paint-order: stroke fill;
+  stroke: var(--paper);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.print-label-name {
+  font-family: var(--display-font);
+  font-size: 16px;
+  font-weight: 400;
+}
+.label-series .print-label-name,
+.label-model .print-label-name {
+  font-size: 19px;
+}
+.print-label-value {
+  font: 400 12px var(--font-geist-sans);
+  font-variant-numeric: tabular-nums;
+}
+.print-axis-title {
+  font: 400 14px var(--font-geist-sans);
+  fill: var(--muted);
+}
+.print-caption {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 46px;
+  margin-top: 18px;
+  font: 400 12px/1.5 var(--font-geist-sans);
+  color: var(--muted);
+}
+.print-live {
+  display: flex;
+  gap: 8px 20px;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+.print-live em {
+  font-family: var(--display-font);
+  font-size: 14px;
+  margin-left: 8px;
+}
+.print-clear {
+  font: inherit;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  padding: 6px;
+  cursor: pointer;
+}
+.design-results > .print-comparison {
+  height: 660px;
+}
+.unified-footer {
+  background: transparent;
+}
+.leaderboard-table {
+  font-family: var(--font-geist-sans);
+  font-size: 14px;
+}
+.leaderboard-table th,
+.leaderboard-table td {
+  font-family: inherit !important;
+}
+.results-heading :is(h1, h2),
+.tasks-heading :is(h1, h2) {
+  font-size: 48px;
+}
+@media (min-width: 1024px) and (min-height: 760px) {
+  .print-cover {
+    height: calc(100svh - 76px);
+    max-height: 1000px;
+  }
+  .print-chart {
+    min-height: 0;
+  }
+}
+@media (max-width: 1100px) {
+  .print-masthead h1 {
+    font-size: 54px;
+  }
+  .print-axis-control {
+    gap: 18px;
+  }
+}
+@media (max-width: 767px) {
+  .site-header,
+  .site-header > .chrome-inner {
+    height: 68px;
+    min-height: 68px;
+  }
+  .site-header nav {
+    gap: 18px;
+    font-size: 13px;
+  }
+  .header-name {
+    font-size: 21px;
+  }
+  .print-cover {
+    min-height: calc(100svh - 68px);
+    height: auto;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+    gap: 26px;
+    padding: 28px 0 24px;
+  }
+  .print-masthead h1 {
+    font-size: 44px;
+    max-width: none;
+    line-height: 1.1;
+  }
+  .print-masthead p {
+    font-size: 16px;
+    line-height: 1.5;
+    margin-top: 14px;
+    max-width: 500px;
+  }
+  .print-toolbar {
+    align-items: start;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .print-axis-control {
+    gap: 24px;
+  }
+  .print-toolbar button {
+    font-size: 13px;
+  }
+  .print-chart {
+    min-height: 400px;
+  }
+  .print-caption {
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 74px;
+    margin-top: 18px;
+    align-content: start;
+  }
+  .print-live {
+    gap: 6px 14px;
+  }
+  .design-results > .print-comparison {
+    height: auto;
+  }
+  .results-heading :is(h1, h2),
+  .tasks-heading :is(h1, h2) {
+    font-size: 40px;
+  }
+  .print-label-name {
+    font-size: 15px;
+  }
+  .label-series .print-label-name,
+  .label-model .print-label-name {
+    font-size: 17px;
+  }
+}
+@media (max-width: 359px) {
+  .print-masthead h1 {
+    font-size: 38px;
+  }
+  .print-axis-control {
+    gap: 18px;
+  }
+  .site-header nav {
+    gap: 12px;
+  }
+  .header-name {
+    font-size: 19px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+:root {
+  --plot-accent: #464842;
+  --plot-graphite: #a35339;
+  --accent: #464842;
+  --accent-text: #464842;
+}
+.print-masthead p {
+  font-family: var(--display-font);
+  font-size: 23px;
+  line-height: 1.35;
+  max-width: 630px;
+}
+.print-grid {
+  display: none;
+}
+.print-coordinates .print-baseline {
+  opacity: 0.22;
+}
+.print-chart {
+  margin-inline: 10px;
+}
+.print-label-name {
+  font-style: italic;
+}
+.label-series .print-label-name,
+.label-model .print-label-name {
+  font-style: normal;
+}
+.print-layout-top {
+  padding-top: 42px;
+  gap: 28px;
+}
+.print-masthead h1 {
+  font-size: 76px;
+  letter-spacing: -0.045em;
+}
+@media (max-width: 767px) {
+  .print-masthead h1 {
+    font-size: 44px;
+  }
+  .print-masthead p {
+    font-size: 18px;
+    max-width: 100%;
+  }
+  .print-layout-top {
+    padding-top: 28px;
+  }
+  .print-chart {
+    margin-inline: 0;
+  }
+}
+@media (max-width: 359px) {
+  .print-masthead h1 {
+    font-size: 38px;
+  }
+}
+/* Dense mobile plots keep model names and the active point readable on a scrollable sheet. */
+.has-many-series .print-figures:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+@media (max-width: 767px) {
+  .has-many-series .print-figures {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+  }
+  .has-many-series .print-chart {
+    min-width: 720px;
+  }
+}

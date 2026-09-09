@@ -34,13 +34,19 @@ export type PlotLabel = Box & {
 
 export const effortOrder = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
-// Series colors stay attached to model identity when the table is re-sorted.
+// Data colours are independent of the website theme. Add each published model
+// here with an explicit, distinct colour; never assign colours by row order.
+export const MODEL_COLORS: Readonly<Record<string, string>> = Object.freeze({
+  'gpt-6-astra': '#3d657c',
+  'gpt-5.6-sol': '#a16454',
+});
+
 export function modelColor(model: string) {
-  if (model === 'gpt-6-astra') return 'var(--plot-accent)';
-  if (model === 'gpt-5.6-sol') return 'var(--plot-graphite)';
+  if (Object.hasOwn(MODEL_COLORS, model)) return MODEL_COLORS[model];
+  // Preserve a stable fallback for unregistered models until a colour is chosen.
   let hash = 0;
   for (const character of model) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  return ['#556c60', '#596a80', '#846748', '#785e74'][hash % 4];
+  return ['#284b63', '#607784', '#7c4945', '#96675e', '#586c86'][hash % 5];
 }
 
 export function xDomain(maximum: number) {
@@ -70,7 +76,7 @@ function overlap(a: Box, b: Box) {
 
 // Move annotations, never data. Score candidate positions against labels,
 // point marks, and the actual line segments to keep the drawing legible.
-export function placePlotLabels(points: PlotPoint[], bounds: Box, compact: boolean): PlotLabel[] {
+export function placePlotLabels(points: PlotPoint[], bounds: Box, compact: boolean, highlightedPointId: string | null = null): PlotLabel[] {
   const labels: PlotLabel[] = [];
   const obstacles = points.map((point) => ({ x: point.x - 10, y: point.y - 10, width: 20, height: 20 }));
   const groups = new Map<string, PlotPoint[]>();
@@ -150,14 +156,19 @@ export function placePlotLabels(points: PlotPoint[], bounds: Box, compact: boole
   }
 
   const standalone = (point: PlotPoint) => groups.get(point.group)?.length === 1;
+  const showPointLabels = groups.size <= 3;
   const ordered = [...points].sort((a, b) => Number(standalone(b)) - Number(standalone(a)) || b.score - a.score);
   for (const point of ordered) {
     const isStandalone = standalone(point);
+    const showDetails = showPointLabels || point.configuration.id === highlightedPointId;
+    if (!showDetails && !isStandalone) continue;
     const title = isStandalone ? point.configuration.model : point.configuration.effort;
-    const detail = isStandalone ? `${point.configuration.effort} · ${point.score.toFixed(1)}%` : `${point.score.toFixed(1)}%`;
+    const detail = showDetails
+      ? (isStandalone ? `${point.configuration.effort} · ${point.score.toFixed(1)}%` : `${point.score.toFixed(1)}%`)
+      : null;
     const fontSize = isStandalone ? (compact ? 16 : 17) : 14;
-    const width = Math.max(title.length * fontSize * 0.52, detail.length * 6.4) + 4;
-    const height = 33;
+    const width = Math.max(title.length * fontSize * 0.52, (detail?.length ?? 0) * 6.4) + 4;
+    const height = detail ? 33 : 22;
     const positions = [
       [14, -height - 10], [-width - 14, -height - 10],
       [14, 12], [-width - 14, 12],

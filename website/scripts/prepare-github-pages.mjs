@@ -34,6 +34,8 @@ const taskIndex = JSON.parse(
 const absoluteUrl = (route) => new URL(route, siteUrl).toString();
 const sitemapUrls = [
   absoluteUrl('/'),
+  absoluteUrl('/leaderboard'),
+  absoluteUrl('/tasks'),
   ...taskIndex.map((task) => absoluteUrl(`/tasks/${task.slug}`)),
 ];
 const sitemap = [
