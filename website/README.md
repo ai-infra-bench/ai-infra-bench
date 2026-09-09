@@ -15,6 +15,14 @@ npm run dev
 Task pages are generated from the repository's `tasks/` directory. Leaderboard
 results come from the committed `app/generated/leaderboard.json` snapshot.
 
+The selected layout is documented in [SELECTED_DESIGN.md](SELECTED_DESIGN.md).
+The homepage shows the comparison chart, Results and six tasks per page.
+The standalone task catalogue shows eight tasks per page with search, Work type
+and Domain filters. Only recorded results appear in the chart and table.
+
+Run the full website test suite with `npm run test:website` (chart geometry,
+label density and focus, task filtering/pagination, and archive statistics).
+
 ## Updating leaderboard results
 
 Keep full Harbor trial directories in the external archive, preserving their
@@ -26,11 +34,12 @@ archive/<release>/<task>/<model>/<effort>/<agent-version>/<original-trial-name>/
 manifests/<release>/<task>/<model>/<effort>/<agent-version>/<original-trial-name>.json
 ```
 
-From the repository root, archive one or more completed Harbor jobs:
+For a new release, archive completed Harbor jobs from the repository root,
+then update `leaderboard-source.json` to point to that release's two directories:
 
 ```sh
 python3 tools/leaderboard/archive_harbor_trials.py \
-  --release 2026-09-08 \
+  --release new-release \
   /path/to/harbor-job
 ```
 
@@ -41,25 +50,51 @@ Python 3.11+ and `rsync`. Use `--root` to choose another archive location.
 Then regenerate the public snapshot from `website/`:
 
 ```sh
-npm run generate:leaderboard -- --release 2026-09-08 --attempts 4
+npm run generate:leaderboard
 npm run test:leaderboard
 ```
+
+The current source is configured in `leaderboard-source.json`. The archive was
+renamed to `archive/v0-17task`, while its complete manifests remain under
+`manifests/2026-09-08`. These directories are deliberately mapped independently;
+no NAS rename or raw-result modification is required. For another release,
+update that file, or pass `--source <file>`. Explicit `--root`, `--release`,
+`--archive-dir` and `--manifest-dir` options retain the legacy CLI workflow.
+When importing a new release, keep its archive and manifest mapping in sync.
+
+Generation checks archive/manifest coverage, duplicate entries, trial identity,
+binary rewards, trajectory completion and recorded resource metrics before
+writing the snapshot. Unlisted or missing directories fail generation instead
+of silently dropping data. Excluded trials remain excluded, including API and
+environment failures and aborted trajectories.
 
 Review and commit `app/generated/leaderboard.json` together with any website
 changes. Raw trial directories and private trajectories stay outside the Git
 repository. Model IDs are displayed verbatim.
 
 Pass average is the fraction of successful valid trials. Its displayed standard
-deviation is the sample standard deviation (`ddof=1`) of the four complete
-repetition pass rates. Attempts are ordered by execution start within each task;
+deviation is the sample standard deviation (`ddof=1`) of the four repetition
+pass rates. Each repetition's denominator is its actual observed task count;
+missing attempts are not imputed as failures. Attempts are ordered by execution start within each task;
 a later infrastructure replacement fills the invalid original's repetition
-slot. Ambiguous replacement mappings fail generation. Pass@4 is the fraction of
-tasks solved at least once in four valid attempts. Costs include valid runs only.
+slot. Ambiguous replacement mappings fail generation. Incomplete task groups
+require verified missing repetition slots in the source configuration. For the
+current Sol xhigh run, the missing fourth mooncake-hybrid-pd-layout attempt was
+an API-rate-limit failure absent from the NAS release. Its repetition task
+counts are `[17, 17, 17, 16]`; its pooled pass average uses 67 valid trials, while
+sample standard deviation uses those four observed-denominator repetition
+rates. The two statistics thus use explicit, different weighting when counts
+are unequal. Filling that archived attempt later automatically restores four
+complete rounds. No extra partial-state badge is shown on the website.
+
+The retained JSON Pass@4 field is the fraction of
+tasks solved at least once, and is only an exact pass@4 when all attempts are
+present; it is not displayed in the current website. Costs include valid runs only.
 
 ## CI and deployment
 
 For PRs that change `website/` or `tasks/`, the `Website validation` job installs
-locked dependencies with Node 22, runs the statistics tests, type checking and
+locked dependencies with Node 22, runs the full website test suite, type checking and
 lint, and builds the static site. The existing required `Task validation` check
 also requires this website job to pass when it runs.
 
