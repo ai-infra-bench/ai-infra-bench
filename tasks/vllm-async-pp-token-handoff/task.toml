@@ -1,0 +1,61 @@
+schema_version = "1.4"
+
+[task]
+name = "ai-infra-bench/vllm-async-pp-token-handoff"
+version = "1.2.2"
+description = "Keep async pipeline-parallel sampled-token handoff on GPU through NCCL."
+authors = [{ name = "AI Infra Bench Curators" }]
+keywords = ["vllm", "pipeline-parallel", "nccl", "async-scheduling"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+track = "representative"
+source_ids = ["vllm__pr__32618"]
+repository = "vllm-project/vllm"
+base_commit = "8ebf372e9d612a325f54aadf5c0c3c6588b6afa3"
+image_digest = "sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69"
+dependency_cutoff = "2026-01-28T17:36:56Z"
+oracle_commit = "3e440786afe763e892e12125ee7529f95f141c54"
+workload_type = "feature_fix"
+difficulty = "hard"
+grader_kind = "distributed_correctness"
+subsystems = ["distributed_execution", "scheduler", "model_runner"]
+environment_template = "vllm-harbor-all-in-one"
+environment_profile = "cuda-multigpu-nccl"
+gpu_base_image = "vllm/vllm-openai@sha256:8e67731819426f7df194e5a0dfd6649d3aa3474f80c44f75b1e8711e76f8030a"
+gpu_base_vllm_revision = "v0.14.1"
+gpu_compute_capability = "8.0"
+gpu_min_driver_version = "575.51.03"
+publication_state = "candidate-static-review"
+
+[agent]
+timeout_sec = 36000.0
+user = "agent"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 1800.0
+environment_mode = "shared"
+user = "root"
+
+[environment]
+docker_image = "sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69"
+accelerator = "A100"
+network_mode = "no-network"
+build_timeout_sec = 3600.0
+os = "linux"
+cpus = 8
+memory_mb = 32768
+storage_mb = 65536
+gpus = 2
+gpu_types = ["A100"]
+topology = 2
+workdir = "/workspace/repo"
+
+[validation]
+# Opt in to the static scoring-integrity gates in .github/scripts/task_ci.py
+# (`task_ci.py scoring-check`). multi_rank additionally requires a trusted
+# supervisor with nonce-bound payloads and explicit missing/duplicate/unexpected
+# rank accounting, re-checked by the scoring entry.
+scoring_integrity = true
+multi_rank = true

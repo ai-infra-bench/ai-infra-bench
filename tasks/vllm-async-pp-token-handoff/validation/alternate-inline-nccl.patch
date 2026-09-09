@@ -1,0 +1,206 @@
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -344,13 +344,6 @@
+         while req_index < len(self.running) and token_budget > 0:
+             request = self.running[req_index]
+
+-            # do not schedule another step for the same request while it still has
+-            # output placeholders for PP.
+-            # TODO: support PP + async scheduling without this limit
+-            if self.use_pp and request.num_output_placeholders > 0:
+-                req_index += 1
+-                continue
+-
+             if (
+                 request.num_output_placeholders > 0
+                 # This is (num_computed_tokens + 1) - (num_output_placeholders - 1).
+@@ -1003,7 +996,10 @@
+         for idx, req in enumerate(itertools.chain(running_reqs, resumed_reqs)):
+             req_id = req.request_id
+             req_ids.append(req_id)
+-            if self.use_pp:
++            # NOTE: In PP+async scheduling, we consume token ids via a direct GPU
++            # broadcast path (`input_batch.prev_sampled_token_ids`), so we can
++            # omit this payload.
++            if self.use_pp and not self.scheduler_config.async_scheduling:
+                 # When using PP, the scheduler sends the sampled tokens back,
+                 # because there's no direct communication between the first-
+                 # stage worker and the last-stage worker. Otherwise, we don't
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -323,6 +323,10 @@
+ class GPUModelRunner(
+     LoRAModelRunnerMixin, KVConnectorModelRunnerMixin, ECConnectorModelRunnerMixin
+ ):
++    # Defaults for attributes that are read before/independently of __init__
++    # (e.g. by subclasses or when only part of the runner is exercised).
++    broadcast_pp_output: bool = False
++
+     def __init__(
+         self,
+         vllm_config: VllmConfig,
+@@ -1010,20 +1014,26 @@
+             req_state.num_computed_tokens = num_computed_tokens
+
+             if not is_last_rank:
+-                # When using PP, the scheduler sends the sampled tokens back,
+-                # because there's no direct communication between the first-
+-                # stage worker and the last-stage worker.
+-                new_token_ids = req_data.new_token_ids[i]
+-                # Add the sampled token(s) from the previous step (if any).
+-                # This doesn't include "unverified" tokens like spec tokens.
+-                num_new_tokens = (
+-                    num_computed_tokens + len(new_token_ids) - req_state.num_tokens
+-                )
+-                if num_new_tokens == 1:
+-                    # Avoid slicing list in most common case.
+-                    req_state.output_token_ids.append(new_token_ids[-1])
+-                elif num_new_tokens > 0:
+-                    req_state.output_token_ids.extend(new_token_ids[-num_new_tokens:])
++                if not req_data.new_token_ids:
++                    # Async scheduled PP: Sampled tokens propagated via GPU broadcast.
++                    new_token_ids: list[int] = []
++                else:
++                    # Non-async scheduling with PP: The scheduler sends
++                    # sampled token ids back because there's no direct communication
++                    # between the first-stage worker and the last-stage worker.
++                    new_token_ids = req_data.new_token_ids[i]
++                    # Add the sampled token(s) from the previous step (if any).
++                    # This doesn't include "unverified" tokens like spec tokens.
++                    num_new_tokens = (
++                        num_computed_tokens + len(new_token_ids) - req_state.num_tokens
++                    )
++                    if num_new_tokens == 1:
++                        # Avoid slicing list in most common case.
++                        req_state.output_token_ids.append(new_token_ids[-1])
++                    elif num_new_tokens > 0:
++                        req_state.output_token_ids.extend(
++                            new_token_ids[-num_new_tokens:]
++                        )
+             elif num_output_tokens < len(req_state.output_token_ids):
+                 # Some output tokens were discarded due to a sync-KV-load
+                 # failure. Align the cached state.
+@@ -3578,6 +3588,12 @@
+
+         if self.execute_model_state is None:
+             # Nothing to do (PP non-final rank case), output isn't used.
++            # With async scheduling, the sampled tokens are still needed on
++            # this rank to build the next step's input_ids, so receive them
++            # directly from the last PP rank as a GPU tensor.
++            if self.use_async_scheduling:
++                self._recv_sampled_token_ids_from_last_pp_rank()
++
+             if not kv_connector_output:
+                 return None  # type: ignore[return-value]
+
+@@ -3622,6 +3638,12 @@
+         self._draft_token_ids = None
+         self._draft_token_req_ids = None
+         self.input_batch.prev_sampled_token_ids = None
++
++        if self.use_async_scheduling:
++            # The earlier PP ranks need the sampled tokens to build the next
++            # step's input_ids, and the scheduler can't send them back in time
++            # because it hasn't seen this step's output yet.
++            self._send_sampled_token_ids_to_pp_ranks(sampler_output.sampled_token_ids)
+
+         def propose_draft_token_ids(sampled_token_ids):
+             assert spec_decode_common_attn_metadata is not None
+@@ -3802,6 +3824,95 @@
+         assert self.draft_token_ids_cpu is not None
+         self.draft_token_ids_event.synchronize()
+         return self.draft_token_ids_cpu[: len(req_ids)].tolist(), req_ids
++
++    def _use_async_pp_token_handoff(self) -> bool:
++        """Whether sampled tokens must be handed off across PP ranks.
++
++        Only needed with async scheduling: the earlier ranks build the next
++        step's input_ids before the scheduler has seen this step's output. When
++        `broadcast_pp_output` is set (external_launcher), every rank samples the
++        same tokens locally, so no handoff is required.
++        """
++        return (
++            self.use_async_scheduling
++            and not self.broadcast_pp_output
++            and get_pp_group().world_size > 1
++        )
++
++    def _send_sampled_token_ids_to_pp_ranks(
++        self, sampled_token_ids: torch.Tensor
++    ) -> None:
++        """Broadcast the sampled tokens from the last PP rank to earlier ranks.
++
++        Called on the last PP rank only. The tokens stay on the GPU so that no
++        device-to-host synchronization is introduced in the critical path.
++        """
++        if not self._use_async_pp_token_handoff():
++            return
++        pp_group = get_pp_group()
++        assert pp_group.is_last_rank
++
++        # Only the newly sampled token of each request is needed downstream, so
++        # the shape is always [num_reqs, 1]. It is agreed upon implicitly: every
++        # rank derives num_reqs from its own persistent batch, which the
++        # scheduler keeps in sync across PP ranks. Sending it in a single
++        # collective avoids a preliminary shape exchange (and its latency).
++        torch.distributed.broadcast(
++            sampled_token_ids[:, :1].contiguous(),
++            src=pp_group.last_rank,
++            group=pp_group.device_group,
++        )
++
++    def _recv_sampled_token_ids_from_last_pp_rank(self) -> None:
++        """Receive the sampled tokens broadcast by the last PP rank.
++
++        Called on non-final PP ranks. The received tokens are cached in the
++        input batch so that `_prepare_input_ids` can scatter them into
++        `input_ids` on the GPU during the next step, exactly like the last
++        rank does with its own sampled tokens.
++        """
++        if not self._use_async_pp_token_handoff():
++            return
++        pp_group = get_pp_group()
++        assert not pp_group.is_last_rank
++
++        input_batch = self.input_batch
++        num_reqs = input_batch.num_reqs
++        if not num_reqs:
++            input_batch.prev_sampled_token_ids = None
++            input_batch.prev_req_id_to_index = None
++            return
++
++        # The last rank broadcasts exactly one sampled token per request, in
++        # the same [num_reqs, 1] layout that `prev_sampled_token_ids` uses.
++        sampled_token_ids = torch.empty(
++            (num_reqs, 1), dtype=torch.int32, device=self.device
++        )
++        torch.distributed.broadcast(
++            sampled_token_ids,
++            src=pp_group.last_rank,
++            group=pp_group.device_group,
++        )
++
++        # Requests whose sampled token must be dropped (e.g. still prefilling)
++        # are excluded from the index map, so `_prepare_input_ids` won't copy
++        # their placeholder into the next step's input_ids. Preserve the batch
++        # ordering so the row indices keep matching the sender's rows.
++        discard_mask = self.discard_request_mask.np[:num_reqs]
++        req_ids = input_batch.req_ids
++        prev_req_id_to_index: dict[str, int] = {}
++        for req_idx in range(num_reqs):
++            if discard_mask[req_idx]:
++                continue
++            req_id = req_ids[req_idx]
++            prev_req_id_to_index[req_id] = req_idx
++            # Mirror the last rank's bookkeeping: retained requests grow by one
++            # placeholder token, which is replaced by the real token id once the
++            # scheduler sends it back.
++            self.requests[req_id].output_token_ids.append(-1)
++
++        input_batch.prev_sampled_token_ids = sampled_token_ids
++        input_batch.prev_req_id_to_index = prev_req_id_to_index
+
+     def _copy_valid_sampled_token_count(
+         self, next_token_ids: torch.Tensor, valid_sampled_tokens_count: torch.Tensor
