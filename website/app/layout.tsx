@@ -12,6 +12,7 @@ import "./results-layout.css";
 import "./catalogue-browser.css";
 import "./masthead-vignette.css";
 import "./plot-interactions.css";
+import "./site-interactions.css";
 
 const geistSans = DM_Sans({
   variable: "--font-geist-sans",
