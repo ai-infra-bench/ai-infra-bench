@@ -76,9 +76,21 @@ function money(value: number | null) {
 function passAverage(configuration: Configuration) {
   const { passAverage: mean, passAverageStd: std } = configuration.metrics;
   if (mean === null) return "N/A";
-  return std === null
-    ? percentage(mean)
-    : percentage(mean) + " ± " + percentage(std);
+  return (
+    <span
+      className={
+        "pass-average-pair" + (std === null ? " without-deviation" : "")
+      }
+    >
+      <span className="stat-rate">{percentage(mean)}</span>
+      {std !== null && (
+        <>
+          <span className="stat-plusminus">{" ± "}</span>
+          <span className="stat-deviation">{percentage(std)}</span>
+        </>
+      )}
+    </span>
+  );
 }
 
 export function LeaderboardExplorer({
@@ -89,6 +101,7 @@ export function LeaderboardExplorer({
   headingLevel?: "h2" | "h3";
 }) {
   const Heading = headingLevel;
+  const BreakdownHeading = headingLevel === "h2" ? "h3" : "h4";
   const [sortKey, setSortKey] = useState<SortKey>("passAverage");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -124,6 +137,10 @@ export function LeaderboardExplorer({
       viewport.style.setProperty(
         "--ledger-scroll-max",
         Math.ceil(height) + "px",
+      );
+      viewport.style.setProperty(
+        "--ledger-header-height",
+        Math.ceil(table.tHead?.getBoundingClientRect().height ?? 0) + "px",
       );
     };
     measure();
@@ -227,7 +244,7 @@ export function LeaderboardExplorer({
                       onClick={() => changeSort(column.key)}
                       title={
                         column.key === "passAverage"
-                          ? "Mean ± sample standard deviation across " +
+                          ? "Successful valid runs / valid runs. ± is the sample standard deviation across " +
                             attempts +
                             " repetition pass rates (ddof=1). Each repetition uses its observed task count."
                           : undefined
@@ -320,16 +337,32 @@ export function LeaderboardExplorer({
                       >
                         {passAverage(configuration)}
                       </td>
-                      <td>{decimal(metrics.averageTurns)}</td>
-                      <td>{decimal(metrics.averageToolCalls)}</td>
-                      <td>{money(metrics.totalCostUsd)}</td>
+                      <td>
+                        <span className="ledger-number">
+                          {decimal(metrics.averageTurns)}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="ledger-number">
+                          {decimal(metrics.averageToolCalls)}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="ledger-amount">
+                          {money(metrics.totalCostUsd)}
+                        </span>
+                      </td>
                     </tr>
                     {isExpanded && (
                       <tr className="task-breakdown-row">
                         <td colSpan={columns.length + 4} id={detailsId}>
                           <div className="configuration-panel">
                             <div className="task-breakdown-heading">
-                              <h4>Task results</h4>
+                              <BreakdownHeading>Task results</BreakdownHeading>
+                              <p className="breakdown-identity">
+                                {configuration.model}{" "}
+                                <span>{configuration.effort}</span>
+                              </p>
                             </div>
                             <div className="task-breakdown">
                               {configuration.tasks.map((task) => (
@@ -343,12 +376,7 @@ export function LeaderboardExplorer({
                                   </a>
                                   <span
                                     className="attempt-dots"
-                                    aria-label={
-                                      task.passes +
-                                      " of " +
-                                      task.attempts +
-                                      " runs passed"
-                                    }
+                                    aria-hidden="true"
                                   >
                                     {Array.from(
                                       { length: attempts },
@@ -369,7 +397,13 @@ export function LeaderboardExplorer({
                                   <strong
                                     title={money(task.costUsd) + " total cost"}
                                   >
-                                    {task.passes}/{task.attempts}
+                                    <span aria-hidden="true">
+                                      {task.passes}/{task.attempts}
+                                    </span>
+                                    <span className="sr-only">
+                                      {task.passes} of {task.attempts} runs
+                                      passed
+                                    </span>
                                   </strong>
                                 </div>
                               ))}

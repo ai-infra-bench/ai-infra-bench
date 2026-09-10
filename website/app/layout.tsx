@@ -13,6 +13,7 @@ import "./catalogue-browser.css";
 import "./masthead-vignette.css";
 import "./plot-interactions.css";
 import "./site-interactions.css";
+import "./editorial-index.css";
 
 const geistSans = DM_Sans({
   variable: "--font-geist-sans",
@@ -37,7 +38,18 @@ export const metadata: Metadata = {
   description:
     "AI Infra Bench evaluates frontier models on real-world AI infrastructure engineering workloads, beginning with vLLM.",
   icons: {
-    icon: [{ url: withBasePath("/favicon.svg"), type: "image/svg+xml" }],
+    icon: [
+      {
+        url: withBasePath("/favicon-32.png"),
+        type: "image/png",
+        sizes: "32x32",
+      },
+      {
+        url: withBasePath("/favicon.svg?v=contour-mono"),
+        type: "image/svg+xml",
+        sizes: "any",
+      },
+    ],
   },
   openGraph: {
     title: "AI Infra Bench | AI Infrastructure Benchmark",
@@ -59,7 +71,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="editorial-index">
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${displayFont.variable} antialiased craft-press`}
       >

@@ -5,6 +5,25 @@ headings and the **contour / 等高回声** masthead print. The chosen artwork i
 fixed, including on initial server render; URL parameters do not select art.
 Historical candidate artwork and galleries remain outside this checkout.
 
+The accepted refinement uses **Index** typography, inline sans-serif chart
+annotations, aligned numeric columns and the Index sidebar. Home and Tasks
+keep **Folio Clear's two-column task composition** (single-column on phones).
+Expanded task results use three columns when their table container is at least
+1100px wide, otherwise one column. The selected rules live in
+`app/editorial-index.css` and load unconditionally: development and CI exports
+render the same edition without design-selection environment variables.
+
+Shared interaction fixes include measured font bounds and actual-curve sampling
+for annotations, explicit leaders for displaced labels, nearest-point mouse and
+touch selection, contained mobile expanded Results, accessible result counts,
+and sticky model/effort context while reading an expanded configuration.
+
+The selected browser icon is the **single-colour simplified contour**: three
+retro-blue outlines on the existing light-paper ground. `public/favicon.svg`
+is the scalable source, with a matching 32px PNG fallback. Its versioned SVG
+URL avoids retaining the previous red-letter icon in browser caches. The
+masthead print itself is unchanged.
+
 Preserved presentation:
 
 - Homepage: complete chart cover, Results table, then 6 tasks per page.
@@ -25,6 +44,8 @@ Preserved presentation:
 - Resource axes run from larger values on the left to smaller on the right.
 - Model identities and colours remain independent of decorative UI colours.
 - Up to 3 model/harness series: point labels show effort and score.
+- Label positions account for loaded fonts and all three resource axes. Curve
+  geometry and recorded values are unchanged by annotation placement.
 - Above 3 series: only model names remain until a point is hovered, focused or
   pinned. That point alone then shows its effort and pass rate on the plot.
 - Hovering a curve greys out the other series; hovering a point preserves

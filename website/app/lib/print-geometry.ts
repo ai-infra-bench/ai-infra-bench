@@ -85,6 +85,42 @@ export function curvePath(points: XY[]) {
       .join("")
   );
 }
+
+/** Sample the same cubic geometry as curvePath for annotation avoidance.
+ * This does not alter knots, control points or the rendered data path. */
+export function sampleCurve(points: XY[], spacing = 6): XY[] {
+  if (!points.length) return [];
+  return [
+    points[0],
+    ...curveSegments(points).flatMap((segment) => {
+      const { start: a, c1: b, c2: c, end: d } = segment;
+      const length =
+        Math.hypot(b.x - a.x, b.y - a.y) +
+        Math.hypot(c.x - b.x, c.y - b.y) +
+        Math.hypot(d.x - c.x, d.y - c.y);
+    // Cubic speed is bounded by three times the control-polygon length.
+    // Uniform t intervals therefore need this factor to bound physical gaps,
+    // especially near steep end tangents on a small plot.
+    const count = Math.max(2, Math.min(4096, Math.ceil(3 * length / spacing)));
+      return Array.from({ length: count }, (_, index) => {
+        const t = (index + 1) / count,
+          u = 1 - t;
+        return {
+          x:
+            u * u * u * a.x +
+            3 * u * u * t * b.x +
+            3 * u * t * t * c.x +
+            t * t * t * d.x,
+          y:
+            u * u * u * a.y +
+            3 * u * u * t * b.y +
+            3 * u * t * t * c.y +
+            t * t * t * d.y,
+        };
+      });
+    }),
+  ];
+}
 export function polarPoint(
   value: number,
   score: number,
