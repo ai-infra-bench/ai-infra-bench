@@ -11,7 +11,7 @@ const nestedDir = path.join(clientDir, normalizedBasePath);
 const nestedAssetsDir = path.join(nestedDir, '_next');
 const targetAssetsDir = path.join(clientDir, '_next');
 const siteUrl = new URL(
-  process.env.NEXT_PUBLIC_SITE_URL ?? 'https://ai-infra-bench.github.io',
+  process.env.NEXT_PUBLIC_SITE_URL ?? 'https://infrabench.ai',
 );
 
 let nestedEntries = [];
