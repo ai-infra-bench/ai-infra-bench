@@ -1,7 +1,7 @@
 # Website
 
 The homepage includes the leaderboard and task catalog. The production site is
-published at <https://ai-infra-bench.github.io/>.
+published at <https://infrabench.ai/> using GitHub Pages.
 
 ## Local development
 
@@ -103,7 +103,7 @@ connect to the NAS. To reproduce the production build locally:
 
 ```sh
 GITHUB_PAGES_BASE_PATH='' \
-NEXT_PUBLIC_SITE_URL=https://ai-infra-bench.github.io \
+NEXT_PUBLIC_SITE_URL=https://infrabench.ai \
 npm run build:pages
 ```
 
@@ -113,3 +113,30 @@ succeeded. Its `publish-website` job builds `dist/client/` with an empty base pa
 then uses `ROOT_PAGES_TOKEN` to publish the artifact to the `main` branch of
 `ai-infra-bench/ai-infra-bench.github.io`. GitHub Pages serves that repository's
 root. Opening a PR does not update the live site.
+
+### Custom domain
+
+`infrabench.ai` is the canonical domain. Keep `public/CNAME` in the source:
+the publication job replaces the generated site's branch, so configuring the
+domain only in the destination repository is not persistent. Both website CI
+and publication verify that the emitted `dist/client/CNAME` contains this domain.
+
+Configure the custom domain in the **ai-infra-bench.github.io repository's**
+Pages settings before pointing DNS at GitHub. In Cloudflare, use these records
+with proxy status **DNS only** and automatic TTL:
+
+| Type | Name | Content |
+| --- | --- | --- |
+| A | @ | 185.199.108.153 |
+| A | @ | 185.199.109.153 |
+| A | @ | 185.199.110.153 |
+| A | @ | 185.199.111.153 |
+| CNAME | www | ai-infra-bench.github.io |
+
+Remove only conflicting website records for `@` or `www`; retain unrelated
+mail and verification records. Do not add wildcard records or a redirect back
+to github.io. After DNS validation and certificate issuance, enable **Enforce
+HTTPS** in Pages settings. GitHub recommends also verifying ownership under
+the organization's Settings > Pages and retaining its DNS TXT challenge.
+
+See [GitHub's custom domain guide](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site).

@@ -2,7 +2,7 @@
 
 **How much real AI infrastructure engineering work can frontier models solve?**
 
-[Website and task registry](https://ai-infra-bench.github.io/)
+[Website and task registry](https://infrabench.ai/)
 
 AI Infra Bench is an AI infrastructure benchmark that evaluates frontier models on real-world AI infrastructure engineering workloads. Its first release focuses on vLLM and will contain 50 expert-reviewed tasks: approximately 25 CPU tasks covering representative bugs, features, performance changes, refactors, and tests, plus approximately 25 GPU tasks drawn from memorable problems nominated by vLLM maintainers. Future releases will expand to tasks from other inference engines, pre-training and post-training systems, and agent harnesses, covering a wider range of real-world tasks that AI infrastructure developers encounter in their day-to-day work.
 
