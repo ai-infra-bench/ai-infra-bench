@@ -7,6 +7,9 @@ import {
   type ChartConfiguration,
   type PlotPoint,
   effortOrder,
+  labelSizeKey,
+  type LabelKind,
+  type LabelSize,
 } from "@/app/lib/leaderboard-chart";
 import {
   plotGroupKey,
@@ -14,7 +17,12 @@ import {
   type PlotTarget,
 } from "@/app/lib/plot-focus";
 import { focusedDomain } from "@/app/lib/hero-plot";
-import { curvePath, descendingLinear } from "@/app/lib/print-geometry";
+import {
+  curvePath,
+  descendingLinear,
+  sampleCurve,
+} from "@/app/lib/print-geometry";
+import { nearestPlotPoint } from "@/app/lib/plot-hit";
 import leaderboard from "@/app/generated/leaderboard.json";
 
 type Axis = "cost" | "tokens" | "tools";
@@ -51,10 +59,86 @@ function format(n: number, axis: Axis, exact = false) {
       : n.toFixed(exact ? 1 : 0);
 }
 
+function measureLabelSizes(svg: SVGSVGElement, configs: PrintConfiguration[]) {
+  const namespace = "http://www.w3.org/2000/svg";
+  const probe = document.createElementNS(namespace, "g");
+  probe.setAttribute("visibility", "hidden");
+  probe.setAttribute("aria-hidden", "true");
+  probe.style.pointerEvents = "none";
+  const titleText = document.createElementNS(namespace, "text");
+  const detailText = document.createElementNS(namespace, "text");
+  titleText.setAttribute("class", "print-label-name");
+  detailText.setAttribute("class", "print-label-value");
+  probe.appendChild(titleText);
+  probe.appendChild(detailText);
+  svg.appendChild(probe);
+  const sizes: Record<string, LabelSize> = {};
+  const inline =
+    getComputedStyle(svg)
+      .getPropertyValue("--plot-point-label-layout")
+      .trim() === "inline";
+  const measure = (kind: LabelKind, title: string, detail: string | null) => {
+    const key = labelSizeKey(kind, title, detail);
+    if (sizes[key]) return;
+    probe.setAttribute("class", "print-label label-" + kind);
+    titleText.textContent = title;
+    detailText.textContent = detail;
+    const a = titleText.getBBox(),
+      b = detailText.getBBox();
+    const padding = 2,
+      gap = 4;
+    if (inline && kind === "effort" && detail) {
+      const baseline = padding + Math.max(-a.y, -b.y);
+      sizes[key] = {
+        width: Math.ceil(a.width + b.width + 8) + padding * 2,
+        height:
+          Math.ceil(
+            Math.max(-a.y, -b.y) + Math.max(a.y + a.height, b.y + b.height),
+          ) +
+          padding * 2,
+        titleX: padding - a.x,
+        titleY: baseline,
+        detailX: padding + a.width + 8 - b.x,
+        detailY: baseline,
+      };
+      return;
+    }
+    sizes[key] = {
+      width: Math.ceil(Math.max(a.width, b.width)) + padding * 2,
+      height: Math.ceil(a.height + (detail ? gap + b.height : 0)) + padding * 2,
+      titleX: padding - a.x,
+      titleY: padding - a.y,
+      detailX: padding - b.x,
+      detailY: padding + a.height + gap - b.y,
+    };
+  };
+  try {
+    for (const c of configs) {
+      measure("series", c.model, null);
+      measure("effort", c.effort, c.metrics.passAverage.toFixed(1) + "%");
+      measure(
+        "model",
+        c.model,
+        c.effort + " · " + c.metrics.passAverage.toFixed(1) + "%",
+      );
+      measure("model", c.model, null);
+    }
+  } finally {
+    probe.remove();
+  }
+  return sizes;
+}
+
 export function PrintComparison() {
   const [axis, setAxis] = useState<Axis>("cost");
   const [hover, setHover] = useState<PlotTarget>(null);
   const [pinned, setPinned] = useState<PlotTarget>(null);
+  const hoverTarget = (target: PlotTarget) =>
+    setHover((previous) =>
+      previous?.kind === target?.kind && previous?.id === target?.id
+        ? previous
+        : target,
+    );
   const configs = useMemo(
     () =>
       [...leaderboard.configurations].sort(
@@ -120,7 +204,7 @@ export function PrintComparison() {
           selected={pointId}
           focusedGroup={group}
           pinned={pinned}
-          onHover={setHover}
+          onHover={hoverTarget}
           onPin={pin}
         />
       </div>
@@ -173,6 +257,8 @@ function Chart({
 }) {
   const ref = useRef<HTMLDivElement>(null),
     id = useId().replaceAll(":", "");
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [labelSizes, setLabelSizes] = useState<Record<string, LabelSize>>({});
   const [size, setSize] = useState({ width: 1000, height: 440 });
   useEffect(() => {
     const el = ref.current;
@@ -190,6 +276,23 @@ function Chart({
     obs.observe(el);
     return () => obs.disconnect();
   }, []);
+  useEffect(() => {
+    let active = true;
+    const measure = () => {
+      if (!active || !svgRef.current) return;
+      const next = measureLabelSizes(svgRef.current, configs);
+      setLabelSizes((previous) =>
+        JSON.stringify(previous) === JSON.stringify(next) ? previous : next,
+      );
+    };
+    measure();
+    void document.fonts.ready.then(measure);
+    document.fonts.addEventListener("loadingdone", measure);
+    return () => {
+      active = false;
+      document.fonts.removeEventListener("loadingdone", measure);
+    };
+  }, [configs, size.width]);
   const compact = size.width < 600,
     xd = focusedDomain(configs.map((c) => c.metrics[axisKeys[axis]]));
   const scores = configs.map((c) => c.metrics.passAverage);
@@ -209,25 +312,86 @@ function Chart({
     height = Math.max(1, bottom - top);
   const x = (n: number) => descendingLinear(n, xd.min, xd.max, left, width),
     y = (n: number) => bottom - ((n - yMin) / (yMax - yMin)) * height;
-  const points: PlotPoint[] = configs.map((c) => ({
-    configuration: c,
-    value: c.metrics[axisKeys[axis]],
-    score: c.metrics.passAverage,
-    color: modelColor(c.model),
-    group: plotGroupKey(c),
-    x: x(c.metrics[axisKeys[axis]]),
-    y: y(c.metrics.passAverage),
-  }));
-  const groups = [...new Set(points.map((p) => p.group))].map((key) =>
-    points.filter((p) => p.group === key),
+  const points: PlotPoint[] = useMemo(
+    () =>
+      configs.map((c) => ({
+        configuration: c,
+        value: c.metrics[axisKeys[axis]],
+        score: c.metrics.passAverage,
+        color: modelColor(c.model),
+        group: plotGroupKey(c),
+        x: descendingLinear(
+          c.metrics[axisKeys[axis]],
+          xd.min,
+          xd.max,
+          left,
+          width,
+        ),
+        y: bottom - ((c.metrics.passAverage - yMin) / (yMax - yMin)) * height,
+      })),
+    [configs, axis, xd.min, xd.max, left, width, bottom, yMin, yMax, height],
+  );
+  const groups = useMemo(
+    () =>
+      [...new Set(points.map((p) => p.group))].map((key) =>
+        points.filter((p) => p.group === key),
+      ),
+    [points],
+  );
+  const curves = useMemo(
+    () =>
+      groups.map((series) => ({
+        group: series[0].group,
+        points: sampleCurve(series),
+      })),
+    [groups],
   );
   const selectedPoint = points.find((p) => p.configuration.id === selected);
-  const labels = placePlotLabels(
-    points,
-    { x: left + 4, y: top + 4, width: width - 8, height: height - 8 },
-    compact,
-    selected,
+  const selectedLabel = groups.length > 3 ? selected : null;
+  const labels = useMemo(
+    () =>
+      placePlotLabels(
+        points,
+        { x: left + 4, y: top + 4, width: width - 8, height: height - 8 },
+        compact,
+        selectedLabel,
+        {
+          sizes: labelSizes,
+          curves,
+        },
+      ),
+    [
+      points,
+      left,
+      top,
+      width,
+      height,
+      compact,
+      selectedLabel,
+      labelSizes,
+      curves,
+    ],
   );
+  const pointAtPointer = (event: {
+    clientX: number;
+    clientY: number;
+    pointerType?: string;
+  }) => {
+    const transform = svgRef.current?.getScreenCTM();
+    if (!transform) return null;
+    const position = new DOMPoint(event.clientX, event.clientY).matrixTransform(
+      transform.inverse(),
+    );
+    const radius =
+      event.pointerType === "touch" ||
+      window.matchMedia("(pointer:coarse)").matches
+        ? 24
+        : 16;
+    const point = nearestPlotPoint(points, position, radius);
+    return point
+      ? { kind: "point" as const, id: point.configuration.id }
+      : null;
+  };
   const ticks = Array.from(
     { length: Math.round((yMax - yMin) / 10) + 1 },
     (_, i) => yMin + i * 10,
@@ -238,6 +402,7 @@ function Chart({
   return (
     <div className="print-chart" ref={ref}>
       <svg
+        ref={svgRef}
         viewBox={"0 0 " + size.width + " " + size.height}
         className="print-svg"
         role="group"
@@ -251,6 +416,9 @@ function Chart({
         data-x-max={xd.max}
         data-y-min={yMin}
         data-y-max={yMax}
+        data-label-metrics={
+          Object.keys(labelSizes).length ? "measured" : "fallback"
+        }
       >
         <title id={id + "-title"}>
           {"Pass Average (%) by " + axisLabels[axis]}
@@ -369,6 +537,22 @@ function Chart({
             aria-hidden="true"
           />
         )}
+        <g className="print-label-leaders" aria-hidden="true">
+          {labels
+            .filter((label) => label.leader)
+            .map((label) => (
+              <line
+                key={label.kind + label.point.configuration.id}
+                className="print-label-leader"
+                data-label-for={label.point.configuration.id}
+                data-label-kind={label.kind}
+                {...label.leader}
+                style={{
+                  stroke: curveColor(label.point.group, label.point.color),
+                }}
+              />
+            ))}
+        </g>
         {points.map((p) => {
           const target = { kind: "point" as const, id: p.configuration.id };
           return (
@@ -402,11 +586,30 @@ function Chart({
                 axisLabels[axis].toLowerCase() +
                 " per run"
               }
-              onMouseEnter={() => onHover(target)}
-              onMouseLeave={() => onHover(null)}
+              onPointerEnter={(event) =>
+                onHover(pointAtPointer(event) ?? target)
+              }
+              onPointerMove={(event) =>
+                onHover(pointAtPointer(event) ?? target)
+              }
+              onPointerLeave={() => onHover(null)}
               onFocus={() => onHover(target)}
               onBlur={() => onHover(null)}
-              onClick={() => onPin(target)}
+              onClick={(event) => {
+                const resolved =
+                  event.detail === 0
+                    ? target
+                    : (pointAtPointer(event) ?? target);
+                if (resolved.id !== p.configuration.id) {
+                  svgRef.current
+                    ?.querySelector<SVGElement>(
+                      '[data-config="' + CSS.escape(resolved.id) + '"]',
+                    )
+                    ?.focus({ preventScroll: true });
+                }
+                onHover(resolved);
+                onPin(resolved);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
@@ -437,6 +640,7 @@ function Chart({
               key={label.kind + label.point.configuration.id}
               className={"print-label label-" + label.kind}
               data-series-group={label.point.group}
+              data-label-for={label.point.configuration.id}
               data-muted={muted(label.point.group)}
               style={{
                 fill: muted(label.point.group)
@@ -444,13 +648,17 @@ function Chart({
                   : label.point.color,
               }}
             >
-              <text x={label.x} y={label.y + 14} className="print-label-name">
+              <text
+                x={label.x + label.titleX}
+                y={label.y + label.titleY}
+                className="print-label-name"
+              >
                 {label.title}
               </text>
               {label.detail && (
                 <text
-                  x={label.x}
-                  y={label.y + 31}
+                  x={label.x + label.detailX}
+                  y={label.y + label.detailY}
                   className="print-label-value"
                 >
                   {label.detail}
