@@ -1,9 +1,7 @@
-# vllm-deterministic-bmm-batch-scaling: GPT-6-Astra high
+# vllm-deterministic-bmm-batch-scaling v1.2.4
 
-Task v1.2.4; one Harbor attempt on 2026-09-11; reward **1**, no Harbor exception. Trial: `vllm-deterministic-bmm-batch-sca__YwPforS`.
+One GPT-6-Astra / high Harbor run: **reward 1**, zero Harbor errors. Full rollout review passed.
 
-[Download trajectory ZIP](bmm-gpt-6-astra-high-once.zip) · [Browse ATIF](trajectory.json) · [Rollout review](review.md) · [Run identity](run-identity.json)
+[Download complete trajectory ZIP](bmm-gpt-6-astra-high-once.zip) — includes native/ATIF/API traces, final source, verifier logs and review evidence.
 
-The ZIP contains the native Codex session, ATIF, captured HTTP/SSE trajectory, verifier logs, final repository source archive, patch and file inventory. Complete rootfs and raw trace SQLite are retained locally; the public package excludes runtime authentication state. Local paths in historical records identify the original runs.
-
-The review archive contains additional diagnostic replay and challenge evidence for the same candidate; it does not represent another model attempt. Earlier Opus results are archived locally and in Git history; they are not evidence for this task revision.
+SHA-256: `912ab05a313fb7daa044039466ec8d2bc95921fa511035fa6ae3fa15159cb7f1`
