@@ -75,17 +75,54 @@ def expected_case_digest(n_token: int, aligned: bool) -> str:
     ).hexdigest()
 
 
+
+def expected_expert_digest(experts: int, aligned: bool) -> str:
+    """Independent stdlib reference for all five buffers, including padding."""
+    n, h, k = 7, 128, 2
+    cap = n * k + (experts * 127 if aligned else 0)
+    payload = bytearray(struct.pack("<e", -33) * (cap * h))
+    inverse = bytearray(struct.pack("<i", -29) * (n * k))
+    forward = bytearray(struct.pack("<i", -27) * cap)
+    mids = bytearray(struct.pack("<i", -25) * cap)
+    offsets = [0]
+    cursor = 0
+    for expert in range(experts):
+        positions = [j for j in range(n * k) if (j * 17 + 7) % experts == expert]
+        for j, source in enumerate(positions):
+            row = cursor + j
+            values = range((source // k) * h, (source // k + 1) * h)
+            payload[row * h * 2:(row + 1) * h * 2] = struct.pack(f"<{h}e", *values)
+            struct.pack_into("<i", inverse, source * 4, row)
+            struct.pack_into("<i", forward, row * 4, source)
+        width = ((len(positions) + 127) // 128) * 128 if aligned else len(positions)
+        if aligned:
+            mids[cursor * 4:(cursor + width) * 4] = struct.pack("<i", expert) * width
+        cursor += width
+        offsets.append(cursor)
+    key = f"experts={experts}:{'aligned' if aligned else 'unaligned'}"
+    return hashlib.sha256(b"|".join([
+        key.encode(), payload, struct.pack(f"<{len(offsets)}q", *offsets),
+        inverse, forward, mids,
+    ])).hexdigest()
+
 def expected_digests() -> dict[str, str]:
     out = {}
     for n in CORRECTNESS_TOKENS:
         for aligned in (True, False):
             key = f"{n}:{'aligned' if aligned else 'unaligned'}"
             out[key] = expected_case_digest(n, aligned)
+    for experts in (64, 1023, 1024, 1025):
+        for aligned in (True, False):
+            key = f"experts={experts}:{'aligned' if aligned else 'unaligned'}"
+            out[key] = expected_expert_digest(experts, aligned)
     return out
 
 
 REQUIRED_CASE_KEYS = tuple(
     f"{n}:{m}" for n in CORRECTNESS_TOKENS for m in ("aligned", "unaligned")
+) + tuple(
+    f"experts={e}:{m}" for e in (64, 1023, 1024, 1025)
+    for m in ("aligned", "unaligned")
 )
 
 # Exact timing protocol the performance stage must have used.

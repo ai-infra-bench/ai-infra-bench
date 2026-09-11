@@ -246,6 +246,53 @@ def check_case(n_token: int, align_block_size: int | None) -> str:
     # unwritten by the op and is not part of the observable contract here.
 
 
+
+def check_expert_boundary(experts, align):
+    """Exercise the public expert-count range, including untouched buffer tails."""
+    n, h, k = 7, 128, 2
+    x = torch.arange(n * h, device="cuda", dtype=torch.float32).reshape(n, h).half()
+    ids = ((torch.arange(n * k, device="cuda") * 17 + 7) % experts).reshape(n, k).int()
+    src = torch.arange(n * k, device="cuda", dtype=torch.int32).reshape(n, k)
+    cap = n * k + (experts * (align - 1) if align else 0)
+    out = torch.full((cap, h), -33, device="cuda", dtype=x.dtype)
+    offsets = torch.full((experts + 1,), -31, device="cuda", dtype=torch.int64)
+    inverse = torch.full_like(ids, -29)
+    forward = torch.full((cap,), -27, device="cuda", dtype=torch.int32)
+    mids = torch.full((cap,), -25, device="cuda", dtype=torch.int32)
+    torch.ops._moe_C.moe_permute(
+        x, ids, src, None, experts, experts, k, align,
+        out, offsets, inverse, forward, mids,
+    )
+    torch.cuda.synchronize()
+    # Reference grouping is computed on the CPU and compares every output byte.
+    expected = torch.full((cap, h), -33, dtype=x.dtype)
+    ef = torch.full((cap,), -27, dtype=torch.int32)
+    ei = torch.full((n, k), -29, dtype=torch.int32)
+    em = torch.full((cap,), -25, dtype=torch.int32)
+    routes = ids.cpu().flatten().tolist()
+    xi = x.cpu()
+    eo, cursor = [0], 0
+    for expert in range(experts):
+        positions = [j for j, routed in enumerate(routes) if routed == expert]
+        for j, source in enumerate(positions):
+            expected[cursor + j] = xi[source // k]
+            ef[cursor + j] = source
+            ei[source // k, source % k] = cursor + j
+        width = ((len(positions) + align - 1) // align) * align if align else len(positions)
+        if align:
+            em[cursor:cursor + width] = expert
+        cursor += width
+        eo.append(cursor)
+    actual = [v.cpu() for v in (out, offsets, inverse, forward, mids)]
+    wanted = [expected, torch.tensor(eo, dtype=torch.int64), ei, ef, em]
+    for name, observed, reference in zip(("payload", "offsets", "inverse", "forward", "m_indices"), actual, wanted):
+        assert torch.equal(observed, reference), (experts, align, name)
+    key = f"experts={experts}:{'aligned' if align else 'unaligned'}"
+    CASE_DIGESTS[key] = hashlib.sha256(b"|".join(
+        [key.encode()] + [v.numpy().tobytes() for v in actual]
+    )).hexdigest()
+    CALL_COUNTS["check_case"] += 1
+
 def time_case(
     n_token: int, align_block_size: int | None = ALIGN,
 ) -> dict:
@@ -298,9 +345,13 @@ def main() -> None:
         for batch in CORRECTNESS_TOKENS:
             check_case(batch, ALIGN)  # aligned path
             check_case(batch, None)  # unaligned path
+        for experts in (64, 1023, 1024, 1025):
+            for align in (None, ALIGN):
+                check_expert_boundary(experts, align)
         print(json.dumps({**common,
                           "actual_uid": actual_uid,
-                          "correctness_cases": len(CORRECTNESS_TOKENS) * 2,
+                          "expert_count_cases": [64, 1023, 1024, 1025],
+                          "correctness_cases": len(CORRECTNESS_TOKENS) * 2 + 8,
                           "call_counts": dict(CALL_COUNTS),
                           "case_digests": dict(CASE_DIGESTS),
                           "correctness_passed": True}, sort_keys=True))

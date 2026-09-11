@@ -35,3 +35,7 @@ Exact Base/history and candidate native source. Torch/CUDA and native build inpu
 
 See `e2e-evidence.json` for actual run identities and `final-review.md` for the
 current review outcome. Earlier build notes are historical observations.
+
+Eight additional FP16 correctness cases use 64/1023/1024/1025 experts, seven tokens, hidden size 128, top-k 2 and both alignment modes. Every output buffer, including untouched padding, is compared against CPU grouping; the trusted stdlib parent independently derives the full-buffer digests. The timing workload and gates are unchanged. The expert-count-cap control changes only a legal-input rejection in the otherwise-correct Oracle. It is a diagnostic control, not a complete replay of the missing Opus final archive.
+
+The routing IDs in the eight expert-count cases are distinct, so exact map comparisons do not prescribe tie ordering among equal expert keys.

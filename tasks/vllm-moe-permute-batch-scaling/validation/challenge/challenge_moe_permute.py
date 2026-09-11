@@ -156,6 +156,19 @@ def check_case(n_token: int, align_block_size: int | None) -> dict:
             "mode": "aligned" if aligned else "unaligned"}
 
 
+
+def check_large_expert_count(align):
+    global N_EXPERT, TOPK, HIDDEN
+    previous = N_EXPERT, TOPK, HIDDEN
+    try:
+        N_EXPERT, TOPK, HIDDEN = 2049, 3, 128
+        result = check_case(11, align)
+        result["n_expert"] = N_EXPERT
+        return result
+    finally:
+        N_EXPERT, TOPK, HIDDEN = previous
+
+
 # Use the public performance boundary with independent payload/routing inputs.
 # Fresh correctness shapes above remain independent of the main verifier.
 SCALE_SMALL = 512
@@ -209,7 +222,7 @@ def check_scaling() -> dict:
 # so deleting a scenario, adding one, or emptying a body all fail.
 REQUIRED_SCENARIOS = tuple(
     f"{n}:{mode}" for n in FRESH_TOKENS for mode in ("aligned", "unaligned")
-) + ("scaling",)
+) + ("experts=2049:aligned", "experts=2049:unaligned", "scaling",)
 
 
 def main() -> None:
@@ -240,6 +253,16 @@ def main() -> None:
                         "traceback": traceback.format_exc(),
                     }
                 )
+    for align in (ALIGN, None):
+        key = "experts=2049:" + ("aligned" if align else "unaligned")
+        try:
+            rec = check_large_expert_count(align)
+            call_counts["check_case"] += 1
+            results.append(rec)
+            observed[key] = {"observed": True, "result": rec}
+        except Exception as exc:
+            failures.append({"stage": key, "type": type(exc).__name__,
+                             "message": str(exc), "traceback": traceback.format_exc()})
     # Scaling invariant. Only measured once correctness holds -- a scaling
     # number on a kernel that produces wrong output would be meaningless.
     scaling = None
@@ -261,7 +284,7 @@ def main() -> None:
     # expected number of measured calls. `failures == []` alone is NOT enough.
     missing = sorted(set(REQUIRED_SCENARIOS) - set(observed))
     extra = sorted(set(observed) - set(REQUIRED_SCENARIOS))
-    expected_cases = len(FRESH_TOKENS) * 2
+    expected_cases = len(FRESH_TOKENS) * 2 + 2
     completeness = {
         "required_scenarios": list(REQUIRED_SCENARIOS),
         "observed_scenarios": sorted(observed),

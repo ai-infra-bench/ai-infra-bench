@@ -159,8 +159,11 @@ def main() -> int:
         manifest["completeness"] = completeness
         req = set(completeness.get("required_scenarios") or [])
         obs = set(completeness.get("observed_scenarios") or [])
-        if not req:
-            manifest["anomalies"].append("required_scenarios_empty")
+        expected = {f"{n}:{mode}" for n in (7, 63, 129, 257, 1000, 3000)
+                    for mode in ("aligned", "unaligned")} | {
+                    "experts=2049:aligned", "experts=2049:unaligned", "scaling"}
+        if req != expected:
+            manifest["anomalies"].append("required_scenarios_mismatch")
         if req != obs:
             manifest["anomalies"].append("scenario_set_mismatch")
         if completeness.get("missing_scenarios"):
@@ -168,9 +171,7 @@ def main() -> int:
         if completeness.get("extra_scenarios"):
             manifest["anomalies"].append("extra_scenarios")
         counts = completeness.get("call_counts") or {}
-        if counts.get("check_case") != completeness.get(
-            "expected_check_case_calls"
-        ):
+        if counts.get("check_case") != 14 or completeness.get("expected_check_case_calls") != 14:
             manifest["anomalies"].append("check_case_call_count")
         if counts.get("check_scaling") != 1:
             manifest["anomalies"].append("check_scaling_call_count")
