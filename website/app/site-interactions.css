@@ -1,0 +1,130 @@
+/* Editorial controls use one underline vocabulary. Data marks and graph focus
+   are deliberately excluded: their colour and shape carry measured identity. */
+:root {
+  --link-rule-width: 1px;
+  --link-rule-offset: 0.32em;
+  --focus-ring-offset: 4px;
+  --text-control-gap: 24px;
+}
+
+.site-header nav,
+.print-axis-control,
+.task-content .content-tabs {
+  gap: var(--text-control-gap);
+}
+
+/* Navigation, resource tabs, content tabs and page numbers share state styling.
+   Underlines follow the text baseline; focus/hover never change box geometry. */
+:is(
+  .site-header nav a,
+  .print-axis-control button,
+  .content-tab,
+  .catalogue-pagination button
+) {
+  min-height: 44px;
+  text-decoration-line: none;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: var(--link-rule-width);
+  text-underline-offset: var(--link-rule-offset);
+  text-decoration-skip-ink: auto;
+  border-bottom-color: transparent;
+  transition: color 140ms ease;
+}
+
+.site-header nav a::after,
+.print-axis-control button::after,
+.content-tab::after {
+  display: none;
+}
+
+:is(
+    .site-header nav a,
+    .print-axis-control button,
+    .content-tab,
+    .catalogue-pagination button
+  ):is(:hover, :focus-visible):not(:disabled) {
+  color: var(--accent);
+  text-decoration-line: underline;
+  border-bottom-color: transparent;
+}
+
+:is(
+  .site-header nav a,
+  .print-axis-control button,
+  .content-tab,
+  .catalogue-pagination button
+):is([aria-current="page"], [aria-pressed="true"], [data-state="active"]) {
+  color: var(--ink);
+  text-decoration-line: underline;
+  border-bottom-color: transparent;
+}
+
+.print-axis-control button:active {
+  transform: none;
+}
+
+/* Prose and task links use the same rule with extra optical clearance for
+   larger serif descenders. Their existing click areas and arrows stay intact. */
+.markdown-body a,
+.task-score a,
+.footer-identity > a,
+.footer-pagination a > span > span {
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: var(--link-rule-width);
+  text-underline-offset: var(--link-rule-offset);
+  text-decoration-skip-ink: auto;
+}
+
+:is(.task-score a, .footer-identity > a):is(:hover, :focus-visible),
+.footer-pagination a:is(:hover, :focus-visible) > span > span {
+  text-decoration-line: underline;
+}
+
+.catalogue-card:is(:hover, :focus-visible) :is(h2, h3) {
+  text-decoration-thickness: var(--link-rule-width);
+  text-underline-offset: max(6px, var(--link-rule-offset));
+  text-decoration-skip-ink: auto;
+}
+
+/* Keep focus conspicuous and consistent without adding a second input ring. */
+:is(
+  .site-header nav a,
+  .print-axis-control button,
+  .content-tab,
+  .catalogue-pagination button,
+  .catalogue-card,
+  .row-expander,
+  .source-actions button,
+  .source-file-trigger,
+  .footer-pagination a,
+  .footer-identity > a
+):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Bounded actions retain their surface feedback instead of pretending to be
+   navigation links; pointer and keyboard focus receive the same emphasis. */
+:is(.row-expander, .source-actions button):is(:hover, :focus-visible):not(
+    :disabled
+  ) {
+  background: var(--paper-deep);
+  color: var(--accent);
+}
+
+@media (max-width: 767px) {
+  :root {
+    --text-control-gap: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(
+    .site-header nav a,
+    .print-axis-control button,
+    .content-tab,
+    .catalogue-pagination button
+  ) {
+    transition: none;
+  }
+}
