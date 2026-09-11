@@ -140,3 +140,20 @@ HTTPS** in Pages settings. GitHub recommends also verifying ownership under
 the organization's Settings > Pages and retaining its DNS TXT challenge.
 
 See [GitHub's custom domain guide](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site).
+
+### Legacy `.html` URL redirects
+
+GitHub Pages serves the static `.html` files directly and cannot emit HTTP 301
+responses. To permanently redirect legacy `.html` URLs, deploy the optional
+Cloudflare Worker in the repository `cloudflare/` directory and attach it to the `infrabench.ai/*` route:
+
+```sh
+cd cloudflare
+npx wrangler deploy
+```
+
+The Worker redirects `/index.html`, `/leaderboard.html`, `/tasks.html`, and task
+URLs ending in `.html` to their clean URL while passing all other requests
+through to GitHub Pages. The `infrabench.ai` DNS record must be proxied through
+Cloudflare for the route to run. Keep the DNS and Pages custom-domain settings
+otherwise unchanged.

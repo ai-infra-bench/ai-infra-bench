@@ -30,13 +30,15 @@ const displayFont = EB_Garamond({
   subsets: ["latin"],
 });
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+const siteName = "AI Infra Bench";
+const siteDescription =
+  "AI Infra Bench evaluates frontier models on real-world AI infrastructure engineering workloads, beginning with vLLM.";
+
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
-  ),
+  metadataBase: new URL(siteUrl),
   title: "AI Infra Bench | AI Infrastructure Benchmark",
-  description:
-    "AI Infra Bench evaluates frontier models on real-world AI infrastructure engineering workloads, beginning with vLLM.",
+  description: siteDescription,
   icons: {
     icon: [
       {
@@ -53,15 +55,14 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "AI Infra Bench | AI Infrastructure Benchmark",
-    description:
-      "AI Infra Bench evaluates frontier models on real-world AI infrastructure engineering workloads, beginning with vLLM.",
+    description: siteDescription,
+    siteName,
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
     title: "AI Infra Bench | AI Infrastructure Benchmark",
-    description:
-      "AI Infra Bench evaluates frontier models on real-world AI infrastructure engineering workloads, beginning with vLLM.",
+    description: siteDescription,
   },
 };
 
@@ -75,6 +76,20 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${displayFont.variable} antialiased craft-press`}
       >
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              name: siteName,
+              alternateName: "AI infrastructure benchmark",
+              description: siteDescription,
+              url: new URL("/", siteUrl).toString(),
+              sameAs: ["https://github.com/ai-infra-bench/ai-infra-bench"],
+            }),
+          }}
+        />
         {children}
       </body>
     </html>
