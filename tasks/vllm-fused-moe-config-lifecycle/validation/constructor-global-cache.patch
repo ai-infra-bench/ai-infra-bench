@@ -1,3 +1,25 @@
+diff --git a/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py b/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
+index c23c41d..d7fa0b6 100644
+--- a/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
++++ b/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
+@@ -6,7 +6,6 @@ from collections.abc import Callable
+ import torch
+ 
+ from vllm.logger import init_logger
+-from vllm.model_executor.custom_op import CustomOp
+ from vllm.model_executor.layers.fused_moe.config import (
+     FusedMoEQuantConfig,
+ )
+@@ -21,8 +20,7 @@ from vllm.model_executor.layers.fused_moe.modular_kernel import (
+ logger = init_logger(__name__)
+ 
+ 
+-@CustomOp.register("modular_fused_moe")
+-class FusedMoEModularMethod(FusedMoEMethodBase, CustomOp):
++class FusedMoEModularMethod(FusedMoEMethodBase, torch.nn.Module):
+     def __init__(
+         self, old_quant_method: FusedMoEMethodBase, experts: FusedMoEModularKernel
+     ):
 diff --git a/vllm/model_executor/layers/fused_moe/modular_kernel.py b/vllm/model_executor/layers/fused_moe/modular_kernel.py
 index b2af58c..000e676 100644
 --- a/vllm/model_executor/layers/fused_moe/modular_kernel.py

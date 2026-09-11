@@ -99,19 +99,22 @@ def make_kernel_through_factory(config, ambient=None):
         vllm_config=config, moe_config=moe, moe_parallel_config=owner,
         quant_method=old_quant, shared_experts_stream=None,
     )
-    method_module.FusedMoEModularMethod = lambda old, kernel: kernel
-    try:
-        context = (
-            set_current_vllm_config(ambient) if ambient is not None
-            else contextlib.nullcontext()
+    context = (set_current_vllm_config(ambient) if ambient is not None
+               else contextlib.nullcontext())
+    with context:
+        method = original_method.make(layer, old_quant, MoEPrepareAndFinalizeNoEP(), None)
+    def forward(x, w1, w2, weights, ids, *, activation, global_num_experts):
+        # We supply deterministic router outputs and loaded weights; the real
+        # modular method owns dispatch and all access to its internal storage.
+        layer.w13_weight, layer.w2_weight = w1, w2
+        layer.zero_expert_num, layer.zero_expert_type = 0, None
+        layer.select_experts = lambda *args, **kwargs: (weights, ids, None)
+        router_logits = torch.zeros((len(x), global_num_experts), device=x.device, dtype=x.dtype)
+        return method.apply(
+            layer, x, router_logits, top_k=ids.shape[1], renormalize=False,
+            activation=activation, global_num_experts=global_num_experts,
         )
-        with context:
-            kernel = original_method.make(layer, old_quant,
-                                          MoEPrepareAndFinalizeNoEP(), None)
-    finally:
-        method_module.FusedMoEModularMethod = original_method
-    assert isinstance(kernel, FusedMoEModularKernel)
-    return kernel
+    return forward
 
 
 def real_cuda_forward(kernel, config, workspace=None):

@@ -1,5 +1,5 @@
 diff --git a/vllm/model_executor/layers/fused_moe/cutlass_moe.py b/vllm/model_executor/layers/fused_moe/cutlass_moe.py
-index 6753a1925..30144ca54 100644
+index 6753a19..30144ca 100644
 --- a/vllm/model_executor/layers/fused_moe/cutlass_moe.py
 +++ b/vllm/model_executor/layers/fused_moe/cutlass_moe.py
 @@ -460,6 +460,7 @@ def cutlass_moe_fp8(
@@ -19,10 +19,28 @@ index 6753a1925..30144ca54 100644
  
      return fn(
 diff --git a/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py b/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
-index c23c41df2..b33e7fd8a 100644
+index c23c41d..06380f2 100644
 --- a/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
 +++ b/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
-@@ -44,6 +44,11 @@ class FusedMoEModularMethod(FusedMoEMethodBase, CustomOp):
+@@ -6,7 +6,6 @@ from collections.abc import Callable
+ import torch
+ 
+ from vllm.logger import init_logger
+-from vllm.model_executor.custom_op import CustomOp
+ from vllm.model_executor.layers.fused_moe.config import (
+     FusedMoEQuantConfig,
+ )
+@@ -21,8 +20,7 @@ from vllm.model_executor.layers.fused_moe.modular_kernel import (
+ logger = init_logger(__name__)
+ 
+ 
+-@CustomOp.register("modular_fused_moe")
+-class FusedMoEModularMethod(FusedMoEMethodBase, CustomOp):
++class FusedMoEModularMethod(FusedMoEMethodBase, torch.nn.Module):
+     def __init__(
+         self, old_quant_method: FusedMoEMethodBase, experts: FusedMoEModularKernel
+     ):
+@@ -44,6 +42,11 @@ class FusedMoEModularMethod(FusedMoEMethodBase, CustomOp):
          prepare_finalize: FusedMoEPrepareAndFinalize,
          shared_experts: torch.nn.Module | None,
      ) -> "FusedMoEModularMethod":
@@ -34,7 +52,7 @@ index c23c41df2..b33e7fd8a 100644
          return FusedMoEModularMethod(
              old_quant_method,
              FusedMoEModularKernel(
-@@ -51,6 +56,7 @@ class FusedMoEModularMethod(FusedMoEMethodBase, CustomOp):
+@@ -51,6 +54,7 @@ class FusedMoEModularMethod(FusedMoEMethodBase, CustomOp):
                  old_quant_method.select_gemm_impl(prepare_finalize, moe_layer),
                  shared_experts,
                  getattr(moe_layer, "shared_experts_stream", None),
@@ -43,7 +61,7 @@ index c23c41df2..b33e7fd8a 100644
          )
  
 diff --git a/vllm/model_executor/layers/fused_moe/modular_kernel.py b/vllm/model_executor/layers/fused_moe/modular_kernel.py
-index b2af58cdc..6fdf0fcdb 100644
+index b2af58c..6fdf0fc 100644
 --- a/vllm/model_executor/layers/fused_moe/modular_kernel.py
 +++ b/vllm/model_executor/layers/fused_moe/modular_kernel.py
 @@ -10,7 +10,7 @@ from typing import final
@@ -142,7 +160,7 @@ index b2af58cdc..6fdf0fcdb 100644
          # Get intermediate workspace shapes based off the chunked M size.
          workspace13_shape, workspace2_shape, _ = self.fused_experts.workspace_shapes(
 diff --git a/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py b/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py
-index d7fb6d2ca..8013b29f7 100644
+index d7fb6d2..8013b29 100644
 --- a/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py
 +++ b/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py
 @@ -1287,6 +1287,9 @@ class CompressedTensorsW8A8Fp8MoEMethod(CompressedTensorsMoEMethod):
@@ -156,7 +174,7 @@ index d7fb6d2ca..8013b29f7 100644
  
          else:
 diff --git a/vllm/model_executor/layers/quantization/utils/flashinfer_utils.py b/vllm/model_executor/layers/quantization/utils/flashinfer_utils.py
-index eef7a0896..00c2720a3 100644
+index eef7a08..00c2720 100644
 --- a/vllm/model_executor/layers/quantization/utils/flashinfer_utils.py
 +++ b/vllm/model_executor/layers/quantization/utils/flashinfer_utils.py
 @@ -247,6 +247,11 @@ def flashinfer_cutlass_moe_fp8(

@@ -53,10 +53,28 @@ index 24cab79..c3181a2 100644
          if quant_config.use_mxfp4_w4a16:
              assert isinstance(
 diff --git a/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py b/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
-index c23c41d..e31361d 100644
+index c23c41d..713a5a1 100644
 --- a/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
 +++ b/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
-@@ -51,6 +51,10 @@ class FusedMoEModularMethod(FusedMoEMethodBase, CustomOp):
+@@ -6,7 +6,6 @@ from collections.abc import Callable
+ import torch
+ 
+ from vllm.logger import init_logger
+-from vllm.model_executor.custom_op import CustomOp
+ from vllm.model_executor.layers.fused_moe.config import (
+     FusedMoEQuantConfig,
+ )
+@@ -21,8 +20,7 @@ from vllm.model_executor.layers.fused_moe.modular_kernel import (
+ logger = init_logger(__name__)
+ 
+ 
+-@CustomOp.register("modular_fused_moe")
+-class FusedMoEModularMethod(FusedMoEMethodBase, CustomOp):
++class FusedMoEModularMethod(FusedMoEMethodBase, torch.nn.Module):
+     def __init__(
+         self, old_quant_method: FusedMoEMethodBase, experts: FusedMoEModularKernel
+     ):
+@@ -51,6 +49,10 @@ class FusedMoEModularMethod(FusedMoEMethodBase, CustomOp):
                  old_quant_method.select_gemm_impl(prepare_finalize, moe_layer),
                  shared_experts,
                  getattr(moe_layer, "shared_experts_stream", None),
