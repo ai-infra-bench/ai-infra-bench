@@ -1,9 +1,15 @@
 export function formatLabel(value: string | null) {
   if (!value) return 'Unknown';
-  return value
-    .replaceAll('_', ' ')
-    .replaceAll('-', ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const normalized = value.trim().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+  if (/^bug\s*fix$/i.test(normalized)) return 'Bug fix';
+  const acronyms: Record<string, string> = {
+    ai: 'AI', api: 'API', asr: 'ASR', cpu: 'CPU', gpu: 'GPU', kv: 'KV',
+    e2e: 'e2e', rpc: 'RPC', http: 'HTTP', sdk: 'SDK', os: 'OS',
+  };
+  return normalized.split(' ').map((word, index) => {
+    const lower = word.toLowerCase();
+    return acronyms[lower] ?? (index === 0 ? lower.charAt(0).toUpperCase() + lower.slice(1) : lower);
+  }).join(' ');
 }
 
 export function formatTaskTitle(slug: string) {

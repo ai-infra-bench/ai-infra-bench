@@ -17,6 +17,7 @@ export type TaskSummary = {
   description: string;
   keywords: string[];
   track: string | null;
+  domain?: string | null;
   workloadType: string | null;
   subsystems: string[];
   repository: string | null;
