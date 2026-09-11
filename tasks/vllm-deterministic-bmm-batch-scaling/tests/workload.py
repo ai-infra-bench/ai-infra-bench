@@ -15,7 +15,8 @@ def make_workload(seed):
     for dtype, batch, m, n, k in [(torch.float16,1,17,19,23),
             (torch.float16,5,33,29,41),(torch.bfloat16,3,31,37,43),
             (torch.bfloat16,8,64,48,80),(torch.float32,2,15,21,27),
-            (torch.float32,4,32,24,40)]:
+            (torch.float32,4,32,24,40),
+            (torch.float32,2,37,41,2560),(torch.float32,3,53,47,1536)]:
         cases.append({"dtype": str(dtype), "shape": [batch,m,n,k],
                       "a": values((batch,m,k),dtype), "b": values((batch,k,n),dtype)})
     return {"correctness": cases,

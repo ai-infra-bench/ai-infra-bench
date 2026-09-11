@@ -1,0 +1,1067 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "status": "validated",
+  "validation_status": "publication_formatting_final_oracle_passed",
+  "recorded_at": "2026-09-09T06:21:19.074344+00:00",
+  "task": "ai-infra-bench/vllm-deterministic-bmm-batch-scaling",
+  "task_version": "1.2.3",
+  "source": {
+    "repository": "vllm-project/vllm",
+    "base_commit": "b07555d26f4c7ad9a2d1ec45428a9d4287db612c",
+    "dependency_cutoff": "2025-11-25T18:27:26Z",
+    "reference_oracle_commit": "0b0aa874e85431a0f08a0d1fad95ae673e034392"
+  },
+  "image": {
+    "base_commit": "b07555d26f4c7ad9a2d1ec45428a9d4287db612c",
+    "base_image": "vllm/vllm-openai:v0.11.1@sha256:d5b12dfb74d605615f8b29ebafaa52294c118bcac7bc9e941785c4108fdb913a",
+    "build_context": "environment",
+    "build_notes": "Built on the isolated bench daemon (unix:///data/docker-bench/docker.sock) with the legacy builder (DOCKER_BUILDKIT=0, --network host). VLLM_REPOSITORY was overridden to a local git-daemon (git://127.0.0.1:9418/vllm-hist.git) serving the full, content-verified upstream vLLM history, because the bench host's only github egress (proxy) EOFs on the large history pack. Provenance is asserted by content in-image (HEAD==base_commit, tree match, rev-list>1, not shallow, oracle absent, clean tree) and verified post-build via task_ci.py image-check. codeload + files.pythonhosted.org fetched directly.",
+    "created": "2026-09-05T01:51:18.484833965+08:00",
+    "dependency_cutoff": "2025-11-25T18:27:26Z",
+    "dependency_lock_manifest_sha256": "c5e273426fb4fe4adee6cf8520d354af7b6227eba5978ab72efd90c6315969eb",
+    "dependency_lock_sha256": "55c46f68d240fe1e7464eeb65c85205a77695105d13925e8cd3aa5c51b5db800",
+    "dockerfile_sha256": "471485a9f41d3983b6e33a50d92699e18d512ac9ac8c1e3fb1efb5c9fbf2d05c",
+    "image_check": "passed",
+    "image_id": "sha256:677b8320fb3d21f56463010836743f92c9917e3c278803fea5176e2dbe0cca98",
+    "image_tag": "ai-infra-bench/vllm-pr-29345:remediate-20260904T173714Z",
+    "repo_digests": [],
+    "schema_version": "vllm_harbor_image.v1",
+    "size_bytes": 15089866684,
+    "status": "built",
+    "task": "ai-infra-bench/vllm-deterministic-bmm-batch-scaling"
+  },
+  "review": {
+    "gates": {
+      "task_statement": "pass",
+      "environment": "pass at declared boundary",
+      "verification": "pass for recorded controls and alternatives"
+    },
+    "contract": {
+      "boundary": "CUDA operands and optional out -> production deterministic batched Triton multiplication and compatible output copy -> numeric and bitwise correctness, original out object and conversion contents, original invalid input behavior, bounded launches and unchanged A100 latency ratios",
+      "decision": "Preserve baseline out copy semantics, including dtype/device conversion and broadcast-compatible destinations. Reject only originally invalid shapes. No new same-dtype/device out restriction."
+    },
+    "coverage": "Six dtype/shape numerical and bitwise cases, 24 out-copy cases (two alternate dtypes, CPU destination and leading broadcast dimension per case), seven invalid-input cases, launch batches 1/7/29, three unchanged timing shapes with 5 warmups/20 iterations/5 median rounds.",
+    "substitutions_and_limitations": "A100 CUDA/Triton production execution. Model serving is outside this tensor-kernel boundary. Performance measured on the three public shapes, not all possible workloads.",
+    "remaining_blockers": []
+  },
+  "artifacts": {
+    "files": {
+      ".dockerignore": {
+        "sha256": "a4c95f4a339e5141c90473947bf574f3ac6b0491369da5050f28c0dc7e1dafcc"
+      },
+      "environment/Dockerfile": {
+        "sha256": "471485a9f41d3983b6e33a50d92699e18d512ac9ac8c1e3fb1efb5c9fbf2d05c"
+      },
+      "environment/image-manifest.json": {
+        "sha256": "2ddf9737d2b68f5e99955bd0b9071336a158317bef8147aacf7172ca75373eb1"
+      },
+      "environment/lock/manifest.json": {
+        "sha256": "c5e273426fb4fe4adee6cf8520d354af7b6227eba5978ab72efd90c6315969eb"
+      },
+      "environment/lock/requirements.txt": {
+        "sha256": "55c46f68d240fe1e7464eeb65c85205a77695105d13925e8cd3aa5c51b5db800"
+      },
+      "environment/lock/vllm-source.sha256": {
+        "sha256": "da5c243d7a774db6844f7c2fc0bac5817698598afeed6c847279f2803b8bc43f"
+      },
+      "instruction.md": {
+        "sha256": "28fc8b5dacbb6afea2cbd48bea33b8f131831a41750cad73ee416a1e10566613"
+      },
+      "solution/oracle.patch": {
+        "sha256": "df7a510fd02e8e7e88481b0ad654faceb0c4a7c6712b8c0eeb0e8d966ed834a0"
+      },
+      "solution/solve.sh": {
+        "sha256": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16"
+      },
+      "task.toml": {
+        "sha256": "39e51ab4e70899e12ca9361f9d64cb4910e2f2144ec51e7ba63a3c0004ca1f9e"
+      },
+      "tests/check_behavior.py": {
+        "sha256": "b881464f0c16a18ea923033d44fdd3251f86864df85f91b16e98047d0f17e430"
+      },
+      "tests/docker-compose.yaml": {
+        "sha256": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f"
+      },
+      "tests/legacy_bmm.py": {
+        "sha256": "770fecb40b6a6acfa5d174e63baa3d342d17ddde106620a8a3af360c4564e1e2"
+      },
+      "tests/test.sh": {
+        "sha256": "ccc2722c255847a5afef856ad55f5ea733a20bb7c79f36b4e20a98b75fb8c294"
+      },
+      "tests/trusted_score.py": {
+        "sha256": "9b97c3756a9347af2e491633ed885ebf18d683b76dfd864617f0b5fde7b7af06"
+      },
+      "tests/verify_bmm.py": {
+        "sha256": "cf492e48be22c60a39600eca905f96faf7c4bc8298e4815ead88b2b8e156ca62"
+      },
+      "tests/workload.py": {
+        "sha256": "197aabf260c4fda3a445151037e764f72e99021c475864858a59868b3d888554"
+      },
+      "validation/alternate-copy-compatible-agent.patch": {
+        "sha256": "2ffa958b5431863953f08e0c670f95e1cbf24fdc1a05c22f0e63a43068dfeb1a"
+      },
+      "validation/alternate-persistent-kernel.patch": {
+        "sha256": "4bbcb0b7e66d84662bc8f8828a5ff62fea5fb87471023233e6b0b35b22091c75"
+      },
+      "validation/bmm_probe.py": {
+        "sha256": "d325b6879dfbe239e37a77510a0dd15a9a02d917f547c6664af3acf1c8d675ae"
+      },
+      "validation/challenge/challenge_bmm.py": {
+        "sha256": "8527a8098fb7d8889d58e21403c07d6a82786b3f8937dfc9085c12f35894af71"
+      },
+      "validation/ci-cases.json": {
+        "sha256": "bbea79d5826699c069164a345541ef9594eb22d11047261b4878d360547bd7e5"
+      },
+      "validation/diagnosis-only-batch-loop.patch": {
+        "sha256": "76dfe34b8261fd2104496dd00f9994efee0412981fa63ff5f1af9a097dc48862"
+      },
+      "validation/early-exit-os-exit.patch": {
+        "sha256": "c34a59bcee96cc2e599e1dbfda9a2e849e507191a1c5ab748d52078427e69033"
+      },
+      "validation/early-exit-system-exit.patch": {
+        "sha256": "a953b6d100d29bc5a85b4794337a9291ce829c2ba75d3e1cc57804a89f7d7100"
+      },
+      "validation/forged-report-exit.patch": {
+        "sha256": "5d9e304321097bcb6ed7dc89d74fdb462a2c45b59b62b4668fc212a28750a529"
+      },
+      "validation/out-view-return.patch": {
+        "sha256": "7f111de37dfed8587b0ba84aebd6b6b2d3df73f7041c89ba7bd07a1fb52aba82"
+      },
+      "validation/replay-observations.patch": {
+        "sha256": "2be3925a04cdd4d9c704ac871ff95c7cd6e1b09455681dcc486eaa3400a316df"
+      },
+      "validation/strict-out-rejection.patch": {
+        "sha256": "5ad2c6f6b5ede19618fee825b582d25fb33d161b9ec0e6ba73fa989884531dff"
+      },
+      "validation/publication-formatting.json": {
+        "sha256": "7c9243a5d6553c67e99f0b4b02168dda499eb9521aeda7694dbc56964f29ddf9"
+      },
+      "validation/evidence/publication-oracle.tar.gz": {
+        "sha256": "4e5bf74a1d6f4881e27f2fac8072432ee653d78da977d5edd4f6e5bdbbfabf93"
+      }
+    }
+  },
+  "freeze": {
+    "scope": "Executable contents used by final publication Oracle; original freeze retained in prior evidence",
+    "files": {
+      "instruction.md": "28fc8b5dacbb6afea2cbd48bea33b8f131831a41750cad73ee416a1e10566613",
+      "task.toml": "39e51ab4e70899e12ca9361f9d64cb4910e2f2144ec51e7ba63a3c0004ca1f9e",
+      "environment/Dockerfile": "471485a9f41d3983b6e33a50d92699e18d512ac9ac8c1e3fb1efb5c9fbf2d05c",
+      "environment/image-manifest.json": "2ddf9737d2b68f5e99955bd0b9071336a158317bef8147aacf7172ca75373eb1",
+      "environment/lock/README.md": "54e203e8642ec1bc30e51bb63bfa2e2365bd8a96d707eb3b6831dba78d45b31e",
+      "environment/lock/vllm-source.sha256": "da5c243d7a774db6844f7c2fc0bac5817698598afeed6c847279f2803b8bc43f",
+      "environment/lock/requirements.txt": "55c46f68d240fe1e7464eeb65c85205a77695105d13925e8cd3aa5c51b5db800",
+      "environment/lock/manifest.json": "c5e273426fb4fe4adee6cf8520d354af7b6227eba5978ab72efd90c6315969eb",
+      "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+      "solution/oracle.patch": "df7a510fd02e8e7e88481b0ad654faceb0c4a7c6712b8c0eeb0e8d966ed834a0",
+      "tests/test.sh": "ccc2722c255847a5afef856ad55f5ea733a20bb7c79f36b4e20a98b75fb8c294",
+      "tests/verify_bmm.py": "cf492e48be22c60a39600eca905f96faf7c4bc8298e4815ead88b2b8e156ca62",
+      "tests/trusted_score.py": "9b97c3756a9347af2e491633ed885ebf18d683b76dfd864617f0b5fde7b7af06",
+      "tests/legacy_bmm.py": "770fecb40b6a6acfa5d174e63baa3d342d17ddde106620a8a3af360c4564e1e2",
+      "tests/check_behavior.py": "b881464f0c16a18ea923033d44fdd3251f86864df85f91b16e98047d0f17e430",
+      "tests/workload.py": "197aabf260c4fda3a445151037e764f72e99021c475864858a59868b3d888554",
+      "validation/alternate-persistent-kernel.patch": "4bbcb0b7e66d84662bc8f8828a5ff62fea5fb87471023233e6b0b35b22091c75",
+      "validation/bmm_probe.py": "d325b6879dfbe239e37a77510a0dd15a9a02d917f547c6664af3acf1c8d675ae",
+      "validation/diagnosis-only-batch-loop.patch": "76dfe34b8261fd2104496dd00f9994efee0412981fa63ff5f1af9a097dc48862",
+      "validation/early-exit-os-exit.patch": "c34a59bcee96cc2e599e1dbfda9a2e849e507191a1c5ab748d52078427e69033",
+      "validation/early-exit-system-exit.patch": "a953b6d100d29bc5a85b4794337a9291ce829c2ba75d3e1cc57804a89f7d7100",
+      "validation/forged-report-exit.patch": "5d9e304321097bcb6ed7dc89d74fdb462a2c45b59b62b4668fc212a28750a529",
+      "validation/replay-observations.patch": "2be3925a04cdd4d9c704ac871ff95c7cd6e1b09455681dcc486eaa3400a316df",
+      "validation/out-view-return.patch": "7f111de37dfed8587b0ba84aebd6b6b2d3df73f7041c89ba7bd07a1fb52aba82",
+      "validation/strict-out-rejection.patch": "5ad2c6f6b5ede19618fee825b582d25fb33d161b9ec0e6ba73fa989884531dff",
+      "validation/alternate-copy-compatible-agent.patch": "2ffa958b5431863953f08e0c670f95e1cbf24fdc1a05c22f0e63a43068dfeb1a",
+      "validation/challenge/challenge_bmm.py": "8527a8098fb7d8889d58e21403c07d6a82786b3f8937dfc9085c12f35894af71"
+    }
+  },
+  "provenance_gates": {
+    "current_hashes_match": true,
+    "final_oracle_passed": true,
+    "zero_harbor_errors": true,
+    "image_and_patch_checks_passed": true,
+    "historical_rewards_preserved": true
+  },
+  "harbor": {
+    "version": "0.22.0",
+    "status": "final_oracle_passed_after_formatting",
+    "oracle": {
+      "case": "oracle",
+      "scope": "full Harbor run after formatting-only publication revision",
+      "actual_reward": 1,
+      "expected_reward": 1,
+      "job_id": "1261f07e-5724-4e94-819a-3b399e062422",
+      "trial_id": "d99548dc-e65c-4a2c-9137-6cdc91dd7e69",
+      "harbor_errors": 0,
+      "harbor_exit_code": 0,
+      "task_checksum": "c65cdec9bddd9a3b2ad52e12c07629170167bd6aef647b4d8a7932623aa004c9",
+      "image_id": "sha256:677b8320fb3d21f56463010836743f92c9917e3c278803fea5176e2dbe0cca98",
+      "gpu_uuids": [
+        "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+      ],
+      "command": [
+        "harbor",
+        "run",
+        "--config",
+        "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/harbor-config.json",
+        "-y"
+      ],
+      "archive": "validation/evidence/publication-oracle.tar.gz",
+      "archive_sha256": "4e5bf74a1d6f4881e27f2fac8072432ee653d78da977d5edd4f6e5bdbbfabf93",
+      "raw_artifacts": [
+        {
+          "path": "run/run-record.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/run-record.json",
+          "sha256": "b0f7e856dc604a51c261ad41253dc423f1d83439fbc012e4f5e8b0a0a199caba"
+        },
+        {
+          "path": "run/harbor-config.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/harbor-config.json",
+          "sha256": "d8b8f3ae1b7baf7b7a35992a21fee7606c7b9fe9e5fdb76798e8f83bf2a8e74f"
+        },
+        {
+          "path": "run/harbor.log",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/harbor.log",
+          "sha256": "2d7c90a2fdaf529a9e7509b9472fbabe95281ab98cf6162bf9e471bd8121b8eb"
+        },
+        {
+          "path": "run/agent-canary.log",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/agent-canary.log",
+          "sha256": "29c86ed75b7d45c0dc115ad6a62a625b743a57ce32ee75706e4db4a9ed0c252c"
+        },
+        {
+          "path": "run/result-check.log",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/result-check.log",
+          "sha256": "4859607480f3aeeb0ad478ff422af01863a2f16093c4941a9f38c4cf1f4746c8"
+        },
+        {
+          "path": "job/result.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/result.json",
+          "sha256": "7c6acf7b2db09de765821b2464b7d0f8c123a8c2e0772f0e84ced503c69d3c47"
+        },
+        {
+          "path": "trial/result.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/result.json",
+          "sha256": "85722e8fb936d9ea9f3da8afbf587801f76008410e2ac70eefaedd2677b58418"
+        },
+        {
+          "path": "verifier/test-stdout.txt",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/test-stdout.txt",
+          "sha256": "fa6cc1b4d5c1f333f4671f0d6b3435b9621ed3614776d8b50b434c850a33fbdc"
+        },
+        {
+          "path": "verifier/reward.txt",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/reward.txt",
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "path": "verifier/workload.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/workload.json",
+          "sha256": "f0d1d7c50d670c547b8161f2d568cfc4886cbbf43687b3e87e83e9684ea3068b"
+        },
+        {
+          "path": "verifier/observations.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/observations.json",
+          "sha256": "0f385c1e70c1eb8cc18533862864b34879059812ebe9f9b0b37a7a399d18c8f3"
+        },
+        {
+          "path": "verifier/report.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/report.json",
+          "sha256": "2dbf2e5839c5fd61e72277e1bb54f643f5d51069dc0fa67a95838365a484d18f"
+        },
+        {
+          "path": "verifier/reward.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/reward.json",
+          "sha256": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+        }
+      ]
+    },
+    "runs": [
+      {
+        "case": "oracle",
+        "scope": "full Harbor run after formatting-only publication revision",
+        "actual_reward": 1,
+        "expected_reward": 1,
+        "job_id": "1261f07e-5724-4e94-819a-3b399e062422",
+        "trial_id": "d99548dc-e65c-4a2c-9137-6cdc91dd7e69",
+        "harbor_errors": 0,
+        "harbor_exit_code": 0,
+        "task_checksum": "c65cdec9bddd9a3b2ad52e12c07629170167bd6aef647b4d8a7932623aa004c9",
+        "image_id": "sha256:677b8320fb3d21f56463010836743f92c9917e3c278803fea5176e2dbe0cca98",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/harbor-config.json",
+          "-y"
+        ],
+        "archive": "validation/evidence/publication-oracle.tar.gz",
+        "archive_sha256": "4e5bf74a1d6f4881e27f2fac8072432ee653d78da977d5edd4f6e5bdbbfabf93",
+        "raw_artifacts": [
+          {
+            "path": "run/run-record.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/run-record.json",
+            "sha256": "b0f7e856dc604a51c261ad41253dc423f1d83439fbc012e4f5e8b0a0a199caba"
+          },
+          {
+            "path": "run/harbor-config.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/harbor-config.json",
+            "sha256": "d8b8f3ae1b7baf7b7a35992a21fee7606c7b9fe9e5fdb76798e8f83bf2a8e74f"
+          },
+          {
+            "path": "run/harbor.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/harbor.log",
+            "sha256": "2d7c90a2fdaf529a9e7509b9472fbabe95281ab98cf6162bf9e471bd8121b8eb"
+          },
+          {
+            "path": "run/agent-canary.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/agent-canary.log",
+            "sha256": "29c86ed75b7d45c0dc115ad6a62a625b743a57ce32ee75706e4db4a9ed0c252c"
+          },
+          {
+            "path": "run/result-check.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/result-check.log",
+            "sha256": "4859607480f3aeeb0ad478ff422af01863a2f16093c4941a9f38c4cf1f4746c8"
+          },
+          {
+            "path": "job/result.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/result.json",
+            "sha256": "7c6acf7b2db09de765821b2464b7d0f8c123a8c2e0772f0e84ced503c69d3c47"
+          },
+          {
+            "path": "trial/result.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/result.json",
+            "sha256": "85722e8fb936d9ea9f3da8afbf587801f76008410e2ac70eefaedd2677b58418"
+          },
+          {
+            "path": "verifier/test-stdout.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/test-stdout.txt",
+            "sha256": "fa6cc1b4d5c1f333f4671f0d6b3435b9621ed3614776d8b50b434c850a33fbdc"
+          },
+          {
+            "path": "verifier/reward.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/reward.txt",
+            "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+          },
+          {
+            "path": "verifier/workload.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/workload.json",
+            "sha256": "f0d1d7c50d670c547b8161f2d568cfc4886cbbf43687b3e87e83e9684ea3068b"
+          },
+          {
+            "path": "verifier/observations.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/observations.json",
+            "sha256": "0f385c1e70c1eb8cc18533862864b34879059812ebe9f9b0b37a7a399d18c8f3"
+          },
+          {
+            "path": "verifier/report.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/report.json",
+            "sha256": "2dbf2e5839c5fd61e72277e1bb54f643f5d51069dc0fa67a95838365a484d18f"
+          },
+          {
+            "path": "verifier/reward.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/reward.json",
+            "sha256": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+          }
+        ]
+      }
+    ],
+    "prior_control_matrix": "validation/history/pre-publication-formatting-evidence.json#/harbor"
+  },
+  "independent_challenges": [
+    {
+      "case": "base",
+      "expected_pass": false,
+      "image_id": "sha256:677b8320fb3d21f56463010836743f92c9917e3c278803fea5176e2dbe0cca98",
+      "gpu_uuids": [
+        "GPU-46c9b5d9-82f9-7bca-374e-6441ff3361c6"
+      ],
+      "scope": "independent direct-container challenge, not a Harbor trial",
+      "files": {
+        ".dockerignore": "a4c95f4a339e5141c90473947bf574f3ac6b0491369da5050f28c0dc7e1dafcc",
+        "instruction.md": "28fc8b5dacbb6afea2cbd48bea33b8f131831a41750cad73ee416a1e10566613",
+        "task.toml": "39e51ab4e70899e12ca9361f9d64cb4910e2f2144ec51e7ba63a3c0004ca1f9e",
+        "environment/Dockerfile": "471485a9f41d3983b6e33a50d92699e18d512ac9ac8c1e3fb1efb5c9fbf2d05c",
+        "environment/image-manifest.json": "2ddf9737d2b68f5e99955bd0b9071336a158317bef8147aacf7172ca75373eb1",
+        "environment/lock/README.md": "54e203e8642ec1bc30e51bb63bfa2e2365bd8a96d707eb3b6831dba78d45b31e",
+        "environment/lock/vllm-source.sha256": "da5c243d7a774db6844f7c2fc0bac5817698598afeed6c847279f2803b8bc43f",
+        "environment/lock/requirements.txt": "55c46f68d240fe1e7464eeb65c85205a77695105d13925e8cd3aa5c51b5db800",
+        "environment/lock/manifest.json": "c5e273426fb4fe4adee6cf8520d354af7b6227eba5978ab72efd90c6315969eb",
+        "solution/solve.sh": "fcc259e7375224d93400b776de248e11f47c6c31a3b4af9752c53a9154cdd407",
+        "solution/oracle.patch": "df7a510fd02e8e7e88481b0ad654faceb0c4a7c6712b8c0eeb0e8d966ed834a0",
+        "tests/test.sh": "ccc2722c255847a5afef856ad55f5ea733a20bb7c79f36b4e20a98b75fb8c294",
+        "tests/verify_bmm.py": "cf492e48be22c60a39600eca905f96faf7c4bc8298e4815ead88b2b8e156ca62",
+        "tests/trusted_score.py": "9b97c3756a9347af2e491633ed885ebf18d683b76dfd864617f0b5fde7b7af06",
+        "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+        "tests/legacy_bmm.py": "c324eab3c8e2e3d9ca850173e63dc57e90ad1cb8eb08dfb1dae6725b0d861ef4",
+        "tests/check_behavior.py": "b881464f0c16a18ea923033d44fdd3251f86864df85f91b16e98047d0f17e430",
+        "tests/workload.py": "197aabf260c4fda3a445151037e764f72e99021c475864858a59868b3d888554",
+        "validation/alternate-persistent-kernel.patch": "4bbcb0b7e66d84662bc8f8828a5ff62fea5fb87471023233e6b0b35b22091c75",
+        "validation/bmm_probe.py": "d325b6879dfbe239e37a77510a0dd15a9a02d917f547c6664af3acf1c8d675ae",
+        "validation/ci-cases.json": "bbea79d5826699c069164a345541ef9594eb22d11047261b4878d360547bd7e5",
+        "validation/diagnosis-only-batch-loop.patch": "76dfe34b8261fd2104496dd00f9994efee0412981fa63ff5f1af9a097dc48862",
+        "validation/docker-build.md": "aa72e8c3f1af31be3dab5109c8fbfa0ce657876effefdac34bcdac67552e1043",
+        "validation/semantic-boundary.md": "5411c057aa99508d5ef125a228f78bca7c5110b1e33a1fcab50db96e40c1fdff",
+        "validation/early-exit-os-exit.patch": "c34a59bcee96cc2e599e1dbfda9a2e849e507191a1c5ab748d52078427e69033",
+        "validation/early-exit-system-exit.patch": "a953b6d100d29bc5a85b4794337a9291ce829c2ba75d3e1cc57804a89f7d7100",
+        "validation/forged-report-exit.patch": "5d9e304321097bcb6ed7dc89d74fdb462a2c45b59b62b4668fc212a28750a529",
+        "validation/review-report.md": "c40b2eb866a0d351f525ab758d19accb01e291b521093d040994ba54d0c67cc1",
+        "validation/replay-observations.patch": "2be3925a04cdd4d9c704ac871ff95c7cd6e1b09455681dcc486eaa3400a316df",
+        "validation/out-view-return.patch": "7f111de37dfed8587b0ba84aebd6b6b2d3df73f7041c89ba7bd07a1fb52aba82",
+        "validation/strict-out-rejection.patch": "5ad2c6f6b5ede19618fee825b582d25fb33d161b9ec0e6ba73fa989884531dff",
+        "validation/alternate-copy-compatible-agent.patch": "2ffa958b5431863953f08e0c670f95e1cbf24fdc1a05c22f0e63a43068dfeb1a",
+        "validation/challenge/challenge_bmm.py": "8527a8098fb7d8889d58e21403c07d6a82786b3f8937dfc9085c12f35894af71",
+        "validation/challenge/README.md": "759b8be304076401711256d0f1b32d666949ff79cd245cd6411d79c9769b04fe",
+        "validation/evidence/jit-compilation.json": "52bdf9189621de5f886e2f874231338389f6e71153fe99814a19d4710567f21b",
+        "validation/evidence/environment-review.json": "d41cc9e0d697fe8a9ede89516ce61d5ec77f64bb87cb423c159c3589284d1b54"
+      },
+      "container_id": "6e560be0da2a4681f5336d913fe356494c6ca3e78fcd63b773e5065141215a21",
+      "command": [
+        "docker",
+        "exec",
+        "--user",
+        "agent",
+        "6e560be0da2a4681f5336d913fe356494c6ca3e78fcd63b773e5065141215a21",
+        "python3",
+        "-I",
+        "-S",
+        "-c",
+        "import sys,sysconfig,runpy;sys.path.extend(['/workspace/repo',sysconfig.get_path('purelib'),sysconfig.get_path('platlib')]);runpy.run_path('/challenge/challenge_bmm.py',run_name='__main__')"
+      ],
+      "exit_code": 1,
+      "actual_pass": false,
+      "typed_failure_marker": true,
+      "status": "expected_outcome",
+      "recorded_at": "2026-09-09T03:50:33.107005+00:00",
+      "raw_artifacts": {
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/bmm-base-final/challenge.log": "ca19fbb878df9c18697c26ab9af234aee04b132072a49dfddb5b240985164457",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/bmm-base-final/record.json": "62b166225aa52113d73931915dd594c482b1b99162f8ba4786cde645279a9477"
+      }
+    },
+    {
+      "case": "alternate-persistent-kernel",
+      "expected_pass": true,
+      "image_id": "sha256:677b8320fb3d21f56463010836743f92c9917e3c278803fea5176e2dbe0cca98",
+      "gpu_uuids": [
+        "GPU-46c9b5d9-82f9-7bca-374e-6441ff3361c6"
+      ],
+      "scope": "independent direct-container challenge, not a Harbor trial",
+      "files": {
+        ".dockerignore": "a4c95f4a339e5141c90473947bf574f3ac6b0491369da5050f28c0dc7e1dafcc",
+        "instruction.md": "28fc8b5dacbb6afea2cbd48bea33b8f131831a41750cad73ee416a1e10566613",
+        "task.toml": "39e51ab4e70899e12ca9361f9d64cb4910e2f2144ec51e7ba63a3c0004ca1f9e",
+        "environment/Dockerfile": "471485a9f41d3983b6e33a50d92699e18d512ac9ac8c1e3fb1efb5c9fbf2d05c",
+        "environment/image-manifest.json": "2ddf9737d2b68f5e99955bd0b9071336a158317bef8147aacf7172ca75373eb1",
+        "environment/lock/README.md": "54e203e8642ec1bc30e51bb63bfa2e2365bd8a96d707eb3b6831dba78d45b31e",
+        "environment/lock/vllm-source.sha256": "da5c243d7a774db6844f7c2fc0bac5817698598afeed6c847279f2803b8bc43f",
+        "environment/lock/requirements.txt": "55c46f68d240fe1e7464eeb65c85205a77695105d13925e8cd3aa5c51b5db800",
+        "environment/lock/manifest.json": "c5e273426fb4fe4adee6cf8520d354af7b6227eba5978ab72efd90c6315969eb",
+        "solution/solve.sh": "fcc259e7375224d93400b776de248e11f47c6c31a3b4af9752c53a9154cdd407",
+        "solution/oracle.patch": "df7a510fd02e8e7e88481b0ad654faceb0c4a7c6712b8c0eeb0e8d966ed834a0",
+        "tests/test.sh": "ccc2722c255847a5afef856ad55f5ea733a20bb7c79f36b4e20a98b75fb8c294",
+        "tests/verify_bmm.py": "cf492e48be22c60a39600eca905f96faf7c4bc8298e4815ead88b2b8e156ca62",
+        "tests/trusted_score.py": "9b97c3756a9347af2e491633ed885ebf18d683b76dfd864617f0b5fde7b7af06",
+        "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+        "tests/legacy_bmm.py": "c324eab3c8e2e3d9ca850173e63dc57e90ad1cb8eb08dfb1dae6725b0d861ef4",
+        "tests/check_behavior.py": "b881464f0c16a18ea923033d44fdd3251f86864df85f91b16e98047d0f17e430",
+        "tests/workload.py": "197aabf260c4fda3a445151037e764f72e99021c475864858a59868b3d888554",
+        "validation/alternate-persistent-kernel.patch": "4bbcb0b7e66d84662bc8f8828a5ff62fea5fb87471023233e6b0b35b22091c75",
+        "validation/bmm_probe.py": "d325b6879dfbe239e37a77510a0dd15a9a02d917f547c6664af3acf1c8d675ae",
+        "validation/ci-cases.json": "bbea79d5826699c069164a345541ef9594eb22d11047261b4878d360547bd7e5",
+        "validation/diagnosis-only-batch-loop.patch": "76dfe34b8261fd2104496dd00f9994efee0412981fa63ff5f1af9a097dc48862",
+        "validation/docker-build.md": "aa72e8c3f1af31be3dab5109c8fbfa0ce657876effefdac34bcdac67552e1043",
+        "validation/semantic-boundary.md": "5411c057aa99508d5ef125a228f78bca7c5110b1e33a1fcab50db96e40c1fdff",
+        "validation/early-exit-os-exit.patch": "c34a59bcee96cc2e599e1dbfda9a2e849e507191a1c5ab748d52078427e69033",
+        "validation/early-exit-system-exit.patch": "a953b6d100d29bc5a85b4794337a9291ce829c2ba75d3e1cc57804a89f7d7100",
+        "validation/forged-report-exit.patch": "5d9e304321097bcb6ed7dc89d74fdb462a2c45b59b62b4668fc212a28750a529",
+        "validation/review-report.md": "c40b2eb866a0d351f525ab758d19accb01e291b521093d040994ba54d0c67cc1",
+        "validation/replay-observations.patch": "2be3925a04cdd4d9c704ac871ff95c7cd6e1b09455681dcc486eaa3400a316df",
+        "validation/out-view-return.patch": "7f111de37dfed8587b0ba84aebd6b6b2d3df73f7041c89ba7bd07a1fb52aba82",
+        "validation/strict-out-rejection.patch": "5ad2c6f6b5ede19618fee825b582d25fb33d161b9ec0e6ba73fa989884531dff",
+        "validation/alternate-copy-compatible-agent.patch": "2ffa958b5431863953f08e0c670f95e1cbf24fdc1a05c22f0e63a43068dfeb1a",
+        "validation/challenge/challenge_bmm.py": "8527a8098fb7d8889d58e21403c07d6a82786b3f8937dfc9085c12f35894af71",
+        "validation/challenge/README.md": "759b8be304076401711256d0f1b32d666949ff79cd245cd6411d79c9769b04fe",
+        "validation/evidence/jit-compilation.json": "52bdf9189621de5f886e2f874231338389f6e71153fe99814a19d4710567f21b",
+        "validation/evidence/environment-review.json": "d41cc9e0d697fe8a9ede89516ce61d5ec77f64bb87cb423c159c3589284d1b54"
+      },
+      "container_id": "8b90ad46c59d3e31d6c34995e4e63c3473570d12a302779e15d2244919665fea",
+      "command": [
+        "docker",
+        "exec",
+        "--user",
+        "agent",
+        "8b90ad46c59d3e31d6c34995e4e63c3473570d12a302779e15d2244919665fea",
+        "python3",
+        "-I",
+        "-S",
+        "-c",
+        "import sys,sysconfig,runpy;sys.path.extend(['/workspace/repo',sysconfig.get_path('purelib'),sysconfig.get_path('platlib')]);runpy.run_path('/challenge/challenge_bmm.py',run_name='__main__')"
+      ],
+      "exit_code": 0,
+      "actual_pass": true,
+      "typed_failure_marker": false,
+      "status": "expected_outcome",
+      "recorded_at": "2026-09-09T03:50:57.509915+00:00",
+      "raw_artifacts": {
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/bmm-alternate-persistent-kernel-final/apply.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/bmm-alternate-persistent-kernel-final/challenge.log": "09a22147d6f372abd44f2b41094a5a7d1af3e2071fda9dc37885b79f5bb054ce",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/bmm-alternate-persistent-kernel-final/record.json": "24022df7b87366de6f848411f2a7b561d16e19468bc6b3e78df14171a399cb20"
+      }
+    },
+    {
+      "case": "strict-out-rejection",
+      "expected_pass": false,
+      "image_id": "sha256:677b8320fb3d21f56463010836743f92c9917e3c278803fea5176e2dbe0cca98",
+      "gpu_uuids": [
+        "GPU-46c9b5d9-82f9-7bca-374e-6441ff3361c6"
+      ],
+      "scope": "independent direct-container challenge, not a Harbor trial",
+      "files": {
+        ".dockerignore": "a4c95f4a339e5141c90473947bf574f3ac6b0491369da5050f28c0dc7e1dafcc",
+        "instruction.md": "28fc8b5dacbb6afea2cbd48bea33b8f131831a41750cad73ee416a1e10566613",
+        "task.toml": "39e51ab4e70899e12ca9361f9d64cb4910e2f2144ec51e7ba63a3c0004ca1f9e",
+        "environment/Dockerfile": "471485a9f41d3983b6e33a50d92699e18d512ac9ac8c1e3fb1efb5c9fbf2d05c",
+        "environment/image-manifest.json": "2ddf9737d2b68f5e99955bd0b9071336a158317bef8147aacf7172ca75373eb1",
+        "environment/lock/README.md": "54e203e8642ec1bc30e51bb63bfa2e2365bd8a96d707eb3b6831dba78d45b31e",
+        "environment/lock/vllm-source.sha256": "da5c243d7a774db6844f7c2fc0bac5817698598afeed6c847279f2803b8bc43f",
+        "environment/lock/requirements.txt": "55c46f68d240fe1e7464eeb65c85205a77695105d13925e8cd3aa5c51b5db800",
+        "environment/lock/manifest.json": "c5e273426fb4fe4adee6cf8520d354af7b6227eba5978ab72efd90c6315969eb",
+        "solution/solve.sh": "fcc259e7375224d93400b776de248e11f47c6c31a3b4af9752c53a9154cdd407",
+        "solution/oracle.patch": "df7a510fd02e8e7e88481b0ad654faceb0c4a7c6712b8c0eeb0e8d966ed834a0",
+        "tests/test.sh": "ccc2722c255847a5afef856ad55f5ea733a20bb7c79f36b4e20a98b75fb8c294",
+        "tests/verify_bmm.py": "cf492e48be22c60a39600eca905f96faf7c4bc8298e4815ead88b2b8e156ca62",
+        "tests/trusted_score.py": "9b97c3756a9347af2e491633ed885ebf18d683b76dfd864617f0b5fde7b7af06",
+        "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+        "tests/legacy_bmm.py": "c324eab3c8e2e3d9ca850173e63dc57e90ad1cb8eb08dfb1dae6725b0d861ef4",
+        "tests/check_behavior.py": "b881464f0c16a18ea923033d44fdd3251f86864df85f91b16e98047d0f17e430",
+        "tests/workload.py": "197aabf260c4fda3a445151037e764f72e99021c475864858a59868b3d888554",
+        "validation/alternate-persistent-kernel.patch": "4bbcb0b7e66d84662bc8f8828a5ff62fea5fb87471023233e6b0b35b22091c75",
+        "validation/bmm_probe.py": "d325b6879dfbe239e37a77510a0dd15a9a02d917f547c6664af3acf1c8d675ae",
+        "validation/ci-cases.json": "bbea79d5826699c069164a345541ef9594eb22d11047261b4878d360547bd7e5",
+        "validation/diagnosis-only-batch-loop.patch": "76dfe34b8261fd2104496dd00f9994efee0412981fa63ff5f1af9a097dc48862",
+        "validation/docker-build.md": "aa72e8c3f1af31be3dab5109c8fbfa0ce657876effefdac34bcdac67552e1043",
+        "validation/semantic-boundary.md": "5411c057aa99508d5ef125a228f78bca7c5110b1e33a1fcab50db96e40c1fdff",
+        "validation/early-exit-os-exit.patch": "c34a59bcee96cc2e599e1dbfda9a2e849e507191a1c5ab748d52078427e69033",
+        "validation/early-exit-system-exit.patch": "a953b6d100d29bc5a85b4794337a9291ce829c2ba75d3e1cc57804a89f7d7100",
+        "validation/forged-report-exit.patch": "5d9e304321097bcb6ed7dc89d74fdb462a2c45b59b62b4668fc212a28750a529",
+        "validation/review-report.md": "c40b2eb866a0d351f525ab758d19accb01e291b521093d040994ba54d0c67cc1",
+        "validation/replay-observations.patch": "2be3925a04cdd4d9c704ac871ff95c7cd6e1b09455681dcc486eaa3400a316df",
+        "validation/out-view-return.patch": "7f111de37dfed8587b0ba84aebd6b6b2d3df73f7041c89ba7bd07a1fb52aba82",
+        "validation/strict-out-rejection.patch": "5ad2c6f6b5ede19618fee825b582d25fb33d161b9ec0e6ba73fa989884531dff",
+        "validation/alternate-copy-compatible-agent.patch": "2ffa958b5431863953f08e0c670f95e1cbf24fdc1a05c22f0e63a43068dfeb1a",
+        "validation/challenge/challenge_bmm.py": "8527a8098fb7d8889d58e21403c07d6a82786b3f8937dfc9085c12f35894af71",
+        "validation/challenge/README.md": "759b8be304076401711256d0f1b32d666949ff79cd245cd6411d79c9769b04fe",
+        "validation/evidence/jit-compilation.json": "52bdf9189621de5f886e2f874231338389f6e71153fe99814a19d4710567f21b",
+        "validation/evidence/environment-review.json": "d41cc9e0d697fe8a9ede89516ce61d5ec77f64bb87cb423c159c3589284d1b54"
+      },
+      "container_id": "278175a87b741893c24f9c9dba39dddd8cc9dea90775cfbb0be76f5131e4c1eb",
+      "command": [
+        "docker",
+        "exec",
+        "--user",
+        "agent",
+        "278175a87b741893c24f9c9dba39dddd8cc9dea90775cfbb0be76f5131e4c1eb",
+        "python3",
+        "-I",
+        "-S",
+        "-c",
+        "import sys,sysconfig,runpy;sys.path.extend(['/workspace/repo',sysconfig.get_path('purelib'),sysconfig.get_path('platlib')]);runpy.run_path('/challenge/challenge_bmm.py',run_name='__main__')"
+      ],
+      "exit_code": 1,
+      "actual_pass": false,
+      "typed_failure_marker": true,
+      "status": "expected_outcome",
+      "recorded_at": "2026-09-09T03:51:26.710505+00:00",
+      "raw_artifacts": {
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/bmm-strict-out-rejection-final/apply.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/bmm-strict-out-rejection-final/challenge.log": "0adf87cf7dad19605051097dc85e0cdd02fecb70ff9a76af047f990be673ded2",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/bmm-strict-out-rejection-final/record.json": "d2bb8397fe1d58e4103d192aeaec2a498354eeaf3ce7e2fbcbbafa3d209d3106"
+      }
+    },
+    {
+      "case": "oracle",
+      "expected_pass": true,
+      "image_id": "sha256:677b8320fb3d21f56463010836743f92c9917e3c278803fea5176e2dbe0cca98",
+      "gpu_uuids": [
+        "GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710"
+      ],
+      "scope": "independent direct-container challenge, not a Harbor trial",
+      "files": {
+        ".dockerignore": "a4c95f4a339e5141c90473947bf574f3ac6b0491369da5050f28c0dc7e1dafcc",
+        "instruction.md": "28fc8b5dacbb6afea2cbd48bea33b8f131831a41750cad73ee416a1e10566613",
+        "task.toml": "39e51ab4e70899e12ca9361f9d64cb4910e2f2144ec51e7ba63a3c0004ca1f9e",
+        "environment/Dockerfile": "471485a9f41d3983b6e33a50d92699e18d512ac9ac8c1e3fb1efb5c9fbf2d05c",
+        "environment/image-manifest.json": "2ddf9737d2b68f5e99955bd0b9071336a158317bef8147aacf7172ca75373eb1",
+        "environment/lock/README.md": "54e203e8642ec1bc30e51bb63bfa2e2365bd8a96d707eb3b6831dba78d45b31e",
+        "environment/lock/vllm-source.sha256": "da5c243d7a774db6844f7c2fc0bac5817698598afeed6c847279f2803b8bc43f",
+        "environment/lock/requirements.txt": "55c46f68d240fe1e7464eeb65c85205a77695105d13925e8cd3aa5c51b5db800",
+        "environment/lock/manifest.json": "c5e273426fb4fe4adee6cf8520d354af7b6227eba5978ab72efd90c6315969eb",
+        "solution/solve.sh": "fcc259e7375224d93400b776de248e11f47c6c31a3b4af9752c53a9154cdd407",
+        "solution/oracle.patch": "df7a510fd02e8e7e88481b0ad654faceb0c4a7c6712b8c0eeb0e8d966ed834a0",
+        "tests/test.sh": "ccc2722c255847a5afef856ad55f5ea733a20bb7c79f36b4e20a98b75fb8c294",
+        "tests/verify_bmm.py": "cf492e48be22c60a39600eca905f96faf7c4bc8298e4815ead88b2b8e156ca62",
+        "tests/trusted_score.py": "9b97c3756a9347af2e491633ed885ebf18d683b76dfd864617f0b5fde7b7af06",
+        "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+        "tests/legacy_bmm.py": "c324eab3c8e2e3d9ca850173e63dc57e90ad1cb8eb08dfb1dae6725b0d861ef4",
+        "tests/check_behavior.py": "b881464f0c16a18ea923033d44fdd3251f86864df85f91b16e98047d0f17e430",
+        "tests/workload.py": "197aabf260c4fda3a445151037e764f72e99021c475864858a59868b3d888554",
+        "validation/alternate-persistent-kernel.patch": "4bbcb0b7e66d84662bc8f8828a5ff62fea5fb87471023233e6b0b35b22091c75",
+        "validation/bmm_probe.py": "d325b6879dfbe239e37a77510a0dd15a9a02d917f547c6664af3acf1c8d675ae",
+        "validation/ci-cases.json": "bbea79d5826699c069164a345541ef9594eb22d11047261b4878d360547bd7e5",
+        "validation/diagnosis-only-batch-loop.patch": "76dfe34b8261fd2104496dd00f9994efee0412981fa63ff5f1af9a097dc48862",
+        "validation/docker-build.md": "aa72e8c3f1af31be3dab5109c8fbfa0ce657876effefdac34bcdac67552e1043",
+        "validation/semantic-boundary.md": "5411c057aa99508d5ef125a228f78bca7c5110b1e33a1fcab50db96e40c1fdff",
+        "validation/early-exit-os-exit.patch": "c34a59bcee96cc2e599e1dbfda9a2e849e507191a1c5ab748d52078427e69033",
+        "validation/early-exit-system-exit.patch": "a953b6d100d29bc5a85b4794337a9291ce829c2ba75d3e1cc57804a89f7d7100",
+        "validation/forged-report-exit.patch": "5d9e304321097bcb6ed7dc89d74fdb462a2c45b59b62b4668fc212a28750a529",
+        "validation/review-report.md": "c40b2eb866a0d351f525ab758d19accb01e291b521093d040994ba54d0c67cc1",
+        "validation/replay-observations.patch": "2be3925a04cdd4d9c704ac871ff95c7cd6e1b09455681dcc486eaa3400a316df",
+        "validation/out-view-return.patch": "7f111de37dfed8587b0ba84aebd6b6b2d3df73f7041c89ba7bd07a1fb52aba82",
+        "validation/strict-out-rejection.patch": "5ad2c6f6b5ede19618fee825b582d25fb33d161b9ec0e6ba73fa989884531dff",
+        "validation/alternate-copy-compatible-agent.patch": "2ffa958b5431863953f08e0c670f95e1cbf24fdc1a05c22f0e63a43068dfeb1a",
+        "validation/challenge/challenge_bmm.py": "8527a8098fb7d8889d58e21403c07d6a82786b3f8937dfc9085c12f35894af71",
+        "validation/challenge/README.md": "759b8be304076401711256d0f1b32d666949ff79cd245cd6411d79c9769b04fe",
+        "validation/evidence/jit-compilation.json": "52bdf9189621de5f886e2f874231338389f6e71153fe99814a19d4710567f21b",
+        "validation/evidence/environment-review.json": "d41cc9e0d697fe8a9ede89516ce61d5ec77f64bb87cb423c159c3589284d1b54"
+      },
+      "container_id": "857bae649fde7d257598adcf3d186559b7838c4916b41dbfdf7879f2659c03c9",
+      "command": [
+        "docker",
+        "exec",
+        "--user",
+        "agent",
+        "857bae649fde7d257598adcf3d186559b7838c4916b41dbfdf7879f2659c03c9",
+        "python3",
+        "-I",
+        "-S",
+        "-c",
+        "import sys,sysconfig,runpy;sys.path.extend(['/workspace/repo',sysconfig.get_path('purelib'),sysconfig.get_path('platlib')]);runpy.run_path('/challenge/challenge_bmm.py',run_name='__main__')"
+      ],
+      "exit_code": 0,
+      "actual_pass": true,
+      "typed_failure_marker": false,
+      "status": "expected_outcome",
+      "recorded_at": "2026-09-09T03:50:44.879668+00:00",
+      "raw_artifacts": {
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/bmm-oracle-final/apply.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/bmm-oracle-final/challenge.log": "09a22147d6f372abd44f2b41094a5a7d1af3e2071fda9dc37885b79f5bb054ce",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/bmm-oracle-final/record.json": "e4fd331c7ecc4d069fb0b52e67eff620a4595cdb418d156afb7a4bfead88e2bb"
+      }
+    },
+    {
+      "case": "alternate-copy-compatible-agent",
+      "expected_pass": true,
+      "image_id": "sha256:677b8320fb3d21f56463010836743f92c9917e3c278803fea5176e2dbe0cca98",
+      "gpu_uuids": [
+        "GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710"
+      ],
+      "scope": "independent direct-container challenge, not a Harbor trial",
+      "files": {
+        ".dockerignore": "a4c95f4a339e5141c90473947bf574f3ac6b0491369da5050f28c0dc7e1dafcc",
+        "instruction.md": "28fc8b5dacbb6afea2cbd48bea33b8f131831a41750cad73ee416a1e10566613",
+        "task.toml": "39e51ab4e70899e12ca9361f9d64cb4910e2f2144ec51e7ba63a3c0004ca1f9e",
+        "environment/Dockerfile": "471485a9f41d3983b6e33a50d92699e18d512ac9ac8c1e3fb1efb5c9fbf2d05c",
+        "environment/image-manifest.json": "2ddf9737d2b68f5e99955bd0b9071336a158317bef8147aacf7172ca75373eb1",
+        "environment/lock/README.md": "54e203e8642ec1bc30e51bb63bfa2e2365bd8a96d707eb3b6831dba78d45b31e",
+        "environment/lock/vllm-source.sha256": "da5c243d7a774db6844f7c2fc0bac5817698598afeed6c847279f2803b8bc43f",
+        "environment/lock/requirements.txt": "55c46f68d240fe1e7464eeb65c85205a77695105d13925e8cd3aa5c51b5db800",
+        "environment/lock/manifest.json": "c5e273426fb4fe4adee6cf8520d354af7b6227eba5978ab72efd90c6315969eb",
+        "solution/solve.sh": "fcc259e7375224d93400b776de248e11f47c6c31a3b4af9752c53a9154cdd407",
+        "solution/oracle.patch": "df7a510fd02e8e7e88481b0ad654faceb0c4a7c6712b8c0eeb0e8d966ed834a0",
+        "tests/test.sh": "ccc2722c255847a5afef856ad55f5ea733a20bb7c79f36b4e20a98b75fb8c294",
+        "tests/verify_bmm.py": "cf492e48be22c60a39600eca905f96faf7c4bc8298e4815ead88b2b8e156ca62",
+        "tests/trusted_score.py": "9b97c3756a9347af2e491633ed885ebf18d683b76dfd864617f0b5fde7b7af06",
+        "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+        "tests/legacy_bmm.py": "c324eab3c8e2e3d9ca850173e63dc57e90ad1cb8eb08dfb1dae6725b0d861ef4",
+        "tests/check_behavior.py": "b881464f0c16a18ea923033d44fdd3251f86864df85f91b16e98047d0f17e430",
+        "tests/workload.py": "197aabf260c4fda3a445151037e764f72e99021c475864858a59868b3d888554",
+        "validation/alternate-persistent-kernel.patch": "4bbcb0b7e66d84662bc8f8828a5ff62fea5fb87471023233e6b0b35b22091c75",
+        "validation/bmm_probe.py": "d325b6879dfbe239e37a77510a0dd15a9a02d917f547c6664af3acf1c8d675ae",
+        "validation/ci-cases.json": "bbea79d5826699c069164a345541ef9594eb22d11047261b4878d360547bd7e5",
+        "validation/diagnosis-only-batch-loop.patch": "76dfe34b8261fd2104496dd00f9994efee0412981fa63ff5f1af9a097dc48862",
+        "validation/docker-build.md": "aa72e8c3f1af31be3dab5109c8fbfa0ce657876effefdac34bcdac67552e1043",
+        "validation/semantic-boundary.md": "5411c057aa99508d5ef125a228f78bca7c5110b1e33a1fcab50db96e40c1fdff",
+        "validation/early-exit-os-exit.patch": "c34a59bcee96cc2e599e1dbfda9a2e849e507191a1c5ab748d52078427e69033",
+        "validation/early-exit-system-exit.patch": "a953b6d100d29bc5a85b4794337a9291ce829c2ba75d3e1cc57804a89f7d7100",
+        "validation/forged-report-exit.patch": "5d9e304321097bcb6ed7dc89d74fdb462a2c45b59b62b4668fc212a28750a529",
+        "validation/review-report.md": "c40b2eb866a0d351f525ab758d19accb01e291b521093d040994ba54d0c67cc1",
+        "validation/replay-observations.patch": "2be3925a04cdd4d9c704ac871ff95c7cd6e1b09455681dcc486eaa3400a316df",
+        "validation/out-view-return.patch": "7f111de37dfed8587b0ba84aebd6b6b2d3df73f7041c89ba7bd07a1fb52aba82",
+        "validation/strict-out-rejection.patch": "5ad2c6f6b5ede19618fee825b582d25fb33d161b9ec0e6ba73fa989884531dff",
+        "validation/alternate-copy-compatible-agent.patch": "2ffa958b5431863953f08e0c670f95e1cbf24fdc1a05c22f0e63a43068dfeb1a",
+        "validation/challenge/challenge_bmm.py": "8527a8098fb7d8889d58e21403c07d6a82786b3f8937dfc9085c12f35894af71",
+        "validation/challenge/README.md": "759b8be304076401711256d0f1b32d666949ff79cd245cd6411d79c9769b04fe",
+        "validation/evidence/jit-compilation.json": "52bdf9189621de5f886e2f874231338389f6e71153fe99814a19d4710567f21b",
+        "validation/evidence/environment-review.json": "d41cc9e0d697fe8a9ede89516ce61d5ec77f64bb87cb423c159c3589284d1b54"
+      },
+      "container_id": "6d54297f6eeb3bdaf9d7d7ad9d8ea0e0d40433b69496f1217712ba862fe2a344",
+      "command": [
+        "docker",
+        "exec",
+        "--user",
+        "agent",
+        "6d54297f6eeb3bdaf9d7d7ad9d8ea0e0d40433b69496f1217712ba862fe2a344",
+        "python3",
+        "-I",
+        "-S",
+        "-c",
+        "import sys,sysconfig,runpy;sys.path.extend(['/workspace/repo',sysconfig.get_path('purelib'),sysconfig.get_path('platlib')]);runpy.run_path('/challenge/challenge_bmm.py',run_name='__main__')"
+      ],
+      "exit_code": 0,
+      "actual_pass": true,
+      "typed_failure_marker": false,
+      "status": "expected_outcome",
+      "recorded_at": "2026-09-09T03:51:11.978546+00:00",
+      "raw_artifacts": {
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/bmm-alternate-copy-compatible-agent-final/apply.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/bmm-alternate-copy-compatible-agent-final/challenge.log": "09a22147d6f372abd44f2b41094a5a7d1af3e2071fda9dc37885b79f5bb054ce",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/bmm-alternate-copy-compatible-agent-final/record.json": "a282d0543b609070d0cfd85cc8b18773d6f99a42ace9bce62b1ad406b58c6191"
+      }
+    },
+    {
+      "case": "out-view-return",
+      "expected_pass": false,
+      "image_id": "sha256:677b8320fb3d21f56463010836743f92c9917e3c278803fea5176e2dbe0cca98",
+      "gpu_uuids": [
+        "GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710"
+      ],
+      "scope": "independent direct-container challenge, not a Harbor trial",
+      "files": {
+        ".dockerignore": "a4c95f4a339e5141c90473947bf574f3ac6b0491369da5050f28c0dc7e1dafcc",
+        "instruction.md": "28fc8b5dacbb6afea2cbd48bea33b8f131831a41750cad73ee416a1e10566613",
+        "task.toml": "39e51ab4e70899e12ca9361f9d64cb4910e2f2144ec51e7ba63a3c0004ca1f9e",
+        "environment/Dockerfile": "471485a9f41d3983b6e33a50d92699e18d512ac9ac8c1e3fb1efb5c9fbf2d05c",
+        "environment/image-manifest.json": "2ddf9737d2b68f5e99955bd0b9071336a158317bef8147aacf7172ca75373eb1",
+        "environment/lock/README.md": "54e203e8642ec1bc30e51bb63bfa2e2365bd8a96d707eb3b6831dba78d45b31e",
+        "environment/lock/vllm-source.sha256": "da5c243d7a774db6844f7c2fc0bac5817698598afeed6c847279f2803b8bc43f",
+        "environment/lock/requirements.txt": "55c46f68d240fe1e7464eeb65c85205a77695105d13925e8cd3aa5c51b5db800",
+        "environment/lock/manifest.json": "c5e273426fb4fe4adee6cf8520d354af7b6227eba5978ab72efd90c6315969eb",
+        "solution/solve.sh": "fcc259e7375224d93400b776de248e11f47c6c31a3b4af9752c53a9154cdd407",
+        "solution/oracle.patch": "df7a510fd02e8e7e88481b0ad654faceb0c4a7c6712b8c0eeb0e8d966ed834a0",
+        "tests/test.sh": "ccc2722c255847a5afef856ad55f5ea733a20bb7c79f36b4e20a98b75fb8c294",
+        "tests/verify_bmm.py": "cf492e48be22c60a39600eca905f96faf7c4bc8298e4815ead88b2b8e156ca62",
+        "tests/trusted_score.py": "9b97c3756a9347af2e491633ed885ebf18d683b76dfd864617f0b5fde7b7af06",
+        "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+        "tests/legacy_bmm.py": "c324eab3c8e2e3d9ca850173e63dc57e90ad1cb8eb08dfb1dae6725b0d861ef4",
+        "tests/check_behavior.py": "b881464f0c16a18ea923033d44fdd3251f86864df85f91b16e98047d0f17e430",
+        "tests/workload.py": "197aabf260c4fda3a445151037e764f72e99021c475864858a59868b3d888554",
+        "validation/alternate-persistent-kernel.patch": "4bbcb0b7e66d84662bc8f8828a5ff62fea5fb87471023233e6b0b35b22091c75",
+        "validation/bmm_probe.py": "d325b6879dfbe239e37a77510a0dd15a9a02d917f547c6664af3acf1c8d675ae",
+        "validation/ci-cases.json": "bbea79d5826699c069164a345541ef9594eb22d11047261b4878d360547bd7e5",
+        "validation/diagnosis-only-batch-loop.patch": "76dfe34b8261fd2104496dd00f9994efee0412981fa63ff5f1af9a097dc48862",
+        "validation/docker-build.md": "aa72e8c3f1af31be3dab5109c8fbfa0ce657876effefdac34bcdac67552e1043",
+        "validation/semantic-boundary.md": "5411c057aa99508d5ef125a228f78bca7c5110b1e33a1fcab50db96e40c1fdff",
+        "validation/early-exit-os-exit.patch": "c34a59bcee96cc2e599e1dbfda9a2e849e507191a1c5ab748d52078427e69033",
+        "validation/early-exit-system-exit.patch": "a953b6d100d29bc5a85b4794337a9291ce829c2ba75d3e1cc57804a89f7d7100",
+        "validation/forged-report-exit.patch": "5d9e304321097bcb6ed7dc89d74fdb462a2c45b59b62b4668fc212a28750a529",
+        "validation/review-report.md": "c40b2eb866a0d351f525ab758d19accb01e291b521093d040994ba54d0c67cc1",
+        "validation/replay-observations.patch": "2be3925a04cdd4d9c704ac871ff95c7cd6e1b09455681dcc486eaa3400a316df",
+        "validation/out-view-return.patch": "7f111de37dfed8587b0ba84aebd6b6b2d3df73f7041c89ba7bd07a1fb52aba82",
+        "validation/strict-out-rejection.patch": "5ad2c6f6b5ede19618fee825b582d25fb33d161b9ec0e6ba73fa989884531dff",
+        "validation/alternate-copy-compatible-agent.patch": "2ffa958b5431863953f08e0c670f95e1cbf24fdc1a05c22f0e63a43068dfeb1a",
+        "validation/challenge/challenge_bmm.py": "8527a8098fb7d8889d58e21403c07d6a82786b3f8937dfc9085c12f35894af71",
+        "validation/challenge/README.md": "759b8be304076401711256d0f1b32d666949ff79cd245cd6411d79c9769b04fe",
+        "validation/evidence/jit-compilation.json": "52bdf9189621de5f886e2f874231338389f6e71153fe99814a19d4710567f21b",
+        "validation/evidence/environment-review.json": "d41cc9e0d697fe8a9ede89516ce61d5ec77f64bb87cb423c159c3589284d1b54"
+      },
+      "container_id": "5c6b7f13964ae160ec4a740eb9eb2a030ca47329a35d3a9117e49434a8353d30",
+      "command": [
+        "docker",
+        "exec",
+        "--user",
+        "agent",
+        "5c6b7f13964ae160ec4a740eb9eb2a030ca47329a35d3a9117e49434a8353d30",
+        "python3",
+        "-I",
+        "-S",
+        "-c",
+        "import sys,sysconfig,runpy;sys.path.extend(['/workspace/repo',sysconfig.get_path('purelib'),sysconfig.get_path('platlib')]);runpy.run_path('/challenge/challenge_bmm.py',run_name='__main__')"
+      ],
+      "exit_code": 1,
+      "actual_pass": false,
+      "typed_failure_marker": true,
+      "status": "expected_outcome",
+      "recorded_at": "2026-09-09T03:51:40.247590+00:00",
+      "raw_artifacts": {
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/bmm-out-view-return-final/apply.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/bmm-out-view-return-final/challenge.log": "ec978dfc1a0e3a772b033340cfdd1cfa3d2ae2128db81fae5a5995d39815f78e",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/bmm-out-view-return-final/record.json": "50ebf8952c92acc68dd2bb3ca15f4b9ad9a846eceefc4db44a3d2c772ff18132"
+      }
+    }
+  ],
+  "regression": {
+    "same_candidate_source_sha256": "7ee3e1ad521ad105e7ecdf1f7217483b33863375bce53fc99bc442f94e524c6c",
+    "before": {
+      "reward": 0,
+      "trial_id": "df02ce3a-7f54-4351-ba71-76369d6c9ecc",
+      "raw_artifacts": {
+        "/data/yinchen/opus5-owned4-tasks-20260909/bmm/jobs/opus5-bmm/vllm-deterministic-bmm-batch-sca__QNgnvyZ/result.json": "a0d57794cf44304f64b837b942b133b599d02b9b0047bd3ee368052133bb4d7f",
+        "/data/yinchen/opus5-owned4-tasks-20260909/bmm/jobs/opus5-bmm/vllm-deterministic-bmm-batch-sca__QNgnvyZ/verifier/report.json": "155ed3800721f542be68ea8f8c05401b7f409e6fdcec30674c6726aef2b583d6",
+        "/data/yinchen/opus5-owned4-tasks-20260909/bmm/jobs/opus5-bmm/vllm-deterministic-bmm-batch-sca__QNgnvyZ/artifacts/workspace/repo/vllm/model_executor/layers/batch_invariant.py": "7ee3e1ad521ad105e7ecdf1f7217483b33863375bce53fc99bc442f94e524c6c"
+      }
+    },
+    "after": {
+      "case": "alternate-copy-compatible-agent",
+      "scope": "full Harbor run",
+      "run_root": "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/runs/bmm-alternate-copy-compatible-agent-final",
+      "expected_reward": 1,
+      "actual_reward": 1,
+      "current_executable_hashes_match": true,
+      "differences": [],
+      "job_id": "f39273e3-19df-4896-a1a7-82d352ebc3a8",
+      "trial_id": "6ba0d789-84bb-4e4b-8426-d447505868eb",
+      "task_checksum": "a6aa8aca1d431546b27a379caf7180146f2ee2b8270f8d74b97257b3292e00e9",
+      "harbor_errors": 0,
+      "harbor_exit_code": 0,
+      "gpu_uuids": [
+        "GPU-46c9b5d9-82f9-7bca-374e-6441ff3361c6"
+      ],
+      "image_id": "sha256:677b8320fb3d21f56463010836743f92c9917e3c278803fea5176e2dbe0cca98",
+      "command": [
+        "harbor",
+        "run",
+        "--config",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/runs/bmm-alternate-copy-compatible-agent-final/harbor-config.json",
+        "-y"
+      ],
+      "raw_artifacts": {
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/runs/bmm-alternate-copy-compatible-agent-final/run-record.json": "6ba0e5b5bdc9c1229e18e0c1f672846841adeacac07c5e4963f6aad8f8ce3c21",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/runs/bmm-alternate-copy-compatible-agent-final/harbor-config.json": "1df9bc6e4ab1bd9b466225365fa5e1b8198a976518cf16569277cab349c450a8",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/runs/bmm-alternate-copy-compatible-agent-final/harbor.log": "ac41007ef236bbb46d78ad6bed028c92c1e34b8c9d23b631744127e3379c6451",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/runs/bmm-alternate-copy-compatible-agent-final/agent-canary.log": "29c86ed75b7d45c0dc115ad6a62a625b743a57ce32ee75706e4db4a9ed0c252c",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/runs/bmm-alternate-copy-compatible-agent-final/result-check.log": "4859607480f3aeeb0ad478ff422af01863a2f16093c4941a9f38c4cf1f4746c8",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/runs/bmm-alternate-copy-compatible-agent-final/jobs/vllm-deterministic-bmm-batch-scaling--alternate-copy-compatible-agent/result.json": "bac7b7ba1167d89fcd7e6ebeb269c00242bea0e02e1eca96a46f6978a3e4046b",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/runs/bmm-alternate-copy-compatible-agent-final/jobs/vllm-deterministic-bmm-batch-scaling--alternate-copy-compatible-agent/vllm-deterministic-bmm-batch-sca__TukBbKh/result.json": "b1ff7acb799cf4a2896e3f7dee19ed6c6c00af3302d92909cf65e404830c5048",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/runs/bmm-alternate-copy-compatible-agent-final/jobs/vllm-deterministic-bmm-batch-scaling--alternate-copy-compatible-agent/vllm-deterministic-bmm-batch-sca__TukBbKh/verifier/test-stdout.txt": "4db24e20e3940f2929750ecdba3b04fdda02c01813416669e46b0078d976d0d4",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/runs/bmm-alternate-copy-compatible-agent-final/jobs/vllm-deterministic-bmm-batch-scaling--alternate-copy-compatible-agent/vllm-deterministic-bmm-batch-sca__TukBbKh/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/runs/bmm-alternate-copy-compatible-agent-final/jobs/vllm-deterministic-bmm-batch-scaling--alternate-copy-compatible-agent/vllm-deterministic-bmm-batch-sca__TukBbKh/verifier/workload.json": "43cc835294473b9f4a2907bd7e6c9248e00ffcb00f30e3643ba0a5464a97c9b8",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/runs/bmm-alternate-copy-compatible-agent-final/jobs/vllm-deterministic-bmm-batch-scaling--alternate-copy-compatible-agent/vllm-deterministic-bmm-batch-sca__TukBbKh/verifier/observations.json": "829372428e185728545477234c969aa5e6d48b24f08e5ca6717d743f4cd14378",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/runs/bmm-alternate-copy-compatible-agent-final/jobs/vllm-deterministic-bmm-batch-scaling--alternate-copy-compatible-agent/vllm-deterministic-bmm-batch-sca__TukBbKh/verifier/report.json": "2dbf2e5839c5fd61e72277e1bb54f643f5d51069dc0fa67a95838365a484d18f",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/runs/bmm-alternate-copy-compatible-agent-final/jobs/vllm-deterministic-bmm-batch-scaling--alternate-copy-compatible-agent/vllm-deterministic-bmm-batch-sca__TukBbKh/verifier/reward.json": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+      },
+      "behavior_report": {
+        "schema_version": "trusted_behavior_report.v1",
+        "completed": true,
+        "expected_stages": [
+          "correctness",
+          "error_contracts",
+          "launch_scaling",
+          "performance"
+        ],
+        "stages_passed": [
+          "correctness",
+          "error_contracts",
+          "launch_scaling",
+          "performance"
+        ],
+        "failures": [],
+        "worker_exit_code": 0,
+        "worker_uid": 1000,
+        "scorer_uid": 0
+      },
+      "performance": [
+        {
+          "shape": [
+            8,
+            512,
+            512,
+            2560
+          ],
+          "speedup": 3.940189475586586
+        },
+        {
+          "shape": [
+            32,
+            512,
+            512,
+            2560
+          ],
+          "speedup": 6.397738495567569
+        },
+        {
+          "shape": [
+            8,
+            1280,
+            1280,
+            2560
+          ],
+          "speedup": 1.1511698431033957
+        }
+      ]
+    },
+    "note": "Historical LLM result remains 0. The same archived source is evaluated as a correct control against the clarified task."
+  },
+  "prior_review_superseded": "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/before/bmm/validation/e2e-evidence.json",
+  "prior_review_correction": "Previous Oracle/control success did not establish compatibility/fairness at these newly confirmed boundaries. Old results remain historical.",
+  "environment_audit": {
+    "unchanged_build_inputs": true,
+    "image_rebuilt": false,
+    "checks": {
+      "agent-inspection": 0,
+      "image-inspect": 0,
+      "image-history": 0,
+      "repository-image-check": 0,
+      "image_patch_errors": 0,
+      "image_patch_warnings": 0
+    },
+    "raw_artifacts": {
+      "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/image-audits/bmm/agent-inspection.log": "b85924d4f8e562a2862a79a4889fe78adb8175ae25b9fd94cfc880d210f0fbe9",
+      "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/image-audits/bmm/image-inspect.log": "254c2e24413022940fd3a0c5953b85d7e7ee0f635a490b493e2ac7cb44ed5b26",
+      "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/image-audits/bmm/image-history.log": "a46b96999e16170e21060abdd7663b539a1a8cf8c29c80f23eb8e9738b9674e9",
+      "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/image-audits/bmm/repository-image-check.log": "b0539c8cdba6d02d45ed64d9b5d829e6175da52241779ddbf2740c90bb8e0014",
+      "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/image-audits/bmm/results.json": "58bec0b8f198466e2fbf03180910131d71e0830d0fa0c88183c9e34acef36dc3"
+    }
+  },
+  "skill": {
+    "path": "/tmp/ai-infra-task-review-main-20260908/.agents/skills/ai-infra-bench-task-review",
+    "file_hashes": {
+      "SKILL.md": "d95343d9408abd45190c0061eca41abf66ed6be3ca5471e2039e5759d5c7bacb",
+      "references/review-rubric.md": "c4413205916752c5fc793e26c74a20d15e2538b7043fe612c1741e7fa9901167",
+      "references/validation-playbook.md": "803fc8d1b120753003db681b20f1990d697f01ae52952e121255071af86a342e",
+      "scripts/audit_task_artifacts.py": "3c4f882ed2aa3542ddbb2d2c51522819be17dc22a12f2cd492076bd882190022"
+    }
+  },
+  "worktree_provenance": {
+    "/data/yinchen/ai-infra-bench-pr18-fix": {
+      "head": "cb2de7fee4ae86c7df3fdbd6de0a2102352aa2d1",
+      "status": "M .github/scripts/task_ci.py\n M tasks/vllm-async-pp-token-handoff/environment/Dockerfile\n M tasks/vllm-async-pp-token-handoff/environment/image-manifest.json\n M tasks/vllm-async-pp-token-handoff/environment/lock/manifest.json\n M tasks/vllm-async-pp-token-handoff/task.toml\nA  tasks/vllm-async-pp-token-handoff/tests/task_fixtures.py\n M tasks/vllm-async-pp-token-handoff/tests/test.sh\nAM tasks/vllm-async-pp-token-handoff/tests/trusted_supervisor.py\n M tasks/vllm-async-pp-token-handoff/tests/verify_async_pp.py\n M tasks/vllm-async-pp-token-handoff/validation/alternate-inline-nccl.patch\n M tasks/vllm-async-pp-token-handoff/validation/challenge/README.md\n M tasks/vllm-async-pp-token-handoff/validation/challenge/challenge_token_handoff.py\nAM tasks/vllm-async-pp-token-handoff/validation/challenge/run_challenge.py\n M tasks/vllm-async-pp-token-handoff/validation/ci-cases.json\n M tasks/vllm-async-pp-token-handoff/validation/docker-build.md\nMM tasks/vllm-async-pp-token-handoff/validation/e2e-evidence.json\n M tasks/vllm-async-pp-token-handoff/validation/semantic-boundary.md\n?? .github/scripts/__pycache__/\n?? tasks/vllm-async-pp-token-handoff/environment/lock/runtime-native.json\n?? tasks/vllm-async-pp-token-handoff/tests/docker-compose.yaml\n?? tasks/vllm-async-pp-token-handoff/tests/worker_fixtures.py\n?? tasks/vllm-async-pp-token-handoff/validation/early-os-exit.patch\n?? tasks/vllm-async-pp-token-handoff/validation/early-system-exit.patch\n?? tasks/vllm-async-pp-token-handoff/validation/final-review.md\n?? tasks/vllm-async-pp-token-handoff/validation/group-coordinator-broadcast.patch\n?? tasks/vllm-async-pp-token-handoff/validation/history/\n?? tasks/vllm-async-pp-token-handoff/validation/local-regressions.json\n?? tasks/vllm-async-pp-token-handoff/validation/post-broadcast-failure.patch",
+      "branch": ""
+    },
+    "/data/yinchen/ai-infra-bench-remediate-8tasks": {
+      "head": "a59c9dd013dbd4194ee95b1aa4c9bb70125148fd",
+      "status": "?? tasks/vllm-async-pp-token-handoff/\n?? tasks/vllm-deterministic-bmm-batch-scaling/\n?? tasks/vllm-fused-moe-config-lifecycle/\n?? tasks/vllm-int8-per-token-group-quantization/\n?? tasks/vllm-modular-moe-config-ownership/\n?? tasks/vllm-moe-permute-batch-scaling/\n?? tasks/vllm-multimodal-encoder-cache-accounting/\n?? tasks/vllm-streaming-session-continuation/",
+      "branch": "ci/lowercase-ghcr-namespace"
+    },
+    "/tmp/ai-infra-task-review-main-20260908": {
+      "head": "ee32cad166ca065f02945bda6b2f6dca3a025ddd",
+      "status": "?? .agents/skills/ai-infra-bench-task-review/scripts/__pycache__/",
+      "branch": "main"
+    }
+  },
+  "checksum_note": "Final Harbor input checksum predates evidence/report-only publication updates; executable files did not change after the final Oracle.",
+  "publication": {
+    "state": "prepared_for_authorized_pull_request",
+    "historical_publication_state": "See prior evidence; old uncommitted statements refer to original review time."
+  },
+  "strict_artifact_audit": {
+    "exit_code": 0,
+    "log": "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/bmm-strict-audit.log",
+    "sha256": "45cac5c30ab902f2c39aedb7082e6fb7f52514cd6bb3be3bb789e9bef3be9d6d"
+  },
+  "publication_revision": {
+    "schema_version": "ai_infra_bench_publication_formatting.v1",
+    "recorded_at": "2026-09-09T06:21:19.074344+00:00",
+    "changes": [
+      {
+        "path": "solution/solve.sh",
+        "before_sha256": "fcc259e7375224d93400b776de248e11f47c6c31a3b4af9752c53a9154cdd407",
+        "after_sha256": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+        "removed_bytes": 1,
+        "change": "Remove surplus blank lines at EOF; preserve all nonempty lines."
+      },
+      {
+        "path": "tests/legacy_bmm.py",
+        "before_sha256": "c324eab3c8e2e3d9ca850173e63dc57e90ad1cb8eb08dfb1dae6725b0d861ef4",
+        "after_sha256": "770fecb40b6a6acfa5d174e63baa3d342d17ddde106620a8a3af360c4564e1e2",
+        "removed_bytes": 2,
+        "change": "Remove surplus blank lines at EOF; preserve all nonempty lines."
+      }
+    ],
+    "runs": [
+      {
+        "case": "oracle",
+        "scope": "full Harbor run after formatting-only publication revision",
+        "actual_reward": 1,
+        "expected_reward": 1,
+        "job_id": "1261f07e-5724-4e94-819a-3b399e062422",
+        "trial_id": "d99548dc-e65c-4a2c-9137-6cdc91dd7e69",
+        "harbor_errors": 0,
+        "harbor_exit_code": 0,
+        "task_checksum": "c65cdec9bddd9a3b2ad52e12c07629170167bd6aef647b4d8a7932623aa004c9",
+        "image_id": "sha256:677b8320fb3d21f56463010836743f92c9917e3c278803fea5176e2dbe0cca98",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/harbor-config.json",
+          "-y"
+        ],
+        "archive": "validation/evidence/publication-oracle.tar.gz",
+        "archive_sha256": "4e5bf74a1d6f4881e27f2fac8072432ee653d78da977d5edd4f6e5bdbbfabf93",
+        "raw_artifacts": [
+          {
+            "path": "run/run-record.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/run-record.json",
+            "sha256": "b0f7e856dc604a51c261ad41253dc423f1d83439fbc012e4f5e8b0a0a199caba"
+          },
+          {
+            "path": "run/harbor-config.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/harbor-config.json",
+            "sha256": "d8b8f3ae1b7baf7b7a35992a21fee7606c7b9fe9e5fdb76798e8f83bf2a8e74f"
+          },
+          {
+            "path": "run/harbor.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/harbor.log",
+            "sha256": "2d7c90a2fdaf529a9e7509b9472fbabe95281ab98cf6162bf9e471bd8121b8eb"
+          },
+          {
+            "path": "run/agent-canary.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/agent-canary.log",
+            "sha256": "29c86ed75b7d45c0dc115ad6a62a625b743a57ce32ee75706e4db4a9ed0c252c"
+          },
+          {
+            "path": "run/result-check.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/result-check.log",
+            "sha256": "4859607480f3aeeb0ad478ff422af01863a2f16093c4941a9f38c4cf1f4746c8"
+          },
+          {
+            "path": "job/result.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/result.json",
+            "sha256": "7c6acf7b2db09de765821b2464b7d0f8c123a8c2e0772f0e84ced503c69d3c47"
+          },
+          {
+            "path": "trial/result.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/result.json",
+            "sha256": "85722e8fb936d9ea9f3da8afbf587801f76008410e2ac70eefaedd2677b58418"
+          },
+          {
+            "path": "verifier/test-stdout.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/test-stdout.txt",
+            "sha256": "fa6cc1b4d5c1f333f4671f0d6b3435b9621ed3614776d8b50b434c850a33fbdc"
+          },
+          {
+            "path": "verifier/reward.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/reward.txt",
+            "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+          },
+          {
+            "path": "verifier/workload.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/workload.json",
+            "sha256": "f0d1d7c50d670c547b8161f2d568cfc4886cbbf43687b3e87e83e9684ea3068b"
+          },
+          {
+            "path": "verifier/observations.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/observations.json",
+            "sha256": "0f385c1e70c1eb8cc18533862864b34879059812ebe9f9b0b37a7a399d18c8f3"
+          },
+          {
+            "path": "verifier/report.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/report.json",
+            "sha256": "2dbf2e5839c5fd61e72277e1bb54f643f5d51069dc0fa67a95838365a484d18f"
+          },
+          {
+            "path": "verifier/reward.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/bmm-oracle/jobs/vllm-deterministic-bmm-batch-scaling--oracle/vllm-deterministic-bmm-batch-sca__qa7NdYy/verifier/reward.json",
+            "sha256": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+          }
+        ]
+      }
+    ],
+    "prior_evidence": "validation/history/pre-publication-formatting-evidence.json",
+    "scope": "Shell/Python commands and grading thresholds unchanged. Historical controls remain tied to their original hashes; new final Oracle executed for publication. PR18 trimmed control was also rerun."
+  }
+}

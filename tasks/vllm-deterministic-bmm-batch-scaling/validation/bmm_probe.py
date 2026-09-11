@@ -17,6 +17,8 @@ def correctness():
         (torch.bfloat16, 8, 64, 48, 80),
         (torch.float32, 2, 15, 21, 27),
         (torch.float32, 4, 32, 24, 40),
+        (torch.float32, 2, 37, 41, 2560),
+        (torch.float32, 3, 53, 47, 1536),
     ]
     results = []
     for idx, (dtype, batch, m, n, k) in enumerate(cases):
@@ -42,9 +44,7 @@ def correctness():
         assert torch.equal(out, batched)
 
         reference = torch.bmm(a, b)
-        # This deterministic Triton kernel uses a fixed reduction order that
-        # differs from cuBLAS/TF32. Numerical closeness is a secondary sanity
-        # check; bitwise batch-vs-single equality above remains the hard gate.
+        # Both numerical accuracy and exact batch invariance are required.
         tol = 2e-2
         torch.testing.assert_close(batched, reference, rtol=tol, atol=tol)
         results.append(

@@ -4,7 +4,7 @@
 
 A100 execution, tensor dtype/shape/strides, reduction order, launch scaling and timings are semantic. Input values may vary. The comparison kernel is the exact Base matrix implementation retained in tests/legacy_bmm.py, rather than a candidate-editable baseline. No CUDA component is simulated.
 
-Six dtype/shape cases; seven invalid-input cases and 24 output-copy cases (dtype conversion, CPU destination, and broadcast-compatible destination); launches at batches 1/7/29; three prescribed shapes with five warmups, twenty iterations and five timing rounds. Independent challenge adds empty and singleton dimensions, noncontiguous inputs/output and new geometry. Base is already batch-invariant: its target failure is launch scaling/performance, not loss of determinism.
+Eight dtype/shape cases; seven invalid-input cases and 32 output-copy cases (dtype conversion, CPU destination, and broadcast-compatible destination); launches at batches 1/7/29; three prescribed shapes with five warmups, twenty iterations and five timing rounds. Independent challenge adds empty and singleton dimensions, noncontiguous inputs/output and new geometry. Base is already batch-invariant: its target failure is launch scaling/performance, not loss of determinism.
 
 ## Scoring integrity
 
@@ -21,3 +21,5 @@ Old snapshots and direct Docker diagnostics are not final Harbor results. `e2e-e
 The `out=` contract checks tensor object identity as well as storage and values. The `out-view-return` control keeps correct values and storage but returns a distinct view; it must receive reward 0.
 
 Output-copy compatibility follows the frozen baseline. The old strict Oracle is retained as the incorrect strict-out-rejection control. The archived solver implementation is a correct alternative, evaluated afresh under this contract. Performance thresholds are unchanged.
+
+Long FP32 reductions at K=1536 and K=2560 use parent-owned operands and a CPU float64 reference cast to FP32. Determinism never replaces the numerical tolerance. The performance cases still use BF16 with the original three speedup gates. The independent challenge adds K=2048/3072. Batch=0 is not asserted as supported: the frozen Base rejects torch.stack([]). The prior TF32 Oracle is retained as the long-k-tf32-loss negative control.

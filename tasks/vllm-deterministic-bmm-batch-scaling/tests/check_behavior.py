@@ -12,7 +12,7 @@ def check(raw, workload):
 
     def correctness():
         cases = stages['correctness']
-        assert len(cases) == 6
+        assert len(cases) == len(workload['correctness']) == 8
         for case, prescribed in zip(cases, workload['correctness']):
             assert case['dtype'] == prescribed['dtype'] and case['shape'] == prescribed['shape']
             assert case['a'] == prescribed['a'] and case['b'] == prescribed['b'], 'operands differ from current workload'
@@ -23,7 +23,7 @@ def check(raw, workload):
             assert case['device'] == 'cuda' and case['out_ptr'] == case['returned_ptr']
             assert case['out_identity'] is True
             assert torch.equal(out, single) and torch.equal(out, provided)
-            torch.testing.assert_close(out, torch.bmm(a, b), rtol=0.02, atol=0.02)
+            torch.testing.assert_close(out, torch.bmm(a.double(), b.double()).float(), rtol=0.02, atol=0.02)
             input_dtype = getattr(torch, prescribed['dtype'].split('.')[-1])
             specs = [('cuda', dt, False) for dt in (torch.float16, torch.bfloat16, torch.float32)
                      if dt != input_dtype] + [('cpu', input_dtype, False), ('cuda', input_dtype, True)]

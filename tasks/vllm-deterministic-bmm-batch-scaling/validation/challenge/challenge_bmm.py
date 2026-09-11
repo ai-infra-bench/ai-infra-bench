@@ -22,6 +22,8 @@ FRESH_CASES = [
     (torch.bfloat16, 13, 20, 44, 28),
     (torch.float32, 9, 36, 20, 48),
     (torch.float32, 3, 50, 50, 50),
+    (torch.float32, 2, 43, 59, 2048),
+    (torch.float32, 3, 61, 35, 3072),
 ]
 
 
@@ -49,7 +51,7 @@ def run_case(dtype, batch, m, n, k, seed) -> dict:
     returned = bmm_batch_invariant(a, b, out=out)
     assert returned is out
     assert torch.equal(out, batched)
-    torch.testing.assert_close(batched, torch.bmm(a,b), rtol=0.02, atol=0.02)
+    torch.testing.assert_close(batched.cpu(), torch.bmm(a.cpu().double(), b.cpu().double()).to(dtype), rtol=0.02, atol=0.02)
     for device, target_dtype, shape in [
         ('cpu', dtype, batched.shape),
         ('cuda', torch.float32 if dtype != torch.float32 else torch.float16, batched.shape),
@@ -64,7 +66,7 @@ def run_case(dtype, batch, m, n, k, seed) -> dict:
 
 def edge_cases():
     from torch.profiler import profile, ProfilerActivity
-    for batch,m,n,k in [(0,3,5,7),(2,0,5,7),(2,3,0,7),(2,3,5,0),(1,1,1,1)]:
+    for batch,m,n,k in [(2,0,5,7),(2,3,0,7),(2,3,5,0),(1,1,1,1)]:
         a=torch.randn(batch,m,k,device="cuda",dtype=torch.float16)
         b=torch.randn(batch,k,n,device="cuda",dtype=torch.float16)
         out=bmm_batch_invariant(a,b)
