@@ -1,9 +1,7 @@
-# vllm-moe-permute-batch-scaling: GPT-6-Astra high
+# vllm-moe-permute-batch-scaling v1.3.2
 
-Task v1.3.2; one Harbor attempt on 2026-09-11; reward **1**, no Harbor exception. Trial: `vllm-moe-permute-batch-scaling__emg2WVv`.
+One GPT-6-Astra / high Harbor run: **reward 1**, zero Harbor errors. Full rollout review passed.
 
-[Download trajectory ZIP](pr19-gpt-6-astra-high-once.zip) · [Browse ATIF](trajectory.json) · [Rollout review](review.md) · [Run identity](run-identity.json)
+[Download complete trajectory ZIP](pr19-gpt-6-astra-high-once.zip) — includes native/ATIF/API traces, final source, verifier logs and review evidence.
 
-The ZIP contains the native Codex session, ATIF, captured HTTP/SSE trajectory, verifier logs, final repository source archive, patch and file inventory. Complete rootfs and raw trace SQLite are retained locally; the public package excludes runtime authentication state. Local paths in historical records identify the original runs.
-
-The review archive contains additional diagnostic replay and challenge evidence for the same candidate; it does not represent another model attempt. Earlier Opus results are archived locally and in Git history; they are not evidence for this task revision.
+SHA-256: `f691c2c4fb2d27e8df76f1201123d699f52878710a84cb27bf3086329aba88dc`
