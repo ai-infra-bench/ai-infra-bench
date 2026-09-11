@@ -86,7 +86,13 @@ export async function generateMetadata({ params }: TaskPageProps): Promise<Metad
   return {
     title,
     description: task.description,
-    openGraph: { title, description: task.description, images: [] },
+    alternates: { canonical: `/tasks/${slug}` },
+    openGraph: {
+      title,
+      description: task.description,
+      siteName: 'AI Infra Bench',
+      images: [],
+    },
     twitter: { card: 'summary', title, description: task.description, images: [] },
   };
 }
