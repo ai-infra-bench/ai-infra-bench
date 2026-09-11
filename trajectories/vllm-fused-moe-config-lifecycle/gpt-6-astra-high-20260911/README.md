@@ -1,9 +1,7 @@
-# vllm-fused-moe-config-lifecycle: GPT-6-Astra high
+# vllm-fused-moe-config-lifecycle v1.2.6
 
-Task v1.2.6; one Harbor attempt on 2026-09-11; reward **1**, no Harbor exception. Trial: `vllm-fused-moe-config-lifecycle__zMfCPth`.
+One GPT-6-Astra / high Harbor run: **reward 1**, zero Harbor errors. Full rollout review passed.
 
-[Download trajectory ZIP](fused-gpt-6-astra-high-once.zip) · [Browse ATIF](trajectory.json) · [Rollout review](review.md) · [Run identity](run-identity.json)
+[Download complete trajectory ZIP](fused-gpt-6-astra-high-once.zip) — includes native/ATIF/API traces, final source, verifier logs and review evidence.
 
-The ZIP contains the native Codex session, ATIF, captured HTTP/SSE trajectory, verifier logs, final repository source archive, patch and file inventory. Complete rootfs and raw trace SQLite are retained locally; the public package excludes runtime authentication state. Local paths in historical records identify the original runs.
-
-The review archive contains additional diagnostic replay and challenge evidence for the same candidate; it does not represent another model attempt. Earlier Opus results are archived locally and in Git history; they are not evidence for this task revision.
+SHA-256: `af863b1a719c2a75527fab339ddc611d06c853e5efac95ee13304ef5fb3221e2`
