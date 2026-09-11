@@ -34,6 +34,11 @@ REQUIRED_SCENARIOS: dict[str, dict] = {
         "port": 29711,
         "required_keys": ["scenario_result", "gpu_collective_seen"],
     },
+    "fresh-interleaved-discard-7req": {
+        "ranks": [0, 1],
+        "port": 29712,
+        "required_keys": ["scenario_result", "gpu_collective_seen"],
+    },
 }
 
 

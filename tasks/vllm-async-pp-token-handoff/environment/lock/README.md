@@ -49,7 +49,8 @@ invokes the production `GPUModelRunner` PP broadcast/receive methods directly,
 checks the sampled-token tensor, request-index reconstruction, discard mask,
 and local output placeholder update. No fake transport replaces NCCL.
 
-This focused verifier does not claim scheduler re-entry, a model forward, PP4
-serving, accuracy, or performance. Full acceptance requires the original
-Qwen3-30B-A3B FP8 model, four pipeline stages, GSM8K/lm-eval, random serving
-inputs, 128 concurrent prompts, and paired async/non-async measurements.
+The current task executes the real runner constructor, execute_model,
+sample_tokens, sampled-token NCCL handoff, next GPU input preparation and
+scheduler re-entry. Fixed model arithmetic and sampled values are supplied by
+verifier-side inputs. Full-model PP4 serving, Qwen weights and accuracy/serving
+benchmarks are outside this independent two-rank token-handoff contract.

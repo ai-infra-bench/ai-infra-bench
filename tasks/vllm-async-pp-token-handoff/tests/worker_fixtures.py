@@ -1,7 +1,7 @@
 """Real runner initialization with deterministic model-output inputs.
 
-The production constructor, buffers, InputBatch, bookkeeping and next-input
-preparation execute unchanged. Model weights and attention computation are not
+The production constructor, execute_model, buffers, InputBatch, bookkeeping and
+next-input preparation execute unchanged. Model weights and attention computation are not
 needed to exercise sampled-token transport. No candidate-private attributes are
 invented by this fixture.
 """
@@ -58,30 +58,62 @@ def make_runner(req_ids, discard_mask, prior_outputs, sampled=None):
     runner.kv_cache_config = KVCacheConfig(
         num_blocks=1, kv_cache_tensors=[], kv_cache_groups=[])
     runner.input_ids.cpu.fill_(17)
-    runner.discard_request_mask.np[:len(req_ids)] = discard_mask
-    runner.discard_request_mask.copy_to_gpu(len(req_ids))
-    for req_id in req_ids:
+    for index, req_id in enumerate(req_ids):
         request = CachedRequestState(
             req_id=req_id, prompt_token_ids=list(range(8)), mm_features=[],
             sampling_params=SamplingParams(temperature=0, max_tokens=16),
-            generator=None, block_ids=([0],), num_computed_tokens=8,
+            generator=None, block_ids=([0],),
+            num_computed_tokens=8 + len(prior_outputs[req_id]) - 1 - int(discard_mask[index]),
             output_token_ids=list(prior_outputs[req_id]),
         )
         runner.requests[req_id] = request
         runner.input_batch.add_request(request)
     runner.input_batch.refresh_metadata()
+    # Replace only model arithmetic. All preparation and execute/sample state
+    # transitions run through the candidate's production implementation.
+    from vllm.sequence import IntermediateTensors
+    from vllm.distributed.parallel_state import get_pp_group
+
+    class FixedModel(torch.nn.Module):
+        def forward(self, input_ids, positions, intermediate_tensors, inputs_embeds):
+            hidden = torch.zeros((len(positions), 1), device=device)
+            if not get_pp_group().is_last_rank:
+                return IntermediateTensors({"hidden_states": hidden})
+            return hidden
+
+        def compute_logits(self, hidden):
+            return torch.zeros((len(hidden), 1024), device=device)
+
+    runner.model = FixedModel()
+    runner.intermediate_tensors = IntermediateTensors({
+        "hidden_states": torch.zeros((64, 1), device=device),
+    })
+    scheduler_output = SimpleNamespace(
+        finished_req_ids=set(), free_encoder_mm_hashes=[], scheduled_new_reqs=[],
+        preempted_req_ids=set(), scheduled_encoder_inputs={},
+        num_common_prefix_blocks=[], scheduled_spec_decode_tokens={},
+        total_num_scheduled_tokens=len(req_ids),
+        num_scheduled_tokens={req_id: 1 for req_id in req_ids},
+        scheduled_cached_reqs=SimpleNamespace(
+            req_ids=list(req_ids), resumed_req_ids=set(),
+            num_computed_tokens=[runner.requests[r].num_computed_tokens for r in req_ids],
+            new_block_ids=[None] * len(req_ids),
+            # No new CPU tokens in this cached batch. Keep the per-request
+            # container valid for both the frozen Base and async implementations.
+            new_token_ids=[[] for _ in req_ids],
+            num_output_tokens=[len(prior_outputs[r]) for r in req_ids],
+        ),
+    )
     if sampled is not None:
-        scheduler_output = SimpleNamespace(
-            total_num_scheduled_tokens=len(req_ids),
-            num_scheduled_tokens={req_id: 1 for req_id in req_ids},
-        )
-        runner.execute_model_state = (
-            scheduler_output, torch.empty(1, device=device), None, None,
-            torch.empty((len(req_ids), 1), device=device),
-            None, None, None, None, None,
-        )
         runner._sample = lambda logits, metadata: SimpleNamespace(
             sampled_token_ids=sampled, logprobs_tensors=None)
+    with set_current_vllm_config(config):
+        output = runner.execute_model(scheduler_output, runner.intermediate_tensors)
+    if get_pp_group().is_last_rank:
+        assert output is None, "last rank must defer sampling after execute_model"
+    else:
+        assert isinstance(output, IntermediateTensors)
+    assert runner.discard_request_mask.np[:len(req_ids)].tolist() == list(discard_mask)
     return runner
 
 

@@ -184,7 +184,7 @@ REQUIRED_STAGES: dict[str, dict] = {
         "port": 29618,
         "required_keys": ["scenario", "gpu_collective_seen", "sender_lifecycle"],
         # One production sample_tokens per rank, one GPU broadcast.
-        "expected_call_counts": {"sample_tokens_calls": 1},
+        "expected_call_counts": {"execute_model_calls": 1, "sample_tokens_calls": 1},
     },
     "NCCL_REORDERED": {
         "kind": "dist",
@@ -193,7 +193,7 @@ REQUIRED_STAGES: dict[str, dict] = {
         "port": 29619,
         "required_keys": ["scenario", "gpu_collective_seen", "sender_lifecycle"],
         # One production sample_tokens per rank, one GPU broadcast.
-        "expected_call_counts": {"sample_tokens_calls": 1},
+        "expected_call_counts": {"execute_model_calls": 1, "sample_tokens_calls": 1},
     },
     "NCCL_INTEGRATED": {
         "kind": "dist",
@@ -202,7 +202,7 @@ REQUIRED_STAGES: dict[str, dict] = {
         "port": 29620,
         "required_keys": ["scenario", "gpu_collective_seen", "sender_lifecycle"],
         # One production sample_tokens per rank, one GPU broadcast.
-        "expected_call_counts": {"sample_tokens_calls": 1},
+        "expected_call_counts": {"execute_model_calls": 1, "sample_tokens_calls": 1},
     },
 }
 

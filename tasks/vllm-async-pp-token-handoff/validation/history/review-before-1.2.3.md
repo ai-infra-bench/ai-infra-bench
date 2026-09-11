@@ -1,5 +1,3 @@
-Historical review of an earlier revision. Current status and evidence are in `review-report.md` and `e2e-evidence.json`.
-
 PR18 构造函数与调度时序：本轮修订及本地验证完成。
 
 前次通过结论在契约/fixture 问题确认后撤回，本报告替代旧结论；历史 raw reward 未修改。

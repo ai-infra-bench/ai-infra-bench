@@ -6,7 +6,7 @@ history layer. It exists only under `validation/challenge/` and is invoked direc
 during dynamic validation (Phase D).
 
 ## Production API exercised
-`GPUModelRunner.sample_tokens over a real 2-rank NCCL PP group`
+`GPUModelRunner.execute_model -> sample_tokens over a real 2-rank NCCL PP group`
 
 This is the same production entry point the agent verifier uses, so a correct
 solution that passes `tests/` must also pass this challenge. The challenge is
@@ -14,7 +14,7 @@ solution that passes `tests/` must also pass this challenge. The challenge is
 chosen inputs.
 
 ## Independent invariant
-Sampled tokens cross the PP boundary via a GPU (NCCL) collective with no object/CPU collective and no GPU->CPU scalar sync; the receiver rebuilds prev_sampled_token_ids on-GPU, maps only kept requests to their original index, and appends a -1 placeholder to kept requests while leaving discarded ones unchanged.
+Sampled tokens cross the PP boundary via a GPU (NCCL) collective with no object/CPU collective and no blocking GPU->CPU transfer or CUDA host wait; the receiver rebuilds prev_sampled_token_ids on-GPU, maps only kept requests to their original index, and appends a -1 placeholder to kept requests while leaving discarded ones unchanged.
 
 The sender must finish production bookkeeping and return its real async output.
 The receiver executes production cached-state update and prepares next-step GPU
@@ -37,11 +37,17 @@ Expected outcomes in Phase D:
   Confirms the challenge scores the behavioral contract, not one implementation.
 - **Base / incorrect** (`cpu-sync-object-collective.patch (expected_reward=0)`): `CHALLENGE_TOKEN_HANDOFF=FAIL`.
 
-The current revision has not yet been rerun in the final image. Expected outcomes
-above are not measured results.
+Current measured outcomes are recorded in `../e2e-evidence.json`; expected
+outcomes above are the contract, not a substitute for actual run records.
 
 ## Provenance guarantee
 This file is under `validation/`, which is never copied into the environment
 image (see `environment/Dockerfile`). Phase C verifies via `docker history` and a
 final-filesystem scan that no challenge, verifier, solution, or reward logic
 leaked into the image.
+
+The wrapper also runs a seven-request case with new token values, request order,
+mixed histories and interleaved discards. A shared observer measures real device
+copies and runtime waits; expected request/output states are derived in this
+challenge. Oracle and correct alternatives must pass both cases. Standalone
+D2H and host-wait controls must fail through a typed behavioral reason.

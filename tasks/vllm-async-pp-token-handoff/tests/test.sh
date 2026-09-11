@@ -74,7 +74,7 @@ STAGING=/trusted/staging
 WORKER_TMP=/tmp/async-pp-worker
 rm -rf "${STAGING}"
 mkdir -p "${STAGING}" || fail_closed staging_mkdir
-for f in trusted_supervisor.py verify_async_pp.py task_fixtures.py worker_fixtures.py; do
+for f in trusted_supervisor.py verify_async_pp.py task_fixtures.py worker_fixtures.py handoff_observer.py; do
   cp "/tests/${f}" "${STAGING}/${f}" || fail_closed "staging_copy_${f}"
 done
 cp -r /tests/fixtures "${STAGING}/fixtures" || fail_closed staging_copy_fixtures

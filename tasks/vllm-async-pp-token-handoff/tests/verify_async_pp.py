@@ -56,6 +56,7 @@ from vllm.v1.worker.gpu_model_runner import GPUModelRunner
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from task_fixtures import create_requests, create_scheduler  # noqa: E402
 from worker_fixtures import make_runner, next_inputs
+from handoff_observer import HandoffObserver
 
 NONCE = os.environ.get("ASYNC_PP_NONCE", "")
 STAGE = os.environ.get("ASYNC_PP_STAGE", "")
@@ -76,6 +77,7 @@ CALL_COUNTS = {
     "config_built": 0,
     "schedule_calls": 0,
     "sample_tokens_calls": 0,
+    "execute_model_calls": 0,
     "gpu_broadcasts": 0,
 }
 
@@ -288,27 +290,17 @@ def invoke_production_sample(runner, *, is_sender: bool):
     dist.gather_object = reject_object_collective
     dist.scatter_object_list = reject_object_collective
     try:
-        with torch.profiler.profile(
-            activities=[torch.profiler.ProfilerActivity.CPU],
-            with_stack=True,
-        ) as profile:
+        observer = HandoffObserver()
+        with observer.observe():
             CALL_COUNTS["sample_tokens_calls"] += 1
             output = GPUModelRunner.sample_tokens(runner, None)
-        scalar_sync_ops = []
-        for event in profile.events():
-            name = getattr(event, "name", getattr(event, "key", ""))
-            if "_local_scalar_dense" not in name:
-                continue
-            scalar_sync_ops.append(
-                {
-                    "name": name,
-                    "stack": list(getattr(event, "stack", ()))[:12],
-                }
-            )
-        if scalar_sync_ops:
+        print(json.dumps({"handoff_observation": {
+            "transfers": observer.transfers, "violations": observer.violations,
+        }}, sort_keys=True), flush=True)
+        if observer.violations:
             raise TargetInvariantFailure(
-                "gpu_cpu_scalar_sync",
-                f"GPU->CPU scalar synchronization in handoff: {scalar_sync_ops}",
+                "gpu_cpu_handoff_sync",
+                f"Device-to-host transfer or host wait in handoff: {observer.violations}",
             )
     finally:
         dist.broadcast = original_broadcast
@@ -328,6 +320,7 @@ def run_scenario(rank, tokens, req_ids, discard_mask, prior_outputs):
     if rank == 1:
         sampled = torch.tensor(tokens, dtype=torch.int32, device="cuda").reshape(-1, 1)
         runner = make_runner(req_ids, discard_mask, prior_outputs, sampled)
+        CALL_COUNTS["execute_model_calls"] += 1
         output = invoke_production_sample(runner, is_sender=True)
         if runner.execute_model_state is not None or output is None:
             raise TargetInvariantFailure("sender_incomplete_return",
@@ -350,6 +343,7 @@ def run_scenario(rank, tokens, req_ids, discard_mask, prior_outputs):
                 "sender_lifecycle": dict(SENDER_LIFECYCLE)}
 
     runner = receiver_runner(req_ids, discard_mask, prior_outputs)
+    CALL_COUNTS["execute_model_calls"] += 1
     output = invoke_production_sample(runner, is_sender=False)
     if output is not None:
         raise TargetInvariantFailure(
@@ -447,6 +441,7 @@ def run_integrated_scheduler_receiver(tokens):
     # NOTE: runner.requests already populated by receiver_runner() with
     # production CachedRequestState objects (mutable output_token_ids).
     # Do NOT replace with Scheduler's Request objects (ConstantList output_token_ids).
+    CALL_COUNTS["execute_model_calls"] += 1
     output = invoke_production_sample(runner, is_sender=False)
     if output is not None:
         raise TargetInvariantFailure(
@@ -624,7 +619,7 @@ def run_rank(scenario_name: str) -> int:
                 {
                     "gpu": props.name,
                     "private_helper_names_scored": False,
-                    "production_entrypoint": "GPUModelRunner.sample_tokens",
+                    "production_entrypoint": "GPUModelRunner.execute_model -> GPUModelRunner.sample_tokens",
                     "scenario": scenario_name,
                     "scenario_result": record,
                     "world_size": world_size,

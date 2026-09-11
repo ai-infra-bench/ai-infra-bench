@@ -18,7 +18,7 @@ distinct from the verifier's basic/reordered/integrated:
 Invariants re-derived (not copied from the verifier body):
   1. Sampled tokens cross the PP boundary via a GPU (is_cuda) collective;
      every object/CPU collective (broadcast_tensor_dict, *_object) is forbidden.
-  2. No GPU->CPU scalar synchronization (_local_scalar_dense) occurs.
+  2. No blocking GPU->CPU transfer, CUDA scalar read or host wait occurs.
   3. Receiver rebuilds prev_sampled_token_ids on-GPU matching sent tokens.
   4. prev_req_id_to_index maps exactly the kept (non-discarded) requests to
      their ORIGINAL positional index.
@@ -82,6 +82,7 @@ for fixture_dir in fixture_dirs:
         sys.path.insert(0, str(fixture_dir))
         break
 from worker_fixtures import make_runner, next_inputs
+from handoff_observer import HandoffObserver
 
 
 class ChallengeInvariantFailure(RuntimeError):
@@ -102,6 +103,13 @@ class ChallengeInvariantFailure(RuntimeError):
 
 CHALLENGE_NONCE = os.environ.get("CHALLENGE_NONCE", "")
 CHALLENGE_SCENARIO = os.environ.get("CHALLENGE_SCENARIO", "")
+if CHALLENGE_SCENARIO == "fresh-interleaved-discard-7req":
+    TOKENS = [617, 29, 881, 43, 509, 71, 997]
+    REQ_IDS = ["u-f", "u-b", "u-g", "u-a", "u-e", "u-c", "u-d"]
+    DISCARD_MASK = [False, True, False, False, True, False, True]
+    PRIOR_OUTPUTS = {r: list(range(13, 13 + i % 3))
+                     for i, r in enumerate(REQ_IDS)}
+
 
 
 def emit_challenge_frame(payload: dict) -> None:
@@ -163,19 +171,16 @@ def invoke_production_sample(runner, *, is_sender: bool):
     dist.gather_object = reject_object
     dist.scatter_object_list = reject_object
     try:
-        with torch.profiler.profile(
-            activities=[torch.profiler.ProfilerActivity.CPU], with_stack=True,
-        ) as profile:
+        observer = HandoffObserver()
+        with observer.observe():
             output = GPUModelRunner.sample_tokens(runner, None)
-        scalar_sync = [
-            getattr(e, "name", getattr(e, "key", ""))
-            for e in profile.events()
-            if "_local_scalar_dense" in getattr(e, "name", getattr(e, "key", ""))
-        ]
-        if scalar_sync:
+        print(json.dumps({"handoff_observation": {
+            "transfers": observer.transfers, "violations": observer.violations,
+        }}, sort_keys=True), flush=True)
+        if observer.violations:
             raise ChallengeInvariantFailure(
-                "gpu_cpu_scalar_sync",
-                f"GPU->CPU scalar sync in handoff: {scalar_sync}",
+                "gpu_cpu_handoff_sync",
+                f"Device-to-host transfer or host wait in handoff: {observer.violations}",
             )
     finally:
         dist.broadcast = orig_broadcast
@@ -304,7 +309,7 @@ def run_rank() -> int:
                 "verdict": "FAIL",
                 "reason_code": reason,
                 "detail": detail,
-                "scenario": "fresh-interleaved-discard-5req",
+                "scenario": CHALLENGE_SCENARIO or "fresh-interleaved-discard-5req",
                 "world_size": world_size,
             }, sort_keys=True), flush=True)
             print("CHALLENGE_TOKEN_HANDOFF=FAIL", flush=True)
@@ -317,7 +322,7 @@ def run_rank() -> int:
         print(json.dumps({
             "gpu": torch.cuda.get_device_properties(local_rank).name,
             "production_entrypoint": "GPUModelRunner.sample_tokens",
-            "scenario": "fresh-interleaved-discard-5req",
+            "scenario": CHALLENGE_SCENARIO or "fresh-interleaved-discard-5req",
             "scenario_result": record,
             "verdict": "PASS",
             "world_size": world_size,
@@ -325,13 +330,20 @@ def run_rank() -> int:
         print("CHALLENGE_TOKEN_HANDOFF=PASS", flush=True)
     # Every required rank reports, so a silent/dropped/duplicated rank leaves the
     # scenario unsatisfied in the wrapper's manifest.
-    emit_challenge_frame(
-        {
-            "scenario_result": record,
-            "world_size": world_size,
-            "gpu_collective_seen": True,
-        }
-    )
+    # Serialize reports after rank 0's summary: print() may write its text and
+    # newline separately, so simultaneous ranks can otherwise merge two lines.
+    # These barriers are outside the observed production handoff.
+    dist.barrier()
+    for reporting_rank in range(world_size):
+        if rank == reporting_rank:
+            emit_challenge_frame(
+                {
+                    "scenario_result": record,
+                    "world_size": world_size,
+                    "gpu_collective_seen": True,
+                }
+            )
+        dist.barrier()
     dist.destroy_process_group()
     return 0
 
