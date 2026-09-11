@@ -1,9 +1,8 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { ArrowLeftIcon, ArrowRightIcon } from '@radix-ui/react-icons';
+import { SiteFooter } from '@/app/components/site-footer';
 import { SiteHeader } from '@/app/components/site-header';
 import { TaskContentTabs } from '@/app/components/task-content-tabs';
-import { withRouteBasePath } from '@/app/lib/base-path';
 import { formatLabel, formatTaskTitle } from '@/app/lib/task-format';
 import { getTask, tasks, type ManifestSection, type ManifestValue } from '@/app/lib/tasks';
 
@@ -87,7 +86,13 @@ export async function generateMetadata({ params }: TaskPageProps): Promise<Metad
   return {
     title,
     description: task.description,
-    openGraph: { title, description: task.description, images: [] },
+    alternates: { canonical: `/tasks/${slug}` },
+    openGraph: {
+      title,
+      description: task.description,
+      siteName: 'AI Infra Bench',
+      images: [],
+    },
     twitter: { card: 'summary', title, description: task.description, images: [] },
   };
 }
@@ -132,7 +137,7 @@ export default async function TaskPage({ params }: TaskPageProps) {
 
   return (
     <main className="task-page">
-      <SiteHeader />
+      <SiteHeader current="tasks" />
 
       <article className="task-detail">
         <header className="task-detail-heading">
@@ -150,26 +155,11 @@ export default async function TaskPage({ params }: TaskPageProps) {
 
       </article>
 
-      <nav className="task-sequence-nav" aria-label="Adjacent tasks">
-        <div>
-          {previous && (
-            <a href={withRouteBasePath(`/tasks/${previous.slug}`)}>
-              <ArrowLeftIcon aria-hidden="true" />
-              <span className="sequence-direction">Previous</span>
-              <span className="sequence-title">{formatTaskTitle(previous.slug)}</span>
-            </a>
-          )}
-        </div>
-        <div>
-          {next && (
-            <a href={withRouteBasePath(`/tasks/${next.slug}`)}>
-              <span className="sequence-title">{formatTaskTitle(next.slug)}</span>
-              <span className="sequence-direction">Next</span>
-              <ArrowRightIcon aria-hidden="true" />
-            </a>
-          )}
-        </div>
-      </nav>
+      <SiteFooter
+        taskNavigation
+        previous={previous ? { slug: previous.slug, title: formatTaskTitle(previous.slug) } : null}
+        next={next ? { slug: next.slug, title: formatTaskTitle(next.slug) } : null}
+      />
     </main>
   );
 }
