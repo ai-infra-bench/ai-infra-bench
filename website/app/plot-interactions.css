@@ -1,0 +1,116 @@
+/* Hover/focus paint is independent of the underlying model-colour registry. */
+.print-comparison {
+  --plot-muted-line: #c4c9c5;
+  --plot-muted-label: #727772;
+}
+.print-series {
+  pointer-events: none;
+}
+.print-series-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14px;
+  pointer-events: stroke;
+  cursor: pointer;
+  outline: none;
+}
+.print-curve:focus-within .mainprint {
+  stroke-width: 2;
+}
+.print-label-leaders {
+  pointer-events: none;
+}
+.print-label-leader {
+  fill: none;
+  stroke-width: 0.65;
+  stroke-linecap: round;
+  opacity: 0.75;
+}
+@media (pointer: coarse) {
+  .print-hit {
+    r: 22px;
+  }
+}
+
+/* Table layers: body model column 2, header 4, sticky model/header intersection 5. */
+.leaderboard-table-wrap {
+  container-type: inline-size;
+  --ledger-scroll-thumb: var(--line);
+  overflow: auto;
+  max-height: var(--ledger-scroll-max, 718px);
+  /* Keep horizontal swipes local, but let vertical scrolling reach the page
+     at either boundary (including when the table has no vertical overflow). */
+  overscroll-behavior: contain auto;
+  scrollbar-color: var(--ledger-scroll-thumb) transparent;
+}
+/* Hide only the paint, not the scrollbar width or the ability to scroll. */
+.leaderboard-table-wrap[data-scroll-at-top="true"] {
+  --ledger-scroll-thumb: transparent;
+}
+@supports selector(::-webkit-scrollbar) {
+  .leaderboard-table-wrap {
+    scrollbar-color: auto;
+    scrollbar-width: auto;
+  }
+  .leaderboard-table-wrap::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .leaderboard-table-wrap::-webkit-scrollbar-track,
+  .leaderboard-table-wrap::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  .leaderboard-table-wrap::-webkit-scrollbar-thumb {
+    background: var(--line);
+    border-radius: 3px;
+  }
+  .leaderboard-table-wrap::-webkit-scrollbar-thumb:vertical {
+    background: var(--ledger-scroll-thumb);
+  }
+  .leaderboard-table-wrap::-webkit-scrollbar-button {
+    display: none;
+  }
+}
+/* Firefox colours both axes together: keep narrow-screen horizontal scrolling discoverable. */
+@supports not selector(::-webkit-scrollbar) {
+  .leaderboard-table-wrap[data-horizontal-overflow="true"] {
+    scrollbar-color: var(--line) transparent;
+  }
+}
+.leaderboard-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--paper);
+  z-index: 4;
+  box-shadow: 0 1px 0 var(--line);
+}
+.leaderboard-table thead .column-model {
+  z-index: 5;
+}
+.leaderboard-table .row-expander:disabled {
+  visibility: hidden;
+  cursor: default;
+}
+
+.configuration-panel {
+  --detail-surface: color-mix(in srgb, var(--accent-soft) 46%, white);
+  background: var(--detail-surface);
+}
+.task-breakdown-heading {
+  position: sticky;
+  top: var(--ledger-header-height, 64px);
+  z-index: 3;
+  padding-block: 10px;
+  margin-top: -10px;
+  background: var(--detail-surface);
+  border-bottom: 1px solid var(--line);
+}
+.breakdown-identity {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  color: var(--ink);
+  font: 400 13px/1.4 var(--font-geist-sans);
+}
+.breakdown-identity span { color: var(--muted); }

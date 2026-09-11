@@ -44,3 +44,29 @@ test('ambiguous multiple replacements fail rather than fabricate rounds', () => 
   const manifests = [...original.map((t, i) => manifest(t, i < 2 ? 'excluded' : 'valid')), ...repairs.map((t) => manifest(t))];
   assert.throws(() => orderTaskRepetitions([...original.slice(2), ...repairs], manifests, 4), /Ambiguous replacement/);
 });
+
+test('verified missing slots preserve chronology without inventing a failed attempt', () => {
+  const observed = [trial('first', 1, 1), trial('second', 2, 0), trial('third', 3, 1)];
+  const mapped = orderTaskRepetitions([...observed].reverse(), observed.map(t => manifest(t)), 4, [4]);
+  assert.deepEqual(mapped, [...observed, null]);
+  const other = [trial('a', 1, 1), trial('b', 2, 0), trial('c', 3, 0), trial('d', 4, 1)];
+  assert.equal(repetitionStatistics([mapped, other], 4), null);
+  const stats = repetitionStatistics([mapped, other], 4, { allowPartial: true });
+  assert.deepEqual(stats.taskCounts, [2, 2, 2, 1]);
+  assert.deepEqual(stats.passRates, [100, 0, 50, 100]);
+  assert.ok(Math.abs(stats.standardDeviation - Math.sqrt(6875 / 3)) < 1e-8);
+});
+
+test('missing slots are explicit and can occur at the start, not only at the end', () => {
+  const observed = [trial('a', 2, 1), trial('b', 3, 0), trial('c', 4, 1)];
+  const manifests = observed.map(t => manifest(t));
+  assert.equal(orderTaskRepetitions(observed, manifests, 4), null);
+  assert.deepEqual(orderTaskRepetitions(observed, manifests, 4, [1]), [null, ...observed]);
+  for (const slots of [[0], [5], [1, 1], [1, 2]]) assert.throws(() => orderTaskRepetitions(observed, manifests, 4, slots), /Invalid missing/);
+  assert.throws(() => orderTaskRepetitions([...observed.slice(0, 2), trial('repair', 8, 1, 'repair')], manifests, 4, [4]), /explicit full mapping/);
+});
+
+test('a now-complete group supersedes its old missing-slot hint', () => {
+  const observed = [1, 2, 3, 4].map(i => trial('a' + i, i, i % 2));
+  assert.deepEqual(orderTaskRepetitions(observed, observed.map(t => manifest(t)), 4, [4]), observed);
+});
