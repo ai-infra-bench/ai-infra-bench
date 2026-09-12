@@ -1,0 +1,383 @@
+diff --git a/vllm/config/scheduler.py b/vllm/config/scheduler.py
+index 5ff9fc930..4bdcfe43e 100644
+--- a/vllm/config/scheduler.py
++++ b/vllm/config/scheduler.py
+@@ -133,6 +133,8 @@ class SchedulerConfig:
+     async_scheduling: bool = Field(default=None)
+     """If set to False, disable async scheduling. Async scheduling helps to
+     avoid gaps in GPU utilization, leading to better latency and throughput.
++    Pipeline parallelism currently supports PP=2 on one node with the mp
++    executor, ordinary decoding, and chunked prefill (no speculative decoding).
+     """
+ 
+     stream_interval: int = Field(default=1, ge=1)
+diff --git a/vllm/config/vllm.py b/vllm/config/vllm.py
+index 1f8f5e5db..110bc3d19 100644
+--- a/vllm/config/vllm.py
++++ b/vllm/config/vllm.py
+@@ -565,6 +565,20 @@ class VllmConfig:
+             "external_launcher",
+         )
+ 
++        async_pp_supported = self.parallel_config.pipeline_parallel_size == 1 or (
++            self.parallel_config.pipeline_parallel_size == 2
++            and self.parallel_config.nnodes == 1
++            and executor_backend == "mp"
++            and self.speculative_config is None
++        )
++        if not async_pp_supported:
++            if self.scheduler_config.async_scheduling:
++                raise ValueError(
++                    "Async pipeline parallelism requires PP=2 on one node, "
++                    "the mp executor, and non-speculative decoding."
++                )
++            self.scheduler_config.async_scheduling = False
++
+         if self.scheduler_config.async_scheduling:
+             # Async scheduling explicitly enabled, hard fail any incompatibilities.
+             # Currently, async scheduling only support eagle speculative
+diff --git a/vllm/v1/core/sched/async_scheduler.py b/vllm/v1/core/sched/async_scheduler.py
+index 3c66a2320..7ae479983 100644
+--- a/vllm/v1/core/sched/async_scheduler.py
++++ b/vllm/v1/core/sched/async_scheduler.py
+@@ -14,6 +14,8 @@ class AsyncScheduler(Scheduler):
+         super()._update_after_schedule(scheduler_output)
+         has_structured_output_requests = False
+         pending_structured_output_tokens = False
++        if self.use_pp:
++            scheduler_output.sampled_token_positions = {}
+         spec_decode_tokens = scheduler_output.scheduled_spec_decode_tokens
+         for req_id in scheduler_output.num_scheduled_tokens:
+             request = self.requests[req_id]
+@@ -28,6 +30,10 @@ class AsyncScheduler(Scheduler):
+                 + request.num_output_placeholders
+                 + cur_num_spec_tokens
+             ):
++                if scheduler_output.sampled_token_positions is not None:
++                    scheduler_output.sampled_token_positions[req_id] = (
++                        request.num_computed_tokens
++                    )
+                 # The request will generate a new token plus num_spec_tokens
+                 # in this scheduling step.
+                 request.num_output_placeholders += 1 + cur_num_spec_tokens
+diff --git a/vllm/v1/core/sched/output.py b/vllm/v1/core/sched/output.py
+index 7e53f4f2e..dbaee133d 100644
+--- a/vllm/v1/core/sched/output.py
++++ b/vllm/v1/core/sched/output.py
+@@ -229,6 +229,10 @@ class SchedulerOutput:
+     # need to perform grammar bitmask computation.
+     pending_structured_output_tokens: bool = False
+ 
++    # Async PP handoff: request ID -> absolute sampled token position.
++    # Empty for unfinished prefill chunks and idle rounds.
++    sampled_token_positions: dict[str, int] | None = None
++
+     # Used for adjusting acceptance rate calculation.
+     num_invalid_spec_tokens: dict[str, int] | None = None
+ 
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index 30a459386..fa79ad3a7 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -344,28 +344,25 @@ class Scheduler(SchedulerInterface):
+         while req_index < len(self.running) and token_budget > 0:
+             request = self.running[req_index]
+ 
+-            # do not schedule another step for the same request while it still has
+-            # output placeholders for PP.
+-            # TODO: support PP + async scheduling without this limit
+-            if self.use_pp and request.num_output_placeholders > 0:
+-                req_index += 1
+-                continue
+-
+-            if (
+-                request.num_output_placeholders > 0
+-                # This is (num_computed_tokens + 1) - (num_output_placeholders - 1).
+-                # Since output placeholders are also included in the computed tokens
+-                # count, we subtract (num_output_placeholders - 1) to remove any draft
+-                # tokens, so that we can be sure no further steps are needed even if
+-                # they are all rejected.
+-                and request.num_computed_tokens + 2 - request.num_output_placeholders
+-                >= request.num_prompt_tokens + request.max_tokens
+-            ):
+-                # Async scheduling: Avoid scheduling an extra step when we are sure that
+-                # the previous step has reached request.max_tokens. We don't schedule
+-                # partial draft tokens since this prevents uniform decode optimizations.
+-                req_index += 1
+-                continue
++            if request.num_output_placeholders > 0:
++                if self.num_spec_tokens == 0:
++                    # Every in-flight step will return exactly one token.
++                    exhausted_budget = (
++                        request.num_output_tokens + request.num_output_placeholders
++                        >= request.max_tokens
++                    )
++                else:
++                    # Remove unverified draft tokens from the computed count:
++                    # another step is unnecessary even if all drafts are rejected.
++                    exhausted_budget = (
++                        request.num_computed_tokens
++                        + 2
++                        - request.num_output_placeholders
++                        >= request.num_prompt_tokens + request.max_tokens
++                    )
++                if exhausted_budget:
++                    req_index += 1
++                    continue
+ 
+             num_new_tokens = (
+                 request.num_tokens_with_spec
+@@ -1003,12 +1000,9 @@ class Scheduler(SchedulerInterface):
+         for idx, req in enumerate(itertools.chain(running_reqs, resumed_reqs)):
+             req_id = req.request_id
+             req_ids.append(req_id)
+-            if self.use_pp:
+-                # When using PP, the scheduler sends the sampled tokens back,
+-                # because there's no direct communication between the first-
+-                # stage worker and the last-stage worker. Otherwise, we don't
+-                # need to send the sampled tokens back because the model runner
+-                # will cache them.
++            if self.use_pp and not self.scheduler_config.async_scheduling:
++                # Synchronous PP returns tokens through the scheduler. Async PP
++                # transfers them directly between GPUs and caches them there.
+                 num_tokens = num_scheduled_tokens[req_id] - len(
+                     spec_decode_tokens.get(req_id, ())
+                 )
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+index 60c8d4080..4d727a19d 100644
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -164,6 +164,7 @@ from vllm.v1.worker.gpu_input_batch import CachedRequestState, InputBatch
+ from vllm.v1.worker.gpu_ubatch_wrapper import UBatchWrapper
+ from vllm.v1.worker.kv_connector_model_runner_mixin import KVConnectorModelRunnerMixin
+ from vllm.v1.worker.lora_model_runner_mixin import LoRAModelRunnerMixin
++from vllm.v1.worker.pp_token_handoff import PPTokenHandoff
+ from vllm.v1.worker.ubatch_utils import (
+     UBatchSlices,
+     check_ubatch_thresholds,
+@@ -407,6 +408,13 @@ class GPUModelRunner(
+ 
+         # Async scheduling
+         self.use_async_scheduling = self.scheduler_config.async_scheduling
++        self.pp_token_handoff: PPTokenHandoff | None = None
++        self._pp_sample_positions: dict[str, int] | None = None
++        if (
++            self.use_async_scheduling
++            and self.parallel_config.pipeline_parallel_size > 1
++        ):
++            self.pp_token_handoff = PPTokenHandoff(self.device)
+ 
+         # Sampler
+         self.sampler = Sampler(logprobs_mode=self.model_config.logprobs_mode)
+@@ -863,6 +871,8 @@ class GPUModelRunner(
+         The SamplingMetadata is updated and copied to the GPU if there is a
+         new/resumed/paused/finished request in the batch.
+         """
++        if self.pp_token_handoff is not None:
++            self.pp_token_handoff.finish(scheduler_output.finished_req_ids)
+         # Remove finished requests from the cached states.
+         for req_id in scheduler_output.finished_req_ids:
+             self.requests.pop(req_id, None)
+@@ -1009,7 +1019,7 @@ class GPUModelRunner(
+             # Update the cached states.
+             req_state.num_computed_tokens = num_computed_tokens
+ 
+-            if not is_last_rank:
++            if not is_last_rank and self.pp_token_handoff is None:
+                 # When using PP, the scheduler sends the sampled tokens back,
+                 # because there's no direct communication between the first-
+                 # stage worker and the last-stage worker.
+@@ -1057,7 +1067,18 @@ class GPUModelRunner(
+                     # We must recover the output token ids for resumed requests in the
+                     # async scheduling case, so that correct input_ids are obtained.
+                     resumed_token_ids = req_data.all_token_ids[req_id]
+-                    req_state.output_token_ids = resumed_token_ids[-num_output_tokens:]
++                    if self.pp_token_handoff is None:
++                        req_state.output_token_ids = resumed_token_ids[
++                            -num_output_tokens:
++                        ]
++                    else:
++                        # Collected tokens may lag the scheduled output count.
++                        # Preserve the missing suffix as GPU-backed placeholders;
++                        # slicing the prompt tail would incorrectly consume it.
++                        recovered = resumed_token_ids[req_state.num_prompt_tokens :]
++                        req_state.output_token_ids = recovered + [-1] * (
++                            num_output_tokens - len(recovered)
++                        )
+ 
+                 reqs_to_add.append(req_state)
+                 continue
+@@ -1069,7 +1090,7 @@ class GPUModelRunner(
+ 
+             # For the last rank, we don't need to update the token_ids_cpu
+             # because the sampled tokens are already cached.
+-            if not is_last_rank:
++            if not is_last_rank and self.pp_token_handoff is None:
+                 # Add new_token_ids to token_ids_cpu.
+                 start_token_index = num_computed_tokens
+                 end_token_index = num_computed_tokens + len(new_token_ids)
+@@ -1270,6 +1291,22 @@ class GPUModelRunner(
+         from the previous engine iteration, in which case those tokens on the
+         GPU need to be copied into the corresponding slots into input_ids."""
+ 
++        if self.pp_token_handoff is not None:
++            self.input_ids.copy_to_gpu(total_num_scheduled_tokens)
++            if self.enable_prompt_embeds:
++                self.inputs_embeds.copy_to_gpu(total_num_scheduled_tokens)
++                self.is_token_ids.copy_to_gpu(total_num_scheduled_tokens)
++            self.pp_token_handoff.prepare_inputs(
++                self.input_ids.gpu,
++                self.input_batch.req_ids,
++                self.input_batch.num_computed_tokens_cpu,
++                [
++                    scheduler_output.num_scheduled_tokens[r]
++                    for r in self.input_batch.req_ids
++                ],
++            )
++            return
++
+         if self.input_batch.prev_sampled_token_ids is None:
+             # Normal scheduling case
+             self.input_ids.copy_to_gpu(total_num_scheduled_tokens)
+@@ -3070,8 +3107,8 @@ class GPUModelRunner(
+         )
+ 
+         num_tokens_padded = self._pad_for_sequence_parallelism(num_tokens)
+-        dispatch_cudagraph = (
+-            lambda num_tokens, disable_full: self.cudagraph_dispatcher.dispatch(
++        dispatch_cudagraph = lambda num_tokens, disable_full: (
++            self.cudagraph_dispatcher.dispatch(
+                 num_tokens=num_tokens,
+                 has_lora=has_lora,
+                 uniform_decode=uniform_decode,
+@@ -3507,6 +3544,10 @@ class GPUModelRunner(
+             if not self.broadcast_pp_output:
+                 # Common case.
+                 if not get_pp_group().is_last_rank:
++                    if self.pp_token_handoff is not None:
++                        self._pp_sample_positions = (
++                            scheduler_output.sampled_token_positions
++                        )
+                     # Return the intermediate tensors.
+                     assert isinstance(hidden_states, IntermediateTensors)
+                     hidden_states.kv_connector_output = kv_connector_output
+@@ -3577,6 +3618,19 @@ class GPUModelRunner(
+         self.kv_connector_output = None
+ 
+         if self.execute_model_state is None:
++            positions = self._pp_sample_positions
++            self._pp_sample_positions = None
++            if self.pp_token_handoff is not None and positions is not None:
++                assert not get_pp_group().is_last_rank
++                self.pp_token_handoff.exchange(
++                    positions, self.input_batch.req_id_to_index, None, get_pp_group()
++                )
++                for req_id, position in positions.items():
++                    req_index = self.input_batch.req_id_to_index[req_id]
++                    self.requests[req_id].output_token_ids.append(-1)
++                    self.input_batch.token_ids_cpu[req_index, position] = -1
++                    self.input_batch.is_token_ids[req_index, position] = True
++                    self.input_batch.num_tokens_no_spec[req_index] = position + 1
+             # Nothing to do (PP non-final rank case), output isn't used.
+             if not kv_connector_output:
+                 return None  # type: ignore[return-value]
+@@ -3615,6 +3669,14 @@ class GPUModelRunner(
+         with record_function_or_nullcontext("gpu_model_runner: sample"):
+             sampler_output = self._sample(logits, spec_decode_metadata)
+ 
++        if self.pp_token_handoff is not None:
++            self.pp_token_handoff.exchange(
++                scheduler_output.sampled_token_positions,
++                self.input_batch.req_id_to_index,
++                sampler_output.sampled_token_ids,
++                get_pp_group(),
++            )
++
+         self._update_states_after_model_execute(
+             sampler_output.sampled_token_ids, scheduler_output
+         )
+diff --git a/vllm/v1/worker/pp_token_handoff.py b/vllm/v1/worker/pp_token_handoff.py
+new file mode 100644
+index 000000000..f7f776165
+--- /dev/null
++++ b/vllm/v1/worker/pp_token_handoff.py
+@@ -0,0 +1,79 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++from collections.abc import Iterable, Mapping
++from typing import TYPE_CHECKING
++
++import torch
++
++if TYPE_CHECKING:
++    from vllm.distributed.parallel_state import GroupCoordinator
++
++
++class PPTokenHandoff:
++    """GPU token history indexed by request and absolute token position.
++
++    Both stages use the scheduler's sampling manifest, independent of their
++    local batch ordering. NCCL operations run on the current CUDA stream:
++    subsequent model input copies depend on them without a host wait.
++    History survives batch removal/reordering and is released on completion.
++    """
++
++    def __init__(self, device: torch.device):
++        self.device = torch.device(device)
++        self.tokens: dict[str, dict[int, torch.Tensor]] = {}
++
++    def exchange(
++        self,
++        positions: Mapping[str, int] | None,
++        req_id_to_index: Mapping[str, int],
++        sampled_tokens: torch.Tensor | None,
++        pp_group: "GroupCoordinator",
++    ) -> None:
++        if not positions:
++            return
++        comm = getattr(pp_group.device_communicator, "pynccl_comm", None)
++        assert comm is not None and not comm.disabled
++        req_ids = sorted(positions)
++        if pp_group.is_last_rank:
++            assert sampled_tokens is not None
++            indices = self._indices([req_id_to_index[r] for r in req_ids])
++            tokens = sampled_tokens[:, 0].index_select(0, indices).to(torch.int64)
++            comm.send(tokens, dst=0)
++        else:
++            tokens = torch.empty(len(req_ids), dtype=torch.int64, device=self.device)
++            comm.recv(tokens, src=pp_group.world_size - 1)
++        for i, req_id in enumerate(req_ids):
++            self.tokens.setdefault(req_id, {})[positions[req_id]] = tokens[i : i + 1]
++
++    def prepare_inputs(
++        self,
++        input_ids: torch.Tensor,
++        req_ids: Iterable[str],
++        starts: Iterable[int],
++        counts: Iterable[int],
++    ) -> None:
++        destinations = []
++        sources = []
++        offset = 0
++        for req_id, start, count in zip(req_ids, starts, counts):
++            history = self.tokens.get(req_id, {})
++            for position in range(int(start), int(start + count)):
++                if position in history:
++                    destinations.append(offset + position - int(start))
++                    sources.append(history[position])
++            offset += int(count)
++        if sources:
++            indices = self._indices(destinations)
++            input_ids.index_copy_(0, indices, torch.cat(sources).to(input_ids.dtype))
++
++    def _indices(self, values: list[int]) -> torch.Tensor:
++        # A blocking H2D copy on the compute stream would also wait for the
++        # preceding NCCL receive. Keep even the routing metadata asynchronous.
++        return torch.tensor(
++            values, dtype=torch.int64, pin_memory=self.device.type == "cuda"
++        ).to(self.device, non_blocking=True)
++
++    def finish(self, req_ids: Iterable[str]) -> None:
++        for req_id in req_ids:
++            self.tokens.pop(req_id, None)

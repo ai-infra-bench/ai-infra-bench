@@ -1,33 +1,13 @@
-Historical review of an earlier revision. Current status and evidence are in `review-report.md` and `e2e-evidence.json`.
+# Final review
 
-PR18 构造函数与调度时序：本轮修订及本地验证完成。
+The task can be retained with version 1.3.1. The verifier fairness defect is repaired, the final 16-case matrix matches all expected rewards, and the final Harbor Oracle receives reward 1 with no trial exception. The task statement, reference patch and environment are unchanged by this scheduler-boundary repair.
 
-前次通过结论在契约/fixture 问题确认后撤回，本报告替代旧结论；历史 raw reward 未修改。
+The verifier previously built partial scheduler-output objects and rejected Astra trial rruzoCB before checking token correctness. Component cases now admit real requests, run the scheduler selected by the candidate configuration, and pass its complete output to the runner. Candidate-added metadata survives this boundary without a field-specific compatibility shim. Warmup, collection, request completion and empty rounds also use the real scheduler lifecycle.
 
-修复：Run production constructor. Substitute only model computation/sampling inputs; keep constructor-owned buffers and state. Specify schedule twice before update_from_output while requests remain runnable and resources are sufficient. Retain no CPU-object collective or device-to-host synchronization constraints.
+The original Astra production source passes the repaired full entrypoint with reward 1; all seven changed production files were checked against the saved submission. Its original reward 0 and logs are preserved, with a separate rescore record in evidence/rruzoCB-rescore.json. The final matrix also accepts the P2P and reversed-storage alternatives and rejects Base, the historical Oracle, the three scoped bug controls, serial execution, duplicate collection, implicit host waiting, forged reports, early exits and reference copying. The serial control fails specifically because it cannot submit the next request step while earlier output is held.
 
-语义边界：Real initialized production runner with valid model configuration and sampled GPU tensors -> real PP NCCL handoff and retained/discarded bookkeeping -> next GPU input preparation and next async scheduler round
+The Oracle passes twice on the frozen release source: 454.7 seconds through the direct grading entrypoint and 468.58 seconds in the Harbor verifier. The three alternative correct implementations take 471.3–478.8 seconds. These are shared-GPU measurements, not isolated performance benchmarks. Cases cover representative contract behavior rather than every possible workload combination, and worker-side Python instrumentation is not a universal tamper-proof boundary.
 
-覆盖：Real constructor and CPU/GPU buffers, CONFIG, SCHEDULER_REENTRY at 1/3 requests, NCCL_BASIC/REORDERED/INTEGRATED with two ranks, production output materialization and next GPU input consumption; independent five-request interleaved-discard challenge.
+Raw logs and executable hashes are recorded in e2e-evidence.json and the scheduler-boundary archives. Harbor trial task__qnAEteB used task checksum 4c64169e2f0d14fa404e1d9435d56895f965545c3d002d97b9f5bf16dcade881 and image sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69 on GPU devices 0 and 2. Documentation and evidence were updated after validation; every executable input remains byte-identical to the tested snapshot. The prior 1.3.0 evidence remains under history/v1.3.0-before-scheduler-boundary/.
 
-替代及限制：Runner initialization and world/TP/PP groups are real. Model weights/attention execution and sampling computation are replaced by valid sampled-tensor inputs. No attention is executed; empty KV groups are supplied to the downstream state slice. This is not a full model generation deployment.
-
-| Case | Expected | Actual | Harbor errors |
-|---|---:|---:|---:|
-| alternate-inline-nccl | 1 | 1.0 | 0 |
-| base | 0 | 0.0 | 0 |
-| constructor-owned-transport | 1 | 1.0 | 0 |
-| cpu-sync-object-collective | 0 | 0.0 | 0 |
-| early-os-exit | 0 | 0.0 | 0 |
-| early-system-exit | 0 | 0.0 | 0 |
-| group-coordinator-broadcast | 1 | 1.0 | 0 |
-| oracle | 1 | 1.0 | 0 |
-| post-broadcast-failure | 0 | 0.0 | 0 |
-| oracle (frozen final) | 1 | 1.0 | 0 |
-
-独立 challenge：6 个状态均符合预期。
-PR18：同一正确的构造函数实现，在旧 fixture 中因属性缺失得 0；新 fixture 中得 1。原始 agent 的 CPU 通信/同步问题未因此被改成通过。
-
-原始日志、job/trial、镜像与文件 SHA256：validation/e2e-evidence.json。
-本轮证据根目录：/data/yinchen/task-contract-fixture-fix-20260909T033612Z
-改动未提交、未推送。
+Validation was completed in /tmp/ai-infra-pr75-review on codex/async-pp-behavior-hardening before publication. The user subsequently authorized committing these task changes and pushing this independent branch. Unrelated work is outside the publication scope.

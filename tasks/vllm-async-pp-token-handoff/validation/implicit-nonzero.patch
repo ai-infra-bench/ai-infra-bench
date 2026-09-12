@@ -1,0 +1,10 @@
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -3797,6 +3797,7 @@
+         recv = torch.empty((num_reqs, 1), dtype=torch.int32, device=self.device)
+         if not self.discard_request_mask.np[:num_reqs].all():
+             torch.distributed.broadcast(recv, src=pp.last_rank, group=pp.device_group)
++        recv = recv.index_select(0, torch.nonzero(recv[:, 0] >= 0).flatten())
+         self.input_batch.prev_sampled_token_ids = recv
+ 
+         # construct `prev_req_id_to_index` here so `_prepare_input_ids`

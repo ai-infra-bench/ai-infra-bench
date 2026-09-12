@@ -21,6 +21,7 @@ def main():
         ("to_cpu", lambda: x.to("cpu"), True),
         ("copy_to_cpu", lambda: destination.copy_(x), True),
         ("cuda_item", lambda: x[0].item(), True),
+        ("implicit_nonzero_sync", lambda: torch.nonzero(x >= 0), True),
         ("cuda_tolist", lambda: x.tolist(), True),
         ("device_sync", lambda: torch.cuda.synchronize(), True),
         ("stream_sync", lambda: torch.cuda.current_stream().synchronize(), True),
@@ -47,6 +48,19 @@ def main():
                             "expected_rejected": rejected,
                             "violations": observer.violations,
                             "transfers": observer.transfers})
+    prior = torch.cuda.Event()
+    prior.record()
+    observer = HandoffObserver(prior_event_ids=[id(prior)])
+    with observer.observe():
+        prior.synchronize()
+    assert not observer.violations, observer.violations
+    records.append({'case': 'prior_input_event', 'expected_rejected': False})
+    observer = HandoffObserver(prior_event_ids=[id(prior)])
+    with observer.observe():
+        prior.record()
+        prior.synchronize()
+    assert observer.violations, 're-recorded event must lose its pre-handoff exemption'
+    records.append({'case': 'rerecorded_event', 'expected_rejected': True})
     print(json.dumps(records, indent=2))
     print("HANDOFF_OBSERVER_REGRESSIONS=PASS")
 

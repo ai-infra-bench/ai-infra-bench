@@ -100,44 +100,6 @@ CANDIDATE_REPO = os.environ.get("ASYNC_PP_CANDIDATE_REPO", "/workspace/repo")
 # own scenario definitions. Inputs and expected digests are readable by workers;
 # the supervisor checks consistency, without treating those values as secrets.
 # ---------------------------------------------------------------------------
-EXPECTED_OBSERVATIONS: dict[str, dict] = {
-    "CONFIG": {
-        "async_scheduling_allowed": True,
-        "pipeline_parallel_size": 2,
-    },
-    "SCHEDULER_REENTRY": {
-        "scheduler_reentry_request_counts": [1, 3],
-    },
-    "NCCL_BASIC": {
-        "scenario": "basic",
-        "gpu_collective_seen": True,
-        "world_size": 2,
-    },
-    "NCCL_REORDERED": {
-        "scenario": "reordered",
-        "gpu_collective_seen": True,
-        "world_size": 2,
-    },
-    "NCCL_INTEGRATED": {
-        "scenario": "integrated",
-        "gpu_collective_seen": True,
-        "world_size": 2,
-    },
-}
-
-# Per-stage token payload digests a correct run must reproduce. Computed from the
-# task-owned scenario token lists. These verify report consistency, not proof
-# that a worker executed the collective.
-# Duplicated here deliberately: the supervisor must NOT import the verifier,
-# because that module imports the candidate `vllm`. Any drift between these and
-# tests/verify_async_pp.py SCENARIOS is caught by the digest comparison itself.
-SCENARIO_TOKENS: dict[str, list[int]] = {
-    "NCCL_BASIC": [101, 202],
-    "NCCL_REORDERED": [303, 404, 505],
-    "NCCL_INTEGRATED": [606, 707, 808],
-}
-
-
 def expected_stage_digest(stage: str, tokens: list[int]) -> str:
     """Digest over the canonical token payload for a scenario."""
     canonical = json.dumps({"stage": stage, "tokens": list(tokens)},
@@ -159,52 +121,23 @@ FRAME_RE = re.compile(
     r"^##ASYNC_PP_PAYLOAD\s+(?P<nonce>[0-9a-f]{32})\s+(?P<body>\{.*\})\s+##END$"
 )
 
-# The supervisor's own independent declaration of what MUST run. This is not
-# derived from the worker's output, from the candidate tree, or from argv.
-REQUIRED_STAGES: dict[str, dict] = {
-    "CONFIG": {
-        "kind": "single",
-        "argv": ["--check-config"],
-        "ranks": [0],
-        "required_keys": ["async_scheduling_allowed", "pipeline_parallel_size"],
-        "expected_call_counts": {"config_built": 1},
-    },
-    "SCHEDULER_REENTRY": {
-        "kind": "single",
-        "argv": ["--check-scheduler"],
-        "ranks": [0],
-        "required_keys": ["scheduler_reentry_cases"],
-        # Two request-count cases, each scheduled twice (first + re-entry).
-        "expected_call_counts": {"schedule_calls": 4},
-    },
-    "NCCL_BASIC": {
-        "kind": "dist",
-        "argv": ["--scenario", "basic"],
-        "ranks": [0, 1],
-        "port": 29618,
-        "required_keys": ["scenario", "gpu_collective_seen", "sender_lifecycle"],
-        # One production sample_tokens per rank, one GPU broadcast.
-        "expected_call_counts": {"execute_model_calls": 1, "sample_tokens_calls": 1},
-    },
-    "NCCL_REORDERED": {
-        "kind": "dist",
-        "argv": ["--scenario", "reordered"],
-        "ranks": [0, 1],
-        "port": 29619,
-        "required_keys": ["scenario", "gpu_collective_seen", "sender_lifecycle"],
-        # One production sample_tokens per rank, one GPU broadcast.
-        "expected_call_counts": {"execute_model_calls": 1, "sample_tokens_calls": 1},
-    },
-    "NCCL_INTEGRATED": {
-        "kind": "dist",
-        "argv": ["--scenario", "integrated"],
-        "ranks": [0, 1],
-        "port": 29620,
-        "required_keys": ["scenario", "gpu_collective_seen", "sender_lifecycle"],
-        # One production sample_tokens per rank, one GPU broadcast.
-        "expected_call_counts": {"execute_model_calls": 1, "sample_tokens_calls": 1},
-    },
+# Compatible scenarios share imports and CUDA/NCCL setup, but construct fresh
+# runner/request state. Every suite must finish before its frame can pass.
+REQUIRED_STAGES = {
+    "CPU_SUITE": {"kind": "single", "argv": ["--suite", "cpu"], "ranks": [0],
+                  "required_keys": ["async_scheduling_allowed", "scheduler_reentry_request_counts"],
+                  "expected_call_counts": {}},
+    "GPU_SUITE": {"kind": "dist", "argv": ["--suite", "gpu"], "ranks": [0, 1],
+                  "port": 29618, "required_keys": ["scenarios_passed", "sender_lifecycle"],
+                  "expected_call_counts": {}},
 }
+EXPECTED_OBSERVATIONS = {
+    "CPU_SUITE": {"async_scheduling_allowed": True, "pipeline_parallel_size": 2,
+                  "scheduler_reentry_request_counts": [1, 3]},
+    "GPU_SUITE": {"world_size": 2, "scenarios_passed": ["basic", "reordered", "integrated",
+                  "compaction", "prefill_progress", "idle", "synchronous"]},
+}
+SCENARIO_TOKENS = {}
 
 # Ranks that performed the GPU broadcast must prove they finished the whole
 # post-broadcast protocol, not merely that the broadcast was observed.
@@ -363,6 +296,7 @@ def _spawn_rank(stage: str, spec: dict, rank: int, nonce: str,
     # the worker env, so the candidate work tree stays authoritative.
     inner = [sys.executable, "-s", VERIFIER, *spec["argv"]]
     argv = drop_priv_argv() + inner
+    began = time.monotonic()
     rec = {
         "rank_assigned_by_parent": rank,
         "child_launched": False,
@@ -407,6 +341,7 @@ def _spawn_rank(stage: str, spec: dict, rank: int, nonce: str,
     finally:
         # Guarantee no stray group survives to hold the pipe or the GPU.
         _reap_group(proc)
+    rec["elapsed_seconds"] = round(time.monotonic() - began, 3)
     rec["exit_code"] = proc.returncode
     (log_dir / f"stage-{stage}-rank{rank}.log").write_text(out or "")
 
@@ -457,6 +392,17 @@ def run_stage(stage: str, spec: dict, log_dir: Path) -> dict:
         "satisfied": False,
     }
 
+    peer_proc = None
+    peer_log = None
+    peer_result = log_dir / 'trusted-peer-inputs.json'
+    if stage == 'GPU_SUITE':
+        peer_result.unlink(missing_ok=True)
+        peer_log = (log_dir / 'trusted-peer-observer.log').open('w')
+        peer_env = {k: v for k, v in os.environ.items() if k not in ('PYTHONPATH', 'PYTHONHOME')}
+        peer_proc = subprocess.Popen([sys.executable, '-I', str(Path(VERIFIER).parent / 'trusted_transport.py'),
+            '--role', 'peer', '--result', str(peer_result)], cwd=str(Path(VERIFIER).parent),
+            env=peer_env, stdout=peer_log, stderr=subprocess.STDOUT, start_new_session=True)
+
     # One child per rank, sequentially for single-rank stages and concurrently for
     # distributed ones (they must rendezvous with each other).
     if len(spec["ranks"]) == 1:
@@ -489,6 +435,22 @@ def run_stage(stage: str, spec: dict, log_dir: Path) -> dict:
                     }
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
+
+    if peer_proc is not None:
+        try:
+            if any(r.get("exit_code") != 0 for r in results.values()):
+                raise RuntimeError("candidate suite did not finish")
+            peer_proc.wait(timeout=30)
+            evidence = json.loads(peer_result.read_text()) if peer_result.exists() else {}
+            record['external_gpu_inputs'] = peer_proc.returncode == 0 and evidence.get('passed') is True
+        except Exception as exc:
+            record['external_gpu_inputs'] = False
+            record['anomalies'].append('external_gpu_observer:' + repr(exc))
+        finally:
+            _reap_group(peer_proc)
+            peer_log.close()
+        if not record['external_gpu_inputs']:
+            record['anomalies'].append('external_gpu_inputs_failed')
 
     record["ranks"] = {str(k): v for k, v in results.items()}
 

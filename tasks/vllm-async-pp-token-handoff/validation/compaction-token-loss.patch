@@ -1,0 +1,29 @@
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -1076,19 +1076,13 @@
+             # For the last rank, we don't need to update the token_ids_cpu
+             # because the sampled tokens are already cached.
+             if not is_last_rank:
+-                # Chunked prefill has not consumed the entire cached prompt.
+-                # Never shrink its valid extent before InputBatch compaction.
+-                start_token_index = self.input_batch.num_tokens_no_spec[req_index]
+-                end_token_index = max(
+-                    start_token_index, num_computed_tokens + len(new_token_ids)
+-                )
+-                if end_token_index > start_token_index:
+-                    if new_token_ids:
+-                        count = end_token_index - start_token_index
+-                        self.input_batch.token_ids_cpu[
+-                            req_index, start_token_index:end_token_index
+-                        ] = new_token_ids[-count:]
+-                    self.input_batch.num_tokens_no_spec[req_index] = end_token_index
++                # Add new_token_ids to token_ids_cpu.
++                start_token_index = num_computed_tokens
++                end_token_index = num_computed_tokens + len(new_token_ids)
++                self.input_batch.token_ids_cpu[
++                    req_index, start_token_index:end_token_index
++                ] = new_token_ids
++                self.input_batch.num_tokens_no_spec[req_index] = end_token_index
+ 
+             # Add spec_token_ids to token_ids_cpu.
+             self.input_batch.update_req_spec_token_ids(req_state, scheduled_spec_tokens)

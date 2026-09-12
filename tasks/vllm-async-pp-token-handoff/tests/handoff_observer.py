@@ -14,10 +14,12 @@ from torch.overrides import TorchFunctionMode
 
 
 class HandoffObserver(TorchFunctionMode):
-    def __init__(self):
+    def __init__(self, *, prior_event_ids=()):
         super().__init__()
         self.transfers = []
         self.violations = []
+        self.prior_event_ids = set(prior_event_ids)
+        self.recorded_event_ids = set()
 
     def _transfer(self, op, non_blocking):
         record = {"kind": "device_to_host_copy", "op": op,
@@ -62,6 +64,7 @@ class HandoffObserver(TorchFunctionMode):
     @contextmanager
     def observe(self):
         previous = sys.getprofile()
+        prior_event_scopes = []
 
         def observe_call(frame, event, function):
             if event == "c_call":
@@ -74,14 +77,44 @@ class HandoffObserver(TorchFunctionMode):
                 if object_wait:
                     device = owner.device
                     object_wait = device is not None and device.type == "cuda"
+                if name == 'record' and isinstance(owner, (torch.Event, torch.cuda.Event)):
+                    self.recorded_event_ids.add(id(owner))
+                    self.prior_event_ids.discard(id(owner))
+                if object_wait and id(owner) in self.prior_event_ids:
+                    # This event was already recorded before sampling and has
+                    # not been re-recorded since. It cannot depend on new tokens.
+                    scope = torch.profiler.record_function('async_pp_prior_input_event')
+                    scope.__enter__()
+                    prior_event_scopes.append((function, scope))
+                    object_wait = False
                 if device_wait or object_wait:
                     self.violations.append({"kind": "cuda_host_wait", "op": name})
+            elif event in ('c_return', 'c_exception') and prior_event_scopes:
+                function_owner, scope = prior_event_scopes[-1]
+                if function == function_owner:
+                    prior_event_scopes.pop()
+                    scope.__exit__(None, None, None)
             if previous is not None:
                 previous(frame, event, function)
 
-        with self:
-            sys.setprofile(observe_call)
-            try:
-                yield self
-            finally:
-                sys.setprofile(previous)
+        # CPU activity captures CUDA runtime calls made inside ATen operators,
+        # including implicit waits invisible to Python's C-call profiler.
+        with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU]) as trace:
+            with self, torch.profiler.record_function("async_pp_handoff_boundary"):
+                sys.setprofile(observe_call)
+                try:
+                    yield self
+                finally:
+                    sys.setprofile(previous)
+        for event in trace.events():
+            if event.name not in ("cudaStreamSynchronize", "cudaDeviceSynchronize",
+                                  "cudaEventSynchronize", "cuStreamSynchronize",
+                                  "cuCtxSynchronize", "cuEventSynchronize"):
+                continue
+            parent = event.cpu_parent
+            prior_input_event = False
+            while parent is not None and parent.name != "async_pp_handoff_boundary":
+                prior_input_event |= parent.name == 'async_pp_prior_input_event'
+                parent = parent.cpu_parent
+            if parent is not None and not prior_input_event:
+                self.violations.append({"kind": "cuda_runtime_host_wait", "op": event.name})

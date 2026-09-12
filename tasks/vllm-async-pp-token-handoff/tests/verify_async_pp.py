@@ -1,33 +1,11 @@
 #!/usr/bin/env python3
-"""Two-rank production-lifecycle contract for async PP sampled tokens.
+"""Behavioral checks at the production async-PP component boundary.
 
-Fairness model (see validation/semantic-boundary.md). The target contract is:
-the last PP rank hands the freshly sampled token ids to earlier ranks as an
-on-GPU NCCL collective, earlier ranks rebuild ``prev_sampled_token_ids`` on the
-GPU and the kept/discarded bookkeeping, and NO CPU/object collective or
-GPU->CPU scalar sync is used on that path.
-
-Every reward-zeroing decision is therefore classified:
-
-  * A violation of an owned target invariant raises the typed
-    ``TargetInvariantFailure(code, detail)``. Both ranks agree via an on-GPU
-    all-reduce, rank 0 emits a JSON record plus exactly one classified marker
-    (``ASYNC_PP_NCCL_SCENARIO=FAIL``) flushed BEFORE the barrier, and both ranks
-    exit 1. This is the ONLY way a Base/control run legitimately scores 0.
-
-  * ANY other exception (missing fixture attribute, AttributeError, KeyError,
-    NCCL/CUDA init error, unclassified RuntimeError, ...) is treated as an
-    infrastructure failure: the rank prints ``ASYNC_PP_INFRA_ERROR`` with a
-    traceback and exits 2 WITHOUT a PASS marker. The verifier fails closed --
-    such a crash is never counted as a valid "the implementation failed the
-    contract" outcome.
-
-The model-free fixtures execute production bookkeeping, async output consumption,
-cached-state updates and next-input preparation after the real GPU collective.
-
-The independent curator challenge (validation/challenge/challenge_token_handoff.py)
-re-derives these same invariants on a distinct fresh scenario; this verifier does
-not weaken any of them.
+The task contract is independent of the reference patch. Model arithmetic is
+substituted; scheduling, CUDA transport, request lifecycle and next-forward
+inputs are real. Neither placeholder values nor token-map contents are scored.
+The separate root-owned GPU peer checks real transport against fresh inputs;
+worker frames and in-process profiler observations are not a security boundary.
 """
 
 from __future__ import annotations
@@ -40,7 +18,6 @@ import sys
 import traceback
 from datetime import timedelta
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import torch
@@ -210,16 +187,6 @@ def check_scheduler_reentry() -> int:
                 "first_round_scheduling_mismatch",
                 f"{sorted(first.num_scheduled_tokens)} != {sorted(expected_ids)}",
             )
-        placeholders = {
-            request.request_id: request.num_output_placeholders
-            for request in requests
-        }
-        if not all(count > 0 for count in placeholders.values()):
-            raise TargetInvariantFailure(
-                "missing_output_placeholders",
-                f"expected positive output placeholders, got {placeholders}",
-            )
-
         # Re-enter the production scheduler before update_from_output. Async PP
         # must schedule the next in-flight step directly, not insert an extra
         # skipped round because placeholders are present.
@@ -235,11 +202,15 @@ def check_scheduler_reentry() -> int:
         cases.append(
             {
                 "next_round_scheduled_ids": sorted(second.num_scheduled_tokens),
-                "output_placeholders": placeholders,
                 "request_count": request_count,
             }
         )
-    print(json.dumps({"scheduler_reentry": cases}, sort_keys=True))
+    from lifecycle_cases import scheduler_lifecycle
+    try:
+        lifecycle = scheduler_lifecycle(LOCAL_MODEL_CONFIG)
+    except AssertionError as exc:
+        raise TargetInvariantFailure("scheduler_output_lifecycle", str(exc)) from exc
+    print(json.dumps({"scheduler_reentry": cases, "closed_loop": lifecycle}, sort_keys=True))
     emit_frame({
         "scheduler_reentry_cases": cases,
         "scheduler_reentry_request_counts": [c["request_count"] for c in cases],
@@ -253,12 +224,7 @@ def pp_group(rank: int, world_size: int):
     return initialize_runner_groups(rank, world_size)
 
 
-def receiver_runner(req_ids, discard_mask, prior_outputs):
-    return make_runner(req_ids, discard_mask, prior_outputs)
-
-
-
-def invoke_production_sample(runner, *, is_sender: bool):
+def invoke_production_sample(runner, *, is_sender: bool, require_collective=True):
     original_broadcast = dist.broadcast
     original_broadcast_object_list = dist.broadcast_object_list
     original_all_gather_object = dist.all_gather_object
@@ -297,6 +263,8 @@ def invoke_production_sample(runner, *, is_sender: bool):
         print(json.dumps({"handoff_observation": {
             "transfers": observer.transfers, "violations": observer.violations,
         }}, sort_keys=True), flush=True)
+        from worker_fixtures import PRIOR_INPUT_EVENTS
+        PRIOR_INPUT_EVENTS.get(runner, set()).difference_update(observer.recorded_event_ids)
         if observer.violations:
             raise TargetInvariantFailure(
                 "gpu_cpu_handoff_sync",
@@ -308,186 +276,57 @@ def invoke_production_sample(runner, *, is_sender: bool):
         dist.all_gather_object = original_all_gather_object
         dist.gather_object = original_gather_object
         dist.scatter_object_list = original_scatter_object_list
-    if not collective_seen:
-        raise TargetInvariantFailure(
-            "no_gpu_broadcast",
-            "production sample_tokens lifecycle did not use a GPU broadcast",
-        )
+    # GPU transport is independently exercised by trusted_transport.py.
+    # Do not require a particular Python broadcast wrapper or call count here.
     return output
 
 
-def run_scenario(rank, tokens, req_ids, discard_mask, prior_outputs):
+def observed_next_inputs(runner, req_ids, **kwargs):
+    from worker_fixtures import PRIOR_INPUT_EVENTS
+    observer = HandoffObserver(prior_event_ids=PRIOR_INPUT_EVENTS.get(runner, ()))
+    inputs = next_inputs(runner, req_ids, inspect_cpu=False, observer=observer, **kwargs)
+    if observer.violations:
+        raise TargetInvariantFailure('next_input_host_wait', str(observer.violations))
+    return inputs.cpu().tolist()
+
+
+def run_scenario(rank, tokens, req_ids, discard_mask, warmup_rounds):
+    sampled = torch.tensor(tokens, dtype=torch.int32, device="cuda").reshape(-1, 1) if rank == 1 else None
+    runner = make_runner(req_ids, discard_mask, sampled, warmup_rounds=warmup_rounds)
+    CALL_COUNTS["execute_model_calls"] += 1
+    output = invoke_production_sample(runner, is_sender=rank == 1)
+    expected_mapping = {r: i for i, r in enumerate(req_ids) if not discard_mask[i]}
+    next_order = list(reversed(expected_mapping))
     if rank == 1:
-        sampled = torch.tensor(tokens, dtype=torch.int32, device="cuda").reshape(-1, 1)
-        runner = make_runner(req_ids, discard_mask, prior_outputs, sampled)
-        CALL_COUNTS["execute_model_calls"] += 1
-        output = invoke_production_sample(runner, is_sender=True)
-        if runner.execute_model_state is not None or output is None:
+        if output is None:
             raise TargetInvariantFailure("sender_incomplete_return",
                                          "production sample_tokens did not finish")
         SENDER_LIFECYCLE["production_returned"] = True
-        # Materialize the real async output AFTER the GPU handoff has finished.
         model_output = output.get_output() if hasattr(output, "get_output") else output
-        expected = [[token] if not discard_mask[i] else []
-                    for i, token in enumerate(tokens)]
-        if model_output.req_ids != req_ids or model_output.sampled_token_ids != expected:
-            raise TargetInvariantFailure("sender_output_mismatch",
-                                         str(model_output.sampled_token_ids))
-        for i, req_id in enumerate(req_ids):
-            wanted = list(prior_outputs[req_id]) + ([] if discard_mask[i] else [-1])
-            if runner.requests[req_id].output_token_ids != wanted:
-                raise TargetInvariantFailure("sender_cached_state_mismatch", req_id)
+        expected = [[t] if not discard_mask[i] else [] for i, t in enumerate(tokens)]
+        from worker_fixtures import output_tokens_by_request
+        if output_tokens_by_request(model_output) != dict(zip(req_ids, expected)):
+            raise TargetInvariantFailure("sender_output_mismatch", str(model_output.sampled_token_ids))
+        # Both stages advance their real scheduler and runner. No current result
+        # is fed back to either scheduler before the next-input check.
+        next_inputs(runner, next_order)
         SENDER_LIFECYCLE["downstream_consumed"] = True
         return {"sent": sampled.cpu().flatten().tolist(),
                 "sampled_output": model_output.sampled_token_ids,
                 "sender_lifecycle": dict(SENDER_LIFECYCLE)}
-
-    runner = receiver_runner(req_ids, discard_mask, prior_outputs)
-    CALL_COUNTS["execute_model_calls"] += 1
-    output = invoke_production_sample(runner, is_sender=False)
     if output is not None:
-        raise TargetInvariantFailure(
-            "receiver_produced_output",
-            "receiver rank unexpectedly produced a model output",
-        )
+        raise TargetInvariantFailure("receiver_produced_output",
+                                     "receiver rank unexpectedly produced a model output")
     SENDER_LIFECYCLE["production_returned"] = True
-    received = runner.input_batch.prev_sampled_token_ids
-    if received is None or not received.is_cuda:
-        raise TargetInvariantFailure(
-            "receiver_missing_gpu_tokens",
-            "receiver did not rebuild prev_sampled_token_ids on the GPU",
-        )
-    if received.cpu().flatten().tolist() != tokens:
-        raise TargetInvariantFailure(
-            "received_tokens_mismatch",
-            f"received {received.cpu().flatten().tolist()} != sent {tokens}",
-        )
-    expected_mapping = {
-        req_id: index
-        for index, req_id in enumerate(req_ids)
-        if not discard_mask[index]
-    }
-    if runner.input_batch.prev_req_id_to_index != expected_mapping:
-        raise TargetInvariantFailure(
-            "req_id_mapping_mismatch",
-            f"{runner.input_batch.prev_req_id_to_index} != {expected_mapping}",
-        )
-    for index, req_id in enumerate(req_ids):
-        expected = list(prior_outputs[req_id])
-        if not discard_mask[index]:
-            expected.append(-1)
-        if runner.requests[req_id].output_token_ids != expected:
-            raise TargetInvariantFailure(
-                "output_token_ids_mismatch",
-                f"{req_id}: {runner.requests[req_id].output_token_ids} != {expected}",
-            )
-    next_order = list(reversed(expected_mapping))
-    consumed = next_inputs(runner, next_order)
+    consumed = observed_next_inputs(runner, next_order)
     expected_next = [tokens[expected_mapping[r]] for r in next_order]
     if consumed != expected_next:
         raise TargetInvariantFailure("next_input_tokens_mismatch",
                                      f"{consumed} != {expected_next}")
     SENDER_LIFECYCLE["downstream_consumed"] = True
-    return {
-        "next_input_ids": consumed,
-        "mapping": expected_mapping,
-        "received": tokens,
-        "discarded": [
-            req_id for index, req_id in enumerate(req_ids) if discard_mask[index]
-        ],
-    }
-
-
-def run_integrated_scheduler_receiver(tokens):
-    """Exercise NCCL receive and the next Scheduler round as adjacent stages.
-
-    Worker cached request state and Scheduler requests are intentionally
-    different production object types in this reduced integration.  The test
-    therefore checks shared request identities and downstream state effects,
-    not Python object identity across process-boundary abstractions.
-    """
-
-    scheduler = create_scheduler(
-        model=LOCAL_MODEL_CONFIG,
-        async_scheduling=True,
-        pipeline_parallel_size=2,
-        skip_tokenizer_init=True,
-    )
-    requests = create_requests(num_requests=len(tokens), num_tokens=8)
-    for request in requests:
-        scheduler.add_request(request)
-    first = scheduler.schedule()
-    req_ids = [request.request_id for request in requests]
-    if set(first.num_scheduled_tokens) != set(req_ids):
-        raise TargetInvariantFailure(
-            "integrated_first_round_mismatch",
-            f"{sorted(first.num_scheduled_tokens)} != {sorted(req_ids)}",
-        )
-    placeholders_before = {
-        request.request_id: request.num_output_placeholders
-        for request in requests
-    }
-    if not all(value > 0 for value in placeholders_before.values()):
-        raise TargetInvariantFailure(
-            "integrated_missing_output_placeholders",
-            f"expected positive output placeholders, got {placeholders_before}",
-        )
-
-    runner = receiver_runner(
-        req_ids,
-        [False] * len(req_ids),
-        {request.request_id: list(request.output_token_ids) for request in requests},
-    )
-    # NOTE: runner.requests already populated by receiver_runner() with
-    # production CachedRequestState objects (mutable output_token_ids).
-    # Do NOT replace with Scheduler's Request objects (ConstantList output_token_ids).
-    CALL_COUNTS["execute_model_calls"] += 1
-    output = invoke_production_sample(runner, is_sender=False)
-    if output is not None:
-        raise TargetInvariantFailure(
-            "integrated_receiver_produced_output",
-            "receiver rank unexpectedly produced a model output",
-        )
-    SENDER_LIFECYCLE["production_returned"] = True
-    received = runner.input_batch.prev_sampled_token_ids
-    if received is None or not received.is_cuda:
-        raise TargetInvariantFailure(
-            "integrated_receiver_missing_gpu_tokens",
-            "receiver did not rebuild prev_sampled_token_ids on the GPU",
-        )
-    if received.cpu().flatten().tolist() != tokens:
-        raise TargetInvariantFailure(
-            "integrated_received_tokens_mismatch",
-            f"received {received.cpu().flatten().tolist()} != sent {tokens}",
-        )
-    # Verify worker-side cached state got the placeholder append
-    for req_id in req_ids:
-        if runner.requests[req_id].output_token_ids[-1:] != [-1]:
-            raise TargetInvariantFailure(
-                "integrated_missing_placeholder_append",
-                f"{req_id}: {runner.requests[req_id].output_token_ids[-1:]} != [-1]",
-            )
-
-    second = scheduler.schedule()
-    if set(second.num_scheduled_tokens) != set(req_ids):
-        raise TargetInvariantFailure(
-            "integrated_next_round_mismatch",
-            f"{sorted(second.num_scheduled_tokens)} != {sorted(req_ids)}",
-        )
-    consumed = next_inputs(runner, req_ids, scheduler_output=second)
-    if consumed != tokens:
-        raise TargetInvariantFailure("integrated_next_input_tokens_mismatch",
-                                     f"{consumed} != {tokens}")
-    SENDER_LIFECYCLE["downstream_consumed"] = True
-    return {
-        "next_input_ids": consumed,
-        "request_ids": req_ids,
-        "same_request_ids_across_stages": True,
-        "same_python_request_objects": False,
-        "integration_boundary": "worker cached-state receive + scheduler re-entry",
-        "next_round_scheduled_ids": sorted(second.num_scheduled_tokens),
-        "output_placeholders_before_receive": placeholders_before,
-    }
+    return {"next_input_ids": consumed, "mapping": expected_mapping,
+            "received": tokens,
+            "discarded": [r for i, r in enumerate(req_ids) if discard_mask[i]]}
 
 
 SCENARIOS = {
@@ -495,24 +334,28 @@ SCENARIOS = {
         "tokens": [101, 202],
         "req_ids": ["keep", "discard"],
         "discard_mask": [False, True],
-        "prior_outputs": {"keep": [7], "discard": [9]},
+        "warmup_rounds": 1,
     },
     "reordered": {
         "tokens": [303, 404, 505],
         "req_ids": ["third", "keep", "discard"],
         "discard_mask": [False, False, True],
-        "prior_outputs": {"third": [], "keep": [7], "discard": [9]},
+        "warmup_rounds": 1,
     },
     "integrated": {
         "tokens": [606, 707, 808],
         "req_ids": ["unused-0", "unused-1", "unused-2"],
         "discard_mask": [False, False, False],
-        "prior_outputs": {"unused-0": [], "unused-1": [], "unused-2": []},
+        "warmup_rounds": 0,
     },
 }
 
 
-def run_rank(scenario_name: str) -> int:
+for _name in ("compaction", "prefill_progress", "idle", "synchronous"):
+    SCENARIOS[_name] = {"tokens": []}
+
+
+def run_rank(scenario_name: str, shared_group=None) -> int:
     # RANK/LOCAL_RANK/WORLD_SIZE/MASTER_ADDR/MASTER_PORT are assigned by the
     # trusted supervisor, one child per rank, each on its own stdout pipe. There
     # is no torchrun launcher here: rank identity belongs to the parent, and this
@@ -520,16 +363,17 @@ def run_rank(scenario_name: str) -> int:
     local_rank = int(os.environ["LOCAL_RANK"])
     assigned_rank = int(os.environ["RANK"])
     torch.cuda.set_device(local_rank)
-    dist.init_process_group("nccl", timeout=timedelta(seconds=120))
+    if shared_group is None:
+        dist.init_process_group("nccl", timeout=timedelta(seconds=60))
+        group = pp_group(assigned_rank, 2)
+        warm = torch.zeros(1, device="cuda", dtype=torch.int32)
+        dist.broadcast(warm, src=1, group=group.device_group)
+        torch.cuda.synchronize()
+    else:
+        group = shared_group
     rank = dist.get_rank()
     world_size = dist.get_world_size()
-    assert world_size == 2
-    # The collective's view of this process must match what the parent assigned.
-    assert rank == assigned_rank, (
-        f"rank mismatch: collective says {rank}, parent assigned {assigned_rank}"
-    )
-
-    group = pp_group(rank, world_size)
+    assert world_size == 2 and rank == assigned_rank
     scenario = SCENARIOS[scenario_name]
     original_get_pp_group = runner_module.get_pp_group
     runner_module.get_pp_group = lambda: group
@@ -538,18 +382,29 @@ def run_rank(scenario_name: str) -> int:
     record: dict = {}
     try:
         try:
-            if scenario_name == "integrated" and rank == 0:
-                record = run_integrated_scheduler_receiver(scenario["tokens"])
+            if scenario_name in ("compaction", "prefill_progress", "idle", "synchronous"):
+                from lifecycle_cases import compaction_round, prefill_progress, idle_last_stage, synchronous_runner
+                case = {"compaction":compaction_round, "prefill_progress":prefill_progress,
+                        "idle":idle_last_stage, "synchronous":synchronous_runner}[scenario_name]
+                try:
+                    record = case(rank, invoke_production_sample)
+                except AssertionError as exc:
+                    raise TargetInvariantFailure(f"{scenario_name}_behavior", str(exc)) from exc
+                SENDER_LIFECYCLE["production_returned"] = True
+                SENDER_LIFECYCLE["downstream_consumed"] = True
             else:
                 record = run_scenario(
                     rank,
                     scenario["tokens"],
                     scenario["req_ids"],
                     scenario["discard_mask"],
-                    scenario["prior_outputs"],
+                    scenario["warmup_rounds"],
                 )
         except TargetInvariantFailure as exc:
             failure = exc
+            print(json.dumps({"verdict": "FAIL", "scenario": scenario_name,
+                              "rank": rank, "reason_code": exc.code,
+                              "detail": exc.detail}), flush=True)
         except Exception as exc:  # noqa: BLE001 - fail closed on any infra error
             # An unclassified error (missing fixture attribute, AttributeError,
             # KeyError, NCCL/CUDA error, ...) is NOT a valid contract failure.
@@ -605,7 +460,8 @@ def run_rank(scenario_name: str) -> int:
             )
             print(f"ASYNC_PP_NCCL_SCENARIO=FAIL name={scenario_name}", flush=True)
         dist.barrier()
-        dist.destroy_process_group()
+        if shared_group is None:
+            dist.destroy_process_group()
         return 1
 
     # Test cleanup is separate from observed production completion.
@@ -637,7 +493,7 @@ def run_rank(scenario_name: str) -> int:
     emit_frame(
         {
             "scenario": scenario_name,
-            "gpu_collective_seen": True,
+            "gpu_collective_seen": CALL_COUNTS["gpu_broadcasts"] > 0,
             "world_size": world_size,
             "scenario_result": record,
             "sender_lifecycle": lifecycle,
@@ -645,17 +501,78 @@ def run_rank(scenario_name: str) -> int:
             "payload_digest": payload_digest(STAGE, scenario["tokens"]),
         }
     )
-    dist.destroy_process_group()
+    if shared_group is None:
+        dist.destroy_process_group()
+    return 0
+
+
+def run_suite(kind):
+    import time
+    global emit_frame
+    original_emit = emit_frame
+    reports = []
+    emit_frame = lambda payload: reports.append(payload)
+    timings = {}
+    try:
+        if kind == "cpu":
+            began = time.monotonic()
+            check_config()
+            check_scheduler_reentry()
+            timings['config_and_scheduler'] = time.monotonic() - began
+        else:
+            rank = int(os.environ['RANK'])
+            torch.cuda.set_device(rank)
+            began = time.monotonic()
+            dist.init_process_group('nccl', timeout=timedelta(seconds=60))
+            group = pp_group(rank, 2)
+            warm = torch.zeros(1, device='cuda', dtype=torch.int32)
+            dist.broadcast(warm, src=1, group=group.device_group)
+            # Warm both collective and P2P communicators before observing work.
+            if rank == 1:
+                dist.send(warm, dst=0, group=group.device_group)
+            else:
+                dist.recv(warm, src=1, group=group.device_group)
+            torch.cuda.synchronize()
+            timings['distributed_init'] = time.monotonic() - began
+            try:
+                for name in ('basic', 'reordered', 'integrated', 'compaction',
+                             'prefill_progress', 'idle', 'synchronous'):
+                    for key in SENDER_LIFECYCLE:
+                        SENDER_LIFECYCLE[key] = False
+                    began = time.monotonic()
+                    if run_rank(name, shared_group=group):
+                        return 1
+                    timings[name] = time.monotonic() - began
+                from trusted_transport import candidate as check_external_inputs
+                began = time.monotonic()
+                check_external_inputs(rank, initialized=True)
+                timings['external_gpu_inputs'] = time.monotonic() - began
+            finally:
+                dist.destroy_process_group()
+    finally:
+        emit_frame = original_emit
+        print(json.dumps({'suite_timings_seconds': timings}), flush=True)
+    if kind == 'cpu':
+        emit_frame({'async_scheduling_allowed': reports[0]['async_scheduling_allowed'],
+                    'pipeline_parallel_size': reports[0]['pipeline_parallel_size'],
+                    'scheduler_reentry_request_counts': reports[1]['scheduler_reentry_request_counts']})
+    else:
+        emit_frame({'scenarios_passed': [r['scenario'] for r in reports],
+                    'world_size': 2,
+                    'sender_lifecycle': reports[-1]['sender_lifecycle']})
     return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--suite", choices=["cpu", "gpu"])
     parser.add_argument("--check-config", action="store_true")
     parser.add_argument("--check-scheduler", action="store_true")
     parser.add_argument("--scenario", choices=sorted(SCENARIOS))
     args = parser.parse_args()
     assert_privilege_dropped()
+    if args.suite:
+        return run_suite(args.suite)
     # Single-process stages: classify a target-invariant failure (reward 0 for a
     # target reason) distinctly from an infra crash (fail closed, no PASS).
     if args.check_config or args.check_scheduler:

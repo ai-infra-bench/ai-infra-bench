@@ -1,0 +1,25 @@
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -3797,7 +3797,7 @@
+         recv = torch.empty((num_reqs, 1), dtype=torch.int32, device=self.device)
+         if not self.discard_request_mask.np[:num_reqs].all():
+             torch.distributed.broadcast(recv, src=pp.last_rank, group=pp.device_group)
+-        self.input_batch.prev_sampled_token_ids = recv
++        self.input_batch.prev_sampled_token_ids = recv.flip([0])
+ 
+         # construct `prev_req_id_to_index` here so `_prepare_input_ids`
+         # can map req_id -> previous batch row
+@@ -3807,11 +3807,11 @@
+         for i, req_id in enumerate(self.input_batch.req_ids):
+             if i in discard_req_indices_set:
+                 continue
+-            prev_req_id_to_index[req_id] = i
++            prev_req_id_to_index[req_id] = num_reqs - 1 - i
+             # PP+async scheduling: advance per-request local cached output length by
+             # appending a placeholder (-1) token id.
+             if (req_state := self.requests.get(req_id)) is not None:
+-                req_state.output_token_ids.append(-1)
++                req_state.output_token_ids.append(0)
+         self.input_batch.prev_req_id_to_index = prev_req_id_to_index
+ 
+     def take_draft_token_ids(self) -> DraftTokenIds | None:

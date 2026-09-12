@@ -25,8 +25,6 @@ from vllm.config import (
     VllmConfig,
 )
 from vllm.sampling_params import SamplingParams
-from vllm.v1.core.sched.async_scheduler import AsyncScheduler
-from vllm.v1.core.sched.scheduler import Scheduler
 from vllm.v1.kv_cache_interface import (
     FullAttentionSpec,
     KVCacheConfig,
@@ -50,6 +48,7 @@ def build_scheduler(
     block_size: int = BLOCK_SIZE,
     num_blocks: int = NUM_BLOCKS,
     skip_tokenizer_init: bool = True,
+    long_prefill_token_threshold: int = 0,
 ):
     """Construct a production Scheduler/AsyncScheduler over public config classes.
 
@@ -72,6 +71,7 @@ def build_scheduler(
         max_num_batched_tokens=max_num_batched_tokens,
         max_model_len=max_model_len,
         enable_chunked_prefill=True,
+        long_prefill_token_threshold=long_prefill_token_threshold,
         async_scheduling=async_scheduling,
         # No default in the candidate base: omitting it fails pydantic validation.
         is_encoder_decoder=model_config.is_encoder_decoder,
@@ -107,7 +107,7 @@ def build_scheduler(
         ],
     )
     cache_config.num_gpu_blocks = num_blocks
-    scheduler_cls = AsyncScheduler if async_scheduling else Scheduler
+    scheduler_cls = vllm_config.scheduler_config.get_scheduler_cls()
     return scheduler_cls(
         vllm_config=vllm_config,
         kv_cache_config=kv_cache_config,

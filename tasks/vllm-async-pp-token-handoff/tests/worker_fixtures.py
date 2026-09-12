@@ -1,26 +1,30 @@
-"""Real runner initialization with deterministic model-output inputs.
+"""Real scheduler-to-runner transitions with deterministic model arithmetic.
 
-The production constructor, execute_model, buffers, InputBatch, bookkeeping and
-next-input preparation execute unchanged. Model weights and attention computation are not
-needed to exercise sampled-token transport. No candidate-private attributes are
-invented by this fixture.
+Requests enter through add_request; every execution consumes the complete object
+returned by the candidate scheduler. No scheduler output or cached request state
+is reconstructed by the verifier.
 """
 import os
 from pathlib import Path
-from types import SimpleNamespace
+from weakref import WeakKeyDictionary
+from contextlib import nullcontext
 
-import numpy as np
 import torch
+import torch.distributed as dist
 
 from vllm.config import CacheConfig, ModelConfig, ParallelConfig, SchedulerConfig, VllmConfig, set_current_vllm_config
 from vllm.sampling_params import SamplingParams
 from vllm.v1.kv_cache_interface import KVCacheConfig
-from vllm.v1.worker.gpu_input_batch import CachedRequestState
+from vllm.v1.request import Request
 from vllm.v1.worker.gpu_model_runner import GPUModelRunner
+from task_fixtures import build_scheduler
+
+PRIOR_INPUT_EVENTS = WeakKeyDictionary()
+MODEL_INPUTS = WeakKeyDictionary()
+WORKLOADS = WeakKeyDictionary()
 
 
 def initialize_runner_groups(rank, world_size):
-    """Initialize production world/TP/PP groups on the existing NCCL world."""
     from vllm.distributed.parallel_state import (
         get_pp_group, init_distributed_environment, initialize_model_parallel,
     )
@@ -33,122 +37,156 @@ def initialize_runner_groups(rank, world_size):
     return get_pp_group()
 
 
-def make_runner(req_ids, discard_mask, prior_outputs, sampled=None):
-    device = torch.device("cuda", int(os.environ.get("LOCAL_RANK", "0")))
-    model_config = ModelConfig(
-        model=str(Path(__file__).parent / "fixtures/opt-125m"),
-        dtype="float16", seed=42, max_model_len=64,
-        skip_tokenizer_init=True, enforce_eager=True,
-    )
-    config = VllmConfig(
-        model_config=model_config,
-        cache_config=CacheConfig(block_size=16, swap_space=0,
-                                 enable_prefix_caching=False),
-        scheduler_config=SchedulerConfig(
-            max_num_seqs=16, max_num_batched_tokens=64, max_model_len=64,
-            is_encoder_decoder=False, async_scheduling=True,
-        ),
-        parallel_config=ParallelConfig(pipeline_parallel_size=2,
-                                       distributed_executor_backend="mp"),
-    )
-    with set_current_vllm_config(config):
-        runner = GPUModelRunner(config, device)
-    # No attention is executed. This is the post-cache-setup input to the
-    # sampled-token lifecycle; keep the constructor's real InputBatch/buffers.
-    runner.kv_cache_config = KVCacheConfig(
-        num_blocks=1, kv_cache_tensors=[], kv_cache_groups=[])
-    runner.input_ids.cpu.fill_(17)
-    for index, req_id in enumerate(req_ids):
-        request = CachedRequestState(
-            req_id=req_id, prompt_token_ids=list(range(8)), mm_features=[],
-            sampling_params=SamplingParams(temperature=0, max_tokens=16),
-            generator=None, block_ids=([0],),
-            num_computed_tokens=8 + len(prior_outputs[req_id]) - 1 - int(discard_mask[index]),
-            output_token_ids=list(prior_outputs[req_id]),
+class RunnerWorkload:
+    """Own test inputs and the real scheduler; never populate runner internals."""
+
+    def __init__(self, req_ids, discard_mask, sampled, *, prompts=None,
+                 chunk_size=8, async_mode=True, budgets=None):
+        from vllm.sequence import IntermediateTensors
+        from vllm.distributed.parallel_state import get_pp_group
+        device = torch.device("cuda", int(os.environ.get("LOCAL_RANK", "0")))
+        model = str(Path(__file__).parent / "fixtures/opt-125m")
+        self.prompts = prompts or {
+            r: list(range(11, 11 + chunk_size * (3 if discard_mask[i] else 1)))
+            for i, r in enumerate(req_ids)
+        }
+        self.positions = dict.fromkeys(req_ids, 0)
+        self.sampled = sampled
+        self.sample_ids = list(req_ids)
+        self.config = VllmConfig(
+            model_config=ModelConfig(model=model, dtype="float16", seed=42,
+                max_model_len=64, skip_tokenizer_init=True, enforce_eager=True),
+            cache_config=CacheConfig(block_size=16, swap_space=0,
+                                     enable_prefix_caching=False),
+            scheduler_config=SchedulerConfig(max_num_seqs=16,
+                max_num_batched_tokens=64, max_model_len=64,
+                is_encoder_decoder=False, async_scheduling=async_mode,
+                long_prefill_token_threshold=chunk_size),
+            parallel_config=ParallelConfig(pipeline_parallel_size=2,
+                                           distributed_executor_backend="mp"),
         )
-        runner.requests[req_id] = request
-        runner.input_batch.add_request(request)
-    runner.input_batch.refresh_metadata()
-    # Replace only model arithmetic. All preparation and execute/sample state
-    # transitions run through the candidate's production implementation.
-    from vllm.sequence import IntermediateTensors
-    from vllm.distributed.parallel_state import get_pp_group
+        self.scheduler = build_scheduler(model, async_scheduling=async_mode,
+            pipeline_parallel_size=2, max_model_len=64,
+            max_num_seqs=16, max_num_batched_tokens=64,
+            long_prefill_token_threshold=chunk_size)
+        for req_id in req_ids:
+            self.scheduler.add_request(Request(request_id=req_id,
+                prompt_token_ids=self.prompts[req_id],
+                sampling_params=SamplingParams(temperature=0,
+                    max_tokens=(budgets or {}).get(req_id, 16), ignore_eos=True),
+                pooling_params=None, eos_token_id=None))
+        with set_current_vllm_config(self.config):
+            self.runner = GPUModelRunner(self.config, device)
+        runner = self.runner
+        # FixedModel has no attention. Real scheduler KV allocation and the
+        # runner's normal new/cached request handling still initialize the batch.
+        runner.kv_cache_config = KVCacheConfig(
+            num_blocks=4096, kv_cache_tensors=[], kv_cache_groups=[])
+        workload = self
 
-    class FixedModel(torch.nn.Module):
-        def forward(self, input_ids, positions, intermediate_tensors, inputs_embeds):
-            hidden = torch.zeros((len(positions), 1), device=device)
-            if not get_pp_group().is_last_rank:
-                return IntermediateTensors({"hidden_states": hidden})
-            return hidden
+        class FixedModel(torch.nn.Module):
+            def forward(self, input_ids, positions, intermediate_tensors, inputs_embeds):
+                MODEL_INPUTS[runner] = (input_ids.clone(), tuple(runner.input_batch.req_ids))
+                hidden = torch.zeros((len(positions), 1), device=device)
+                if not get_pp_group().is_last_rank:
+                    return IntermediateTensors({"hidden_states": hidden})
+                return hidden
 
-        def compute_logits(self, hidden):
-            return torch.zeros((len(hidden), 1024), device=device)
+            def compute_logits(self, hidden):
+                logits = torch.full((len(hidden), 1024), -100.0, device=device)
+                if workload.sampled is not None:
+                    rows = [workload.sample_ids.index(r)
+                            for r in runner.input_batch.req_ids[:len(hidden)]]
+                    selected = workload.sampled.index_select(
+                        0, torch.tensor(rows, device=device))
+                    logits.scatter_(1, selected.to(dtype=torch.int64), 100.0)
+                return logits
 
-    runner.model = FixedModel()
-    runner.intermediate_tensors = IntermediateTensors({
-        "hidden_states": torch.zeros((64, 1), device=device),
-    })
-    scheduler_output = SimpleNamespace(
-        finished_req_ids=set(), free_encoder_mm_hashes=[], scheduled_new_reqs=[],
-        preempted_req_ids=set(), scheduled_encoder_inputs={},
-        num_common_prefix_blocks=[], scheduled_spec_decode_tokens={},
-        total_num_scheduled_tokens=len(req_ids),
-        num_scheduled_tokens={req_id: 1 for req_id in req_ids},
-        scheduled_cached_reqs=SimpleNamespace(
-            req_ids=list(req_ids), resumed_req_ids=set(),
-            num_computed_tokens=[runner.requests[r].num_computed_tokens for r in req_ids],
-            new_block_ids=[None] * len(req_ids),
-            # No new CPU tokens in this cached batch. Keep the per-request
-            # container valid for both the frozen Base and async implementations.
-            new_token_ids=[[] for _ in req_ids],
-            num_output_tokens=[len(prior_outputs[r]) for r in req_ids],
-        ),
-    )
-    if sampled is not None:
-        runner._sample = lambda logits, metadata: SimpleNamespace(
-            sampled_token_ids=sampled, logprobs_tensors=None)
-    with set_current_vllm_config(config):
-        output = runner.execute_model(scheduler_output, runner.intermediate_tensors)
-    if get_pp_group().is_last_rank:
-        assert output is None, "last rank must defer sampling after execute_model"
-    else:
-        assert isinstance(output, IntermediateTensors)
-    assert runner.discard_request_mask.np[:len(req_ids)].tolist() == list(discard_mask)
+        runner.model = FixedModel()
+        runner.intermediate_tensors = IntermediateTensors({
+            "hidden_states": torch.zeros((64, 1), device=device),
+        })
+        WORKLOADS[runner] = self
+
+    def execute_next(self, *, observer=None):
+        self.step = self.scheduler.schedule()
+        for req_id, count in self.step.num_scheduled_tokens.items():
+            self.positions[req_id] += count
+        with set_current_vllm_config(self.config):
+            with observer.observe() if observer is not None else nullcontext():
+                result = self.runner.execute_model(
+                    self.step, self.runner.intermediate_tensors)
+        return result
+
+    def collect(self, output):
+        """Collect the real last-stage output outside the observed handoff.
+
+        Feed it to both scheduler replicas, preserving candidate-added metadata.
+        The replicas stand in for the engine's single scheduler in this component
+        test. No current output is collected before the async next-input check.
+        """
+        from vllm.distributed.parallel_state import get_pp_group
+        if get_pp_group().is_last_rank:
+            output = output.get_output() if hasattr(output, "get_output") else output
+        else:
+            output = None
+        payload = [output]
+        dist.broadcast_object_list(payload, src=1, group=get_pp_group().cpu_group)
+        return self.scheduler.update_from_output(self.step, payload[0])
+
+    def mark_prior_input_events(self):
+        PRIOR_INPUT_EVENTS[self.runner] = {
+            id(value) for value in vars(self.runner).values()
+            if isinstance(value, (torch.Event, torch.cuda.Event)) and value.device is not None
+        }
+
+
+def make_runner(req_ids, discard_mask, sampled=None, *, prompts=None,
+                chunk_size=8, async_mode=True, budgets=None, warmup_rounds=0):
+    workload = RunnerWorkload(req_ids, discard_mask, sampled, prompts=prompts,
+        chunk_size=chunk_size, async_mode=async_mode, budgets=budgets)
+    runner = workload.runner
+    # Fully execute and collect warmup to create generated history, without
+    # manufacturing cached tokens or assuming a placeholder representation.
+    for round_index in range(warmup_rounds):
+        workload.sampled = torch.tensor(
+            [[31 + i + round_index] for i in range(len(req_ids))],
+            dtype=torch.int32, device=runner.device)
+        workload.execute_next()
+        workload.collect(runner.sample_tokens(None))
+    workload.sampled = sampled
+    workload.execute_next()
+    workload.mark_prior_input_events()
     return runner
 
 
-def next_inputs(runner, req_ids, *, scheduler_output=None):
-    """Complete cached-state update, then consume received tokens on the GPU.
-
-    req_ids gives the next consumer order. If a real scheduler output is supplied
-    it crosses this boundary directly; otherwise a valid one-token decode event
-    is constructed for the retained requests.
-    """
-    if scheduler_output is None:
-        scheduler_output = SimpleNamespace(
-            finished_req_ids=set(runner.requests) - set(req_ids),
-            free_encoder_mm_hashes=[], scheduled_new_reqs=[],
-            num_scheduled_tokens={req_id: 1 for req_id in req_ids},
-            total_num_scheduled_tokens=len(req_ids),
-            scheduled_spec_decode_tokens={},
-            scheduled_cached_reqs=SimpleNamespace(
-                req_ids=list(req_ids), resumed_req_ids=set(),
-                num_computed_tokens=[runner.requests[r].num_tokens - 1
-                                     for r in req_ids],
-                new_block_ids=[None] * len(req_ids), new_token_ids=[],
-                num_output_tokens=[len(runner.requests[r].output_token_ids)
-                                   for r in req_ids],
-            ),
-        )
-    GPUModelRunner._update_states(runner, scheduler_output)
+def next_inputs(runner, req_ids, *, inspect_cpu=True, observer=None):
+    workload = WORKLOADS[runner]
+    # Exercise a valid batch row change without reconstructing the scheduler
+    # message. All metadata comes from the candidate's real schedule() result.
     for target, req_id in enumerate(req_ids):
         current = runner.input_batch.req_id_to_index[req_id]
         if current != target:
             runner.input_batch.swap_states(target, current)
-    runner.input_batch.refresh_metadata()
-    counts = [scheduler_output.num_scheduled_tokens[r] for r in req_ids]
-    cumulative = np.cumsum(counts, dtype=np.int32)
-    GPUModelRunner._prepare_input_ids(
-        runner, scheduler_output, sum(counts), cumulative)
-    # CPU inspection belongs to the test consumer, after GPU input preparation.
-    return runner.input_ids.gpu[:sum(counts)].cpu().tolist()
+    workload.execute_next(observer=observer)
+    inputs = model_inputs_in_request_order(runner, workload.step, req_ids)
+    return inputs.cpu().tolist() if inspect_cpu else inputs
+
+
+def model_inputs_in_request_order(runner, step, req_ids):
+    offsets = {}
+    offset = 0
+    input_ids, row_order = MODEL_INPUTS[runner]
+    for req_id in row_order:
+        count = step.num_scheduled_tokens[req_id]
+        offsets[req_id] = list(range(offset, offset + count))
+        offset += count
+    indices = [i for req_id in req_ids for i in offsets[req_id]]
+    index = torch.tensor(indices, dtype=torch.int64, device=input_ids.device)
+    return input_ids.index_select(0, index)
+
+
+def output_tokens_by_request(output):
+    assert len(output.req_ids) == len(output.sampled_token_ids)
+    assert len(set(output.req_ids)) == len(output.req_ids)
+    return dict(zip(output.req_ids, output.sampled_token_ids))

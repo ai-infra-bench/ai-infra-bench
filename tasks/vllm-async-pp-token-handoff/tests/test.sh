@@ -15,6 +15,7 @@
 set -uo pipefail
 
 mkdir -p /logs/verifier
+rm -f /logs/verifier/failure-stage.txt
 
 # Fail closed from the very first line.
 printf '0\n' > /logs/verifier/reward.txt
@@ -74,7 +75,7 @@ STAGING=/trusted/staging
 WORKER_TMP=/tmp/async-pp-worker
 rm -rf "${STAGING}"
 mkdir -p "${STAGING}" || fail_closed staging_mkdir
-for f in trusted_supervisor.py verify_async_pp.py task_fixtures.py worker_fixtures.py handoff_observer.py; do
+for f in trusted_supervisor.py verify_async_pp.py task_fixtures.py worker_fixtures.py handoff_observer.py lifecycle_cases.py trusted_transport.py mp_e2e.py; do
   cp "/tests/${f}" "${STAGING}/${f}" || fail_closed "staging_copy_${f}"
 done
 cp -r /tests/fixtures "${STAGING}/fixtures" || fail_closed staging_copy_fixtures
@@ -131,13 +132,7 @@ printf 'supervisor_exit=%s\n' "${supervisor_rc}" \
 python3 -I - "${MANIFEST}" <<'PY' > /logs/verifier/scoring.log 2>&1
 import json, sys
 
-REQUIRED_STAGES = {
-    "CONFIG": [0],
-    "SCHEDULER_REENTRY": [0],
-    "NCCL_BASIC": [0, 1],
-    "NCCL_REORDERED": [0, 1],
-    "NCCL_INTEGRATED": [0, 1],
-}
+REQUIRED_STAGES = {"CPU_SUITE": [0], "GPU_SUITE": [0, 1]}
 LIFECYCLE = ("production_returned", "downstream_consumed", "barrier", "final_report")
 # The unprivileged worker uid this scorer requires the parent to have observed.
 EXPECT_WORKER_UID = 65534
@@ -171,6 +166,8 @@ for name, ranks in REQUIRED_STAGES.items():
     if not isinstance(st, dict):
         problems.append(f"{name}:absent")
         continue
+    if name == "GPU_SUITE" and st.get("external_gpu_inputs") is not True:
+        problems.append("external_gpu_inputs_missing_or_failed")
     if st.get("satisfied") is not True:
         problems.append(f"{name}:not_satisfied")
     if st.get("anomalies"):
@@ -257,10 +254,12 @@ except Exception:
 print(json.dumps(out, sort_keys=True))
 PY
 
-if [ "${scoring_rc}" -eq 0 ]; then
-  printf '1\n' > /logs/verifier/reward.txt
-else
-  printf 'scoring_manifest_incomplete rc=%s\n' "${scoring_rc}" \
-    > /logs/verifier/failure-stage.txt
-  printf '0\n' > /logs/verifier/reward.txt
-fi
+# Failed behavior does not need another expensive engine startup. The GPU suite
+# already includes the independent observer; candidate reports cannot replace it.
+[ "${scoring_rc}" -eq 0 ] || fail_closed behavior_suite
+
+e2e_rc=0
+python3 -I "${STAGING}/mp_e2e.py" --log-dir /logs/verifier \
+  > /logs/verifier/mp-e2e.log 2>&1 || e2e_rc=$?
+[ "${e2e_rc}" -eq 0 ] || fail_closed mp_e2e
+printf '1\n' > /logs/verifier/reward.txt
