@@ -1,63 +1,32 @@
-# PR 54 task 修复与本地验收
+# DP supervisor：task 1.2.0 后代清理回归
 
-题目可以保留。最终验收结果以 `e2e-evidence.json` 和对应日志为准；本报告不把原 PR 或开发中间版本的通过记录算作最终证据。
+Task 1.1.0 的改进已提交为 `19226cf`，与原 Codex rollout 的冻结快照一致。随后轨迹复审确认：原 reward=1 的 Codex 答案只清理 rank 进程组，在 rank 死亡后会遗漏独立 session 的后代和监听端口。题面已经要求清理任何后代，本轮只补测试覆盖，不扩大需求或规定实现方式。
 
-语义边界是：公开 CLI 和配置 → 实际 API rank 进程、嵌套子进程、HTTP 探测与信号 → 聚合就绪状态、整个所属进程树及端口释放。模型计算不决定这些行为，因此替换模型客户端和模型相关 HTTP handler；实际 `run_server`、`setup_server`、`run_server_worker` 仍执行。没有宣称完成 GPU 推理、跨节点 LB 或 Kubernetes 集成验收。
+## 本轮变化
 
-## 十维检查
+`detached_descendants` 通过原公共 CLI 启动一个 local rank，作为 global DP=2 中 start rank=1 的合法节点切片。原 engine fixture 可创建独立 session 的真实后代 TCP listener；测试先确认父子关系与活跃监听，再分别触发 ready 后 rank 死亡、startup 中 rank 死亡、startup 中正常 SIGINT。断言在测试自己的 teardown 前检查进程及端口释放。原有继承 rank session 的场景保持不变。
 
-本地验收通过，可继续提交评审。已评分 10/10，18/20；没有未验证维度或本次范围内的阻断项。第 9、10 项各保留一分限制，不代表任意攻击防御或干净主机联网重建已完成。
+评分不读取候选的 helper、字段、类或 bookkeeping，不要求 subreaper、psutil 或进程组算法。OS session 断言只确认测试输入拓扑成立，不规定候选如何清理。模型计算仍使用已有的受控替代边界，真实 CLI、serving 入口、rank、信号、HTTP 和后代生命周期参与执行；没有新增 GPU 推理或 Kubernetes 集成要求。
 
-| # | 检查维度 | 得分 / 状态 | 关键依据或缺口 | 下一步 |
-|---|---|---|---|---|
-| 1 | 题目真实吗、清楚吗？ | 2 / 通过 | 真实 DP 进程监督请求；去掉目录提示及硬换行 | 无 |
-| 2 | 是否独立于原 PR？ | 2 / 通过 | 以生命周期和配置行为定义正确性，Oracle 含额外修复 | 无 |
-| 3 | 环境能解题吗？ | 2 / 通过 | agent 离线烟测；完整 Base 历史、源码/native 导入、无答案对象 | 无 |
-| 4 | 题面与测试双向对齐吗？ | 2 / 通过 | 逐项覆盖表；含 rank 启动期退出、失败重置、连接断开、正常 serve | 见覆盖边界 |
-| 5 | 测到了真正的执行过程吗？ | 2 / 通过 | 实际 CLI、服务入口、HTTP、进程、嵌套 listener 和信号 | 不扩张为 GPU 推理结论 |
-| 6 | 不同的正确实现能通过吗？ | 2 / 通过 | 串行 probe 加提前 callable 别名正确实现通过 | 无 |
-| 7 | 错误实现能被准确拒绝吗？ | 2 / 通过 | Base 和 7 个错误控制均为 0；对应失败路径见日志 | 无 |
-| 8 | Oracle 本身可靠吗？ | 2 / 通过 | 独立嵌套孤儿场景促成修复；最终 Docker 与 Harbor 均为 1 | 无 |
-| 9 | 评分结果可信吗？ | 1 / 部分 | 独立父进程完成断言，早退两控制拒绝；worker instrumentation 不是任意代码隔离 | 如需更强对抗模型，另做隔离审计 |
-| 10 | 验收能复现、交付说清楚了吗？ | 1 / 部分 | 最终 SHA、镜像、10 组结果及 Harbor 已记录；公网重建未完成、镜像未发布 | 有网络的环境验证默认构建并发布镜像 |
+`codex-session-only-cleanup.patch` 保存原答案的六个源码、测试、文档和工具改动文件，作为真实缺陷负例。本轮 Docker 回放还叠加了原完整 regular workspace 捕获。原收集缺失部分链接、权限和 repo 外状态，不能声称重建了完整 agent 环境；已核实用于原评分的 vllm regular 文件与捕获一致，native 二进制与 Base 一致。该局限不改变两种 rank 死亡后真实进程和 socket 泄漏的复现。
 
-[最终运行记录](e2e-evidence.json) 包含每组得分、耗时及独立资源检查，所有组测试结束后均无残留进程或 TCP listener。Oracle 的两个独立运行分别经过 direct Docker 和完整 Harbor；这不是大样本稳定性证明。
+## 版本与证据
 
-## 修复内容
+当前 task 版本为 1.2.0，instruction、Oracle、评分 shell 和 image 均未改动。新增用例使评分范围发生变化，因此不能沿用旧版满分作为新版验收。原初审报告、ci cases、e2e 结果和覆盖说明已原样保存在 `history/task-1.1.0/`；原矩阵与 Harbor 日志仍在 `evidence/` 下。本轮记录单独存放在 `evidence/descendants-1.2.0/`，索引见 `e2e-evidence.json`。
 
-题面按开发者请求重写，去掉工作目录提示和手工硬换行，直接使用 DP、TP、PP、LB。明确三端点的就绪条件、初次就绪前后的失败计数、配置冲突和完整进程清理；不规定 supervisor 类名、辅助函数、计数容器或进程组设计。
+本轮先冻结测试、fixture、task、控制 patch、保存答案和运行脚本，再用固定 image ID 在独立 Docker 容器运行完整 `/tests/test.sh`，结束后核验输入哈希。每个容器 4 CPUs、16 GiB、无外网；没有新模型调用。此处复用了已有评分集成，仅增加行为用例，未修改 Harbor 收集或启动路径；本轮是完整 Docker 评分，不冒称新的 Harbor rollout。
 
-Verifier 改为从公开 CLI 驱动实际服务生命周期，用健康响应、探测次数和时间间隔、进程身份与真实 TCP 连接观测结果。测试自己的收尾清理在候选清理断言之后执行，因此不能替候选完成缺失工作。连接超时和 HTTP 无响应不再被解释为端口释放。测试覆盖与题面依据见 [semantic-boundary.md](semantic-boundary.md)。
+完整评分结果如下。Oracle 和替代实现均完成全部六个顶层组及三个新增子场景；Base 因缺少新参数失败，Codex 在通过原 readiness 后由新增后代清理检查拒绝。所有容器在 verifier 收尾后无残留进程或 TCP listener；候选失败前的泄漏已单独记录，不能把 verifier 收尾解释为候选清理成功。原 Codex reward 1 永久保留在历史记录中，新版结果另列。
 
-Oracle 修复了初次就绪和失败计数混用、无效参数校验以及 rank 已退出时的嵌套进程遗漏。Linux subreaper 负责接管孤儿后代；Python resource tracker 由其自身生命周期管理，避免重复回收。历史 upstream commit 仅作为实现来源，修改后的 Oracle 与其他解法接受同一套检查。
-
-## 对照含义
-
-正确替代实现使用串行探测和提前保存的 serving callable 别名。题面没有规定探测必须并发，也没有规定 import 写法；同一 callable 在正常产品执行中的语义不变，所以这两项应当被接受。
-
-错误反例分别覆盖提前就绪、忽略 probe 参数、错误失败阈值、无效启动遗留监听器、rank 退出后遗留嵌套进程，以及两种成功提前退出。Base 没有新 CLI；提前退出反例必须执行到注入点，但不能凭退出码零获得成功。忽略参数的反例会在本应存活的短失败序列期间提前结束服务；最终异常可能表现为后续观测读取不到 JSON，需结合进程日志判断原因，不能只看 traceback 名称。
-
-## 环境与交付边界
-
-新 worktree 为 `/tmp/ai-infra-pr54-hardening`，分支为 `codex/dp-supervisor-cleanup`，基于 PR HEAD `9cc04b5edbedb60006ab0a4974c0748adb2d4c52`。所有修改仅在该 task 下，尚未提交或推送。主工作区已有的 skill 修改未改动；所用 dirty skill 内容用单独 SHA-256 记录。
-
-环境使用 CPU，因为目标是 Python frontend 的进程监督。设备测试执行 pinned platform 的设备映射 API，使用重排后的 CPU 可见设备列表验证 TP/PP 切片，不声称实际分配 GPU。构建默认保留公开 donor 加指定源码的路线，本次成功路径复用了经过验证的缓存镜像，细节见 [docker-build.md](docker-build.md)。镜像未推送，不把本地 image ID 写成不存在的 registry digest。
-
-评分父进程不导入候选，执行必需断言后才写 reward；子进程早退无法替代这些检查。模型边界 instrumentation 位于包含候选代码的 worker 中，它不是抵御任意代码篡改的隔离沙箱。当前可信度结论限于已执行的行为及反例，不能据此宣称对所有攻击免疫。
-
-## 最终运行结果
-
-| 实现 | 预期 | 实测 | 秒 |
+| 实现 | 原 1.1.0 reward | 新 1.2.0 reward | 新版完整评分耗时 |
 |---|---|---|---|
-| base | 0 | 0 | 45.88 |
-| oracle | 1 | 1 | 320.38 |
-| sequential-probes-and-callable-alias | 1 | 1 | 311.85 |
-| ready-before-children | 0 | 0 | 32.79 |
-| ignored-probe-options | 0 | 0 | 79.5 |
-| wrong-failure-threshold | 0 | 0 | 88.62 |
-| invalid-start-listener-leak | 0 | 0 | 223.58 |
-| orphaned-engine-process | 0 | 0 | 43.36 |
-| systemexit-success | 0 | 0 | 45.95 |
-| os-exit-success | 0 | 0 | 45.86 |
+| base | 0 | 0 | 45.84 秒 |
+| oracle | 1 | 1 | 379.11 秒 |
+| alternative | 1 | 1 | 384.49 秒 |
+| codex | 1 | 0 | 95.07 秒 |
 
-Harbor：1 个完成 trial，0 个 error，reward=1。开发过程中发现并修正了断连时 HTTP 客户端自动重试导致的请求次数误判；最终断连场景只要求真实失败发生并停止整个组，精确逻辑失败阈值由非 200 响应场景验证，避免锁定客户端重试策略。
+## 仍然存在的边界
+
+上一版七个其他错误控制的执行记录属于 1.1.0，不冒充全部重新验证过 1.2.0。新版本的完整评分验收重点为 Base、Oracle、合法替代实现和本次暴露的 Codex 负例。顺序 probe / callable alias 对照与 Oracle 的清理逻辑同源，不能描述为完全独立的第二套清理算法。
+
+当前测试不是任意恶意代码隔离沙箱，也不覆盖所有跨 rank 非对称失败序列、运行期启动故障或普通 serve 配置。离线开发依赖与完整最终状态收集的改进另列后续工作，没有借本轮后代清理扩大修改范围。这里的新增测试来自已审阅答案，属于开发回归，不是新的 held-out 模型能力测试。

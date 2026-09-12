@@ -24,7 +24,8 @@ time.sleep(3600)
 
 @contextlib.asynccontextmanager
 async def engine(args, **kwargs):
-    child = subprocess.Popen([sys.executable, '-S', '-c', ENGINE], stdout=subprocess.PIPE, text=True)
+    child = subprocess.Popen([sys.executable, '-S', '-c', ENGINE], stdout=subprocess.PIPE, text=True,
+                             start_new_session=os.environ.get('DP_FIXTURE_DETACHED_ENGINE') == '1')
     identity = json.loads(child.stdout.readline())
     try:
         yield SimpleNamespace(args=args, identity=identity)

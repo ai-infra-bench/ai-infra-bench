@@ -11,7 +11,3 @@
 | Old image/history/result descriptions no longer matched artifacts | Separate archived evidence, exact Base/tree provenance, rebuilt image and frozen checksums | Image manifest, final evidence and review report |
 
 The reference implementation is not exempt from any check. Historical Oracle commit metadata identifies the basis only; the current solution patch includes additional contract-driven fixes.
-
-## Rollout-derived follow-up
-
-Task 1.1.0 gave the completed Codex answer reward 1 because both its tests and the verifier used workers in the rank process group. Task 1.2.0 adds detached-session descendants, rank death before and after readiness, and a normal startup SIGINT control. The expected result follows from the existing any-descendants contract. Historical scores remain under `history/task-1.1.0/`; the follow-up results are recorded separately.

@@ -55,7 +55,7 @@ def alive(process):
 
 
 class Group:
-    def __init__(self, harness, *, local=2, total=2, start=0, tp=1, pp=1, devices='3,1', interval=.15, timeout=.2, threshold=3, extra=(), mode=True):
+    def __init__(self, harness, *, local=2, total=2, start=0, tp=1, pp=1, devices='3,1', interval=.15, timeout=.2, threshold=3, extra=(), mode=True, detached_engine=False):
         # Sequential cases have no competing allocator in this network namespace.
         for port in range(23100, 32000-local):
             sockets=[]
@@ -81,6 +81,7 @@ class Group:
         args += [str(port+x) if isinstance(x,int) else x for x in extra]
         env=os.environ.copy();env['CPU_VISIBLE_MEMORY_NODES']=devices
         env['DP_FIXTURE_TRACE_PORT']=str(self.trace_socket.getsockname()[1])
+        env['DP_FIXTURE_DETACHED_ENGINE']='1' if detached_engine else '0'
         env['PYTHONPATH']=str(harness)+os.pathsep+str(ROOT)
         self.process=subprocess.Popen(args,cwd=ROOT,env=env,start_new_session=True)
         self.collector=threading.Thread(target=self._collect,daemon=True);self.collector.start()
@@ -177,6 +178,39 @@ def readiness(harness):
         g.assert_clean()
 
 
+def detached_descendants(harness):
+    # A new session changes signal routing, not ownership. Drive the public CLI
+    # and inspect real processes/sockets without requiring a cleanup algorithm.
+    for phase in ('ready_rank_exit', 'startup_rank_exit', 'startup_sigint'):
+        with group(harness, local=1, total=2, start=1, devices='5',
+                   detached_engine=True) as g:
+            g.wait_services(); g.status_all(503)
+            if phase == 'ready_rank_exit':
+                g.ready()
+            identity = g.identity(0)
+            engine = psutil.Process(identity['engine']['pid'])
+            engine_port = identity['engine']['port']
+            assert engine.ppid() == identity['pid'], 'fixture must create a descendant'
+            assert os.getsid(engine.pid) != os.getsid(identity['pid']), 'fixture session not detached'
+            assert not closed(engine_port), 'fixture listener did not start'
+            g.remember()
+            if phase == 'startup_sigint':
+                g.process.send_signal(signal.SIGINT)
+            else:
+                psutil.Process(identity['pid']).kill()
+            try:
+                g.assert_clean()
+                assert not alive(engine) and closed(engine_port)
+            except (AssertionError, subprocess.TimeoutExpired) as exc:
+                # Record before test teardown, which kills leaked processes only
+                # after the candidate has already failed its cleanup assertion.
+                raise AssertionError(
+                    f'{phase}: descendant_alive={alive(engine)}, '
+                    f'listener_open={not closed(engine_port)}; {exc}'
+                ) from exc
+            print(f'PASS detached_descendants/{phase}', flush=True)
+
+
 def probe_settings(harness):
     with group(harness,interval=.6,timeout=.2,threshold=3) as g:
         g.wait_services();g.ready()
@@ -255,7 +289,7 @@ def main():
         fixture=Path(__file__).with_name('service_fixture.py')
         (harness/'service_fixture.py').write_bytes(fixture.read_bytes())
         (harness/'sitecustomize.py').write_text('import service_fixture; service_fixture.install()\n')
-        for case in (readiness,probe_settings,mapping_and_signals,invalid,ordinary):
+        for case in (readiness,detached_descendants,probe_settings,mapping_and_signals,invalid,ordinary):
             start=time.monotonic();case(harness)
             print(f'PASS {case.__name__} {time.monotonic()-start:.2f}s',flush=True)
     print('PASS all required behavior checks',flush=True)
