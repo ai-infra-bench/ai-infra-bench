@@ -1,0 +1,53 @@
+schema_version = "1.4"
+artifacts = ["/workspace/repo/vllm"]
+
+[task]
+name = "ai-infra-bench/vllm-deterministic-bmm-batch-scaling"
+version = "1.2.4"
+description = "Remove per-item launch overhead from deterministic batched matrix multiplication."
+authors = [{ name = "AI Infra Bench Curators" }]
+keywords = ["vllm", "triton", "bmm", "determinism", "performance"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+track = "representative"
+source_ids = ["vllm__pr__29345"]
+repository = "vllm-project/vllm"
+base_commit = "b07555d26f4c7ad9a2d1ec45428a9d4287db612c"
+image_digest = "sha256:677b8320fb3d21f56463010836743f92c9917e3c278803fea5176e2dbe0cca98"
+dependency_cutoff = "2025-11-25T18:27:26Z"
+oracle_commit = "0b0aa874e85431a0f08a0d1fad95ae673e034392"
+workload_type = "performance_fix"
+difficulty = "hard"
+grader_kind = "correctness_and_performance"
+subsystems = ["kernel_optimization", "determinism"]
+environment_template = "vllm-harbor-all-in-one"
+environment_profile = "cuda-triton"
+gpu_base_image = "vllm/vllm-openai@sha256:d5b12dfb74d605615f8b29ebafaa52294c118bcac7bc9e941785c4108fdb913a"
+gpu_base_vllm_revision = "439368496db48d8f992ba8c606a0c0b1eebbfa69"
+gpu_compute_capability = "8.0"
+gpu_min_driver_version = "575.51.03"
+publication_state = "candidate-static-review"
+
+[agent]
+timeout_sec = 36000.0
+user = "agent"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 1800.0
+environment_mode = "separate"
+user = "root"
+
+[environment]
+accelerator = "A100"
+network_mode = "no-network"
+build_timeout_sec = 3600.0
+os = "linux"
+cpus = 4
+memory_mb = 24576
+storage_mb = 49152
+gpus = 1
+gpu_types = ["A100"]
+topology = 1
+workdir = "/workspace/repo"
