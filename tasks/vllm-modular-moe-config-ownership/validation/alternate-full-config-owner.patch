@@ -1,0 +1,182 @@
+diff --git a/vllm/lora/layers/fused_moe.py b/vllm/lora/layers/fused_moe.py
+index 24cab79..7b88987 100644
+--- a/vllm/lora/layers/fused_moe.py
++++ b/vllm/lora/layers/fused_moe.py
+@@ -131,6 +131,9 @@ class FusedMoEWithLoRA(BaseLayerWithLoRA):
+             ),
+             self.base_layer.shared_experts,
+             getattr(self.base_layer, "shared_experts_stream", None),
++            # The kernel is owned by the base layer, so take its DP+EP
++            # behaviour from that layer's MoE config.
++            moe_config=getattr(self.base_layer, "moe_config", None),
+         )
+         if quant_config.use_mxfp4_w4a16:
+             assert isinstance(
+diff --git a/vllm/model_executor/layers/fused_moe/cutlass_moe.py b/vllm/model_executor/layers/fused_moe/cutlass_moe.py
+index 552e38a..4a0b4e8 100644
+--- a/vllm/model_executor/layers/fused_moe/cutlass_moe.py
++++ b/vllm/model_executor/layers/fused_moe/cutlass_moe.py
+@@ -460,7 +460,6 @@ def cutlass_moe_fp8(
+     expert_map: torch.Tensor | None = None,
+     apply_router_weight_on_input: bool = False,
+     global_num_experts: int = -1,
+-    parallel_config=None,
+ ) -> torch.Tensor:
+     """
+     This function computes a a8w8-quantized Mixture of Experts (MoE) layer
+@@ -538,7 +537,6 @@ def cutlass_moe_fp8(
+             c_strides2=c_strides2,
+             quant_config=quant_config,
+         ),
+-        parallel_config=parallel_config,
+     )
+ 
+     return fn(
+diff --git a/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py b/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
+index 1947423..be71d26 100644
+--- a/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
++++ b/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
+@@ -43,11 +43,13 @@ class FusedMoEModularMethod(FusedMoEMethodBase, CustomOp):
+         prepare_finalize: FusedMoEPrepareAndFinalize,
+         shared_experts: torch.nn.Module | None,
+     ) -> "FusedMoEModularMethod":
+-        parallel_config = getattr(
+-            getattr(moe_layer, "vllm_config", None),
+-            "parallel_config",
+-            None,
+-        )
++        # The kernel belongs to `moe_layer`, so it must derive its DP+EP
++        # behaviour from that layer's MoE config. Prefer the layer's own config
++        # and fall back to the one the quant method was built with, which is
++        # the same object for layer-owned quant methods.
++        moe_config = getattr(moe_layer, "moe_config", None)
++        if moe_config is None:
++            moe_config = old_quant_method.moe
+         return FusedMoEModularMethod(
+             old_quant_method,
+             FusedMoEModularKernel(
+@@ -55,7 +57,7 @@ class FusedMoEModularMethod(FusedMoEMethodBase, CustomOp):
+                 old_quant_method.select_gemm_impl(prepare_finalize, moe_layer),
+                 shared_experts,
+                 getattr(moe_layer, "shared_experts_stream", None),
+-                parallel_config=parallel_config,
++                moe_config=moe_config,
+             ),
+         )
+ 
+diff --git a/vllm/model_executor/layers/fused_moe/modular_kernel.py b/vllm/model_executor/layers/fused_moe/modular_kernel.py
+index 9e75a7c..d1971e6 100644
+--- a/vllm/model_executor/layers/fused_moe/modular_kernel.py
++++ b/vllm/model_executor/layers/fused_moe/modular_kernel.py
+@@ -10,10 +10,12 @@ from typing import final
+ import torch
+ 
+ import vllm.envs as envs
+-from vllm.config import ParallelConfig, get_current_vllm_config
+ from vllm.forward_context import get_forward_context, is_forward_context_available
+ from vllm.logger import init_logger
+-from vllm.model_executor.layers.fused_moe.config import FusedMoEQuantConfig
++from vllm.model_executor.layers.fused_moe.config import (
++    FusedMoEConfig,
++    FusedMoEQuantConfig,
++)
+ from vllm.model_executor.layers.fused_moe.utils import (
+     _resize_cache,
+     count_expert_num_tokens,
+@@ -681,21 +683,19 @@ class FusedMoEModularKernel(torch.nn.Module):
+         fused_experts: FusedMoEPermuteExpertsUnpermute,
+         shared_experts: torch.nn.Module | None = None,
+         shared_experts_stream: torch.cuda.Stream | None = None,
+-        parallel_config: ParallelConfig | None = None,
++        moe_config: FusedMoEConfig | None = None,
+     ):
+         super().__init__()
+         self.prepare_finalize = prepare_finalize
+         self.fused_experts = fused_experts
+         self.shared_experts = shared_experts
+         self.shared_experts_stream = shared_experts_stream
+-
+-        # cache whether this worker is using DP+EP
+-        if parallel_config is None:
+-            parallel_config = get_current_vllm_config().parallel_config
+-        self.is_dp_ep = (
+-            parallel_config.data_parallel_size > 1
+-            and parallel_config.enable_expert_parallel
+-        )
++        # The MoE config of the layer that owns this kernel. This, and not any
++        # ambient/process-global parallel config, determines the kernel's
++        # DP+EP behaviour. It is None for the compatibility constructions that
++        # are not owned by a layer (e.g. the standalone functional entrypoints),
++        # which are never DP+EP.
++        self.moe_config = moe_config
+ 
+         self._post_init_setup()
+         assert (
+@@ -714,6 +714,21 @@ class FusedMoEModularKernel(torch.nn.Module):
+         """
+         self.prepare_finalize.post_init_setup(self.fused_experts)
+ 
++    @property
++    def is_dp_ep(self) -> bool:
++        """
++        Whether the layer that owns this kernel runs with both data parallelism
++        and expert parallelism.
++
++        This is read from the owning layer's MoE config so that it always
++        agrees with that layer, regardless of what any other layer or the
++        ambient vLLM config says. Kernels built without an owning layer are
++        never DP+EP.
++        """
++        if self.moe_config is None:
++            return False
++        return self.moe_config.dp_size > 1 and self.moe_config.use_ep
++
+     def supports_expert_map(self) -> bool:
+         """
+         A flag indicating whether or not this class supports expert maps.
+diff --git a/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py b/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py
+index 5ad26f9..18c2ab0 100644
+--- a/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py
++++ b/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py
+@@ -1266,9 +1266,6 @@ class CompressedTensorsW8A8Fp8MoEMethod(CompressedTensorsMoEMethod):
+                     ab_strides2=self.ab_strides2,
+                     c_strides1=self.c_strides1,
+                     c_strides2=self.ab_strides1_c_strides2,
+-                    parallel_config=getattr(
+-                        getattr(layer, "vllm_config", None), "parallel_config", None
+-                    ),
+                 )
+ 
+         else:
+diff --git a/vllm/model_executor/layers/quantization/utils/flashinfer_utils.py b/vllm/model_executor/layers/quantization/utils/flashinfer_utils.py
+index 09d0fe6..e92f380 100644
+--- a/vllm/model_executor/layers/quantization/utils/flashinfer_utils.py
++++ b/vllm/model_executor/layers/quantization/utils/flashinfer_utils.py
+@@ -246,12 +246,13 @@ def flashinfer_cutlass_moe_fp8(
+     quant_config = layer.quant_method.get_fused_moe_quant_config(layer)
+     assert quant_config is not None
+ 
++    # The kernel is used by `layer`, so its DP+EP behaviour must come from that
++    # layer's MoE config: the one passed in by the caller, or failing that the
++    # one the layer itself holds. Layers without a MoE config (e.g. the plain
++    # module used by the standalone tests) are not DP+EP.
++    moe_config = moe if moe is not None else getattr(layer, "moe_config", None)
++
+     # Construct modular kernel with block-scale support when requested.
+-    parallel_config = getattr(
+-        getattr(layer, "vllm_config", None),
+-        "parallel_config",
+-        None,
+-    )
+     fused_experts = mk.FusedMoEModularKernel(
+         build_flashinfer_fp8_cutlass_moe_prepare_finalize(
+             moe=moe, use_deepseek_fp8_block_scale=use_deepseek_fp8_block_scale
+@@ -262,7 +263,7 @@ def flashinfer_cutlass_moe_fp8(
+             out_dtype=hidden_states.dtype,
+             use_deepseek_fp8_block_scale=use_deepseek_fp8_block_scale,
+         ),
+-        parallel_config=parallel_config,
++        moe_config=moe_config,
+     )
+ 
+     return fused_experts(
