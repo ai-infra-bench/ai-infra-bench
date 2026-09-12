@@ -1,0 +1,53 @@
+schema_version = "1.4"
+artifacts = ["/workspace/repo/vllm"]
+
+[task]
+name = "ai-infra-bench/vllm-fused-moe-config-lifecycle"
+version = "1.2.6"
+description = "Avoid false missing-config warnings in modular fused-MoE profiling and forward passes."
+authors = [{ name = "AI Infra Bench Curators" }]
+keywords = ["vllm", "moe", "distributed", "warning", "triton"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+track = "representative"
+source_ids = ["vllm__pr__29999"]
+repository = "vllm-project/vllm"
+base_commit = "2902c348265639de300c95cbcae1c26486f57ac7"
+image_digest = "sha256:ef35668a4c46b61021098f1bac232bbd593bc7e6b7ea01dd95b52f0e2564ef1b"
+dependency_cutoff = "2025-12-03T20:49:00Z"
+oracle_commit = "7b5575fa7dcf76ac86ab8d18501b9cc04f74f6bb"
+workload_type = "bug_fix"
+difficulty = "hard"
+grader_kind = "correctness"
+subsystems = ["distributed_config", "model_executor"]
+environment_template = "vllm-harbor-all-in-one"
+environment_profile = "cuda-triton"
+gpu_base_image = "vllm/vllm-openai@sha256:6766ce0c459e24b76f3e9ba14ffc0442131ef4248c904efdcbf0d89e38be01fe"
+gpu_base_vllm_revision = "v0.12.0"
+gpu_compute_capability = "8.0"
+gpu_min_driver_version = "575.51.03"
+publication_state = "candidate-static-review"
+
+[agent]
+timeout_sec = 36000.0
+user = "agent"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 1200.0
+environment_mode = "separate"
+user = "root"
+
+[environment]
+accelerator = "A100"
+network_mode = "no-network"
+build_timeout_sec = 3600.0
+os = "linux"
+cpus = 4
+memory_mb = 16384
+storage_mb = 49152
+gpus = 1
+gpu_types = ["A100"]
+topology = 1
+workdir = "/workspace/repo"

@@ -1,0 +1,158 @@
+diff --git a/vllm/config/__init__.py b/vllm/config/__init__.py
+index dd76a72..a097dee 100644
+--- a/vllm/config/__init__.py
++++ b/vllm/config/__init__.py
+@@ -41,6 +41,7 @@ from vllm.config.vllm import (
+     get_current_vllm_config,
+     get_layers_from_vllm_config,
+     set_current_vllm_config,
++    try_get_current_vllm_config,
+ )
+ 
+ # __all__ should only contain classes and functions.
+@@ -99,4 +100,5 @@ __all__ = [
+     "get_current_vllm_config",
+     "set_current_vllm_config",
+     "get_layers_from_vllm_config",
++    "try_get_current_vllm_config",
+ ]
+diff --git a/vllm/config/vllm.py b/vllm/config/vllm.py
+index 735b0af..89b3fce 100644
+--- a/vllm/config/vllm.py
++++ b/vllm/config/vllm.py
+@@ -1314,6 +1314,19 @@ def get_cached_compilation_config():
+     return get_current_vllm_config().compilation_config
+ 
+ 
++def try_get_current_vllm_config() -> VllmConfig | None:
++    """
++    Return the vLLM config of the enclosing `set_current_vllm_config` scope,
++    or None if there is none.
++
++    Unlike `get_current_vllm_config`, this does not warn and does not
++    fabricate a default config. Use it when a missing config is an expected
++    outcome, e.g. to snapshot the config owned by a layer so that later
++    accesses don't depend on ambient global state.
++    """
++    return _current_vllm_config
++
++
+ def get_current_vllm_config() -> VllmConfig:
+     if _current_vllm_config is None:
+         # in ci, usually when we test custom ops/modules directly,
+diff --git a/vllm/lora/layers/fused_moe.py b/vllm/lora/layers/fused_moe.py
+index 24cab79..c3181a2 100644
+--- a/vllm/lora/layers/fused_moe.py
++++ b/vllm/lora/layers/fused_moe.py
+@@ -131,6 +131,7 @@ class FusedMoEWithLoRA(BaseLayerWithLoRA):
+             ),
+             self.base_layer.shared_experts,
+             getattr(self.base_layer, "shared_experts_stream", None),
++            vllm_config=getattr(self.base_layer, "vllm_config", None),
+         )
+         if quant_config.use_mxfp4_w4a16:
+             assert isinstance(
+diff --git a/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py b/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
+index c23c41d..713a5a1 100644
+--- a/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
++++ b/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
+@@ -6,7 +6,6 @@ from collections.abc import Callable
+ import torch
+ 
+ from vllm.logger import init_logger
+-from vllm.model_executor.custom_op import CustomOp
+ from vllm.model_executor.layers.fused_moe.config import (
+     FusedMoEQuantConfig,
+ )
+@@ -21,8 +20,7 @@ from vllm.model_executor.layers.fused_moe.modular_kernel import (
+ logger = init_logger(__name__)
+ 
+ 
+-@CustomOp.register("modular_fused_moe")
+-class FusedMoEModularMethod(FusedMoEMethodBase, CustomOp):
++class FusedMoEModularMethod(FusedMoEMethodBase, torch.nn.Module):
+     def __init__(
+         self, old_quant_method: FusedMoEMethodBase, experts: FusedMoEModularKernel
+     ):
+@@ -51,6 +49,10 @@ class FusedMoEModularMethod(FusedMoEMethodBase, CustomOp):
+                 old_quant_method.select_gemm_impl(prepare_finalize, moe_layer),
+                 shared_experts,
+                 getattr(moe_layer, "shared_experts_stream", None),
++                # The layer already resolved its config at construction time;
++                # hand it to the kernel so forward-time lookups don't rely on
++                # the global config scope still being active.
++                vllm_config=getattr(moe_layer, "vllm_config", None),
+             ),
+         )
+ 
+diff --git a/vllm/model_executor/layers/fused_moe/modular_kernel.py b/vllm/model_executor/layers/fused_moe/modular_kernel.py
+index b2af58c..6a81901 100644
+--- a/vllm/model_executor/layers/fused_moe/modular_kernel.py
++++ b/vllm/model_executor/layers/fused_moe/modular_kernel.py
+@@ -10,7 +10,12 @@ from typing import final
+ import torch
+ 
+ import vllm.envs as envs
+-from vllm.config import get_current_vllm_config
++from vllm.config import (
++    ParallelConfig,
++    VllmConfig,
++    get_current_vllm_config,
++    try_get_current_vllm_config,
++)
+ from vllm.forward_context import get_forward_context, is_forward_context_available
+ from vllm.logger import init_logger
+ from vllm.model_executor.layers.fused_moe.config import FusedMoEQuantConfig
+@@ -716,12 +721,22 @@ class FusedMoEModularKernel(torch.nn.Module):
+         fused_experts: FusedMoEPermuteExpertsUnpermute,
+         shared_experts: torch.nn.Module | None = None,
+         shared_experts_stream: torch.cuda.Stream | None = None,
++        vllm_config: VllmConfig | None = None,
+     ):
+         super().__init__()
+         self.prepare_finalize = prepare_finalize
+         self.fused_experts = fused_experts
+         self.shared_experts = shared_experts
+         self.shared_experts_stream = shared_experts_stream
++        # Bind the config this kernel belongs to. Prefer the config handed
++        # down by the owning layer, otherwise snapshot the one in scope at
++        # construction time. `set_current_vllm_config` is only active during
++        # model initialization, so the global is generally gone by the time
++        # forward runs; keeping our own reference means forward-time lookups
++        # don't depend on ambient global state.
++        if vllm_config is None:
++            vllm_config = try_get_current_vllm_config()
++        self.vllm_config = vllm_config
+ 
+         self._post_init_setup()
+         assert (
+@@ -740,6 +755,20 @@ class FusedMoEModularKernel(torch.nn.Module):
+         """
+         self.prepare_finalize.post_init_setup(self.fused_experts)
+ 
++    def _parallel_config(self) -> ParallelConfig:
++        """
++        The parallel config this kernel was built for.
++
++        The config bound at construction wins over whatever happens to be in
++        the global `set_current_vllm_config` scope at forward time, since that
++        scope may be absent or may describe a different config entirely. Only
++        fall back to the global lookup (which warns when nothing is set) when
++        this kernel has no config of its own.
++        """
++        if self.vllm_config is not None:
++            return self.vllm_config.parallel_config
++        return get_current_vllm_config().parallel_config
++
+     def supports_expert_map(self) -> bool:
+         """
+         A flag indicating whether or not this class supports expert maps.
+@@ -812,7 +841,7 @@ class FusedMoEModularKernel(torch.nn.Module):
+             and get_forward_context().attn_metadata is None
+         )
+         if is_profile_run and self.fused_experts.supports_chunking():
+-            parallel_config = get_current_vllm_config().parallel_config
++            parallel_config = self._parallel_config()
+             is_dp_ep = (
+                 parallel_config.data_parallel_size > 1
+                 and parallel_config.enable_expert_parallel

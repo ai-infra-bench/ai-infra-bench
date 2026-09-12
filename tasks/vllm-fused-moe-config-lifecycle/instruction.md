@@ -1,0 +1,5 @@
+Profiling a configured DP+EP fused-MoE layer through the normal factory path emits `Current vLLM config is not set.` The same warning can appear during forward even though the layer has a usable parallel configuration. Fix construction, profiling, and forward so they use the active layer's configuration when the temporary global context is absent or belongs to another layer.
+
+Work in `/workspace/repo` and preserve the real Triton MoE forward behavior. Configured layers must not emit a missing-config warning, but a real access with no available configuration must still warn. Do not suppress, downgrade, filter, or globally monkeypatch the diagnostic. Constructor parameters, attributes, and where configuration is carried are implementation choices.
+
+During DP+EP profiling, keep the backend's worst-case workspace reservation of 16,384 routing tokens even when the local batch is small. An ordinary layer must retain its ordinary workspace requirements under a conflicting DP+EP context. Validate the normal factory and forward lifecycle across these context changes; workspace query counts and internal storage layout are not prescribed.
