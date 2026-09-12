@@ -1,37 +1,9 @@
-# vLLM multi-port DP supervisor
+# Node-local DP supervisor
 
-## What the Agent does
+One `vllm serve` invocation launches the local DP ranks on consecutive API ports. The supervisor aggregates readiness, honors configurable health probes and cleans up the full owned process tree on failure or termination. The user contract is in `instruction.md`.
 
-Add one supervised node-local process group for multiple data-parallel API endpoints behind an external load balancer. The user-facing contract is in [instruction.md](instruction.md).
+The CPU environment supplies the exact frozen Base and ordinary dependencies. See `environment/lock/README.md` for the immutable image and source-build provenance. Tests and solutions remain outside the agent image.
 
-## Environment
+The verifier runs the public CLI and actual API server lifecycle. Model execution and model-specific HTTP routes use controlled producers, while child processes, nested listeners, rank and device assignment, probe requests, signals and cleanup remain observable behavior. It also runs ordinary serving without the new mode. The candidate's helper names, supervisor class, process titles and internal bookkeeping are not scored.
 
-A digest-pinned vLLM image with the exact Base source, CPU execution for frontend orchestration, offline runtime, and a 10-hour Agent budget.
-
-## Verifier
-
-The separate hidden verifier enters through the public CLI, starts real HTTP child processes, and checks rank assignment, aggregate health, failures, signals, and socket cleanup. Full credit is binary and is written to `/logs/verifier/reward.txt`.
-
-## Layout
-
-- `instruction.md`: user-facing behavioral request.
-- `task.toml`: Harbor metadata, resources, isolation, and artifact paths.
-- `environment/`: exact Base source image and dependency provenance.
-- `solution/`: Oracle patch and application script, hidden from the Agent.
-- `tests/`: separate-verifier entrypoint and behavioral checks.
-- `validation/`: control manifest and evidence for the frozen snapshot.
-
-## Running
-
-The TCP/process cleanup checks were tightened after the original PR validation.
-At the maintainer's request, this revision has not been rerun through Docker or
-Harbor. Prior results are retained as historical evidence and do not certify the
-modified verifier. Publication remains pending validation.
-
-To validate this revision:
-
-```bash
-harbor run -p tasks/vllm-dp-multi-port-supervisor -a oracle
-harbor run -p tasks/vllm-dp-multi-port-supervisor -a terminus-2 -m anthropic/claude-opus-4-8
-```
-
+`validation/ci-cases.json` lists controls against the current task. The prior task and its earlier results are archived under `validation/history/pr54-9cc04b5/`; they do not certify this revision. Current results and remaining limitations are recorded in `validation/e2e-evidence.json` and `validation/review-report.md`.

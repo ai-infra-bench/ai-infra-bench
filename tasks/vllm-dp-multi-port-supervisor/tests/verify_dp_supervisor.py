@@ -1,424 +1,263 @@
 #!/usr/bin/env python3
-"""Black-box contract for the public node-local DP serving mode.
-
-Only heavyweight model serving is replaced. The verifier launches the normal
-``vllm serve`` command and observes its CLI, HTTP and process-tree behaviour;
-it does not require a particular supervisor module, class or helper name.
-"""
-
-from __future__ import annotations
-
+"""Exercise public serving, real HTTP and complete process ownership transitions."""
+import contextlib
+import ctypes
 import errno
+import json
 import os
+from pathlib import Path
 import signal
 import socket
 import subprocess
 import sys
 import tempfile
-import textwrap
+import threading
 import time
-from pathlib import Path
+from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
-from urllib.request import urlopen
-
 import psutil
 
-sys.path.insert(0, "/workspace/repo")
+ROOT = Path('/workspace/repo')
+ENDPOINTS = ('/health', '/ready', '/readyz')
 
 
-FAKE_SERVER = r'''\
-import asyncio
-import os
-import signal
-
-from aiohttp import web
-import vllm.platforms
-from vllm.platforms.cpu import CpuPlatform
-
-# The task exercises frontend orchestration without reserving a GPU. Make the
-# otherwise GPU-only image's platform discovery deterministic before the CLI
-# constructs its configuration defaults.
-vllm.platforms._current_platform = CpuPlatform()
-
-import vllm.entrypoints.openai.api_server as api_server
-
-
-async def fake_run_server(args, **_kwargs):
-    healthy = False
-    stopped = asyncio.Event()
-
-    async def health(_request):
-        return web.Response(status=200 if healthy else 503)
-
-    async def set_healthy(_request):
-        nonlocal healthy
-        healthy = True
-        return web.Response(status=200)
-
-    async def set_unhealthy(_request):
-        nonlocal healthy
-        healthy = False
-        return web.Response(status=200)
-
-    async def device(_request):
-        return web.Response(text=os.environ.get(CpuPlatform.device_control_env_var, ""))
-
-    async def rank(_request):
-        return web.Response(text=str(args.data_parallel_rank))
-
-    app = web.Application()
-    app.router.add_get("/health", health)
-    app.router.add_get("/set_healthy", set_healthy)
-    app.router.add_get("/set_unhealthy", set_unhealthy)
-    app.router.add_get("/device", device)
-    app.router.add_get("/rank", rank)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, args.host or "127.0.0.1", args.port)
-    await site.start()
-
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, stopped.set)
+def request(port, path='/health', data=None, timeout=.4):
+    req = Request(f'http://127.0.0.1:{port}{path}', data=None if data is None else json.dumps(data).encode(), headers={'Content-Type':'application/json'})
     try:
-        await stopped.wait()
-    finally:
-        await runner.cleanup()
-
-
-api_server.run_server = fake_run_server
-'''
-
-
-def reserve_ports(count: int = 3) -> tuple[int, ...]:
-    for first in range(23100, 32000 - count):
-        sockets: list[socket.socket] = []
-        try:
-            for port in range(first, first + count):
-                sock = socket.socket()
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                sock.bind(("127.0.0.1", port))
-                sockets.append(sock)
-            return tuple(range(first, first + count))
-        except OSError:
-            pass
-        finally:
-            for sock in sockets:
-                sock.close()
-    raise RuntimeError("could not reserve contiguous loopback ports")
-
-
-def status(port: int, path: str = "/health") -> int:
-    try:
-        with urlopen(f"http://127.0.0.1:{port}{path}", timeout=0.5) as response:
-            return response.status
+        with urlopen(req, timeout=timeout) as response:
+            return response.status, response.read()
     except HTTPError as exc:
-        return exc.code
-    except (TimeoutError, URLError):
-        return -1
+        return exc.code, b''
+    except (TimeoutError, URLError, ConnectionError):
+        return -1, b''
 
 
-def response_text(port: int, path: str) -> str:
-    with urlopen(f"http://127.0.0.1:{port}{path}", timeout=0.5) as response:
-        assert response.status == 200
-        return response.read().decode()
-
-
-def wait_status(
-    port: int,
-    expected: int,
-    path: str = "/health",
-    timeout: float = 45.0,
-) -> None:
-    deadline = time.monotonic() + timeout
-    observed = -1
-    while time.monotonic() < deadline:
-        observed = status(port, path)
-        if observed == expected:
-            return
-        time.sleep(0.05)
-    raise AssertionError(f"{port}{path}: expected {expected}, observed {observed}")
-
-
-def wait_closed(*ports: int, timeout: float = 15.0) -> None:
+def eventually(predicate, timeout=45, label='condition'):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        # An HTTP timeout does not prove that a listener released its socket.
-        # Only an explicit local TCP refusal establishes absence of a listener;
-        # connection success, timeout and other errors must keep this check open.
-        refused = []
-        for port in ports:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-                probe.settimeout(0.2)
-                refused.append(
-                    probe.connect_ex(("127.0.0.1", port)) == errno.ECONNREFUSED
-                )
-        if all(refused):
+        if predicate():
             return
-        time.sleep(0.05)
-    raise AssertionError(f"ports remained reachable: {ports}")
+        time.sleep(.04)
+    raise AssertionError('timed out: ' + label)
 
 
-def command(
-    first: int,
-    supervisor_port: int,
-    *,
-    data_parallel_size: int = 2,
-    data_parallel_size_local: int = 2,
-    data_parallel_start_rank: int = 0,
-    tensor_parallel_size: int = 1,
-    pipeline_parallel_size: int = 1,
-    probe_failure_threshold: int = 1,
-) -> list[str]:
-    return [
-        sys.executable,
-        "-m",
-        "vllm.entrypoints.cli.main",
-        "serve",
-        "benchmark/fake-model",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        str(first),
-        "--data-parallel-supervisor-port",
-        str(supervisor_port),
-        "--data-parallel-size",
-        str(data_parallel_size),
-        "--data-parallel-size-local",
-        str(data_parallel_size_local),
-        "--data-parallel-start-rank",
-        str(data_parallel_start_rank),
-        "--tensor-parallel-size",
-        str(tensor_parallel_size),
-        "--pipeline-parallel-size",
-        str(pipeline_parallel_size),
-        "--data-parallel-multi-port-external-lb",
-        "--dp-supervisor-probe-interval-s",
-        "0.1",
-        "--dp-supervisor-probe-timeout-s",
-        "0.2",
-        "--dp-supervisor-probe-failure-threshold",
-        str(probe_failure_threshold),
-        "--uvicorn-log-level",
-        "warning",
-    ]
+def closed(port):
+    with socket.socket() as sock:
+        sock.settimeout(.2)
+        return sock.connect_ex(('127.0.0.1', port)) == errno.ECONNREFUSED
 
 
-def launch(
-    harness: Path,
-    first: int,
-    supervisor_port: int,
-    *,
-    visible_devices: str = "0,1",
-    data_parallel_size: int = 2,
-    data_parallel_size_local: int = 2,
-    data_parallel_start_rank: int = 0,
-    tensor_parallel_size: int = 1,
-    pipeline_parallel_size: int = 1,
-    probe_failure_threshold: int = 1,
-) -> subprocess.Popen[bytes]:
-    env = os.environ.copy()
-    env["PYTHONPATH"] = os.pathsep.join(
-        [str(harness), "/workspace/repo", env.get("PYTHONPATH", "")]
-    )
-    env["CUDA_VISIBLE_DEVICES"] = visible_devices
-    return subprocess.Popen(
-        command(
-            first,
-            supervisor_port,
-            data_parallel_size=data_parallel_size,
-            data_parallel_size_local=data_parallel_size_local,
-            data_parallel_start_rank=data_parallel_start_rank,
-            tensor_parallel_size=tensor_parallel_size,
-            pipeline_parallel_size=pipeline_parallel_size,
-            probe_failure_threshold=probe_failure_threshold,
-        ),
-        cwd="/workspace/repo",
-        env=env,
-        # Keep startup diagnostics visible in verifier logs. They are especially
-        # useful when the public CLI rejects a candidate before binding ports.
-        stdout=None,
-        stderr=None,
-        start_new_session=True,
-    )
-
-
-def wait_exited(children: list[psutil.Process], timeout: float = 15.0) -> None:
-    """Check retained process identities even after their parent exits."""
-    _, alive = psutil.wait_procs(children, timeout=timeout)
-    assert not alive, f"orphaned processes: {[child.pid for child in alive]}"
-
-
-def terminate(
-    process: subprocess.Popen[bytes],
-    children: list[psutil.Process] | tuple[psutil.Process, ...] = (),
-) -> None:
-    # Cleanup must also work after an incorrect supervisor has already exited.
-    # Retain Process objects (PID + creation time), rather than rediscovering
-    # children from a dead parent or signalling potentially reused PIDs.
-    for child in children:
-        try:
-            for descendant in child.children(recursive=True):
-                descendant.kill()
-            child.kill()
-        except psutil.NoSuchProcess:
-            pass
-    if process.poll() is None:
-        os.killpg(process.pid, signal.SIGKILL)
-        process.wait(timeout=5)
-    psutil.wait_procs(children, timeout=5)
-
-
-def rank_processes(pid: int, ports: tuple[int, ...]) -> list[psutil.Process]:
-    """Resolve rank processes from their public listening ports.
-
-    Multiprocessing may also create a resource-tracker child, and alternative
-    implementations may use a different process title or nesting structure.
-    Neither is part of the serving contract.
-    """
-    descendants = {child.pid for child in psutil.Process(pid).children(recursive=True)}
-    owners: dict[int, psutil.Process] = {}
-    for connection in psutil.net_connections(kind="tcp"):
-        if (
-            connection.pid in descendants
-            and connection.status == psutil.CONN_LISTEN
-            and connection.laddr
-            and connection.laddr.port in ports
-        ):
-            owners[connection.laddr.port] = psutil.Process(connection.pid)
-    assert set(owners) == set(ports), f"rank listener ownership mismatch: {owners}"
-    return [owners[port] for port in ports]
-
-
-def verify_invalid_cli(harness: Path) -> None:
-    first, _, _ = reserve_ports()
-    process = launch(harness, first, first + 1)
+def alive(process):
     try:
-        assert process.wait(timeout=15) != 0, "overlapping child/supervisor ports were accepted"
-        assert status(first) == -1, "invalid CLI left a child endpoint behind"
-    finally:
-        terminate(process)
+        return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return False
 
 
-def verify_readiness_and_child_failure(harness: Path) -> None:
-    first, second, supervisor_port = reserve_ports()
-    process = launch(harness, first, supervisor_port)
-    tracked: list[psutil.Process] = []
-    try:
-        wait_status(supervisor_port, 503)
-        wait_status(first, 503)
-        wait_status(second, 503)
-        assert response_text(first, "/device") == "0"
-        assert response_text(second, "/device") == "1"
-        assert status(first, "/set_healthy") == 200
-        time.sleep(0.25)
-        assert status(supervisor_port) == 503
-        assert status(second, "/set_healthy") == 200
-        for path in ("/health", "/ready", "/readyz"):
-            wait_status(supervisor_port, 200, path)
+class Group:
+    def __init__(self, harness, *, local=2, total=2, start=0, tp=1, pp=1, devices='3,1', interval=.15, timeout=.2, threshold=3, extra=(), mode=True):
+        # Sequential cases have no competing allocator in this network namespace.
+        for port in range(23100, 32000-local):
+            sockets=[]
+            try:
+                for n in range(local+1):
+                    sock=socket.socket(); sockets.append(sock); sock.bind(('127.0.0.1',port+n))
+                break
+            except OSError:
+                continue
+            finally:
+                for sock in sockets: sock.close()
+        else:
+            raise RuntimeError('no contiguous ports')
+        self.ports=list(range(port,port+local)); self.supervisor=port+local
+        self.known={}; self.stop=threading.Event(); self.trace=[]
+        self.trace_socket=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+        self.trace_socket.bind(('127.0.0.1',0));self.trace_socket.setblocking(False)
+        self.mode=mode
+        args=[sys.executable,'-m','vllm.entrypoints.cli.main','serve','benchmark/fake-model','--host','127.0.0.1','--port',str(port),'--uvicorn-log-level','warning']
+        if mode:
+            args += ['--data-parallel-multi-port-external-lb','--data-parallel-supervisor-port',str(self.supervisor),'--data-parallel-size',str(total),'--data-parallel-size-local',str(local),'--data-parallel-start-rank',str(start),'--tensor-parallel-size',str(tp),'--pipeline-parallel-size',str(pp),'--dp-supervisor-probe-interval-s',str(interval),'--dp-supervisor-probe-timeout-s',str(timeout),'--dp-supervisor-probe-failure-threshold',str(threshold)]
+        # Values can refer to the allocated ports without exposing a fixed port.
+        args += [str(port+x) if isinstance(x,int) else x for x in extra]
+        env=os.environ.copy();env['CPU_VISIBLE_MEMORY_NODES']=devices
+        env['DP_FIXTURE_TRACE_PORT']=str(self.trace_socket.getsockname()[1])
+        env['PYTHONPATH']=str(harness)+os.pathsep+str(ROOT)
+        self.process=subprocess.Popen(args,cwd=ROOT,env=env,start_new_session=True)
+        self.collector=threading.Thread(target=self._collect,daemon=True);self.collector.start()
 
-        victim, sibling = rank_processes(process.pid, (first, second))
-        tracked = psutil.Process(process.pid).children(recursive=True)
-        victim.kill()
-        process.wait(timeout=15)
-        sibling.wait(timeout=10)
-        assert not sibling.is_running(), "surviving rank was orphaned"
-        wait_exited(tracked)
-        wait_closed(first, second, supervisor_port)
-    finally:
-        terminate(process, tracked)
+    def remember(self):
+        # The verifier is a subreaper: children that outlive a failed startup are
+        # still reachable without assuming the candidate's process-group design.
+        for proc in psutil.Process().children(recursive=True):
+            if proc.pid != self.process.pid:
+                with contextlib.suppress(psutil.NoSuchProcess):
+                    self.known[(proc.pid,proc.create_time())]=proc
 
+    def _collect(self):
+        while not self.stop.wait(.02):
+            self.remember()
+            self.drain_trace()
 
-def verify_unhealthy_shutdown(harness: Path) -> None:
-    first, second, supervisor_port = reserve_ports()
-    process = launch(harness, first, supervisor_port)
-    tracked: list[psutil.Process] = []
-    try:
-        wait_status(first, 503)
-        wait_status(second, 503)
-        assert status(first, "/set_healthy") == 200
-        assert status(second, "/set_healthy") == 200
-        wait_status(supervisor_port, 200)
-        tracked = psutil.Process(process.pid).children(recursive=True)
-        assert status(first, "/set_unhealthy") == 200
-        process.wait(timeout=15)
-        wait_exited(tracked)
-        wait_closed(first, second, supervisor_port)
-    finally:
-        terminate(process, tracked)
+    def drain_trace(self):
+        while True:
+            try: data=self.trace_socket.recv(4096)
+            except BlockingIOError: break
+            self.trace.append(json.loads(data))
 
+    def wait_services(self):
+        for port in self.ports:
+            eventually(lambda:request(port)[0]==503,label=f'child {port} startup')
 
-def verify_parallel_rank_and_device_mapping(harness: Path) -> None:
-    first, second, supervisor_port = reserve_ports()
-    process = launch(
-        harness,
-        first,
-        supervisor_port,
-        visible_devices="0,1,2,3,4,5,6,7",
-        data_parallel_size=4,
-        data_parallel_size_local=2,
-        data_parallel_start_rank=2,
-        tensor_parallel_size=2,
-        pipeline_parallel_size=2,
-        probe_failure_threshold=200,
-    )
-    tracked: list[psutil.Process] = []
-    try:
-        wait_status(first, 503)
-        wait_status(second, 503)
-        assert response_text(first, "/rank") == "2"
-        assert response_text(second, "/rank") == "3"
-        assert response_text(first, "/device") == "0,1,2,3"
-        assert response_text(second, "/device") == "4,5,6,7"
-        assert status(first, "/set_healthy") == 200
-        assert status(second, "/set_healthy") == 200
-        wait_status(supervisor_port, 200)
-        tracked = psutil.Process(process.pid).children(recursive=True)
-        process.send_signal(signal.SIGTERM)
-        process.wait(timeout=15)
-        wait_exited(tracked)
-        wait_closed(first, second, supervisor_port)
-    finally:
-        terminate(process, tracked)
+    def status_all(self, expected):
+        for path in ENDPOINTS:
+            eventually(lambda:(request(self.supervisor,path)[0]==200) == (expected==200),timeout=5,label=path)
 
+    def set(self,index,**config):
+        assert request(self.ports[index],'/control',config)[0]==200
 
-def verify_signal_forwarding(harness: Path) -> None:
-    first, second, supervisor_port = reserve_ports()
-    process = launch(harness, first, supervisor_port)
-    tracked: list[psutil.Process] = []
-    try:
-        wait_status(first, 503)
-        wait_status(second, 503)
-        children = rank_processes(process.pid, (first, second))
-        tracked = psutil.Process(process.pid).children(recursive=True)
-        process.send_signal(signal.SIGTERM)
-        process.wait(timeout=15)
-        for child in children:
-            child.wait(timeout=10)
-            assert not child.is_running(), "termination was not forwarded to a rank"
-        wait_exited(tracked)
-        wait_closed(first, second, supervisor_port)
-    finally:
-        terminate(process, tracked)
+    def events(self,index=0):
+        return json.loads(request(self.ports[index],'/events')[1])
+
+    def identity(self,index):
+        return json.loads(request(self.ports[index],'/identity')[1])
+
+    def ready(self):
+        for index in range(len(self.ports)): self.set(index,healthy=True)
+        self.status_all(200)
+
+    def assert_clean(self):
+        self.process.wait(timeout=20)
+        self.remember()
+        ports=self.ports+([self.supervisor] if self.mode else [])
+        eventually(lambda:all(closed(port) for port in ports),timeout=10,label='TCP listeners released')
+        eventually(lambda:not any(alive(p) for p in list(self.known.values())),timeout=10,label='all descendants exited')
+
+    def close(self):
+        self.remember();self.stop.set();self.collector.join()
+        self.drain_trace();self.trace_socket.close()
+        # Teardown is deliberately outside candidate-success assertions.
+        for proc in list(self.known.values()):
+            if alive(proc):
+                with contextlib.suppress(psutil.NoSuchProcess): proc.kill()
+        if self.process.poll() is None:
+            self.process.kill()
+        self.process.wait(timeout=5)
+        for proc in list(self.known.values()):
+            with contextlib.suppress(ChildProcessError,ProcessLookupError):
+                os.waitpid(proc.pid,0)
 
 
-def main() -> int:
-    with tempfile.TemporaryDirectory(prefix="dp-supervisor-verifier-") as tmp:
-        harness = Path(tmp)
-        (harness / "sitecustomize.py").write_text(
-            textwrap.dedent(FAKE_SERVER), encoding="utf-8"
-        )
-        verify_invalid_cli(harness)
-        verify_readiness_and_child_failure(harness)
-        verify_unhealthy_shutdown(harness)
-        verify_parallel_rank_and_device_mapping(harness)
-        verify_signal_forwarding(harness)
-    print(
-        "PASS: public CLI supervised readiness, failure cleanup, "
-        "rank/device mapping, signals, and sockets"
-    )
-    return 0
+@contextlib.contextmanager
+def group(harness,**kwargs):
+    g=Group(harness,**kwargs)
+    try: yield g
+    finally: g.close()
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+def readiness(harness):
+    with group(harness) as g:
+        g.wait_services();g.status_all(503)
+        g.set(0,healthy=True);time.sleep(.35);g.status_all(503)
+        g.set(1,healthy=True);g.status_all(200)
+        identity=g.identity(0)
+        # This is an actual descendant and listener, not only a reported PID.
+        engine=psutil.Process(identity['engine']['pid'])
+        assert engine.ppid()==identity['pid']
+        assert not closed(identity['engine']['port'])
+        g.remember()
+        psutil.Process(identity['pid']).kill()
+        g.assert_clean()
+        assert not alive(engine) and closed(identity['engine']['port'])
+
+    # A rank may die before the initial all-healthy transition. A single local
+    # rank is still a valid slice of a larger DP deployment.
+    with group(harness,local=1,total=2,start=1,devices='5') as g:
+        g.wait_services();g.status_all(503);g.remember()
+        psutil.Process(g.identity(0)['pid']).kill()
+        g.assert_clean()
+
+
+def probe_settings(harness):
+    with group(harness,interval=.6,timeout=.2,threshold=3) as g:
+        g.wait_services();g.ready()
+        # Successful probes reset the counter; two separate short bursts must not
+        # accumulate into a terminal failure. Sustained failure stops at three.
+        g.set(0,healthy=True,sequence=[False,True,False,False,True])
+        g.set(1,healthy=True,sequence=[False,True,False,False,True])
+        start=len(g.events())
+        eventually(lambda:len(g.events())>=start+6,timeout=12,label='probe sequence')
+        assert g.process.poll() is None
+        events=g.events()[-5:]
+        gaps=[b['time']-a['time'] for a,b in zip(events,events[1:])]
+        assert min(gaps)>.35, ('probe interval ignored',gaps)
+        g.set(0,healthy=False,epoch=1)
+        g.status_all(503)
+        assert g.process.poll() is None, 'threshold ignored'
+        g.assert_clean()
+        time.sleep(.05)
+        failures=[event for event in g.trace if event['port']==g.ports[0] and event['epoch']==1]
+        assert len(failures)==3, ('consecutive failure threshold not honored',failures)
+
+    # A delay between two configured timeouts distinguishes honored deadlines
+    # from hardcoded values without benchmarking total model/runtime speed.
+    with group(harness,interval=.15,timeout=1.0,threshold=2) as g:
+        g.wait_services();g.ready();g.set(0,delay=.45)
+        time.sleep(1.8)
+        assert g.process.poll() is None, 'configured long probe timeout ignored'
+        g.status_all(200)
+        g.set(0,delay=3,epoch=2)
+        g.assert_clean()
+        time.sleep(.05)
+        attempts=[event for event in g.trace if event['port']==g.ports[0] and event['epoch']==2]
+        assert len(attempts)==2, ('timeout failure count',attempts)
+        gap=attempts[1]['time']-attempts[0]['time']
+        assert .8<gap<2, ('probe timeout not honored',gap)
+
+    with group(harness,threshold=3) as g:
+        g.wait_services();g.ready()
+        g.set(0,disconnect=True,epoch=3)
+        g.assert_clean();time.sleep(.05)
+        attempts=[event for event in g.trace if event['port']==g.ports[0] and event['epoch']==3]
+        # Clients may transparently retry a disconnected idempotent request.
+        # Exact logical failure counts are checked with non-200 responses above.
+        assert len(attempts)>=3, ('connection failures were not exercised',attempts)
+
+
+def mapping_and_signals(harness):
+    with group(harness,total=4,start=2,tp=2,pp=2,devices='7,2,5,0,6,3,1,4') as g:
+        g.wait_services();g.ready()
+        assert [(g.identity(i)['rank'],g.identity(i)['devices']) for i in range(2)]==[(2,'7,2,5,0'),(3,'6,3,1,4')]
+        g.process.send_signal(signal.SIGINT);g.assert_clean()
+    with group(harness,local=3,total=5,start=2,devices='4,0,2') as g:
+        g.wait_services();g.status_all(503)
+        g.process.send_signal(signal.SIGTERM);g.assert_clean()
+
+
+def invalid(harness):
+    for options in [('--data-parallel-supervisor-port',1),('--headless',),('--data-parallel-hybrid-lb',),('--data-parallel-external-lb',),('--data-parallel-start-rank','9'),('--dp-supervisor-probe-interval-s','0'),('--dp-supervisor-probe-timeout-s','0'),('--dp-supervisor-probe-failure-threshold','0')]:
+        with group(harness,extra=options) as g:
+            assert g.process.wait(timeout=45)!=0, ('invalid configuration accepted',options)
+            g.assert_clean()
+
+
+def ordinary(harness):
+    with group(harness,local=1,mode=False) as g:
+        g.wait_services();g.set(0,healthy=True)
+        assert request(g.ports[0])[0]==200
+        g.process.send_signal(signal.SIGTERM);g.assert_clean()
+
+
+def main():
+    libc=ctypes.CDLL(None,use_errno=True)
+    if libc.prctl(36,1,0,0,0)!=0: raise OSError(ctypes.get_errno(),'subreaper unavailable')
+    with tempfile.TemporaryDirectory(prefix='dp-contract-') as temp:
+        harness=Path(temp)
+        fixture=Path(__file__).with_name('service_fixture.py')
+        (harness/'service_fixture.py').write_bytes(fixture.read_bytes())
+        (harness/'sitecustomize.py').write_text('import service_fixture; service_fixture.install()\n')
+        for case in (readiness,probe_settings,mapping_and_signals,invalid,ordinary):
+            start=time.monotonic();case(harness)
+            print(f'PASS {case.__name__} {time.monotonic()-start:.2f}s',flush=True)
+    print('PASS all required behavior checks',flush=True)
+
+if __name__=='__main__':main()

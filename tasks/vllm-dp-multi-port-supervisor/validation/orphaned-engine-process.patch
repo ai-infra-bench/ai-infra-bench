@@ -167,10 +167,10 @@ index 3ebdec3c67f..d130e83422a 100644
      parser_for_docs = FlexibleArgumentParser(
 diff --git a/vllm/entrypoints/openai/dp_supervisor.py b/vllm/entrypoints/openai/dp_supervisor.py
 new file mode 100644
-index 00000000000..75522829e51
+index 00000000000..d14b9cbcd90
 --- /dev/null
 +++ b/vllm/entrypoints/openai/dp_supervisor.py
-@@ -0,0 +1,485 @@
+@@ -0,0 +1,484 @@
 +#!/usr/bin/env python3
 +# SPDX-License-Identifier: Apache-2.0
 +# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
@@ -612,46 +612,45 @@ index 00000000000..75522829e51
 +                    await probe_task
 +
 +    async def _shutdown_children(self) -> None:
-+        """Stop rank processes and adopted descendants, including dead ranks' workers."""
-+        from multiprocessing import resource_tracker
-+        owner = psutil.Process()
-+        known = {}
++        """Terminate the vLLM DP servers."""
++        timeout = self.args.shutdown_timeout + CHILD_EXIT_GRACE_S
 +
-+        def remember():
-+            for child in owner.children(recursive=True):
-+                if child.pid == resource_tracker._resource_tracker._pid:
++        try:
++            logger.info(
++                "DPSupervisor forwarding %s to DP Servers.",
++                self._shutdown_signal.name,
++            )
++            for process in self._processes:
++                pid = process.pid
++                if not process.is_alive() or pid is None:
 +                    continue
-+                known[(child.pid, child.create_time())] = child
++                with contextlib.suppress(ProcessLookupError, OSError):
++                    os.kill(pid, self._shutdown_signal)
 +
-+        def alive(child):
 +            try:
-+                return child.is_running() and child.status() != psutil.STATUS_ZOMBIE
-+            except psutil.NoSuchProcess:
-+                return False
-+
-+        remember()
-+        for child in list(known.values()):
-+            with contextlib.suppress(psutil.NoSuchProcess):
-+                child.send_signal(self._shutdown_signal)
-+        deadline = time.monotonic() + self.args.shutdown_timeout + CHILD_EXIT_GRACE_S
-+        while time.monotonic() < deadline:
-+            remember()
-+            if not any(alive(child) for child in known.values()):
-+                break
-+            await asyncio.sleep(0.05)
-+        remember()
-+        for child in list(known.values()):
-+            if alive(child):
-+                with contextlib.suppress(psutil.NoSuchProcess):
-+                    child.kill()
-+        for process in self._processes:
-+            await asyncio.to_thread(process.join, 2)
-+        # Reap children adopted by the subreaper without stealing multiprocessing
-+        # exit statuses before its Process objects have joined.
-+        for child in list(known.values()):
-+            with contextlib.suppress(ChildProcessError, ProcessLookupError):
-+                os.waitpid(child.pid, 0)
-+        resource_tracker._resource_tracker._stop()
++                await asyncio.to_thread(
++                    _join_processes_with_timeout, self._processes, timeout
++                )
++            except asyncio.CancelledError:
++                logger.warning("Shutdown await cancelled")
++                raise
++        finally:
++            for process in self._processes:
++                pid = process.pid
++                if not process.is_alive() or pid is None:
++                    continue
++                logger.warning(
++                    "DP server %s did not exit within %.1fs; force killing.",
++                    process.name,
++                    timeout,
++                )
++                with contextlib.suppress(
++                    ProcessLookupError,
++                    OSError,
++                    psutil.NoSuchProcess,
++                    psutil.AccessDenied,
++                ):
++                    kill_process_tree(pid)
 +
 +
 +def run_dp_supervisor(args: argparse.Namespace) -> None:

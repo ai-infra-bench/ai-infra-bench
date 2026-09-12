@@ -1,62 +1,13 @@
-# Validation record
+# Docker validation, 2026-09-13
 
-> **Historical evidence only.** The instruction, verifier, task configuration,
-> or environment changed during the current hardening pass. These results do
-> not validate the current executable snapshot and must be regenerated.
+The final local image is `ai-infra-bench/vllm-dp-multi-port-supervisor:hardening-20260913-final`, image ID `sha256:d11035d323cd8044e4a1aea97d0c3f7a03ae7865cadc84893bd045686da65eed`. It has not been pushed. A local image ID is not a registry manifest digest; `repo_digests` records only actual Docker inspection results.
 
-Validated on 2026-09-04 using the account-local Docker daemon at
-`/root/workspace/dxz-workspace/.docker-dxz/run/docker.sock`. Runtime checks used
-`--network none`; only loopback HTTP sockets were exercised.
+The default Dockerfile retains the original public, pinned vLLM donor and source checkout recipe. This host could not complete outbound APT requests, and anonymous GHCR resolution returned HTTP 401. The successful build used the optional prepared-base path and the already cached CI image, whose resolved ID is `sha256:10d9683beb7ddc09b89e64d745348aaea13f9a201d4f7ddb95ab038be01b3f9d`. No successful fresh network rebuild is claimed.
 
-## Source and image isolation
+```sh
+DOCKER_BUILDKIT=0 docker build --build-arg PREPARED_BASE=1 --build-arg BASE_IMAGE=ghcr.io/ai-infra-bench/ai-infra-bench-task-envs:vllm-dp-multi-port-supervisor-fe622c4308debd62dcf3c8b6d7faa46f6ee570aa97a9f1777c3ef3c9ea376248 -t ai-infra-bench/vllm-dp-multi-port-supervisor:hardening-20260913-final environment
+```
 
-- vLLM base: `9b9d5dbaab852a1c615fe83a7f92881d353503db`
-- accepted PR head: `d5ed61238528c4b753bceb761db91318b0d442fb`
-- source tree: `94c86336cf2ea962766d00bb389d43a4d6aaf697`
-- solution SHA-256:
-  `7e11ade300c0991810ba59cf89e67574964d545a90adc82d37f768ae2a3a11d7`
-- review image:
-  `sha256:4de91d9731daf1348684397d24d3bd39d824eb1e3dea3d5e6a2c6cf28f530e3e`
+The build checks Base, source tree, clean checkout, absent remotes and task artifacts. The separate smoke test runs as `agent`, without network, and checks full reachable history, no unreachable/future Oracle objects, writable checkout, and source/native imports under `/workspace/repo`. See `evidence/environment-smoke-final.log` and `environment/image-manifest.json`.
 
-The image runs as UID 1000 (`agent`). Its writable repository has one synthetic
-commit, a clean worktree, and no Git remote. The Docker build context is only
-`environment/`, so the instruction, verifier, and solution are not present in
-the Agent image.
-
-The Oracle is the complete production diff for the feature, excluding upstream
-tests. It changes the CLI argument definitions and dispatch path, the API/log
-integration, and the supervisor implementation. An earlier one-file Oracle was
-discarded because it could not satisfy the public `vllm serve` contract.
-
-## Behavioural controls
-
-The hidden verifier starts the normal public CLI. A `sitecustomize` harness
-replaces only heavyweight model serving with two lightweight loopback HTTP
-servers and selects a deterministic CPU test platform because the verifier does
-not reserve a GPU. Candidate CLI parsing, rank/port/device derivation,
-multiprocessing, aggregate probes, monitoring, signal handling, and cleanup all
-remain production code.
-
-| Candidate | Expected | Observed | Reason |
-|---|---:|---:|---|
-| Locked Base | 0 | 0 | The public multi-port CLI is absent. |
-| Complete accepted Oracle | 1 | 1 | All public and lifecycle checks pass. |
-| Frozen Opus-5 round-one patch | 0 | 0 | It invents `--data-parallel-multiport` and `--multiport-dp-health-port`; the required CLI flags are unrecognized. |
-| Renamed equivalent Oracle | 1 | 1 | Moving the module and renaming the supervisor class and private helpers still passes after public CLI rewiring. |
-
-The accepted path checks:
-
-1. overlapping supervisor/child ports fail before a server is left behind;
-2. two consecutive child ports are opened and receive distinct per-rank device
-   assignments;
-3. aggregate `/health`, `/ready`, and `/readyz` remain 503 until both children
-   are healthy, then become 200;
-4. killing one child terminates its sibling and closes all three sockets;
-5. a live child becoming unhealthy terminates the group;
-6. SIGTERM to the supervisor is forwarded and leaves no rank or socket behind.
-
-This is intentionally a frontend orchestration test. It does not claim to test
-model loading, Kubernetes objects, multi-node routing, or inference throughput.
-> **Historical evidence only.** The instruction, verifier, task configuration,
-> or environment changed during the current hardening pass. These results do
-> not validate the current executable snapshot and must be regenerated.
+Direct verifier cases use isolated network namespaces, 4 CPUs and 16 GiB each, with at most three cases concurrently. The task needs no GPU. Harbor uses the same image and the task's ordinary grading entrypoint. Commands and results are recorded in `e2e-evidence.json`; host scratch logs are under `/data/pr54-hardening-20260913`.

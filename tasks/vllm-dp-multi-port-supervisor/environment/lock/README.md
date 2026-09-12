@@ -1,79 +1,11 @@
-# Environment lock
+# Environment provenance
 
-This environment packages survey item `vllm__pr__40841` at the exact base
-revision. Final measured image/build facts are recorded in
-`validation/docker-build.md`.
+The environment contains vLLM Base `9b9d5dbaab852a1c615fe83a7f92881d353503db` (2026-05-21T14:28:34Z), tree `48b639edab89a4d62d26e7355f0226609d3a035b`, on branch `main` with its 16835 reachable commits. Remotes, tags, reflogs, fetch metadata and future source objects are removed. The checkout is writable by `agent` and imported through `/workspace/repo`.
 
-## Source
+`source.Dockerfile` records the original source build: the official vLLM v0.21.0 donor at `sha256:4ac9b7c6dabc3ec762c0edef4e9245abe98373844da91cc53ee42e5c58280c5b`, created 2026-05-15, supplies pinned Python dependencies and native artifacts. The exact Base supplies Python sources. No task-specific fixture, test, solution or reproducer is installed in the agent image.
 
-- Upstream: `https://github.com/vllm-project/vllm.git`
-- PR: `https://github.com/vllm-project/vllm/pull/40841`
-- Issue: `https://github.com/vllm-project/vllm/issues/40814`
-- Base commit: `9b9d5dbaab852a1c615fe83a7f92881d353503db`
-- Base commit date: `2026-05-21T14:28:34Z`
-- Base subject: `[CI] Fix CPU tests failing on tl.exp2 import (#43311)`
-- Head commit inspected: `d5ed61238528c4b753bceb761db91318b0d442fb`
-- Exact base codeload archive SHA-256:
-  `cc81853110ee854c6c64cbfc9bca8d75887d48ea6bc27c38f63131ce0a71f1f7`
-- Canonical forced-add source tree: `94c86336cf2ea962766d00bb389d43a4d6aaf697`
-- Runtime Git: one synthetic commit, branch `benchmark-base`, no remote
+`Dockerfile` defaults to the public donor and rebuilds the pinned source checkout. The optional `PREPARED_BASE=1` build argument reuses a prepared image while checking its Base, tree, clean state and absence of task artifacts. Local validation used `--build-arg PREPARED_BASE=1 --build-arg BASE_IMAGE=<verified-local-reference>`, resolving to image ID `sha256:10d9683beb7ddc09b89e64d745348aaea13f9a201d4f7ddb95ab038be01b3f9d`. This optional path avoids downloading dependencies again; it does not change the default source recipe.
 
-The base falls after v0.21.0 (published 2026-05-15) and before v0.22.0
-(published 2026-05-29). The Dockerfile therefore uses the official v0.21.0
-amd64 image manifest by digest. Exact base Python sources replace the release
-sources; native/generated artifacts come from the official donor because the
-PR changes only Python frontend orchestration and tests.
+The September 13 local validation used that already cached image because outbound APT requests failed and an anonymous GHCR token request returned HTTP 401. The build command, resolved image identities and output are retained in validation evidence. This record does not claim a successful network rebuild from `source.Dockerfile`.
 
-## Base image and runtime
-
-- Image: `vllm/vllm-openai:v0.21.0`
-- amd64 manifest digest / donor image ID:
-  `sha256:4ac9b7c6dabc3ec762c0edef4e9245abe98373844da91cc53ee42e5c58280c5b`
-- Donor image size: `8,669,305,249` bytes
-- Python: 3.12
-- vLLM donor version: 0.21.0
-- PyTorch: `2.11.0+cu130`
-- CUDA reported by PyTorch: 13.0
-- Accelerator probe: NVIDIA A100-SXM4-40GB, physical GPU 2,
-  UUID `GPU-3815a178-ad22-4b81-5669-0533760a7e6b`
-- Runtime user: `agent` (UID 1000)
-- Runtime network: disabled with `--network none`
-- `VLLM_TARGET_DEVICE`: not set
-
-The build layer adds the following exact packages from Ubuntu 22.04:
-
-- `git=1:2.34.1-1ubuntu1.17`
-- `git-man=1:2.34.1-1ubuntu1.17`
-- `liberror-perl=0.17029-1`
-
-The copied donor artifact whitelist observed in the built image is:
-
-```text
-_C.abi3.so
-_C_stable_libtorch.abi3.so
-_flashmla_C.abi3.so
-_flashmla_extension_C.abi3.so
-_moe_C.abi3.so
-_version.py
-cumem_allocator.abi3.so
-third_party/deep_gemm/_C.cpython-310-x86_64-linux-gnu.so
-third_party/deep_gemm/_C.cpython-311-x86_64-linux-gnu.so
-third_party/deep_gemm/_C.cpython-312-x86_64-linux-gnu.so
-third_party/deep_gemm/_C.cpython-313-x86_64-linux-gnu.so
-third_party/deep_gemm/_C.cpython-314-x86_64-linux-gnu.so
-vllm_flash_attn/_vllm_fa2_C.abi3.so
-vllm_flash_attn/_vllm_fa3_C.abi3.so
-```
-
-There is no model, tokenizer, dataset, or Kubernetes asset in the image. Build
-networking is used only for the pinned Git packages; the exact source archive
-was served from A100 loopback after its host-side SHA-256 was recorded.
-
-## Verification scope
-
-No reproduction or verifier code is copied into this Agent environment. The
-runtime-mounted hidden verifier uses the production supervisor/process launcher
-with two real spawned HTTP children and three loopback ports. It checks
-aggregate readiness and child-crash cleanup without source-text inspection,
-model downloads, or Kubernetes. Full Kubernetes routing, multi-node rank
-assignment, and real model serving remain outside the task.
+The semantic target is node-local process supervision. CPU execution is sufficient for the real CLI, process ownership, HTTP probing, signals and socket lifecycle. The verifier supplies model-free engine and HTTP payload producers at the existing API backend boundaries; it retains actual `run_server`, `setup_server` and `run_server_worker` execution and real nested engine stand-ins. Device-list routing uses the pinned platform mapping API with a synthetic CPU-visible device list. No actual accelerator allocation, inference quality, Kubernetes deployment or cross-node routing is claimed.

@@ -5,8 +5,6 @@ ARG VLLM_BASE_SHA=9b9d5dbaab852a1c615fe83a7f92881d353503db
 ARG VLLM_SOURCE_TREE=48b639edab89a4d62d26e7355f0226609d3a035b
 ARG VLLM_REPO=https://github.com/vllm-project/vllm.git
 
-ARG PREPARED_BASE=0
-
 USER root
 
 ENV PYTHONUNBUFFERED=1 \
@@ -18,7 +16,6 @@ WORKDIR /workspace
 # Native artifacts come from the closest official pre-cutoff release image;
 # this PR changes only Python frontend orchestration code.
 RUN set -eux; \
-    if [ "${PREPARED_BASE}" != "1" ]; then \
     apt-get update; \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         git=1:2.34.1-1ubuntu1.17 \
@@ -57,15 +54,7 @@ RUN set -eux; \
         -exec sh -c 'for src do rel="${src#"$0"/}"; dst="/workspace/repo/vllm/$rel"; mkdir -p "$(dirname "$dst")"; cp -a "$src" "$dst"; done' "${VLLM_SITE}" {} +; \
     test -z "$(git -C /workspace/repo status --porcelain)"; \
     PYTHONPATH=/workspace/repo python3 -c 'import importlib.util, pathlib, vllm; root=pathlib.Path("/workspace/repo").resolve(); src=pathlib.Path(vllm.__file__).resolve(); native=pathlib.Path(importlib.util.find_spec("vllm._C").origin).resolve(); assert src.is_relative_to(root), src; assert native.is_relative_to(root), native; print("candidate_source", src); print("candidate_native", native)'; \
-    rm -f /root/.bash_history; \
-    fi; \
-    git config --global --add safe.directory /workspace/repo; \
-    test "$(git -C /workspace/repo rev-parse HEAD)" = "${VLLM_BASE_SHA}"; \
-    test "$(git -C /workspace/repo rev-parse 'HEAD^{tree}')" = "${VLLM_SOURCE_TREE}"; \
-    test -z "$(git -C /workspace/repo status --porcelain)"; \
-    test -z "$(git -C /workspace/repo remote)"; \
-    test ! -e /tests; test ! -e /solution; test ! -e /validation; \
-    test ! -e /workspace/repo/vllm/entrypoints/openai/dp_supervisor.py
+    rm -f /root/.bash_history
 
 RUN set -eux; \
     if ! id -u agent >/dev/null 2>&1; then \

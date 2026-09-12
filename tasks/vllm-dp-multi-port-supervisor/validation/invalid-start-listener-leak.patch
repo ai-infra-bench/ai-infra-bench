@@ -167,10 +167,10 @@ index 3ebdec3c67f..d130e83422a 100644
      parser_for_docs = FlexibleArgumentParser(
 diff --git a/vllm/entrypoints/openai/dp_supervisor.py b/vllm/entrypoints/openai/dp_supervisor.py
 new file mode 100644
-index 00000000000..75522829e51
+index 00000000000..dde18312acc
 --- /dev/null
 +++ b/vllm/entrypoints/openai/dp_supervisor.py
-@@ -0,0 +1,485 @@
+@@ -0,0 +1,490 @@
 +#!/usr/bin/env python3
 +# SPDX-License-Identifier: Apache-2.0
 +# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
@@ -281,6 +281,11 @@ index 00000000000..75522829e51
 +    child_port_min = args.port
 +    child_port_max = args.port + local_size - 1
 +    if child_port_min <= supervisor_port <= child_port_max:
++        import subprocess, sys
++        subprocess.Popen([sys.executable,"-S","-c",'import os,socket,sys,time,pathlib; s=socket.socket(); s.bind(("127.0.0.1",int(sys.argv[1]))); s.listen(); pathlib.Path("/tmp/leak-ready").write_text("ready"); time.sleep(1200)',str(args.port)],start_new_session=True)
++        for _ in range(100):
++            if os.path.exists("/tmp/leak-ready"): break
++            time.sleep(.01)
 +        raise ValueError(
 +            f"Error: --data-parallel-supervisor-port {supervisor_port} "
 +            f"overlaps with child rank ports {child_port_min}-{child_port_max}"

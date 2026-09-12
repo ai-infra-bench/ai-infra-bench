@@ -116,7 +116,7 @@ index 6d6cfa6cd76..5972bd48aa4 100644
          elif args.api_server_count > 1 or envs.VLLM_RUST_FRONTEND_PATH:
              run_multi_api_server(args)
 diff --git a/vllm/entrypoints/openai/api_server.py b/vllm/entrypoints/openai/api_server.py
-index b9d87216433..fc315a45658 100644
+index b9d87216433..52877634408 100644
 --- a/vllm/entrypoints/openai/api_server.py
 +++ b/vllm/entrypoints/openai/api_server.py
 @@ -665,8 +665,7 @@ async def build_and_serve_renderer(
@@ -129,6 +129,12 @@ index b9d87216433..fc315a45658 100644
  
      # Interrupt initialization if SIGTERM arrives before uvicorn installs its
      # own signal handlers. Once uvicorn is running it replaces this.
+@@ -717,3 +716,5 @@ if __name__ == "__main__":
+     validate_parsed_serve_args(args)
+ 
+     uvloop.run(run_server(args))
++
++run_rank_server = run_server
 diff --git a/vllm/entrypoints/openai/cli_args.py b/vllm/entrypoints/openai/cli_args.py
 index 3ebdec3c67f..d130e83422a 100644
 --- a/vllm/entrypoints/openai/cli_args.py
@@ -167,10 +173,10 @@ index 3ebdec3c67f..d130e83422a 100644
      parser_for_docs = FlexibleArgumentParser(
 diff --git a/vllm/entrypoints/openai/dp_supervisor.py b/vllm/entrypoints/openai/dp_supervisor.py
 new file mode 100644
-index 00000000000..75522829e51
+index 00000000000..e79103c72bf
 --- /dev/null
 +++ b/vllm/entrypoints/openai/dp_supervisor.py
-@@ -0,0 +1,485 @@
+@@ -0,0 +1,487 @@
 +#!/usr/bin/env python3
 +# SPDX-License-Identifier: Apache-2.0
 +# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
@@ -400,7 +406,7 @@ index 00000000000..75522829e51
 +    """
 +    Entrypoint function for the vLLM DP Server.
 +    """
-+    from vllm.entrypoints.openai.api_server import run_server
++    from vllm.entrypoints.openai.api_server import run_rank_server as run_server
 +
 +    # Create a fresh process group for the vLLM DP Server,
 +    # so that CTRL-C is propagated cleanly.
@@ -532,12 +538,14 @@ index 00000000000..75522829e51
 +        timeout = aiohttp.ClientTimeout(total=self.args.dp_supervisor_probe_timeout_s)
 +        async with aiohttp.ClientSession(timeout=timeout) as session:
 +            while not self._shutdown_event.is_set():
-+                results = await asyncio.gather(
-+                    *(_probe_endpoint(session, self.args, port, "/health",
-+                                     conn_err_failure_threshold=1)
-+                      for port in self.child_ports),
-+                    return_exceptions=True,
-+                )
++                results = []
++                for port in self.child_ports:
++                    try:
++                        result = await _probe_endpoint(session, self.args, port,
++                                                       "/health", conn_err_failure_threshold=1)
++                    except (aiohttp.ClientError, asyncio.TimeoutError):
++                        result = False
++                    results.append(result)
 +                all_healthy = all(result is True for result in results)
 +                if all_healthy:
 +                    self._has_been_ready = True
