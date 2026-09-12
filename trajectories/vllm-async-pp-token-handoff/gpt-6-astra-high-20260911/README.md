@@ -1,7 +1,7 @@
 # vllm-async-pp-token-handoff v1.2.4
 
-One GPT-6-Astra / high Harbor run: **reward 1**, zero Harbor errors. Full rollout review passed.
+GPT-6-Astra/high: **reward 1**, zero Harbor errors; rollout review passed.
 
-[Download complete trajectory ZIP](pr18-gpt-6-astra-high-once.zip) — includes native/ATIF/API traces, final source, verifier logs and review evidence.
+[Trajectory ZIP](pr18-gpt-6-astra-high-once.zip) — complete traces, final source, verifier results and review evidence.
 
-SHA-256: `c4f7ee65b72cdcfeea9b064a73f1c98c290f80e7a9353338e9303eb16c0d2694`
+SHA-256: `e5754700f3026b4a7cb2cbe8f81b5a48789aef33769b333d23512c1b1faec824`
