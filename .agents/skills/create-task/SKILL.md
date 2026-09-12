@@ -128,6 +128,21 @@ environment_mode = "separate"
 docker_image = "ubuntu:24.04"
 ```
 
+### Verifier permissions and output collection
+
+Protect trusted grading scripts and final rewards from modification by candidate
+code, while allowing the actual Harbor host user to traverse the output directory
+and read logs and rewards. Check effective access under the selected mounts,
+users, and provider; file ownership alone does not establish trust. A trusted
+read-only harness mount may retain a non-root host UID. If root-owned files are
+required, install those harness files into a protected container-local directory
+before running candidate code; do not make candidate-controlled files trusted by
+changing their owner. Avoid locking shared output paths to root-only access.
+Validate collection with the intended host identity, including a non-root host
+when used in CI. A root-host-only check can hide permission failures. Choose a
+permission design appropriate to the task rather than requiring one universal
+layout.
+
 ### Option A: Reward Kit (recommended for most cases)
 
 Use when the verifier has multiple criteria, needs partial credit, uses an LLM/agent
