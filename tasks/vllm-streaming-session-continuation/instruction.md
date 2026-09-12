@@ -1,26 +1,7 @@
-We keep a request alive as a streaming session and send each continuation
-through the normal new-request scheduler channel with the same request ID.
-After the second or third update, the GPU runner can lose cached state, leave a
-duplicate or stale persistent-batch row, or retain output tokens that have
-already become part of the next prompt.
+We keep a request alive as a streaming session and send each continuation through the normal new-request scheduler channel with the same request ID. After the second or third update, the GPU runner can lose cached state, leave a duplicate or stale persistent-batch row, or retain output tokens that have already become part of the next prompt.
 
-Please make the production `GPUModelRunner` lifecycle treat multiple updates
-as one continuous session while leaving ordinary new requests unchanged.
-Prompt-token and prompt-embedding continuations, multimodal
-metadata, sampling and pooling state, block state, computed-token accounting,
-output-token absorption, and M-RoPE metadata must all stay consistent.
-Each new-request record supplies the complete prompt for the next segment and
-restarts its output-token buffer empty. This also applies when the new prompt
-contains only part of the preceding segment's output: omitted old output tokens
-must not remain in the runner or persistent batch.
+Implement worker-side support for a streaming-session continuation sent through the new-request path with the same request ID. Each continuation supplies the complete prompt and state for the next segment. For a request ID that is already resident in the runner, keep exactly one request row in the persistent batch; ensure that the next segment's prompt representation, multimodal data, sampling and pooling parameters, block state, and computed-token accounting are reflected consistently; clear the previous output-token buffer completely in both the cached state and the persistent batch; ensure that no stale per-request state affects the next segment; and preserve all unrelated sessions unchanged.
 
-The change is limited to the `GPUModelRunner` continuation-state slice; it does
-not need to implement the rest of the user-facing Streaming Session stack
-across the API, scheduler, or input/output processors.
+The continuation may absorb none, some, or all of the previous segment's output. The new record owns the complete prompt for the next segment, so output tokens omitted from that prompt must not remain in runner or batch state.
 
-Reproduce three continuations of one session against the production
-`GPUModelRunner` lifecycle. The same behavior must hold when two sessions are
-interleaved, when different numbers of output tokens are absorbed, with either
-prompt representation, and with randomized request IDs. Keep the persistent
-batch and the production update lifecycle in place rather than special-casing
-any single scenario.
+The same rules must hold for repeated continuations, interleaved sessions, temporary removal and reinsertion into the batch, token and embedding prompt representations, sampling-parameter changes, and changing prompt lengths. Ordinary new-request behavior must remain unchanged. Keep the change within the existing worker-side lifecycle; public API changes are outside this task.

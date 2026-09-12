@@ -31,3 +31,13 @@ Gate 3：Base 因目标行为失败，Oracle 与不同实现的正确替代方�
 原始证据及命令：/data/yinchen/task-owned4-final-review-20260909T012410Z
 未提交、未推送；没有对外部 GitHub review 或 LLM agent 能力作通过声明。
 原生扩展来源与范围限制见 environment-review；本轮没有声称完成 exact-Base 全量 C++ 重建。
+
+## v1.2.3 hardening review
+
+题面采用 worker-side continuation support 的表述，保留可观察的 session、persistent-batch、output-buffer、prompt-representation 和 ordinary-request 契约；不发布 harness 驱动细节或候选实现字段。
+
+本轮在同一 Base 和 CPU image 上增加了两个当前边界内的行为组：session 暂时移出 persistent batch 后重新插入，以及 finished request ID 重新作为普通新请求使用。两组都通过真实 `GPUModelRunner._update_states` 与 `InputBatch` 生命周期验证。新增 reinsert case 发现了 Oracle/alternate 在行压缩时遗留 prompt embedding 的问题；修复为在 `InputBatch.remove_request` 清理被移除行的 embedding。
+
+本地结果：Base reward 0；更新后的 Oracle reward 1，10/10 groups passed；更新后的 alternate-continuation reward 1，10/10 groups passed；incomplete-output-absorption、OS/SystemExit、replay-observations 和 forged-report controls 均 reward 0。最终版本还通过了新鲜的完整 Harbor Base、alternate 和全部负向 controls；结果和 image identity 记录在 `validation/e2e-evidence.json` 的 `post_hardening_validation` 中，历史 rollout reward 保持不变。
+
+当前验证仍是 CPU state-transition scope，不覆盖完整 public streaming API、async queue、model forward、CUDA execution、prefix-cache hash 或 encoder-memory lifetime。后续如纳入这些边界，需要重新扩大题面、Oracle 和 E2E harness。

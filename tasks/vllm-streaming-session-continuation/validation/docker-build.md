@@ -1,18 +1,14 @@
 # Harbor build and validation
 
-> Historical v1.0 validation. Task v1.1 broadens the public/hidden lifecycle
-> cases and has not yet been rerun; see `docs/VLLM_OPUS5_TASK_REVISION_V1_1.md`.
->
-> Provenance supersession: task v1.2.1 now retains the exact upstream Base at
-> `HEAD` with sanitized parent history. Image IDs and Git assertions below are
-> historical and are not evidence for the current environment; rebuild and
-> `image-check` remain mandatory.
+> Historical build validation for an earlier task snapshot. The current v1.2.3
+> executable revision and its local behavioral results are recorded in
+> `validation/e2e-evidence.json`; the image must still be rebuilt and checked
+> for any final publication.
 
-Status: Harbor-ready for the scoped GPU-runner continuation contract. The
-entire upstream PR is not atomic: it contains 64 commits, changes 16 files, and
-spans API, scheduler, request, output-processing, and runner layers. This task
-therefore maps only the accepted 41-line production change that updates an
-already-cached request in `GPUModelRunner._update_states`.
+Status: Harbor-ready for the scoped worker-side continuation contract. The
+entire upstream feature spans API, scheduler, request, output-processing, and
+runner layers; this task maps the worker-side state transition and persistent
+batch lifecycle only.
 
 ## Contract and solution mapping
 
@@ -25,10 +21,9 @@ become prompt context.
 
 This is not a missing-symbol or source-string smoke test. The base reaches the
 production runner and attempts to add a duplicate stale row. The accepted
-solution is the matching one-file hunk from oracle commit
-`3abe7e7b4942d479f2c43188b8cf414e3a21dd38`; it adds the continuation branch
-and `_update_streaming_request`. The image contains neither that patch nor any
-instruction or verifier asset.
+solution is the task's current `solution/oracle.patch`, which also clears stale
+prompt-embedding entries when a batch row is removed. The image contains
+neither that patch nor any instruction or verifier asset.
 
 The exercised state transition is CPU-executable: it creates no model and
 runs no CUDA kernel. Accordingly `task.toml` declares `gpus = 0` and uses a

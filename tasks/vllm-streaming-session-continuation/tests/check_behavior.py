@@ -1,6 +1,6 @@
 """Validate raw runner and persistent-batch observations in the trusted parent."""
 import math
-EXPECTED_STAGES = ['repeated_continuation','partial_absorption','interleaved_sessions','prompt_embeddings','ordinary_new_request','sampling_refresh','mrope_refresh','pooling_refresh']
+EXPECTED_STAGES = ['repeated_continuation','partial_absorption','interleaved_sessions','prompt_embeddings','ordinary_new_request','sampling_refresh','mrope_refresh','pooling_refresh','batch_reinsertion','finished_id_reuse']
 def check(raw, workload):
     assert len(raw['initial']) == 2 and len(raw['updates']) == 6
     assert raw['initial'] == {rid:v['prompt'] for rid,v in workload['initial'].items()}, 'initial prompts differ from current workload'
@@ -32,7 +32,7 @@ def check(raw, workload):
         assert state['prompt_logprobs']==req['prompt_logprobs']
         assert state['batch_tokens']==prompt
         assert state['batch_embeds']==embeds
-        previous=states
+        previous=update.get('post_output', {'states': states})['states']
     assert len(raw['mrope']) == 2
     for rope, prompt in zip(raw['mrope'], workload['mrope']):
         assert rope['prompt'] == prompt
@@ -44,4 +44,18 @@ def check(raw, workload):
         assert pool['length']==pool['batch_length']==len(prescribed['prompt'])
         assert pool['pooling_state_present'] and pool['batch_pooling_state_present']
         assert pool['requires_tokens']==prescribed['requires_tokens'] and pool['rows']==['pooled']
+    paused_id = workload['updates'][2]['id']
+    assert set(raw['reinsertion']['rows']) == set(workload['initial']) - {paused_id}
+    fresh = workload['finished_reuse']
+    reused = raw['finished_reuse']['states'][fresh['id']]
+    assert reused['prompt'] == fresh['prompt'] and reused['embeds'] is None
+    assert reused['outputs'] == reused['batch_outputs'] == []
+    assert reused['length'] == reused['batch_length'] == reused['batch_total'] == len(fresh['prompt'])
+    assert reused['computed'] == reused['batch_computed'] == fresh['computed']
+    assert reused['blocks'] == fresh['blocks'] and reused['batch_blocks'] == fresh['blocks'][0]
+    assert reused['mm'] == fresh['mm'] and reused['temperature'] == fresh['temperature']
+    assert math.isclose(reused['batch_temperature'], fresh['temperature'], abs_tol=1e-6)
+    assert reused['seed'] == reused['generator_seed'] == fresh['seed']
+    assert reused['prompt_logprobs'] == fresh['prompt_logprobs']
+    assert reused['batch_tokens'] == fresh['prompt'] and reused['batch_embeds'] is None
     return EXPECTED_STAGES

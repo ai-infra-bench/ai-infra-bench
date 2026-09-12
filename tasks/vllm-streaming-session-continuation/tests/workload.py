@@ -33,7 +33,14 @@ def make_workload(seed):
                         'prompt_logprobs':2 if step%2 == 0 else None,
                         'blocks':[[rng.randrange(1, 100), rng.randrange(100, 200)]],
                         'computed':len(prompt if prompt is not None else embedding)-1})
+    finished_reuse = {'id': ids[2], 'prompt': tokens(5), 'embeds': None,
+                      'mm': [f'mm-{rng.getrandbits(64):016x}'],
+                      'temperature': 0.9, 'seed': rng.randrange(1, 2**31),
+                      'prompt_logprobs': None, 'blocks': [[rng.randrange(1, 100),
+                                                           rng.randrange(100, 200)]],
+                      'computed': 4}
     return {'initial':initial, 'updates':updates, 'rope_id':ids[1],
+            'finished_reuse': finished_reuse,
             'mrope':[tokens(7), tokens(9)],
             'pooling':[{'prompt':tokens(4+step), 'requires_tokens':bool(step%2),
                         'blocks':[[rng.randrange(1, 100)]]} for step in range(3)]}

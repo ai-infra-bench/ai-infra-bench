@@ -61,7 +61,7 @@ def continuation(
     )
 
 
-def scheduler_output(records, scheduled_ids):
+def scheduler_output(records, scheduled_ids, finished_ids=None):
     cached_data = CachedRequestData(
         req_ids=[],
         resumed_req_ids=set(),
@@ -72,7 +72,7 @@ def scheduler_output(records, scheduled_ids):
         num_output_tokens=[],
     )
     return SimpleNamespace(
-        finished_req_ids=set(),
+        finished_req_ids=set() if finished_ids is None else set(finished_ids),
         free_encoder_mm_hashes=[],
         num_scheduled_tokens={req_id: 1 for req_id in scheduled_ids},
         scheduled_cached_reqs=cached_data,
@@ -104,14 +104,15 @@ def make_runner(states):
     return runner
 
 
-def apply_update(runner, records):
+def apply_update(runner, records, scheduled_ids=None, finished_ids=None):
     previous = runner_module.get_pp_group
     runner_module.get_pp_group = lambda: SimpleNamespace(is_last_rank=True)
     try:
-        scheduled_ids = set(runner.requests) | {record.req_id for record in records}
+        if scheduled_ids is None:
+            scheduled_ids = set(runner.requests) | {record.req_id for record in records}
         GPUModelRunner._update_states(
             runner,
-            scheduler_output(records, scheduled_ids),
+            scheduler_output(records, scheduled_ids, finished_ids),
         )
     finally:
         runner_module.get_pp_group = previous
@@ -139,7 +140,7 @@ def snapshot(runner):
             "prompt_logprobs": runner.num_prompt_logprobs.get(rid),
             "batch_tokens": batch.token_ids_cpu[i, :n].tolist() if state.prompt_token_ids is not None else None,
             "batch_embeds": batch.req_prompt_embeds[i].tolist() if i in batch.req_prompt_embeds else None,
-            "batch_outputs": batch.req_output_token_ids[i],
+            "batch_outputs": batch.req_output_token_ids[i] if i < len(batch.req_output_token_ids) else None,
             "batch_length": int(batch.num_prompt_tokens[i]),
             "batch_total": int(batch.num_tokens_no_spec[i]),
             "batch_computed": int(batch.num_computed_tokens_cpu[i]),
@@ -157,6 +158,7 @@ def main():
                           for rid, initial in workload['initial'].items()})
     initial_snapshot = snapshot(runner)
     observations = []
+    reinsertion = None
     # Inputs come from the grading parent. All state transitions still execute
     # the production runner and InputBatch methods.
     for prescribed in workload['updates']:
@@ -171,7 +173,24 @@ def main():
                                                seed=prescribed['seed'], max_tokens=50,
                                                prompt_logprobs=prescribed['prompt_logprobs'])
         apply_update(runner, [record])
-        observations.append({'input':prescribed, 'observed':snapshot(runner)})
+        observed = snapshot(runner)
+        # Simulate the shared output buffer that model sampling would append
+        # between continuations; the next update must clear these tokens.
+        state = runner.requests[rid]
+        index = runner.input_batch.req_id_to_index[rid]
+        generated = [30000 + len(observations) * 2, 30001 + len(observations) * 2]
+        state.output_token_ids.extend(generated)
+        start = state.num_prompt_tokens
+        runner.input_batch.token_ids_cpu[index, start:start + len(generated)] = generated
+        runner.input_batch.num_tokens_no_spec[index] = state.num_tokens
+        observations.append({'input':prescribed, 'observed':observed,
+                             'post_output':snapshot(runner)})
+        if len(observations) == 3:
+            # Remove live rows while retaining cached request state, then
+            # reinsert the next continuation through the normal path.
+            paused_id = prescribed['id']
+            apply_update(runner, [], scheduled_ids=set(runner.requests) - {paused_id})
+            reinsertion = {'rows': list(runner.input_batch.req_ids)}
     # Execute production M-RoPE refresh with a deterministic position producer.
     # Model-specific geometry is outside this state-management task.
     class PositionModel:
@@ -215,10 +234,22 @@ def main():
                        "requires_tokens": batch.pooling_params['pooled'].requires_token_ids,
                        "rows": list(batch.req_ids),
                        "batch_length": int(batch.num_prompt_tokens[i])})
+    fresh = workload['finished_reuse']
+    apply_update(runner, [], scheduled_ids=set(runner.requests), finished_ids={fresh['id']})
+    fresh_embeds = None
+    fresh_record = continuation(fresh['id'], fresh['prompt'], marker=fresh['mm'][0],
+                                temperature=fresh['temperature'], blocks=tuple(fresh['blocks']),
+                                computed=fresh['computed'], prompt_embeds=fresh_embeds)
+    fresh_record.sampling_params = SamplingParams(temperature=fresh['temperature'],
+                                                  seed=fresh['seed'], max_tokens=50,
+                                                  prompt_logprobs=fresh['prompt_logprobs'])
+    apply_update(runner, [fresh_record])
+    finished_reuse = snapshot(runner)
     with open(os.environ["AIB_OBSERVATIONS"], "w") as handle:
         json.dump({"initial": {rid: v["prompt"] for rid,v in workload["initial"].items()},
                    "initial_snapshot": initial_snapshot,
-                   "updates": observations, "mrope": rope, "pooling": pooled}, handle)
+                   "updates": observations, "mrope": rope, "pooling": pooled,
+                   "reinsertion": reinsertion, "finished_reuse": finished_reuse}, handle)
     print("streaming observations captured from production InputBatch")
 
 
