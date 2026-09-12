@@ -1,24 +1,5 @@
-I am profiling INT8 per-token-group quantization in vLLM on an A100. The CUDA
-calls still use the Triton implementation, and that path has become a
-bottleneck for the shapes below. Please add a native CUDA implementation and
-route CUDA calls to `per_token_group_quant_int8` through vLLM's existing `_C`
-operator namespace. Platforms that cannot use the native operator must keep the
-current Triton fallback.
+I am profiling INT8 per-token-group quantization in vLLM on an A100, and the current Triton path is a bottleneck for the workloads below. Please add a native CUDA implementation, expose it as `per_token_group_quant_int8` in vLLM's existing `_C` operator namespace, and route the public CUDA calls through it. Platforms that cannot use this native operator should retain the current Triton fallback.
 
-The operator must support contiguous FP16, BF16, and FP32 inputs along with
-configurable group size, epsilon, and INT8 bounds. Its quantized values
-may differ from the deterministic Triton/reference result by at most one
-integer step, and its scales must remain numerically equivalent.
+Support contiguous FP16, BF16 and FP32 inputs with at least two dimensions and a last dimension divisible by the group size, along with configurable group size, epsilon and INT8 bounds. Quantized values must stay within one integer step of the existing Triton implementation on the same inputs, and scales must remain numerically equivalent across the supported input range. Return INT8 values and FP32 scales on the input device, including correctly shaped empty outputs; empty inputs must leave subsequent CUDA operations usable. Work in `/workspace/repo`, rebuild the candidate `_C` extension after changing native sources, and validate the rebuilt code. The environment provides the build toolchain and dependencies for the standard `pip install --no-build-isolation --no-deps -e .` workflow.
 
-Work in `/workspace/repo`. After changing native sources, rebuild the candidate
-`_C` extension from the repo (the build toolchain, CUDA dependencies, and the
-standard `pip install --no-build-isolation --no-deps -e .` flow are available in
-the environment) and validate against that freshly built extension. Keep the
-public native operator name `per_token_group_quant_int8`.
-
-For the performance check, use one NVIDIA A100-SXM4-40GB and first confirm
-correctness. The BF16 timing cases are `(1024, 4096)/group=128`,
-`(4096, 4096)/group=128`, `(2048, 4096)/group=64`,
-`(16, 256, 4096)/group=128`, and `(4096, 4096)/group=64`. Give each path 40
-warmups, then collect five medians of 400 calls. The native path must be at
-least `1.5x` faster than the Triton path in every case.
+After checking correctness, measure on one NVIDIA A100-SXM4-40GB using BF16 inputs: `(1024, 4096)/group=128`, `(4096, 4096)/group=128`, `(2048, 4096)/group=64`, `(16, 256, 4096)/group=128`, and `(4096, 4096)/group=64`. After 40 warmups, time five batches of 400 calls for each path, calculate the average time per call in each batch, and compare the medians of those five measurements. The native path must be at least `1.5x` faster than the Triton path in every case.

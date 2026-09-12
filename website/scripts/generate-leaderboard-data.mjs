@@ -2,6 +2,7 @@ import { readFile, readdir, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { orderTaskRepetitions, repetitionStatistics } from './leaderboard-statistics.mjs';
+import { assertArchiveCoverage, assertTrialIdentity, assertValidOutcome, manifestPathParts, recordedMetric } from './leaderboard-archive.mjs';
 
 const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -13,8 +14,13 @@ function readOption(name, fallback) {
 const archiveRoot = path.resolve(
   readOption('--root', '/mnt/nas/ai-infra-bench/leaderboard'),
 );
-const release = readOption('--release', '2026-09-08');
-const expectedAttempts = Number(readOption('--attempts', '4'));
+const explicitLocation = ['--root', '--release', '--archive-dir', '--manifest-dir'].some(option => process.argv.includes(option));
+const sourcePath = readOption('--source', explicitLocation ? null : path.join(projectDir, 'leaderboard-source.json'));
+const source = sourcePath ? JSON.parse(await readFile(path.resolve(sourcePath), 'utf8')) : {};
+const release = readOption('--release', source.release ?? '2026-09-08');
+const expectedAttempts = Number(readOption('--attempts', source.expectedAttempts ?? '4'));
+const archiveDirectory = path.resolve(readOption('--archive-dir', source.archiveDirectory ?? path.join(archiveRoot, 'archive', release)));
+const manifestDirectory = path.resolve(readOption('--manifest-dir', source.manifestDirectory ?? path.join(archiveRoot, 'manifests', release)));
 const outputPath = path.resolve(
   readOption('--output', path.join(projectDir, 'app/generated/leaderboard.json')),
 );
@@ -73,7 +79,6 @@ function effortRank(effort) {
   return ({ low: 0, medium: 1, high: 2, xhigh: 3 })[effort] ?? 99;
 }
 
-const manifestDirectory = path.join(archiveRoot, 'manifests', release);
 const manifests = await Promise.all(
   (await walkJsonFiles(manifestDirectory)).map(readJson),
 );
@@ -81,6 +86,7 @@ const manifests = await Promise.all(
 if (!manifests.length) {
   throw new Error(`No manifests found in ${manifestDirectory}`);
 }
+await assertArchiveCoverage(archiveDirectory, manifests);
 
 const tasks = [...new Set(manifests.map((manifest) => manifest.task))].sort();
 const configurationKeys = [...new Set(manifests.map((manifest) => [
@@ -109,38 +115,26 @@ for (const manifest of manifests) {
     continue;
   }
 
-  const trialDirectory = path.join(
-    archiveRoot,
-    'archive',
-    release,
-    manifest.task,
-    manifest.model,
-    manifest.reasoning_effort,
-    `${manifest.agent}-${manifest.agent_version}`,
-    manifest.trial_name,
-  );
-  const [result, trajectory] = await Promise.all([
+  const trialDirectory = path.join(archiveDirectory, ...manifestPathParts(manifest));
+  const [result, trajectory, config] = await Promise.all([
     readJson(path.join(trialDirectory, 'result.json')),
     readJson(path.join(trialDirectory, 'agent/trajectory.json')),
+    readJson(path.join(trialDirectory, 'config.json')),
   ]);
+  assertTrialIdentity(manifest, result, config, trajectory);
+  assertValidOutcome(manifest, result, trajectory);
   const agentSteps = (trajectory.steps ?? []).filter((step) => step.source === 'agent');
-  const containsAbort = (trajectory.steps ?? []).some(
-    (step) => String(step.message ?? '').includes('<turn_aborted>'),
-  );
-  if (containsAbort || !trajectory.final_metrics || result.exception_info) {
-    throw new Error(`Manifest marked valid but trajectory is invalid: ${manifest.trial_name}`);
-  }
 
   const startedAt = parseDate(result.started_at);
   const finishedAt = parseDate(result.finished_at);
   validTrials.push({
     ...publicManifest,
     sourceJob: manifest.source_job,
-    reward: Number((result.verifier_result?.rewards ?? {}).reward),
-    costUsd: Number(result.agent_result?.cost_usd ?? trajectory.final_metrics.total_cost_usd ?? 0),
-    inputTokens: Number(result.agent_result?.n_input_tokens ?? trajectory.final_metrics.total_prompt_tokens ?? 0),
-    cachedTokens: Number(result.agent_result?.n_cache_tokens ?? trajectory.final_metrics.total_cached_tokens ?? 0),
-    outputTokens: Number(result.agent_result?.n_output_tokens ?? trajectory.final_metrics.total_completion_tokens ?? 0),
+    reward: result.verifier_result.rewards.reward,
+    costUsd: recordedMetric(result.agent_result?.cost_usd, trajectory.final_metrics.total_cost_usd, 'cost'),
+    inputTokens: recordedMetric(result.agent_result?.n_input_tokens, trajectory.final_metrics.total_prompt_tokens, 'input tokens'),
+    cachedTokens: recordedMetric(result.agent_result?.n_cache_tokens, trajectory.final_metrics.total_cached_tokens, 'cached tokens'),
+    outputTokens: recordedMetric(result.agent_result?.n_output_tokens, trajectory.final_metrics.total_completion_tokens, 'output tokens'),
     turns: agentSteps.length,
     toolCalls: agentSteps.reduce((sum, step) => sum + (step.tool_calls?.length ?? 0), 0),
     durationSeconds: startedAt !== null && finishedAt !== null ? (finishedAt - startedAt) / 1000 : null,
@@ -161,6 +155,7 @@ const configurations = configurationKeys.map((key) => {
   ));
   const taskResults = tasks.map((task) => {
     const attempts = trials.filter((trial) => trial.task === task);
+    if (attempts.length > expectedAttempts) throw new Error(`Too many valid attempts: ${model}/${effort}/${task}`);
     return {
       task,
       attempts: attempts.length,
@@ -173,14 +168,17 @@ const configurations = configurationKeys.map((key) => {
   const totalCostUsd = trials.reduce((sum, trial) => sum + trial.costUsd, 0);
   const passAverage = trials.length ? passes / trials.length * 100 : null;
   const passAtK = tasks.length ? tasksPassed / tasks.length * 100 : null;
+  const configurationId = [model, effort, agent, agentVersion].join('--');
   const repetitions = repetitionStatistics(tasks.map((task) => orderTaskRepetitions(
     trials.filter((trial) => trial.task === task),
     configurationManifests.filter((manifest) => manifest.task === task),
     expectedAttempts,
-  )), expectedAttempts);
+    source.missingRepetitions?.find(item => item.configurationId === configurationId && item.task === task)?.slots ?? [],
+  )), expectedAttempts, { allowPartial: true });
+  if (trials.length && !repetitions) throw new Error(`Cannot establish repetition slots for ${configurationId}; provide verified missingRepetitions in --source`);
 
   return {
-    id: [model, effort, agent, agentVersion].join('--'),
+    id: configurationId,
     model,
     modelLabel: model,
     effort,
@@ -192,6 +190,7 @@ const configurations = configurationKeys.map((key) => {
       passAverageStd: round(repetitions?.standardDeviation, 2),
       repetitionPassRates: repetitions?.passRates.map((rate) => round(rate, 4)) ?? null,
       repetitionPassedTasks: repetitions?.passes ?? null,
+      repetitionTaskCounts: repetitions?.taskCounts ?? null,
       passAverageCi95: wilsonInterval(passes, trials.length),
       passAtK: round(passAtK, 2),
       passAtKCi95: wilsonInterval(tasksPassed, tasks.length),
@@ -236,7 +235,7 @@ const data = {
   generatedAt: new Date().toISOString(),
   release: {
     id: release,
-    label: 'September 2026',
+    label: source.label ?? 'September 2026',
     expectedAttempts,
     taskCount: tasks.length,
     configurationCount: configurations.length,
@@ -249,8 +248,9 @@ const data = {
   },
   methodology: {
     passAverage: 'Successful trials divided by all valid trials.',
-    passAverageStd: `Sample standard deviation (ddof=1) of the ${expectedAttempts} complete repetition pass rates, in percentage points.`,
-    repetitions: 'Attempts are ordered by execution start within each task. A later infrastructure replacement fills its original attempt slot; a complete task rerun uses the new batch order. Ambiguous replacement mappings are rejected.',
+    passAverageStd: `Sample standard deviation (ddof=1) of the ${expectedAttempts} repetition pass rates, in percentage points. Each repetition uses its observed task count; missing attempts are not failures.`,
+    repetitions: 'Attempts are ordered by execution start within each task. A later infrastructure replacement fills its original attempt slot; a complete task rerun uses the new batch order. Missing slots require explicit, verified source metadata. Ambiguous mappings are rejected.',
+    incompleteConfigurations: 'Pass average and costs use actual valid trials. Repetition pass rates use the observed task counts recorded in repetitionTaskCounts, without zero-imputation.',
     passAtK: `Tasks with at least one success across ${expectedAttempts} valid attempts, divided by all tasks.`,
     confidenceInterval: 'Wilson score interval at 95% confidence.',
     costEfficiency: 'Successful trials per $100 of recorded model cost.',

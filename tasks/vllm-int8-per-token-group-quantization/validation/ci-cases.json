@@ -4,7 +4,7 @@
       "expected_reward": 1,
       "name": "alternate-native-kernel",
       "patch": "alternate-native-kernel.patch",
-      "patch_sha256": "e5f9758b1fe6dfbd66c07fbac3b83556ccc2ef07d58a5bde692629752a4e8a4b"
+      "patch_sha256": "d73414bfea8c928c9284c1dfcf534f4031942869f3cb6c2fec5c99871782583c"
     },
     {
       "expected_reward": 0,
@@ -56,6 +56,36 @@
       "expected_reward": 1,
       "patch_sha256": "19ce72b73bcebded9f163bb34b042dfd36047e29d2349a8c5e4830e3a1504db2",
       "note": "Public API and computation unchanged; private Triton helper renamed to check implementation independence."
+    },
+    {
+      "name": "reciprocal-overflow",
+      "patch": "reciprocal-overflow.patch",
+      "expected_reward": 0,
+      "note": "Preserved former alternative: finite FP32 tiny inputs overflow reciprocal; native/public results must agree with frozen Triton.",
+      "patch_sha256": "e5f9758b1fe6dfbd66c07fbac3b83556ccc2ef07d58a5bde692629752a4e8a4b"
+    },
+    {
+      "name": "empty-batch-launch",
+      "patch": "empty-batch-launch.patch",
+      "expected_reward": 0,
+      "note": "Preserved former Oracle launches an empty CUDA grid for valid empty tensors, causing a subsequent CUDA operation to fail.",
+      "patch_sha256": "b89565029ff168f2c82d3850226267714e2c0dd8674574508a2427fc81b0ead7"
+    },
+    {
+      "name": "positive-lower-bound-rejected",
+      "patch": "positive-lower-bound-rejected.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "patch_sha256": "754b00ba0e6779d3e9f6cd3f5ebf9c2513467720531c1fed2b51c67d125265bd",
+      "note": "Saved Astra final tracked and untracked source files, unchanged; standard verifier build applies. Historical rollout and binary remain separate."
+    },
+    {
+      "name": "range-must-include-zero",
+      "patch": "range-must-include-zero.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "patch_sha256": "63bc36218ae837e188eadbddd3e9c81788a0259a5af9fd08dcfbfce68ab7a673",
+      "note": "Otherwise correct Oracle rejects valid positive lower bounds; isolates the newly covered input restriction."
     }
   ],
   "schema_version": "ai_infra_bench_validation_cases.v1"

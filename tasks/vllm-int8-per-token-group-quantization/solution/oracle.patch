@@ -41,7 +41,6 @@ index 5cd2ac1..6a81f15 100644
 +}
 \ No newline at end of file
 diff --git a/csrc/quantization/fp8/per_token_group_quant.cu b/csrc/quantization/fp8/per_token_group_quant.cu
-index afc41fa..a76beed 100644
 --- a/csrc/quantization/fp8/per_token_group_quant.cu
 +++ b/csrc/quantization/fp8/per_token_group_quant.cu
 @@ -1,6 +1,8 @@
@@ -53,7 +52,7 @@ index afc41fa..a76beed 100644
  #include <cmath>
 
  #include <cuda_fp16.h>
-@@ -120,14 +122,20 @@ void per_token_group_quant_8bit(const torch::Tensor& input,
+@@ -120,14 +122,23 @@ void per_token_group_quant_8bit(const torch::Tensor& input,
                                  torch::Tensor& output_q,
                                  torch::Tensor& output_s, int64_t group_size,
                                  double eps, double min_8bit, double max_8bit,
@@ -73,10 +72,13 @@ index afc41fa..a76beed 100644
 +  // Only 2-D scales may use the specialized column-major layout; higher-rank
 +  // scales take the contiguous row-major tiling path.
 +  TORCH_CHECK(output_s.dim() == 2 || output_s.is_contiguous());
++  if (num_groups == 0) {
++    return;
++  }
 
    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
-@@ -149,7 +157,8 @@ void per_token_group_quant_8bit(const torch::Tensor& input,
+@@ -149,7 +160,8 @@ void per_token_group_quant_8bit(const torch::Tensor& input,
    const int num_blocks = num_groups / groups_per_block;
    const int num_threads = groups_per_block * THREADS_PER_GROUP;
 
@@ -86,7 +88,7 @@ index afc41fa..a76beed 100644
    const int scale_num_rows = output_s.size(1);
    const int scale_stride = output_s.stride(1);
 
-@@ -198,6 +207,8 @@ void per_token_group_quant_8bit(const torch::Tensor& input,
+@@ -198,6 +210,8 @@ void per_token_group_quant_8bit(const torch::Tensor& input,
        input.scalar_type(), "per_token_group_quant_8bit", ([&] {
          if (dst_type == at::ScalarType::Float8_e4m3fn) {
            LAUNCH_KERNEL(scalar_t, c10::Float8_e4m3fn);

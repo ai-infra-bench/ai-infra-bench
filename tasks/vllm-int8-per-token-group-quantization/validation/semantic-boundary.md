@@ -1,38 +1,7 @@
-# Semantic boundary — vllm-int8-per-token-group-quantization
+# Frozen semantic boundary
 
-contiguous CUDA tensors -> public per_token_group_quant_int8 dispatch and freshly rebuilt native _C -> quantized values/scales, fallback behavior and speedup against frozen Base Triton
+PR17 requires rebuilt native quantization for contiguous FP16, BF16 and FP32 tensors with configurable group size, epsilon and INT8 bounds, preserving frozen Triton numerical behavior and public dispatch/fallback. The native five-scalar-argument API accepts configured bounds; the frozen public Python convenience wrapper did not accept custom bounds keywords and acquires no such obligation. New checks use eighteen dtype/range combinations including positive lower bounds, comparing actual native outputs and scales with a separate execution of the immutable Triton kernel. Independent challenge cases use different positive ranges and geometry. The saved Astra source and an isolated range-must-include-zero modification are invalid because they reject supported native inputs. Existing precision and empty-input regressions remain. Five published BF16 workloads, 40 warmups, five repeats of 400 calls and per-workload median speedup of at least 1.5x are unchanged.
 
-## Components executed for real
+Configured native ranges are compared against a separate execution of the pinned Triton kernel, with output values, shapes, dtypes, devices and scales checked by the parent. Independent challenge inputs use different bounds, geometry and a separately derived reference. The native rebuilt by each full Harbor case is identified by its image, source/control hashes and binary SHA256 before reuse in that same implementation's independent challenge.
 
-- A100 CUDA execution and event timing
-- Candidate _C rebuilt from candidate native sources
-- Public wrapper and public _C operator
-- Real Triton fallback and byte-identical Base reference
-
-## Allowed substitutions and their limits
-
-- Synthetic tensor values replace model activations; shapes, dtypes, group sizes and numerical ranges preserve quantization semantics.
-- For dispatch-only fallback checking, the platform interface reports a non-CUDA backend while the actual Triton numerical computation runs on CUDA. This is not a claim of an AMD hardware run.
-- Full model forward, tokenizer, attention and unrelated donor native extensions are outside the quantization path.
-
-For performance tasks, workload dimensions that influence latency remain fixed
-to the public timing contract. A different valid correctness input does not
-establish performance equivalence. Fresh independent cases exercise the same
-production boundary; they do not replace the production implementation.
-
-## Coverage
-
-- Four native correctness shapes spanning FP16/BF16/FP32 and 2D/3D, with independent PyTorch expected values.
-- Configurable epsilon and INT8 bounds, zero input and a non-power-of-two group.
-- Public dispatch observed through the native operator profiler event and Triton launches, without naming a private candidate helper.
-- Five public BF16 timing shapes, 40 warmups and five samples of 400 calls; every native/reference speedup must be at least 1.5x.
-- Correct native alternative, compatible operator alias and renamed private helper; incorrect operator name, slow correct kernel and early-exit controls.
-
-Independent correctness inputs execute the exact native artifact captured from an observed successful Harbor rebuild, in a fresh final image with source and binary hashes checked. This reuse is explicitly scoped as a challenge, not another rebuild or grading run.
-
-## Cutoff and provenance
-
-Base Python/source/history and target _C are exact-source. Torch 2.7.1, Triton 3.3.1 and CUDA computation determine the target. The later base image and import-support packages do not supply the target quantizer; unrelated donor extensions are labeled and excluded from the target path. General build tooling is pinned.
-
-See `e2e-evidence.json` for actual run identities and `final-review.md` for the
-current review outcome. Earlier build notes are historical observations.
+The task statement is three natural prose paragraphs. Environment recipes, dependency locks and the Oracle patch are unchanged by this repair. Saved Astra source is a preserved implementation control, not a new model rollout or a reconstruction of the original root filesystem. Raw current results and superseded attempts are recorded separately in e2e-evidence.json.

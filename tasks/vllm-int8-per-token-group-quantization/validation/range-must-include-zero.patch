@@ -1,0 +1,13 @@
+diff --git a/csrc/quantization/compressed_tensors/int8_quant_kernels.cu b/csrc/quantization/compressed_tensors/int8_quant_kernels.cu
+index 6a81f159f..1b9eb8644 100644
+--- a/csrc/quantization/compressed_tensors/int8_quant_kernels.cu
++++ b/csrc/quantization/compressed_tensors/int8_quant_kernels.cu
+@@ -343,6 +343,7 @@ void per_token_group_quant_int8(const torch::Tensor& input,
+                                 torch::Tensor& output_q,
+                                 torch::Tensor& output_s, int64_t group_size,
+                                 double eps, double int8_min, double int8_max) {
++  TORCH_CHECK(int8_min <= 0, "range must include zero");
+   per_token_group_quant_8bit(input, output_q, output_s, group_size, eps,
+                              int8_min, int8_max);
+ }
+\ No newline at end of file

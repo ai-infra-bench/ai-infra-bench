@@ -33,7 +33,7 @@ new file mode 100644
 index 0000000..115e9d9
 --- /dev/null
 +++ b/csrc/quantization/int8/per_token_group_quant_int8.cu
-@@ -0,0 +1,267 @@
+@@ -0,0 +1,269 @@
 +#include <ATen/cuda/CUDAContext.h>
 +#include <torch/all.h>
 +
@@ -127,7 +127,8 @@ index 0000000..115e9d9
 +#pragma unroll
 +    for (int j = 0; j < VEC_SIZE; ++j) {
 +      const float q = fminf(
-+          fmaxf(static_cast<float>(vals[i].val[j]) * inv_scale, int8_min),
++          fmaxf((isfinite(inv_scale) ? static_cast<float>(vals[i].val[j]) * inv_scale
++                              : __fdiv_rn(static_cast<float>(vals[i].val[j]), y_s)), int8_min),
 +          int8_max);
 +      out.val[j] = float_to_int8_rn(q);
 +    }
@@ -164,7 +165,8 @@ index 0000000..115e9d9
 +  const float inv_scale = __frcp_rn(y_s);
 +  for (int i = lane_id; i < group_size; i += 32) {
 +    const float q = fminf(
-+        fmaxf(static_cast<float>(group_input[i]) * inv_scale, int8_min),
++        fmaxf((isfinite(inv_scale) ? static_cast<float>(group_input[i]) * inv_scale
++                            : __fdiv_rn(static_cast<float>(group_input[i]), y_s)), int8_min),
 +        int8_max);
 +    group_output[i] = float_to_int8_rn(q);
 +  }

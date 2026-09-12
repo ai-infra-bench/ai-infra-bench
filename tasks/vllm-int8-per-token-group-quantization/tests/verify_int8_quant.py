@@ -281,6 +281,19 @@ def worker_main():
         # Stage 4: Configurable arguments
         result["stages"]["configurable_arguments"] = check_configurable_arguments()
 
+        # Return actual values; the parent compares these with an isolated frozen run.
+        sys.path.insert(0, "/tests")
+        from quant_boundary import observe
+        from vllm.model_executor.layers.quantization.utils.int8_utils import per_token_group_quant_int8
+        boundary_inputs = json.load(sys.stdin)
+        result["stages"]["precision_boundaries"] = {
+            "native": observe(boundary_inputs["precision"], lambda x, g, eps: cuda_quant(x, g, eps, -128., 127.)),
+            "public": observe(boundary_inputs["precision"], per_token_group_quant_int8),
+        }
+
+        from quant_ranges import observe as observe_ranges
+        result["stages"]["configured_ranges"] = {"cases": observe_ranges(boundary_inputs["ranges"], cuda_quant)}
+
         # Stage 5: Performance vs frozen baseline (run by parent)
         result["verdict"] = "PASS_CORRECTNESS"
         result["performance_deferred_to_parent"] = True
@@ -326,6 +339,8 @@ WORKER_REQUIRED_STAGES = {
     "correctness",
     "public_dispatch",
     "configurable_arguments",
+    "precision_boundaries",
+    "configured_ranges",
 }
 
 
@@ -401,11 +416,12 @@ def correctness_observations_complete(stages):
     ]}
 
 
-def run_worker() -> dict:
+def run_worker(boundary_inputs, boundary_expected) -> dict:
     """Spawn the validation worker as uid 65534 (nobody), capture structured output."""
     try:
         result = subprocess.run(
             ["runuser", "-u", "nobody", "--", "python3", "-I", "-c", WORKER_CODE],
+            input=json.dumps(boundary_inputs),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=600,
@@ -493,6 +509,16 @@ def run_worker() -> dict:
 
             if not correctness_observations_complete(stages):
                 return {"verdict": "FAIL", "reason": "correctness_observations_incomplete"}
+            from quant_boundary import compare
+            observations = stages.get("precision_boundaries", {})
+            errors = {path: compare(observations.get(path), boundary_expected["precision"])
+                      for path in ("native", "public")}
+            if any(errors.values()):
+                return {"verdict": "FAIL", "reason": "precision_boundary_mismatch", "errors": errors}
+            from quant_ranges import compare as compare_ranges
+            range_errors = compare_ranges(stages.get("configured_ranges", {}).get("cases"), boundary_expected["ranges"])
+            if range_errors:
+                return {"verdict": "FAIL", "reason": "configured_range_mismatch", "errors": range_errors}
             return worker_output
         except (ValueError, TypeError, AttributeError) as exc:
             return {
@@ -787,7 +813,15 @@ def main():
         sys.exit(1)
 
     # Run worker for correctness checks
-    worker_result = run_worker()
+    sys.path.insert(0, "/tests")
+    from quant_boundary import cases, frozen_observations
+    from quant_ranges import cases as range_cases, frozen_observations as frozen_ranges
+    boundary_inputs = {"precision": cases(), "ranges": range_cases()}
+    boundary_expected = {
+        "precision": frozen_observations(boundary_inputs["precision"], FROZEN_DIR),
+        "ranges": frozen_ranges(boundary_inputs["ranges"], FROZEN_DIR),
+    }
+    worker_result = run_worker(boundary_inputs, boundary_expected)
 
     # The worker just ran candidate code as nobody; re-verify before trusting any
     # subsequent timing.
