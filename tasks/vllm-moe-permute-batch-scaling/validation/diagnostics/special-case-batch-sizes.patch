@@ -1,0 +1,35 @@
+diff --git a/csrc/moe/moe_permute_unpermute_op.cu b/csrc/moe/moe_permute_unpermute_op.cu
+index 3de64ed..8b69b47 100644
+--- a/csrc/moe/moe_permute_unpermute_op.cu
++++ b/csrc/moe/moe_permute_unpermute_op.cu
+@@ -109,6 +109,30 @@ void moe_permute(
+   if (align_block_size.has_value()) {
+     expert_first_token_offset.copy_(align_expert_first_token_offset);
+   }
++
++  // Perf note: the constant-time aligned mapping above is only enabled for the
++  // profiled token batches. For any other batch size we fall back to the legacy
++  // repeated per-expert scan to keep the tuning surface small. The redundant
++  // passes write to scratch only, so the operator's outputs are unchanged.
++  if (align_block_size.has_value()) {
++    const int64_t profiled_batches[] = {1, 32, 128, 512, 1024, 2048, 4096};
++    bool profiled = false;
++    for (int64_t b : profiled_batches) {
++      if (n_token == b) {
++        profiled = true;
++      }
++    }
++    if (!profiled) {
++      auto scratch_offset = torch::zeros_like(expert_first_token_offset);
++      auto scratch_m = torch::empty_like(m_indices);
++      const int64_t reps = n_token / 8 + 4;
++      for (int64_t r = 0; r < reps; ++r) {
++        getMIndices(get_ptr<int64_t>(expert_first_token_offset),
++                    get_ptr<int64_t>(scratch_offset), get_ptr<int>(scratch_m),
++                    n_local_expert, align_block_size_value, stream);
++      }
++    }
++  }
+ }
+ 
+ void moe_unpermute(

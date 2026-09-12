@@ -1,0 +1,61 @@
+schema_version = "1.4"
+
+[task]
+name = "ai-infra-bench/vllm-moe-permute-batch-scaling"
+version = "1.3.2"
+description = "Keep native MoE permutation latency from scaling sharply with batch size."
+authors = [{ name = "AI Infra Bench Curators" }]
+keywords = ["vllm", "cuda", "moe", "permute", "performance"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+track = "representative"
+source_ids = ["vllm__pr__32892"]
+repository = "vllm-project/vllm"
+base_commit = "dc917cceb877dfd13f98c538c4c96158047d98bd"
+image_digest = "sha256:6698c86f56f02fa0c16acb4da43776da59e9bf72abd276ce8cb58863d973e900"
+dependency_cutoff = "2026-01-22T23:21:35Z"
+oracle_commit = "c4e744dbd41f23ee7fd554a86cc1bf516082552d"
+workload_type = "performance_fix"
+difficulty = "hard"
+grader_kind = "correctness_and_performance"
+subsystems = ["kernel_optimization", "mixture_of_experts"]
+environment_template = "vllm-harbor-all-in-one"
+environment_profile = "cuda-native-extension"
+gpu_base_image = "vllm/vllm-openai@sha256:1d6866b87630d94f5e0cdae55ab5abb4ce0b03fcb84d9d10612f9d518d19d4fd"
+gpu_base_vllm_revision = "v0.14.0"
+gpu_compute_capability = "8.0"
+gpu_min_driver_version = "575.51.03"
+native_extension_target = "_moe_C"
+publication_state = "candidate-static-review"
+
+[agent]
+timeout_sec = 36000.0
+user = "agent"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 3600.0
+environment_mode = "shared"
+user = "root"
+
+[environment]
+accelerator = "A100"
+network_mode = "no-network"
+build_timeout_sec = 5400.0
+os = "linux"
+cpus = 8
+memory_mb = 32768
+storage_mb = 65536
+gpus = 1
+gpu_types = ["A100"]
+topology = 1
+workdir = "/app"
+
+[validation]
+# Opt in to the static scoring-integrity gates in .github/scripts/task_ci.py
+# (`task_ci.py scoring-check`). native_artifact additionally requires a
+# root-side staging helper (lstat/realpath/O_NOFOLLOW/SHA-256) and an
+# artifact SHA bound into the scoring entry.
+scoring_integrity = true
+native_artifact = true
