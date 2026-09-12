@@ -1,0 +1,11 @@
+# Environment provenance
+
+The environment contains vLLM Base `9b9d5dbaab852a1c615fe83a7f92881d353503db` (2026-05-21T14:28:34Z), tree `48b639edab89a4d62d26e7355f0226609d3a035b`, on branch `main` with its 16835 reachable commits. Remotes, tags, reflogs, fetch metadata and future source objects are removed. The checkout is writable by `agent` and imported through `/workspace/repo`.
+
+`source.Dockerfile` records the original source build: the official vLLM v0.21.0 donor at `sha256:4ac9b7c6dabc3ec762c0edef4e9245abe98373844da91cc53ee42e5c58280c5b`, created 2026-05-15, supplies pinned Python dependencies and native artifacts. The exact Base supplies Python sources. No task-specific fixture, test, solution or reproducer is installed in the agent image.
+
+`Dockerfile` defaults to the public donor and rebuilds the pinned source checkout. The optional `PREPARED_BASE=1` build argument reuses a prepared image while checking its Base, tree, clean state and absence of task artifacts. Local validation used `--build-arg PREPARED_BASE=1 --build-arg BASE_IMAGE=<verified-local-reference>`, resolving to image ID `sha256:10d9683beb7ddc09b89e64d745348aaea13f9a201d4f7ddb95ab038be01b3f9d`. This optional path avoids downloading dependencies again; it does not change the default source recipe.
+
+The September 13 local validation used that already cached image because outbound APT requests failed and an anonymous GHCR token request returned HTTP 401. The build command, resolved image identities and output are retained in validation evidence. This record does not claim a successful network rebuild from `source.Dockerfile`.
+
+The semantic target is node-local process supervision. CPU execution is sufficient for the real CLI, process ownership, HTTP probing, signals and socket lifecycle. The verifier supplies model-free engine and HTTP payload producers at the existing API backend boundaries; it retains actual `run_server`, `setup_server` and `run_server_worker` execution and real nested engine stand-ins. Device-list routing uses the pinned platform mapping API with a synthetic CPU-visible device list. No actual accelerator allocation, inference quality, Kubernetes deployment or cross-node routing is claimed.

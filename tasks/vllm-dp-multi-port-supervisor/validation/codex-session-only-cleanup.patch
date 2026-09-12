@@ -1,0 +1,1058 @@
+diff --git a/docs/serving/data_parallel_deployment.md b/docs/serving/data_parallel_deployment.md
+index 1f18b92f95b..6c017e64b8d 100644
+--- a/docs/serving/data_parallel_deployment.md
++++ b/docs/serving/data_parallel_deployment.md
+@@ -131,3 +131,62 @@ The coordinator process also runs in this scenario, co-located with the DP rank
+ </figure>
+ 
+ In the above diagram, each of the dotted boxes corresponds to a separate launch of `vllm serve` - these could be separate Kubernetes pods, for example.
++
++### Supervised per-rank ports
++
++Use `--data-parallel-multi-port-external-lb` to launch and supervise all local
++DP ranks with one command per node. Each rank has one API server, with consecutive
++ports starting at `--port`. The external load balancer routes requests to these
++ports. A separate HTTP supervisor endpoint reports the health of the whole node.
++
++For example, launch two local ranks with TP=2 on a restricted four-device list:
++
++```bash
++CUDA_VISIBLE_DEVICES=2,3,6,7 vllm serve $MODEL \
++    --data-parallel-multi-port-external-lb \
++    --data-parallel-size 2 --data-parallel-size-local 2 \
++    --tensor-parallel-size 2 \
++    --port 8000 --data-parallel-supervisor-port 9000
++```
++
++Rank 0 serves port 8000 using devices 2 and 3; rank 1 serves port 8001 using
++devices 6 and 7. Each local rank receives `TP * PP * PCP` consecutive entries from the
++platform's visible-device list, preserving their order. Without a restricted
++list, device numbering starts at zero. PCP is `--prefill-context-parallel-size`
++(one by default). All workers for a rank must fit on the local node; this mode
++uses local multiprocessing.
++
++For multiple nodes, use the same global `--data-parallel-size`,
++`--data-parallel-address` and `--data-parallel-rpc-port` on each node, and set
++`--data-parallel-start-rank` to that node's first global rank. The start rank
++defaults to zero, and `--data-parallel-size-local` defaults to the global DP size.
++As with single-rank external LB, this mode supports MoE deployments.
++
++The supervisor binds to `--host` on the required
++`--data-parallel-supervisor-port`, which must be outside the child port range.
++Its `/health`, `/ready` and `/readyz` routes all return 503 until every local rank
++returns HTTP 200 from `/health`. They return 503 again immediately when a rank
++fails a probe. Configure Kubernetes readiness probes to use one of these routes
++on the supervisor port; give startup probes enough time for model loading.
++
++Health probes run concurrently across ranks. Configure their behavior with:
++
++| Option | Default | Meaning |
++| --- | --- | --- |
++| `--dp-supervisor-probe-interval-s` | `1` | Seconds between probe rounds |
++| `--dp-supervisor-probe-timeout-s` | `1` | Timeout per request in seconds |
++| `--dp-supervisor-probe-failure-threshold` | `3` | Consecutive failures per rank before shutdown |
++
++Any non-200 response, connection error or timeout is a failed probe. Failures
++count toward shutdown only after the entire group has first become ready. A
++successful probe resets that rank's failure count. Reaching the threshold or
++exiting any rank process stops the whole group with a failure exit status; rank
++exits also stop the group during startup. SIGTERM and SIGINT stop the group
++normally. Shutdown sends SIGTERM to each rank's process group, allows up to five
++seconds for graceful exit, then sends SIGKILL to remaining workers, including
++descendants whose rank process has already exited.
++
++This mode cannot be combined with `--headless`, `--data-parallel-hybrid-lb`,
++`--data-parallel-external-lb` or `--data-parallel-rank`. Use
++`--data-parallel-start-rank` to select the rank range, and leave
++`--api-server-count` unset or set it to one.
+diff --git a/tools/pre_commit/check_forbidden_imports.py b/tools/pre_commit/check_forbidden_imports.py
+index 365b2f5bb77..cda2b5d1918 100644
+--- a/tools/pre_commit/check_forbidden_imports.py
++++ b/tools/pre_commit/check_forbidden_imports.py
+@@ -32,6 +32,9 @@ CHECK_IMPORTS = {
+             "vllm/model_executor/models/registry.py",
+             "vllm/compilation/caching.py",
+             "vllm/env_override.py",
++            # Parsed CLI namespace sent through a private parent-created file
++            # to a fresh local rank process, never received over the network.
++            "vllm/entrypoints/cli/dp_supervisor.py",
+             "vllm/compilation/piecewise_backend.py",
+             "vllm/distributed/utils.py",
+             "vllm/distributed/parallel_state.py",
+diff --git a/vllm/entrypoints/cli/serve.py b/vllm/entrypoints/cli/serve.py
+index 6d6cfa6cd76..94aa455e8be 100644
+--- a/vllm/entrypoints/cli/serve.py
++++ b/vllm/entrypoints/cli/serve.py
+@@ -49,6 +49,12 @@ class ServeSubcommand(CLISubcommand):
+         if hasattr(args, "model_tag") and args.model_tag is not None:
+             args.model = args.model_tag
+ 
++        if getattr(args, "data_parallel_multi_port_external_lb", False):
++            from vllm.entrypoints.cli.dp_supervisor import run_dp_supervisor
++
++            run_dp_supervisor(args)
++            return
++
+         if getattr(args, "grpc", False):
+             from vllm.entrypoints.grpc_server import serve_grpc
+ 
+diff --git a/vllm/entrypoints/openai/cli_args.py b/vllm/entrypoints/openai/cli_args.py
+index 3ebdec3c67f..0890af173e2 100644
+--- a/vllm/entrypoints/openai/cli_args.py
++++ b/vllm/entrypoints/openai/cli_args.py
+@@ -370,6 +370,10 @@ def make_arg_parser(parser: FlexibleArgumentParser) -> FlexibleArgumentParser:
+     parser = FrontendArgs.add_cli_args(parser)
+     parser = AsyncEngineArgs.add_cli_args(parser)
+ 
++    from vllm.entrypoints.cli.dp_supervisor import add_cli_args
++
++    add_cli_args(parser)
++
+     return parser
+ 
+ 
+@@ -378,6 +382,11 @@ def validate_parsed_serve_args(args: argparse.Namespace):
+     if hasattr(args, "subparser") and args.subparser != "serve":
+         return
+ 
++    if getattr(args, "data_parallel_multi_port_external_lb", False):
++        from vllm.entrypoints.cli.dp_supervisor import validate_args
++
++        validate_args(args)
++
+     # Ensure that the chat template is valid; raises if it likely isn't
+     validate_chat_template(args.chat_template)
+ 
+diff --git ab/vllm/entrypoints/cli/dp_supervisor.py bb/vllm/entrypoints/cli/dp_supervisor.py
+new file mode 100644
+index 0000000..83679eb
+--- /dev/null
++++ bb/vllm/entrypoints/cli/dp_supervisor.py
+@@ -0,0 +1,374 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Node-local supervision of external-LB API servers.
++
++Each rank runs in a fresh interpreter and POSIX session. Device visibility is
++set before importing the serving stack; the session also owns engine workers
++that outlive their API server. No model or accelerator is loaded here.
++"""
++
++import argparse
++import asyncio
++import contextlib
++import copy
++import logging
++import math
++import os
++import pickle
++import signal
++import subprocess
++import sys
++import tempfile
++
++import aiohttp
++from aiohttp import web
++
++logger = logging.getLogger(__name__)
++
++
++def add_cli_args(parser: argparse.ArgumentParser) -> None:
++    group = parser.add_argument_group("Data parallel supervisor")
++    group.add_argument(
++        "--data-parallel-multi-port-external-lb",
++        action="store_true",
++        help="Supervise one API server per local DP rank on consecutive ports "
++        "starting at --port. Use --data-parallel-start-rank for the first rank.",
++    )
++    group.add_argument(
++        "--data-parallel-supervisor-port",
++        type=int,
++        default=None,
++        help="Required in multi-port external LB mode. Serves aggregate "
++        "/health, /ready and /readyz on --host over HTTP.",
++    )
++    group.add_argument(
++        "--dp-supervisor-probe-interval-s",
++        type=float,
++        default=1.0,
++        help="Seconds between rounds of rank health probes (default: 1).",
++    )
++    group.add_argument(
++        "--dp-supervisor-probe-timeout-s",
++        type=float,
++        default=1.0,
++        help="Timeout in seconds for each rank health probe (default: 1).",
++    )
++    group.add_argument(
++        "--dp-supervisor-probe-failure-threshold",
++        type=int,
++        default=3,
++        help="Consecutive failures of a rank after initial group readiness "
++        "before stopping the group (default: 3).",
++    )
++
++
++def validate_args(args: argparse.Namespace) -> None:
++    for name in (
++        "headless",
++        "data_parallel_hybrid_lb",
++        "data_parallel_external_lb",
++        "grpc",
++        "uds",
++        "enable_elastic_ep",
++    ):
++        if getattr(args, name, False):
++            raise ValueError(
++                f"--{name.replace('_', '-')} conflicts with "
++                "--data-parallel-multi-port-external-lb"
++            )
++    if args.data_parallel_rank is not None:
++        raise ValueError("Use --data-parallel-start-rank, not --data-parallel-rank")
++    if args.api_server_count not in (None, 1):
++        raise ValueError("Multi-port external LB requires one API server per rank")
++    if getattr(args, "nnodes", 1) != 1:
++        raise ValueError("Multi-port external LB requires node-local TP/PP (nnodes=1)")
++    if getattr(args, "data_parallel_backend", "mp") != "mp" or getattr(
++        args, "distributed_executor_backend", None
++    ) not in (None, "mp", "uni"):
++        raise ValueError("Multi-port external LB requires local multiprocessing")
++    size = args.data_parallel_size
++    local = args.data_parallel_size_local
++    start = args.data_parallel_start_rank or 0
++    if size <= 1:
++        raise ValueError("--data-parallel-size must be greater than 1 for external LB")
++    if local is None:
++        local = size
++    if local <= 0 or start < 0 or start + local > size:
++        raise ValueError("Local DP rank range must be nonempty and within the DP size")
++    for name in (
++        "tensor_parallel_size",
++        "pipeline_parallel_size",
++        "prefill_context_parallel_size",
++    ):
++        if getattr(args, name, 1) <= 0:
++            raise ValueError(f"--{name.replace('_', '-')} must be positive")
++    for name in (
++        "dp_supervisor_probe_interval_s",
++        "dp_supervisor_probe_timeout_s",
++        "dp_supervisor_probe_failure_threshold",
++    ):
++        value = getattr(args, name)
++        if not math.isfinite(value) or value <= 0:
++            raise ValueError(f"--{name.replace('_', '-')} must be finite and positive")
++    if not 1 <= args.port <= args.port + local - 1 <= 65535:
++        raise ValueError("Child ports must be in the range 1..65535")
++    port = args.data_parallel_supervisor_port
++    if port is None or not 1 <= port <= 65535:
++        raise ValueError(
++            "--data-parallel-supervisor-port must be in the range 1..65535"
++        )
++    if args.port <= port < args.port + local:
++        raise ValueError("Supervisor port overlaps a child port")
++
++
++def rank_launches(
++    args: argparse.Namespace, device_env_var: str
++) -> list[tuple[argparse.Namespace, dict[str, str]]]:
++    """Resolve every launch before starting any processes.
++
++    Slice the original visibility list directly, including GPU UUIDs and MIG
++    identifiers. Global DP rank offsets must not affect local device indices.
++    """
++    validate_args(args)
++    local = args.data_parallel_size_local or args.data_parallel_size
++    width = (
++        args.tensor_parallel_size
++        * args.pipeline_parallel_size
++        * getattr(args, "prefill_context_parallel_size", 1)
++    )
++    visible = os.environ.get(device_env_var)
++    devices = (
++        [device.strip() for device in visible.split(",")]
++        if visible is not None
++        else [str(i) for i in range(local * width)]
++    )
++    if len(devices) < local * width or any(not device for device in devices):
++        raise ValueError(
++            f"{device_env_var} has too few devices for local DP * TP * PP * PCP"
++        )
++    launches = []
++    for rank in range(local):
++        child = copy.deepcopy(args)
++        child.data_parallel_multi_port_external_lb = False
++        child.data_parallel_supervisor_port = None
++        child.data_parallel_external_lb = True
++        child.data_parallel_hybrid_lb = False
++        child.data_parallel_rank = (args.data_parallel_start_rank or 0) + rank
++        child.data_parallel_start_rank = None
++        child.data_parallel_size_local = 1
++        child.api_server_count = 1
++        child.port = args.port + rank
++        # CLI dispatch callbacks are unnecessary in the fresh interpreter.
++        child.__dict__.pop("dispatch_function", None)
++        env = os.environ.copy()
++        env[device_env_var] = ",".join(devices[rank * width : (rank + 1) * width])
++        # ROCm normalizes these aliases on platform initialization and rejects
++        # mismatched values when the child imports the platform again.
++        if device_env_var == "CUDA_VISIBLE_DEVICES" and "HIP_VISIBLE_DEVICES" in env:
++            env["HIP_VISIBLE_DEVICES"] = env[device_env_var]
++        launches.append((child, env))
++    return launches
++
++
++def launch_rank(args: argparse.Namespace, env: dict[str, str]) -> subprocess.Popen:
++    # Serialize the parsed namespace, preserving config-file options and custom
++    # argparse values without reconstructing or reparsing the command line.
++    # stdin is a private, parent-created file, never input from a network client.
++    with tempfile.TemporaryFile() as config:
++        pickle.dump(args, config)
++        config.seek(0)
++        return subprocess.Popen(
++            [sys.executable, "-m", "vllm.entrypoints.cli.dp_supervisor"],
++            stdin=config,
++            env=env,
++            start_new_session=True,
++        )
++
++
++class DPSupervisor:
++    def __init__(self, args: argparse.Namespace):
++        self.args = args
++        self.processes: list[subprocess.Popen] = []
++        self.healthy = [False] * (
++            args.data_parallel_size_local or args.data_parallel_size
++        )
++        self.failures = [0] * len(self.healthy)
++        self.ever_ready = False
++        self.stopping = asyncio.Event()
++        self.failure: str | None = None
++
++    @property
++    def ready(self) -> bool:
++        return (
++            not self.stopping.is_set()
++            and len(self.processes) == len(self.healthy)
++            and all(self.healthy)
++            and all(proc.poll() is None for proc in self.processes)
++        )
++
++    async def health(self, request: web.Request) -> web.Response:
++        ready = self.ready
++        return web.Response(
++            status=200 if ready else 503,
++            text="ready\n" if ready else "not ready\n",
++        )
++
++    def record_probe(self, rank: int, healthy: bool) -> None:
++        self.healthy[rank] = healthy
++        if healthy:
++            self.failures[rank] = 0
++        elif self.ever_ready:
++            self.failures[rank] += 1
++            if self.failures[rank] >= self.args.dp_supervisor_probe_failure_threshold:
++                self.failure = (
++                    f"Local DP rank {rank} reached the health failure threshold"
++                )
++                self.stopping.set()
++        if not self.ever_ready and all(self.healthy):
++            self.ever_ready = True
++            logger.info("All local DP ranks are healthy; supervisor is ready")
++
++    async def probe(self, session: aiohttp.ClientSession, rank: int) -> None:
++        host = self.args.host or "127.0.0.1"
++        if host in ("0.0.0.0", "::"):
++            host = "::1" if host == "::" else "127.0.0.1"
++        if ":" in host and not host.startswith("["):
++            host = f"[{host}]"
++        scheme = "https" if getattr(self.args, "ssl_certfile", None) else "http"
++        url = f"{scheme}://{host}:{self.args.port + rank}/health"
++        healthy = False
++        try:
++            # Only inspect status. Redirects are failures, and environment HTTP
++            # proxies must not intercept probes of local workers. TLS identity
++            # is not verified for this local liveness check.
++            async with session.get(url, allow_redirects=False, ssl=False) as response:
++                healthy = response.status == 200
++        except (aiohttp.ClientError, TimeoutError):
++            pass
++        self.record_probe(rank, healthy)
++
++    async def probe_loop(self) -> None:
++        timeout = aiohttp.ClientTimeout(total=self.args.dp_supervisor_probe_timeout_s)
++        async with aiohttp.ClientSession(timeout=timeout, trust_env=False) as session:
++            while not self.stopping.is_set():
++                await asyncio.gather(
++                    *(self.probe(session, rank) for rank in range(len(self.healthy)))
++                )
++                await asyncio.sleep(self.args.dp_supervisor_probe_interval_s)
++
++    async def monitor_processes(self) -> None:
++        while not self.stopping.is_set():
++            for rank, proc in enumerate(self.processes):
++                if (code := proc.poll()) is not None:
++                    self.failure = f"Local DP rank {rank} exited with code {code}"
++                    self.stopping.set()
++                    return
++            await asyncio.sleep(0.1)
++
++    async def shutdown(self, grace_s: float = 5.0) -> None:
++        self.stopping.set()
++        logger.info("Stopping local DP rank process groups")
++        # Always signal the saved process group, even if its leader has exited.
++        # Waiting only for Popen.poll() would miss orphaned engine workers.
++        def signal_groups(sig: signal.Signals) -> None:
++            for proc in self.processes:
++                with contextlib.suppress(ProcessLookupError):
++                    os.killpg(proc.pid, sig)
++
++        signal_groups(signal.SIGTERM)
++        deadline = asyncio.get_running_loop().time() + grace_s
++        while asyncio.get_running_loop().time() < deadline:
++            alive = False
++            for proc in self.processes:
++                proc.poll()  # Reap exited leaders before checking the group.
++                try:
++                    os.killpg(proc.pid, 0)
++                    alive = True
++                except ProcessLookupError:
++                    pass
++            if not alive:
++                break
++            await asyncio.sleep(0.05)
++        signal_groups(signal.SIGKILL)
++        for proc in self.processes:
++            proc.wait()
++
++    async def run(
++        self, launches: list[tuple[argparse.Namespace, dict[str, str]]]
++    ) -> None:
++        loop = asyncio.get_running_loop()
++        old_handlers = {
++            sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)
++        }
++        runner = web.AppRunner(self.create_app(), access_log=None)
++        tasks: list[asyncio.Task] = []
++        try:
++            for sig in old_handlers:
++                loop.add_signal_handler(sig, self.stopping.set)
++            await runner.setup()
++            await web.TCPSite(
++                runner,
++                self.args.host or "0.0.0.0",
++                self.args.data_parallel_supervisor_port,
++            ).start()
++            logger.info(
++                "DP supervisor listening on %s:%d",
++                self.args.host or "0.0.0.0",
++                self.args.data_parallel_supervisor_port,
++            )
++            for child, env in launches:
++                if self.stopping.is_set():
++                    break
++                self.processes.append(launch_rank(child, env))
++                logger.info(
++                    "Started DP rank %d on port %d (pid %d)",
++                    child.data_parallel_rank,
++                    child.port,
++                    self.processes[-1].pid,
++                )
++                await asyncio.sleep(0)  # Deliver shutdown signals during startup.
++            tasks = [
++                asyncio.create_task(self.probe_loop()),
++                asyncio.create_task(self.monitor_processes()),
++                asyncio.create_task(self.stopping.wait()),
++            ]
++            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
++            for task in done:
++                task.result()
++            if self.failure:
++                raise RuntimeError(self.failure)
++        finally:
++            self.stopping.set()
++            for task in tasks:
++                task.cancel()
++            await asyncio.gather(*tasks, return_exceptions=True)
++            try:
++                await self.shutdown()
++            finally:
++                try:
++                    await runner.cleanup()
++                finally:
++                    for sig, handler in old_handlers.items():
++                        loop.remove_signal_handler(sig)
++                        signal.signal(sig, handler)
++
++    def create_app(self) -> web.Application:
++        app = web.Application()
++        for path in ("/health", "/ready", "/readyz"):
++            app.router.add_get(path, self.health)
++        return app
++
++
++def run_dp_supervisor(args: argparse.Namespace) -> None:
++    from vllm.platforms import current_platform
++
++    validate_args(args)
++    launches = rank_launches(args, current_platform.device_control_env_var)
++    asyncio.run(DPSupervisor(args).run(launches))
++
++
++if __name__ == "__main__":
++    args = pickle.load(sys.stdin.buffer)
++    from vllm.entrypoints.cli.serve import ServeSubcommand
++
++    ServeSubcommand.cmd(args)
+diff --git ab/tests/entrypoints/test_dp_supervisor.py bb/tests/entrypoints/test_dp_supervisor.py
+new file mode 100644
+index 0000000..420f2c8
+--- /dev/null
++++ bb/tests/entrypoints/test_dp_supervisor.py
+@@ -0,0 +1,547 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""CPU-only supervisor tests, also runnable with python -m unittest."""
++
++import argparse
++import asyncio
++import json
++import os
++import signal
++import socket
++import subprocess
++import sys
++import tempfile
++import time
++import unittest
++from pathlib import Path
++from unittest.mock import Mock, patch
++
++import aiohttp
++from aiohttp import web
++
++from vllm.entrypoints.cli import dp_supervisor as dp
++
++
++def make_args(**overrides):
++    args = argparse.Namespace(
++        data_parallel_multi_port_external_lb=True,
++        data_parallel_supervisor_port=9000,
++        data_parallel_size=4,
++        data_parallel_size_local=2,
++        data_parallel_start_rank=2,
++        data_parallel_rank=None,
++        data_parallel_external_lb=False,
++        data_parallel_hybrid_lb=False,
++        tensor_parallel_size=1,
++        pipeline_parallel_size=1,
++        api_server_count=None,
++        headless=False,
++        host="127.0.0.1",
++        port=8000,
++        dp_supervisor_probe_interval_s=0.05,
++        dp_supervisor_probe_timeout_s=0.1,
++        dp_supervisor_probe_failure_threshold=3,
++    )
++    vars(args).update(overrides)
++    return args
++
++
++class TestLaunchConfiguration(unittest.TestCase):
++    def test_parser_defaults(self):
++        parser = argparse.ArgumentParser()
++        dp.add_cli_args(parser)
++        args = parser.parse_args([])
++        self.assertFalse(args.data_parallel_multi_port_external_lb)
++        self.assertIsNone(args.data_parallel_supervisor_port)
++        self.assertEqual(args.dp_supervisor_probe_interval_s, 1)
++        self.assertEqual(args.dp_supervisor_probe_timeout_s, 1)
++        self.assertEqual(args.dp_supervisor_probe_failure_threshold, 3)
++
++    def test_invalid_configuration(self):
++        cases = [
++            {"headless": True},
++            {"data_parallel_hybrid_lb": True},
++            {"data_parallel_external_lb": True},
++            {"data_parallel_rank": 0},
++            {"grpc": True},
++            {"uds": "/tmp/server.sock"},
++            {"api_server_count": 0},
++            {"api_server_count": 2},
++            {"data_parallel_size": 1},
++            {"data_parallel_size_local": 0},
++            {"data_parallel_size_local": -1},
++            {"data_parallel_start_rank": -1},
++            {"data_parallel_start_rank": 3},
++            {"tensor_parallel_size": 0},
++            {"pipeline_parallel_size": -1},
++            {"prefill_context_parallel_size": 0},
++            {"data_parallel_supervisor_port": None},
++            {"data_parallel_supervisor_port": 8000},
++            {"data_parallel_supervisor_port": 8001},
++            {"data_parallel_supervisor_port": 65536},
++            {"port": 0},
++            {"port": 65535},
++            {"nnodes": 2},
++            {"data_parallel_backend": "ray"},
++        ]
++        for name in (
++            "dp_supervisor_probe_interval_s",
++            "dp_supervisor_probe_timeout_s",
++            "dp_supervisor_probe_failure_threshold",
++        ):
++            cases.extend({name: value} for value in (0, -1, float("inf"), float("nan")))
++        for overrides in cases:
++            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
++                dp.validate_args(make_args(**overrides))
++
++    def test_device_slices_and_child_options(self):
++        args = make_args(tensor_parallel_size=2, pipeline_parallel_size=2)
++        args.extra_option = {"nested": ["config-file value"]}
++        devices = ["GPU-a", "MIG-b", "7", "3", "GPU-c", "MIG-d", "1", "5"]
++        with patch.dict(os.environ, {"CUDA_VISIBLE_DEVICES": ",".join(devices)}):
++            launches = dp.rank_launches(args, "CUDA_VISIBLE_DEVICES")
++            self.assertEqual(os.environ["CUDA_VISIBLE_DEVICES"], ",".join(devices))
++        for local_rank, (child, env) in enumerate(launches):
++            self.assertEqual(child.port, 8000 + local_rank)
++            self.assertEqual(child.data_parallel_rank, 2 + local_rank)
++            self.assertEqual(child.data_parallel_size, 4)
++            self.assertEqual(child.data_parallel_size_local, 1)
++            self.assertIsNone(child.data_parallel_start_rank)
++            self.assertTrue(child.data_parallel_external_lb)
++            self.assertFalse(child.data_parallel_multi_port_external_lb)
++            self.assertEqual(child.api_server_count, 1)
++            self.assertEqual(child.extra_option, args.extra_option)
++            self.assertEqual(
++                env["CUDA_VISIBLE_DEVICES"],
++                ",".join(devices[local_rank * 4 : (local_rank + 1) * 4]),
++            )
++        self.assertTrue(args.data_parallel_multi_port_external_lb)
++        self.assertIsNone(args.data_parallel_rank)
++
++    def test_unrestricted_devices_and_defaults(self):
++        with patch.dict(os.environ, {}, clear=True):
++            launches = dp.rank_launches(
++                make_args(
++                    data_parallel_start_rank=None,
++                    data_parallel_size_local=None,
++                    tensor_parallel_size=2,
++                ),
++                "ZE_AFFINITY_MASK",
++            )
++        self.assertEqual(len(launches), 4)
++        self.assertEqual(launches[3][1]["ZE_AFFINITY_MASK"], "6,7")
++
++    def test_insufficient_devices(self):
++        for visible in ("", "0", "0,,1"):
++            with (
++                self.subTest(visible=visible),
++                patch.dict(os.environ, {"CUDA_VISIBLE_DEVICES": visible}),
++                self.assertRaises(ValueError),
++            ):
++                dp.rank_launches(make_args(), "CUDA_VISIBLE_DEVICES")
++
++    def test_prefill_context_parallel_devices(self):
++        with patch.dict(os.environ, {}, clear=True):
++            launches = dp.rank_launches(
++                make_args(
++                    tensor_parallel_size=2,
++                    pipeline_parallel_size=2,
++                    prefill_context_parallel_size=2,
++                ),
++                "CUDA_VISIBLE_DEVICES",
++            )
++        self.assertEqual(
++            launches[1][1]["CUDA_VISIBLE_DEVICES"], "8,9,10,11,12,13,14,15"
++        )
++
++    def test_rocm_visibility_aliases(self):
++        with patch.dict(
++            os.environ,
++            {"CUDA_VISIBLE_DEVICES": "3,1", "HIP_VISIBLE_DEVICES": "3,1"},
++        ):
++            launches = dp.rank_launches(make_args(), "CUDA_VISIBLE_DEVICES")
++        self.assertEqual(launches[0][1]["HIP_VISIBLE_DEVICES"], "3")
++        self.assertEqual(launches[1][1]["HIP_VISIBLE_DEVICES"], "1")
++
++    def test_full_serve_parser(self):
++        from vllm.entrypoints.openai.cli_args import (
++            make_arg_parser,
++            validate_parsed_serve_args,
++        )
++        from vllm.utils.argparse_utils import FlexibleArgumentParser
++
++        with patch("vllm.platforms.current_platform.device_type", "cpu"):
++            parser = make_arg_parser(FlexibleArgumentParser())
++        args = parser.parse_args(
++            [
++                "test-model",
++                "--data-parallel-multi-port-external-lb",
++                "--data-parallel-size",
++                "4",
++                "--data-parallel-size-local",
++                "2",
++                "--data-parallel-start-rank",
++                "2",
++                "--data-parallel-supervisor-port",
++                "9000",
++                "--dp-supervisor-probe-interval-s",
++                "2.5",
++                "--dp-supervisor-probe-timeout-s",
++                "0.2",
++                "--dp-supervisor-probe-failure-threshold",
++                "4",
++            ]
++        )
++        validate_parsed_serve_args(args)
++        self.assertEqual(args.dp_supervisor_probe_interval_s, 2.5)
++        self.assertEqual(args.dp_supervisor_probe_timeout_s, 0.2)
++        self.assertEqual(args.dp_supervisor_probe_failure_threshold, 4)
++
++    def test_serve_dispatch(self):
++        from vllm.entrypoints.cli.serve import ServeSubcommand
++
++        args = make_args()
++        with patch.object(dp, "run_dp_supervisor") as run:
++            ServeSubcommand.cmd(args)
++            run.assert_called_once_with(args)
++        args.data_parallel_multi_port_external_lb = False
++        args.data_parallel_size = 1
++        args.data_parallel_start_rank = None
++        with (
++            patch("vllm.entrypoints.cli.serve.envs.VLLM_RUST_FRONTEND_PATH", None),
++            patch("vllm.entrypoints.cli.serve.run_server", Mock(return_value="server")),
++            patch("vllm.entrypoints.cli.serve.uvloop.run") as run,
++            patch.object(dp, "run_dp_supervisor") as supervisor,
++        ):
++            ServeSubcommand.cmd(args)
++            run.assert_called_once_with("server")
++            supervisor.assert_not_called()
++
++
++class TestHealth(unittest.IsolatedAsyncioTestCase):
++    async def asyncSetUp(self):
++        self.supervisor = dp.DPSupervisor(make_args())
++        self.supervisor.processes = [Mock(), Mock()]
++        for proc in self.supervisor.processes:
++            proc.poll.return_value = None
++        self.runners = []
++        self.session = aiohttp.ClientSession()
++
++    async def asyncTearDown(self):
++        await self.session.close()
++        for runner in self.runners:
++            await runner.cleanup()
++
++    async def serve(self, app):
++        runner = web.AppRunner(app)
++        self.runners.append(runner)
++        await runner.setup()
++        site = web.TCPSite(runner, "127.0.0.1", 0)
++        await site.start()
++        return runner.addresses[0][1]
++
++    async def assert_routes(self, port, status):
++        for route in ("health", "ready", "readyz"):
++            async with self.session.get(f"http://127.0.0.1:{port}/{route}") as response:
++                self.assertEqual(response.status, status)
++
++    async def test_readiness_and_failure_counts(self):
++        sup = self.supervisor
++        port = await self.serve(sup.create_app())
++        await self.assert_routes(port, 503)
++        for _ in range(10):
++            sup.record_probe(0, True)
++            sup.record_probe(1, False)
++        self.assertEqual(sup.failures, [0, 0])
++        self.assertFalse(sup.stopping.is_set())
++        await self.assert_routes(port, 503)
++        sup.record_probe(1, True)
++        await self.assert_routes(port, 200)
++        sup.record_probe(0, False)
++        await self.assert_routes(port, 503)
++        sup.record_probe(1, False)
++        self.assertEqual(sup.failures, [1, 1])
++        sup.record_probe(0, True)
++        self.assertEqual(sup.failures, [0, 1])
++        sup.record_probe(1, True)
++        await self.assert_routes(port, 200)
++        for _ in range(3):
++            sup.record_probe(0, False)
++        self.assertTrue(sup.stopping.is_set())
++        await self.assert_routes(port, 503)
++
++    async def test_exited_rank_is_never_ready(self):
++        sup = self.supervisor
++        sup.healthy = [True, True]
++        sup.processes[0].poll.return_value = 0
++        await self.assert_routes(await self.serve(sup.create_app()), 503)
++        await sup.monitor_processes()
++        self.assertTrue(sup.stopping.is_set())
++        self.assertIn("exited with code 0", sup.failure)
++
++    async def test_http_failures_and_timeout(self):
++        status = 200
++        delay = 0
++
++        async def handler(request):
++            await asyncio.sleep(delay)
++            return web.Response(status=status, headers={"Location": "/health"})
++
++        app = web.Application()
++        app.router.add_get("/health", handler)
++        port = await self.serve(app)
++        self.supervisor.args.port = port
++        self.supervisor.record_probe(1, True)
++        timeout = aiohttp.ClientTimeout(total=0.03)
++        async with aiohttp.ClientSession(timeout=timeout) as session:
++            await self.supervisor.probe(session, 0)
++            self.assertTrue(self.supervisor.ready)
++            for status in (503, 302):
++                await self.supervisor.probe(session, 0)
++                self.assertFalse(self.supervisor.ready)
++            self.assertEqual(self.supervisor.failures[0], 2)
++            status = 200
++            await self.supervisor.probe(session, 0)
++            self.assertEqual(self.supervisor.failures[0], 0)
++            delay = 0.1
++            await self.supervisor.probe(session, 0)
++            self.assertEqual(self.supervisor.failures[0], 1)
++            await self.runners[0].cleanup()
++            await self.supervisor.probe(session, 0)
++            self.assertEqual(self.supervisor.failures[0], 2)
++
++    async def test_partial_launch_is_cleaned_up(self):
++        sup = dp.DPSupervisor(make_args(data_parallel_supervisor_port=0))
++        process = Mock(pid=123)
++        process.poll.return_value = None
++        with (
++            patch.object(
++                dp, "launch_rank", side_effect=[process, OSError("spawn failed")]
++            ),
++            patch.object(dp.os, "killpg", side_effect=ProcessLookupError) as killpg,
++            self.assertRaisesRegex(OSError, "spawn failed"),
++        ):
++            await sup.run([(make_args(data_parallel_rank=0), {})] * 2)
++        killpg.assert_any_call(123, signal.SIGTERM)
++        killpg.assert_any_call(123, signal.SIGKILL)
++        process.wait.assert_called_once()
++
++    async def test_supervisor_bind_failure_starts_no_children(self):
++        with socket.socket() as held:
++            held.bind(("127.0.0.1", 0))
++            held.listen()
++            args = make_args(data_parallel_supervisor_port=held.getsockname()[1])
++            sup = dp.DPSupervisor(args)
++            with patch.object(dp, "launch_rank") as launch:
++                with self.assertRaises(OSError):
++                    await sup.run([(args, {})])
++                launch.assert_not_called()
++            self.assertTrue(sup.stopping.is_set())
++
++
++# Subprocess fixtures use only real TCP servers and process groups. The worker
++# ignores SIGTERM and keeps a listening socket after its rank leader exits.
++_RANK = """
++import http.server, json, os, pathlib, subprocess, sys
++root, rank, port = pathlib.Path(sys.argv[1]), sys.argv[2], int(sys.argv[3])
++worker = subprocess.Popen([sys.executable, '-c', sys.argv[4], str(root), rank])
++(root / ('rank-' + rank)).write_text(str(os.getpid()))
++class Handler(http.server.BaseHTTPRequestHandler):
++    def do_GET(self):
++        path = root / ('status-' + rank)
++        status = int(path.read_text()) if path.exists() else 503
++        self.send_response(status)
++        self.end_headers()
++    def log_message(self, *args): pass
++http.server.HTTPServer(('127.0.0.1', port), Handler).serve_forever()
++"""
++_WORKER = """
++import os, pathlib, signal, socket, sys, time
++signal.signal(signal.SIGTERM, signal.SIG_IGN)
++sock = socket.socket()
++sock.bind(('127.0.0.1', 0))
++sock.listen()
++(pathlib.Path(sys.argv[1]) / ('worker-' + sys.argv[2])).write_text(
++    str(os.getpid()) + ',' + str(sock.getsockname()[1]))
++while True: time.sleep(1)
++"""
++
++
++def run_fixture(root):
++    root = Path(root)
++    args = make_args(**json.loads((root / "config").read_text()))
++    index = 0
++
++    def launch(child, env):
++        nonlocal index
++        rank = index
++        index += 1
++        return subprocess.Popen(
++            [
++                sys.executable,
++                "-c",
++                _RANK,
++                str(root),
++                str(rank),
++                str(child.port),
++                _WORKER,
++            ],
++            start_new_session=True,
++        )
++
++    class FastShutdown(dp.DPSupervisor):
++        async def shutdown(self, grace_s=0.2):
++            await super().shutdown(grace_s)
++
++    with patch.object(dp, "launch_rank", launch):
++        launches = dp.rank_launches(args, "TEST_VISIBLE_DEVICES")
++        asyncio.run(FastShutdown(args).run(launches))
++
++
++class TestProcessLifecycle(unittest.IsolatedAsyncioTestCase):
++    async def asyncSetUp(self):
++        self.temp = tempfile.TemporaryDirectory()
++        self.root = Path(self.temp.name)
++        self.proc = None
++        self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=0.2))
++        # Reserve a consecutive pair and a distinct supervisor port until launch.
++        self.sockets = []
++        while True:
++            first = socket.socket()
++            first.bind(("127.0.0.1", 0))
++            self.port = first.getsockname()[1]
++            second = socket.socket()
++            try:
++                second.bind(("127.0.0.1", self.port + 1))
++            except OSError:
++                first.close()
++                second.close()
++                continue
++            self.sockets.extend([first, second])
++            break
++        supervisor = socket.socket()
++        supervisor.bind(("127.0.0.1", 0))
++        self.supervisor_port = supervisor.getsockname()[1]
++        self.sockets.append(supervisor)
++
++    async def asyncTearDown(self):
++        if self.proc is not None:
++            if self.proc.poll() is None:
++                self.proc.terminate()
++            try:
++                await asyncio.to_thread(self.proc.wait, timeout=10)
++            finally:
++                if self.proc.poll() is None:
++                    self.proc.kill()
++                    self.proc.wait()
++        for path in self.root.glob("rank-*"):
++            try:
++                os.killpg(int(path.read_text()), signal.SIGKILL)
++            except ProcessLookupError:
++                pass
++        for sock in self.sockets:
++            sock.close()
++        await self.session.close()
++        self.temp.cleanup()
++
++    async def wait_for(self, predicate, timeout=10):
++        deadline = time.monotonic() + timeout
++        while time.monotonic() < deadline:
++            if predicate():
++                return
++            await asyncio.sleep(0.02)
++        self.fail("Timed out waiting for subprocess state")
++
++    async def start(self, **overrides):
++        config = {
++            "port": self.port,
++            "data_parallel_supervisor_port": self.supervisor_port,
++        }
++        config.update(overrides)
++        (self.root / "config").write_text(json.dumps(config))
++        for sock in self.sockets:
++            sock.close()
++        self.proc = subprocess.Popen(
++            [
++                sys.executable,
++                "-c",
++                "from tests.entrypoints.test_dp_supervisor import run_fixture; "
++                "import sys; run_fixture(sys.argv[1])",
++                str(self.root),
++            ],
++            stdout=subprocess.DEVNULL,
++            stderr=subprocess.DEVNULL,
++        )
++        await self.wait_for(lambda: len(list(self.root.glob("worker-*"))) == 2)
++
++    async def wait_status(self, expected):
++        deadline = time.monotonic() + 10
++        while time.monotonic() < deadline:
++            try:
++                async with self.session.get(
++                    f"http://127.0.0.1:{self.supervisor_port}/readyz"
++                ) as response:
++                    if response.status == expected:
++                        return
++            except (aiohttp.ClientError, TimeoutError):
++                pass
++            await asyncio.sleep(0.02)
++        self.fail(f"Supervisor did not return {expected}")
++
++    def make_ready(self):
++        for rank in range(2):
++            (self.root / f"status-{rank}").write_text("200")
++
++    async def assert_stopped(self, failed):
++        await self.wait_for(lambda: self.proc.poll() is not None)
++        self.assertEqual(self.proc.returncode != 0, failed)
++        ports = [self.port, self.port + 1, self.supervisor_port]
++        ports.extend(
++            int(path.read_text().split(",")[1])
++            for path in self.root.glob("worker-*")
++        )
++        # SIGKILL delivery can lag behind wait() on the rank leader.
++        def sockets_released():
++            for port in ports:
++                with socket.socket() as sock:
++                    if sock.connect_ex(("127.0.0.1", port)) == 0:
++                        return False
++            return True
++        await self.wait_for(sockets_released)
++        for port in ports:
++            with socket.socket() as sock:
++                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
++                sock.bind(("127.0.0.1", port))
++
++    async def test_exit_during_startup_cleans_orphan(self):
++        await self.start()
++        await self.wait_status(503)
++        await asyncio.sleep(0.3)  # More startup failures than the threshold.
++        self.assertIsNone(self.proc.poll())
++        os.kill(int((self.root / "rank-0").read_text()), signal.SIGKILL)
++        await self.assert_stopped(failed=True)
++
++    async def test_health_failure_stops_group(self):
++        await self.start()
++        self.make_ready()
++        await self.wait_status(200)
++        (self.root / "status-1").write_text("503")
++        await self.wait_status(503)
++        await self.assert_stopped(failed=True)
++
++    async def test_sigterm(self):
++        await self.start()
++        self.make_ready()
++        await self.wait_status(200)
++        self.proc.send_signal(signal.SIGTERM)
++        await self.assert_stopped(failed=False)
++
++    async def test_sigint_during_startup(self):
++        await self.start()
++        await self.wait_status(503)
++        self.proc.send_signal(signal.SIGINT)
++        await self.assert_stopped(failed=False)
++
++
++if __name__ == "__main__":
++    unittest.main()

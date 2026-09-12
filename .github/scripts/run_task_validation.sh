@@ -7,6 +7,8 @@ set -euo pipefail
 : "${GHCR_REPOSITORY:=ghcr.io/${GITHUB_REPOSITORY_OWNER}/ai-infra-bench-task-envs}"
 : "${HARBOR_JOBS_DIR:=${GITHUB_WORKSPACE:-$PWD}/harbor-jobs}"
 
+GHCR_REPOSITORY="$(printf '%s' "$GHCR_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
