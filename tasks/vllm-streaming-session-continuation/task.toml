@@ -3,8 +3,8 @@ artifacts = ["/workspace/repo/vllm"]
 
 [task]
 name = "ai-infra-bench/vllm-streaming-session-continuation"
-version = "1.2.3"
-description = "Keep GPUModelRunner state intact across repeated streaming-session continuations."
+version = "2.0.0"
+description = "Implement session-based streaming input for vLLM v1 with correct continuation lifecycle behavior."
 authors = [{ name = "AI Infra Bench Curators" }]
 keywords = ["vllm", "streaming-input", "gpu-model-runner", "request-state"]
 
@@ -18,11 +18,11 @@ image_digest = "sha256:7089f7eb9e06fff0a086aa0c8ad919aa20fc5f1ec6911a954e81e3316
 dependency_cutoff = "2026-01-23T22:53:10Z"
 oracle_commit = "3abe7e7b4942d479f2c43188b8cf414e3a21dd38"
 workload_type = "feature_slice"
-difficulty = "easy"
+difficulty = "hard"
 grader_kind = "correctness"
 subsystems = ["request_lifecycle", "model_runner"]
 environment_template = "vllm-harbor-all-in-one"
-environment_profile = "cpu"
+environment_profile = "gpu"
 publication_state = "candidate-static-review"
 
 [agent]
@@ -36,12 +36,14 @@ environment_mode = "separate"
 user = "root"
 
 [environment]
-accelerator = "CPU"
+accelerator = "A100"
 network_mode = "no-network"
 build_timeout_sec = 3600.0
 os = "linux"
-cpus = 4
-memory_mb = 24576
-storage_mb = 65536
-gpus = 0
+cpus = 8
+memory_mb = 65536
+storage_mb = 102400
+topology = 1
+gpus = 1
+gpu_types = ["NVIDIA A100-SXM4-40GB"]
 workdir = "/workspace/repo"
