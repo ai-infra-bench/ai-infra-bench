@@ -77,8 +77,18 @@ RUN set -eux; \
     chown -R agent:agent /workspace; \
     rm -f /home/agent/.bash_history
 
-ENV PYTHONPATH=/workspace/repo \
+ENV PATH=/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    PYTHONPATH=/workspace/repo \
     LD_LIBRARY_PATH=/lib/x86_64-linux-gnu
+
+# The frozen source imports _C directly; the donor's default binary requires
+# newer x86 instructions. Use its real AVX2 build, without changing Python code.
+# Minimal local distribution metadata restores CPU platform discovery without
+# exposing the donor's later Python implementation or package metadata.
+RUN set -eux; \
+    cp /workspace/repo/vllm/_C_AVX2.abi3.so /workspace/repo/vllm/_C.abi3.so; \
+    mkdir -p /opt/venv/lib/python3.12/site-packages/vllm-0.0.0+cpu.dist-info; \
+    printf 'Metadata-Version: 2.1\nName: vllm\nVersion: 0.0.0+cpu\n' > /opt/venv/lib/python3.12/site-packages/vllm-0.0.0+cpu.dist-info/METADATA
 
 USER agent
 WORKDIR /workspace/repo

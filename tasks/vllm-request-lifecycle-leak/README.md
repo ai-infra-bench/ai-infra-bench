@@ -1,44 +1,11 @@
 # vLLM request lifecycle retention
 
-## What the Agent does
+Fix completed requests retaining multimodal payloads while preserving streaming sessions and prefix-cache behavior. See [instruction.md](instruction.md).
 
-Ensure completed requests release request-owned multimodal payloads promptly without breaking prefix-cache bookkeeping. The user-facing contract is in [instruction.md](instruction.md).
+The offline CPU image contains the exact Base source and the pinned donor's real AVX2 extension. Minimal distribution metadata selects CpuPlatform; PATH exposes the existing virtual environment. No model download or GPU is needed for this Python ownership boundary.
 
-## Environment
+The verifier constructs a real Scheduler, Request, encoder cache manager and KVCacheManager. Deterministic media shapes and model outputs replace only model computation. Normal completion enters through schedule/update_from_output; cancellation and stream continuation use their production entrypoints. Weak references check release and retention, real cache lookups check reuse, and a GC callback detects collections during the target lifecycle.
 
-A digest-pinned vLLM CPU image with the exact Base source, offline runtime, and a 10-hour Agent budget. Its image must be rebuilt after removing Agent-visible reproduction assets.
+A root parent independently reads the worker's Linux RSS at nine checkpoints over four batches. It checks that the live workload occurred and that post-warmup retained memory does not accumulate. It does not require memory to return immediately to the OS. Candidate stdout alone cannot pass this check. This is bounded hardening against known bypasses, not a sandbox against arbitrary malicious code sharing the Python observation process; a candidate that simulates both memory activity and reports remains outside the security guarantee.
 
-## Verifier
-
-The separate hidden verifier uses a root-owned supervisor to drive eleven
-independent observations through production Scheduler lifecycle operations.
-It covers normal completion, cancellation, streaming continuation/end, live
-ownership, prefix-cache hashing, and prompt/multimodal reclamation. Candidate
-code runs as the unprivileged Agent user; only the supervisor owns expectations
-and the binary reward written to `/logs/verifier/reward.txt`.
-
-## Layout
-
-- `instruction.md`: user-facing behavioral request.
-- `task.toml`: Harbor metadata, resources, isolation, and artifact paths.
-- `environment/`: exact Base source image and dependency provenance.
-- `solution/`: Oracle patch and application script, hidden from the Agent.
-- `tests/`: separate-verifier entrypoint and behavioral checks.
-- `validation/`: control manifest and evidence for the frozen snapshot.
-
-## Running
-
-With the canonical image available locally:
-
-```bash
-harbor run -p tasks/vllm-request-lifecycle-leak -a oracle
-harbor run -p tasks/vllm-request-lifecycle-leak -a terminus-2 -m anthropic/claude-opus-4-8
-```
-
-## Permission-fix validation status
-
-The verifier now stages trusted harness scripts independently of host UID and
-keeps root-only write access while allowing Harbor to read outputs. Runtime
-validation was not rerun for this change at the maintainer's request. Historical
-results are retained under `validation/history`; they do not certify the current
-verifier. Non-root host collection and the full control matrix remain pending.
+Run the local entrypoint matrix with `python3 tasks/vllm-request-lifecycle-leak/validation/run-local-matrix.py`. Run formal Oracle validation with `harbor run -p tasks/vllm-request-lifecycle-leak -a oracle`. Raw results and limitations are recorded in `validation/e2e-evidence.json`; older records do not certify this version. No image publication is implied by a local build.

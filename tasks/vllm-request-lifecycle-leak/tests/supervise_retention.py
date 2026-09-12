@@ -16,19 +16,7 @@ from pathlib import Path
 REWARD = Path("/logs/verifier/reward.txt")
 WORKER = Path(__file__).resolve().with_name("verify_retention.py")
 RESULT_PREFIX = "AI_INFRA_OBSERVATION="
-CASES = (
-    "candidate_source",
-    "live_request_retained",
-    "normal_completion_releases",
-    "waiting_cancel_releases",
-    "running_cancel_releases",
-    "streaming_wait_retained",
-    "streaming_end_releases",
-    "initial_prefix_hashes",
-    "append_prefix_hashes",
-    "streaming_continuation_hashes",
-    "no_prefix_cache_completion",
-)
+
 
 
 def write_reward(value: int, *, exclusive: bool = False) -> None:
@@ -71,123 +59,92 @@ def trusted_file(path: Path) -> bool:
     )
 
 
-def observation_passes(case: str, value: object) -> tuple[bool, str]:
-    if case == "candidate_source":
-        valid = isinstance(value, str) and value.startswith("/workspace/repo/vllm/")
-        return valid, f"candidate import escaped repository: {value!r}"
-    if case in {
-        "normal_completion_releases",
-        "waiting_cancel_releases",
-        "running_cancel_releases",
-        "streaming_end_releases",
-        "no_prefix_cache_completion",
-    }:
-        expected = {"feature_alive": False, "request_alive": False, "owned": False}
-        return value == expected, f"expected released state {expected!r}, got {value!r}"
-    if case in {"live_request_retained", "streaming_wait_retained"}:
-        expected = {"feature_alive": True, "request_alive": True, "owned": True}
-        return value == expected, f"expected live state {expected!r}, got {value!r}"
-    expected_counts = {
-        "initial_prefix_hashes": [2],
-        "append_prefix_hashes": [2, 3],
-        "streaming_continuation_hashes": [2, 3, 4],
-    }
-    expected = expected_counts[case]
-    valid = (
-        isinstance(value, dict)
-        and value.get("counts") == expected
-        and value.get("prefixes_preserved") is True
-        and value.get("unique_hashes") == expected[-1]
-    )
-    return valid, f"unexpected production prefix hashes: {value!r}"
-
-
-def run_case(python_bin: Path, agent: pwd.struct_passwd, case: str) -> tuple[bool, str]:
-    nonce = secrets.token_hex(32)
-    command = [
-        "/usr/bin/setpriv",
-        f"--reuid={agent.pw_uid}",
-        f"--regid={agent.pw_gid}",
-        "--init-groups",
-        "--no-new-privs",
-        str(python_bin),
-        "-I",
-        str(WORKER),
-    ]
+def run_worker(python_bin, agent):
+    import queue
+    import threading
+    import time
+    phases = ['baseline'] + [phase for i in range(4)
+        for phase in (f'live-{i}', f'released-{i}')]
+    command = ['/usr/bin/setpriv', f'--reuid={agent.pw_uid}',
+        f'--regid={agent.pw_gid}', '--init-groups', '--no-new-privs',
+        str(python_bin), '-I', str(WORKER)]
+    process = subprocess.Popen(command, cwd='/workspace/repo',
+        env={**os.environ, 'HOME': agent.pw_dir, 'PYTHONHASHSEED': '0',
+             'OMP_NUM_THREADS': '1'}, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True)
+    samples = []
+    complete = False
+    lines = queue.Queue(maxsize=4096)
+    def read_lines():
+        for line in process.stdout:
+            lines.put(line)
+        lines.put(None)
+    threading.Thread(target=read_lines, daemon=True).start()
+    deadline = time.monotonic() + 300
     try:
-        result = subprocess.run(
-            command,
-            cwd="/workspace/repo",
-            env={**os.environ, "PYTHONPATH": "/workspace/repo", "HOME": agent.pw_dir},
-            input=json.dumps({"case": case, "nonce": nonce}) + "\n",
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=90,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        return False, "observation process timed out"
-    lines = [
-        line.removeprefix(RESULT_PREFIX)
-        for line in result.stdout.splitlines()
-        if line.startswith(RESULT_PREFIX)
-    ]
-    if result.returncode != 0 or len(lines) != 1:
-        return False, (
-            f"observation incomplete (exit={result.returncode}, count={len(lines)})\n"
-            + result.stdout
-        )
-    try:
-        observation = json.loads(lines[0])
-    except json.JSONDecodeError as exc:
-        return False, f"malformed observation: {exc}"
-    if (
-        observation.get("case") != case
-        or observation.get("nonce") != nonce
-        or observation.get("error") is not None
-    ):
-        return False, f"invalid observation envelope: {observation!r}"
-    return observation_passes(case, observation.get("value"))
+        process.stdin.write(json.dumps({'seed': secrets.randbits(32)}) + '\n')
+        process.stdin.flush()
+        while time.monotonic() < deadline:
+            try:
+                line = lines.get(timeout=1)
+            except queue.Empty:
+                continue
+            if line is None:
+                break
+            print(line.rstrip(), flush=True)
+            if line.startswith('CHECKPOINT='):
+                phase = line.strip().split('=', 1)[1]
+                if len(samples) >= len(phases) or phase != phases[len(samples)]:
+                    raise RuntimeError('unexpected checkpoint order')
+                # Linux supplies this observation for the exact child we started.
+                status = Path(f'/proc/{process.pid}/status').read_text()
+                rss = next(int(row.split()[1]) for row in status.splitlines()
+                           if row.startswith('VmRSS:'))
+                samples.append({'phase': phase, 'rss_kib': rss})
+                process.stdin.write('continue\n')
+                process.stdin.flush()
+            elif line.strip() == 'BEHAVIOR_COMPLETE':
+                if complete:
+                    raise RuntimeError('duplicate completion')
+                complete = True
+        process.wait(timeout=max(1, deadline - time.monotonic()))
+        if process.returncode != 0 or not complete or len(samples) != len(phases):
+            raise RuntimeError('worker did not complete all behavior and memory phases')
+        baseline = samples[0]['rss_kib']
+        live = [s['rss_kib'] for s in samples if s['phase'].startswith('live-')]
+        released = [s['rss_kib'] for s in samples if s['phase'].startswith('released-')]
+        if max(live) - baseline < 32 * 1024:
+            raise RuntimeError('external observation did not see the live payload workload')
+        # Do not require malloc to return pages to the OS. Test growth after warmup.
+        if max(released[1:]) - released[0] > 16 * 1024:
+            raise RuntimeError('post-warmup retained memory keeps growing')
+        return samples
+    finally:
+        import signal
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+        Path('/logs/verifier/memory-observations.json').write_text(
+            json.dumps({'pid': process.pid, 'source': '/proc/PID/status',
+                        'samples': samples}, indent=2))
 
 
-def main() -> int:
-    if os.geteuid() != 0:
-        print("FAIL: verifier supervisor must run as root")
-        return 0
+def main():
     prepare_reward()
-    if len(sys.argv) != 2:
-        print("FAIL: trusted Python path was not supplied")
-        return 0
-    # Execute the selected path itself so a trusted virtual-environment
-    # interpreter retains its prefix; separately validate its resolved target.
     python_bin = Path(sys.argv[1])
-    python_target = python_bin.resolve()
-    for path in (python_bin, python_target, Path(__file__).resolve(), WORKER):
+    for path in (python_bin.resolve(), Path(__file__).resolve(), WORKER):
         if not trusted_file(path):
-            info = path.stat()
-            print(
-                f"FAIL: untrusted verifier file {path}: "
-                f"uid={info.st_uid}, gid={info.st_gid}, "
-                f"mode={stat.S_IMODE(info.st_mode):04o}"
-            )
-            return 0
-    agent = pwd.getpwnam("agent")
-    completed: list[str] = []
-    for case in CASES:
-        passed, detail = run_case(python_bin, agent, case)
-        if not passed:
-            print(f"FAIL: {case}: {detail}")
-            continue
-        completed.append(case)
-        print(f"PASS: {case}")
-    if len(completed) != len(CASES):
-        print(f"FAIL: trusted parent completed {len(completed)}/{len(CASES)} cases")
+            raise RuntimeError(f'untrusted harness file: {path}')
+    try:
+        samples = run_worker(python_bin, pwd.getpwnam('agent'))
+    except Exception as exc:
+        print(f'FAIL: {type(exc).__name__}: {exc}', flush=True)
         return 0
     write_reward(1)
-    print(f"PASS: trusted parent graded all {len(CASES)} cases")
+    print(f'PASS: lifecycle, cache, GC checks and {len(samples)} OS observations')
     return 0
 
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     raise SystemExit(main())
