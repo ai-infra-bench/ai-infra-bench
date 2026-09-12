@@ -1,0 +1,56 @@
+schema_version = "1.4"
+
+[task]
+name = "ai-infra-bench/vllm-int8-per-token-group-quantization"
+version = "1.2.5"
+description = "Speed up INT8 per-token-group quantization with a native vLLM CUDA operator."
+authors = [{ name = "AI Infra Bench Curators" }]
+keywords = ["vllm", "cuda", "int8", "quantization", "performance"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+track = "representative"
+source_ids = ["vllm__pr__21476"]
+repository = "vllm-project/vllm"
+base_commit = "14bf19e39f601163265b7c7d58d972b8a83d8896"
+image_digest = "sha256:7a5c0cea0298025a52c9d150808797ef0d6fd1f564458791b5993825c2206401"
+dependency_cutoff = "2025-07-23T18:29:36Z"
+# The isolated, accepted PR head used by solution/oracle.patch and the validated
+# Oracle image. The GitHub merge commit is recorded in lock/README.md.
+oracle_commit = "2e25870f8445f9531a7fa9fb8f144bb68e4ab6e6"
+workload_type = "performance_fix"
+difficulty = "hard"
+grader_kind = "correctness_and_native_path"
+subsystems = ["kernel_optimization", "quantization"]
+environment_template = "vllm-harbor-all-in-one"
+environment_profile = "cuda-native-extension"
+gpu_base_image = "vllm/vllm-openai@sha256:05a31dc4185b042e91f4d2183689ac8a87bd845713d5c3f987563c5899878271"
+gpu_base_vllm_revision = "v0.10.0"
+gpu_compute_capability = "8.0"
+gpu_min_driver_version = "570.26"
+native_extension_target = "_C"
+publication_state = "candidate-static-review"
+
+[agent]
+timeout_sec = 36000.0
+user = "agent"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 3600.0
+environment_mode = "shared"
+user = "root"
+
+[environment]
+docker_image = "sha256:7a5c0cea0298025a52c9d150808797ef0d6fd1f564458791b5993825c2206401"
+accelerator = "A100"
+network_mode = "no-network"
+build_timeout_sec = 7200.0
+os = "linux"
+cpus = 8
+memory_mb = 32768
+storage_mb = 65536
+gpus = 1
+gpu_types = ["A100"]
+topology = 1
+workdir = "/workspace/repo"

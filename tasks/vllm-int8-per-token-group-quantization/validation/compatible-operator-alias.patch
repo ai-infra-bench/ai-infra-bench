@@ -1,0 +1,17 @@
+diff --git a/csrc/torch_bindings.cpp b/csrc/torch_bindings.cpp
+--- a/csrc/torch_bindings.cpp
++++ b/csrc/torch_bindings.cpp
+@@ -631,6 +631,13 @@
+       "()");
+   ops.impl("per_token_group_quant_int8", torch::kCUDA,
+            &per_token_group_quant_int8);
++  // Compute per-token-group INT8 quantized tensor and scaling factor.
++  ops.def(
++      "per_token_group_int8_quant(Tensor input, Tensor! output_q, Tensor! "
++      "output_s, int group_size, float eps, float int8_min, float int8_max) -> "
++      "()");
++  ops.impl("per_token_group_int8_quant", torch::kCUDA,
++           &per_token_group_quant_int8);
+ 
+   // reorder weight for AllSpark Ampere W8A16 Fused Gemm kernel
+   ops.def(

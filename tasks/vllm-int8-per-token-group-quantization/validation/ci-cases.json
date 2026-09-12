@@ -1,0 +1,92 @@
+{
+  "cases": [
+    {
+      "expected_reward": 1,
+      "name": "alternate-native-kernel",
+      "patch": "alternate-native-kernel.patch",
+      "patch_sha256": "d73414bfea8c928c9284c1dfcf534f4031942869f3cb6c2fec5c99871782583c"
+    },
+    {
+      "expected_reward": 0,
+      "name": "wrong-public-operator-name",
+      "patch": "wrong-public-operator-name.patch",
+      "patch_sha256": "4cf19c622979bc8c7f76d2a593c5c646816aeb5995655403917bc74993113997"
+    },
+    {
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "name": "slow-candidate-occupancy",
+      "patch": "slow-candidate-occupancy.patch",
+      "patch_sha256": "bb392df7d6f14aec1827e3d48e3f659a29fa8e9f1f4d0759ad0f6ddbfb77afcc",
+      "note": "negative control: numerically correct but pins occupancy to 1 group/block, forfeiting the parallelism the candidate's speedup depends on; must fall below 1.5\u00d7 threshold on its own merits"
+    },
+    {
+      "name": "early-system-exit",
+      "patch": "early-system-exit.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "patch_sha256": "acb206aed190703bcecf5420c59f7aafc24ae158a5800fb1f788349b33ee967f"
+    },
+    {
+      "name": "early-os-exit",
+      "patch": "early-os-exit.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "patch_sha256": "185182fbfd8e64e5e1fdd618fb948a800a70e1789019717a261ad5cceb05d505"
+    },
+    {
+      "name": "compatible-operator-alias",
+      "patch": "compatible-operator-alias.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "patch_sha256": "d91b5e826d97748104cb58a76c5137afd838630c724ceea06f982f8bb4ea701f"
+    },
+    {
+      "name": "early-native-timing-exit",
+      "patch": "early-native-timing-exit.patch",
+      "patch_sha256": "aa0bfd829a67d9af387416cdddcf2e2cb7ed3d243952ab63d05607593980b76a",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "note": "Correctness executes normally; the native library calls std::_Exit(0) only when loaded from the trusted timing snapshot. A curator observer captures its /tmp execution marker; this marker is never used for scoring."
+    },
+    {
+      "name": "renamed-private-triton-helper",
+      "patch": "renamed-private-triton-helper.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "patch_sha256": "19ce72b73bcebded9f163bb34b042dfd36047e29d2349a8c5e4830e3a1504db2",
+      "note": "Public API and computation unchanged; private Triton helper renamed to check implementation independence."
+    },
+    {
+      "name": "reciprocal-overflow",
+      "patch": "reciprocal-overflow.patch",
+      "expected_reward": 0,
+      "note": "Preserved former alternative: finite FP32 tiny inputs overflow reciprocal; native/public results must agree with frozen Triton.",
+      "patch_sha256": "e5f9758b1fe6dfbd66c07fbac3b83556ccc2ef07d58a5bde692629752a4e8a4b"
+    },
+    {
+      "name": "empty-batch-launch",
+      "patch": "empty-batch-launch.patch",
+      "expected_reward": 0,
+      "note": "Preserved former Oracle launches an empty CUDA grid for valid empty tensors, causing a subsequent CUDA operation to fail.",
+      "patch_sha256": "b89565029ff168f2c82d3850226267714e2c0dd8674574508a2427fc81b0ead7"
+    },
+    {
+      "name": "positive-lower-bound-rejected",
+      "patch": "positive-lower-bound-rejected.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "patch_sha256": "754b00ba0e6779d3e9f6cd3f5ebf9c2513467720531c1fed2b51c67d125265bd",
+      "note": "Saved Astra final tracked and untracked source files, unchanged; standard verifier build applies. Historical rollout and binary remain separate."
+    },
+    {
+      "name": "range-must-include-zero",
+      "patch": "range-must-include-zero.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "patch_sha256": "63bc36218ae837e188eadbddd3e9c81788a0259a5af9fd08dcfbfce68ab7a673",
+      "note": "Otherwise correct Oracle rejects valid positive lower bounds; isolates the newly covered input restriction."
+    }
+  ],
+  "schema_version": "ai_infra_bench_validation_cases.v1"
+}
