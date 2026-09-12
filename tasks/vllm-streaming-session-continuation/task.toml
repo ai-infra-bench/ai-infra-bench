@@ -1,0 +1,47 @@
+schema_version = "1.4"
+artifacts = ["/workspace/repo/vllm"]
+
+[task]
+name = "ai-infra-bench/vllm-streaming-session-continuation"
+version = "1.2.2"
+description = "Keep GPUModelRunner state intact across repeated streaming-session continuations."
+authors = [{ name = "AI Infra Bench Curators" }]
+keywords = ["vllm", "streaming-input", "gpu-model-runner", "request-state"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+track = "representative"
+source_ids = ["vllm__pr__28973"]
+repository = "vllm-project/vllm"
+base_commit = "0118cdcc02ae16a137645e2289bf41f5e3da9d80"
+image_digest = "sha256:7089f7eb9e06fff0a086aa0c8ad919aa20fc5f1ec6911a954e81e3316f35846e"
+dependency_cutoff = "2026-01-23T22:53:10Z"
+oracle_commit = "3abe7e7b4942d479f2c43188b8cf414e3a21dd38"
+workload_type = "feature_slice"
+difficulty = "easy"
+grader_kind = "correctness"
+subsystems = ["request_lifecycle", "model_runner"]
+environment_template = "vllm-harbor-all-in-one"
+environment_profile = "cpu"
+publication_state = "candidate-static-review"
+
+[agent]
+timeout_sec = 36000.0
+user = "agent"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 1200.0
+environment_mode = "separate"
+user = "root"
+
+[environment]
+accelerator = "CPU"
+network_mode = "no-network"
+build_timeout_sec = 3600.0
+os = "linux"
+cpus = 4
+memory_mb = 24576
+storage_mb = 65536
+gpus = 0
+workdir = "/workspace/repo"

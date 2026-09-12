@@ -1,0 +1,134 @@
+diff --git a/vllm/v1/worker/gpu_input_batch.py b/vllm/v1/worker/gpu_input_batch.py
+index c70970f..5413d04 100644
+--- a/vllm/v1/worker/gpu_input_batch.py
++++ b/vllm/v1/worker/gpu_input_batch.py
+@@ -61,6 +61,49 @@ class CachedRequestState:
+         if self.pooling_params is not None:
+             self.pooling_states = PoolingStates()
+ 
++    def continue_session(
++        self,
++        prompt_token_ids: list[int] | None,
++        prompt_embeds: torch.Tensor | None,
++        mm_features: list[MultiModalFeatureSpec],
++        sampling_params: SamplingParams | None,
++        pooling_params: PoolingParams | None,
++        generator: torch.Generator | None,
++        block_ids: tuple[list[int], ...],
++        num_computed_tokens: int,
++        lora_request: LoRARequest | None,
++    ) -> None:
++        """Restart this cached state from a new (longer) prompt in place.
++
++        Used when a request continuing an existing session is scheduled as a
++        new request with the same request ID. Updating in place keeps holders
++        of this object (and of `output_token_ids`) in sync with the update.
++        """
++        self.prompt_token_ids = prompt_token_ids
++        self.prompt_embeds = prompt_embeds
++        self.mm_features = mm_features
++        self.sampling_params = sampling_params
++        self.pooling_params = pooling_params
++        self.generator = generator
++        self.block_ids = block_ids
++        self.num_computed_tokens = num_computed_tokens
++        self.lora_request = lora_request
++
++        # The previously generated tokens are now part of the new prompt, so
++        # the request restarts with no output tokens. Clear in place because
++        # the persistent batch and the logits processors alias this list.
++        self.output_token_ids.clear()
++        self.prev_num_draft_len = 0
++
++        # Positional and pooling state is derived from the prompt, which just
++        # changed. M/XD-RoPE positions are re-initialized by the caller if the
++        # model needs them; pooling state is rebuilt by __post_init__.
++        self.mrope_positions = None
++        self.mrope_position_delta = None
++        self.xdrope_positions = None
++        self.pooling_states = None
++        self.__post_init__()
++
+     @property
+     def num_tokens(self) -> int:
+         return self.num_prompt_tokens + len(self.output_token_ids)
+@@ -333,6 +376,10 @@ class InputBatch:
+             self.is_token_ids[req_index, :num_prompt_tokens] = False
+         if request.prompt_embeds is not None:
+             self.req_prompt_embeds[req_index] = request.prompt_embeds
++        else:
++            # This index may have been occupied by a request that used prompt
++            # embeds; make sure its embeds are not reused for this request.
++            self.req_prompt_embeds.pop(req_index, None)
+         self.token_ids_cpu[req_index, start_idx:end_idx] = request.output_token_ids
+         self.is_token_ids[req_index, start_idx:end_idx] = True
+         # Number of tokens without spec decode tokens.
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+index 863ed5d..0baf7bc 100644
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -917,20 +917,41 @@ class GPUModelRunner(
+                 to_update = model.pooler.get_pooling_updates(task)
+                 to_update.apply(pooling_params)
+ 
+-            req_state = CachedRequestState(
+-                req_id=req_id,
+-                prompt_token_ids=new_req_data.prompt_token_ids,
+-                prompt_embeds=new_req_data.prompt_embeds,
+-                mm_features=new_req_data.mm_features,
+-                sampling_params=sampling_params,
+-                pooling_params=pooling_params,
+-                generator=generator,
+-                block_ids=new_req_data.block_ids,
+-                num_computed_tokens=new_req_data.num_computed_tokens,
+-                output_token_ids=[],
+-                lora_request=new_req_data.lora_request,
+-            )
+-            self.requests[req_id] = req_state
++            req_state = self.requests.get(req_id)
++            if req_state is not None:
++                # A request continuing an existing session can be scheduled as
++                # a new request with the same request ID (e.g. the previous
++                # output was folded back into the prompt). Reuse the cached
++                # state object so that everything aliasing it stays consistent,
++                # and drop the now-stale persistent batch row (if any) so the
++                # request is re-added below with the new prompt.
++                self.input_batch.remove_request(req_id)
++                req_state.continue_session(
++                    prompt_token_ids=new_req_data.prompt_token_ids,
++                    prompt_embeds=new_req_data.prompt_embeds,
++                    mm_features=new_req_data.mm_features,
++                    sampling_params=sampling_params,
++                    pooling_params=pooling_params,
++                    generator=generator,
++                    block_ids=new_req_data.block_ids,
++                    num_computed_tokens=new_req_data.num_computed_tokens,
++                    lora_request=new_req_data.lora_request,
++                )
++            else:
++                req_state = CachedRequestState(
++                    req_id=req_id,
++                    prompt_token_ids=new_req_data.prompt_token_ids,
++                    prompt_embeds=new_req_data.prompt_embeds,
++                    mm_features=new_req_data.mm_features,
++                    sampling_params=sampling_params,
++                    pooling_params=pooling_params,
++                    generator=generator,
++                    block_ids=new_req_data.block_ids,
++                    num_computed_tokens=new_req_data.num_computed_tokens,
++                    output_token_ids=[],
++                    lora_request=new_req_data.lora_request,
++                )
++                self.requests[req_id] = req_state
+ 
+             if sampling_params and sampling_params.prompt_logprobs is not None:
+                 self.num_prompt_logprobs[req_id] = (
+@@ -938,6 +959,8 @@ class GPUModelRunner(
+                     if sampling_params.prompt_logprobs == -1
+                     else sampling_params.prompt_logprobs
+                 )
++            else:
++                self.num_prompt_logprobs.pop(req_id, None)
+ 
+             # Only relevant for models using M-RoPE (e.g, Qwen2-VL)
+             if self.uses_mrope:

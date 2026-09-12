@@ -1,0 +1,892 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-12T05:25:11.096161+00:00",
+  "status": "validated",
+  "task": "ai-infra-bench/vllm-streaming-session-continuation",
+  "source": {
+    "repository": "vllm-project/vllm",
+    "base_commit": "0118cdcc02ae16a137645e2289bf41f5e3da9d80",
+    "dependency_cutoff": "2026-01-23T22:53:10Z",
+    "reference_oracle_commit": "3abe7e7b4942d479f2c43188b8cf414e3a21dd38"
+  },
+  "image": {
+    "base_commit": "0118cdcc02ae16a137645e2289bf41f5e3da9d80",
+    "base_image": "vllm/vllm-openai:v0.14.0@sha256:1d6866b87630d94f5e0cdae55ab5abb4ce0b03fcb84d9d10612f9d518d19d4fd",
+    "build_context": "environment",
+    "build_notes": "Built on the isolated bench daemon (unix:///data/docker-bench/docker.sock) with the legacy builder (DOCKER_BUILDKIT=0, --network host). VLLM_REPOSITORY was overridden to a local git-daemon (git://127.0.0.1:9418/vllm-hist.git) serving the full, content-verified upstream vLLM history, because the bench host's only github egress (proxy) EOFs on the large history pack. Provenance is asserted by content in-image (HEAD==base_commit, tree match, rev-list>1, not shallow, oracle absent, clean tree) and verified post-build via task_ci.py image-check. codeload + files.pythonhosted.org fetched directly.",
+    "created": "2026-09-05T02:54:27.018085394+08:00",
+    "dependency_cutoff": "2026-01-23T22:53:10Z",
+    "dependency_lock_manifest_sha256": "2351854d4d00b77c8f6a783df7b67f2987ebbc8a95b1eeac0fe5f15851d2c8f0",
+    "dependency_lock_sha256": "10e49fa8a345423dce0ea86ccd208b8b745dce86979445ffa2fcd987851457de",
+    "dockerfile_sha256": "3bad5b9bf5c68fe98ab87b6f72deaeefd239c650512d2fcdd403c647f23ddece",
+    "image_check": "passed",
+    "image_id": "sha256:7089f7eb9e06fff0a086aa0c8ad919aa20fc5f1ec6911a954e81e3316f35846e",
+    "image_tag": "ai-infra-bench/vllm-pr-28973:remediate-20260904T173714Z",
+    "repo_digests": [],
+    "schema_version": "vllm_harbor_image.v1",
+    "size_bytes": 10874700430,
+    "status": "built",
+    "task": "ai-infra-bench/vllm-streaming-session-continuation"
+  },
+  "skill": {
+    "head": "b989bc67e2b945c3be00d548ca25b1f73519f478",
+    "branch": "main",
+    "status": "",
+    "hashes": {
+      ".agents/skills/ai-infra-bench-task-review/SKILL.md": "d95343d9408abd45190c0061eca41abf66ed6be3ca5471e2039e5759d5c7bacb",
+      ".agents/skills/ai-infra-bench-task-review/agents/openai.yaml": "c41c9dce93178e680e81e5f4506c197ad8c1b9e72b178fb6eb179ad17fe24614",
+      ".agents/skills/ai-infra-bench-task-review/references/review-rubric.md": "c4413205916752c5fc793e26c74a20d15e2538b7043fe612c1741e7fa9901167",
+      ".agents/skills/ai-infra-bench-task-review/references/validation-playbook.md": "803fc8d1b120753003db681b20f1990d697f01ae52952e121255071af86a342e",
+      ".agents/skills/ai-infra-bench-task-review/scripts/audit_task_artifacts.py": "3c4f882ed2aa3542ddbb2d2c51522819be17dc22a12f2cd492076bd882190022"
+    }
+  },
+  "worktree": {
+    "head": "062262f0057176594eb6bd7f138c76ebda64ddd3",
+    "branch": "tasks/vllm-streaming-session-continuation-opus5-review",
+    "status": "",
+    "path": "/data/yinchen/publish-reviewed3-20260909T052504Z/streaming",
+    "task_path": "/data/yinchen/publish-reviewed3-20260909T052504Z/streaming/tasks/vllm-streaming-session-continuation",
+    "state": "local uncommitted description and evidence edits; no push or PR update"
+  },
+  "review": {
+    "gates": {
+      "task_statement": "pass",
+      "environment": "pass within documented ABI and single-device scope",
+      "verification": "pass"
+    },
+    "findings": [],
+    "scope": "Fresh task review; previous Astra rollout review reused and artifact integrity rechecked, not a new LLM run.",
+    "editorial_change": "Three natural paragraphs, no hard wrapping within paragraphs; preserve existing behavior contract.",
+    "executable_changes": {
+      "instruction.md": {
+        "before": "8812973d263a7939fad5d92cc24c217406a64e3090d953ec9050eb3f4fa8c967",
+        "after": "9de76b2e7cacc493f8766b046069715708aa4646ae4ec164ea7060f8fb4dd7c5"
+      }
+    },
+    "remaining_limitations": [
+      "此任务明确限于 runner 状态切片，CPU 张量足以执行决定状态转移的生产代码；没有模拟决定结果的 CUDA 内核。调度输入、最后 PP rank、M-RoPE 位置生产者和 pooler 参数生产者是确定性替代。未执行 HTTP 服务、scheduler 全栈、模型 forward 或 GPU/native kernel，也不声称重新编译了这些未使用的扩展。",
+      "This is a local skill review with Oracle/control runs, not GitHub reviewer approval or an LLM solver calibration."
+    ]
+  },
+  "semantic_boundary": "# Independent contract, recorded before reading grading code\n\nStreaming: A repeated new-request record with the same request ID continues the existing GPUModelRunner session, without duplicate or stale persistent-batch rows. Each record is the complete prompt for the new segment, and its output buffer starts empty, including when only part of previous output is absorbed. Token prompts, embedding prompts, multimodal/M-RoPE metadata, sampling and pooling parameters, blocks and computed-token state must match the new segment across repeated and interleaved sessions; unrelated sessions and ordinary new requests remain correct. Scope is production runner state updates, not the full API/scheduler stack or model inference. Implementation layout is unrestricted.\n\nModular MoE: Each modular factory, kernel profiling path and affected backend follows its active layer’s MoE parallel configuration, independently of conflicting, changed or absent ambient/other-layer configuration. Without layer config compatibility construction is non-DP+EP and needs no global config. DP+EP profiling reserves worst-case workspace under the existing 16384-token chunk bound, even for small local inputs; an ordinary layer retains ordinary requirements despite ambient DP+EP. Preserve actual single-rank Triton numerical behavior; non-modular functional paths must not acquire generic global parallel-config dependence. Constructor names, storage and shape-query counts are not contract requirements.\n\nEnvironment identities and resource boundaries were read from task.toml and Dockerfiles. Streaming is a CPU state-lifecycle task; Modular requires a single A100 GPU. Neither implies complete distributed model serving coverage.\n",
+  "harbor": {
+    "version": "0.22.0",
+    "verifier_environment_mode": "separate",
+    "base": {
+      "case": "base",
+      "declared_expected_reward": 0,
+      "actual_reward": 0,
+      "job_id": "b3ef9655-2a1d-4ad9-b432-d9195fb7c98c",
+      "trial_id": "fa75eeb6-da16-4db3-8176-8e92e0763a16",
+      "task_checksum": "6e66d8e1f8b4c8f16bebb66c0d5abc72c949c0d7e5d373bdfc3ee49a82dbfec4",
+      "harbor_errors": 0,
+      "exception_info": null,
+      "image_id": "sha256:7089f7eb9e06fff0a086aa0c8ad919aa20fc5f1ec6911a954e81e3316f35846e",
+      "gpu_uuids": [],
+      "worker_exit_code": 0,
+      "behavior_report": {
+        "schema_version": "trusted_behavior_report.v1",
+        "completed": false,
+        "expected_stages": [
+          "repeated_continuation",
+          "partial_absorption",
+          "interleaved_sessions",
+          "prompt_embeddings",
+          "ordinary_new_request",
+          "sampling_refresh",
+          "mrope_refresh",
+          "pooling_refresh"
+        ],
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 64, in main\n    passed = check(raw, workload)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/tests/check_behavior.py\", line 19, in check\n    assert set(observed['rows'])==set(expected) and len(observed['rows'])==len(expected)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n"
+        ],
+        "worker_exit_code": 0,
+        "worker_uid": 1000,
+        "scorer_uid": 0
+      },
+      "boundary_markers": {
+        "EARLY_OS_EXIT_REACHED": false,
+        "EARLY_SYSTEM_EXIT_REACHED": false,
+        "FORGED_REPORT_CONTROL_REACHED": false,
+        "REPORT_WRITE_DENIED": false,
+        "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+      },
+      "command": [
+        "harbor",
+        "run",
+        "--config",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/harbor-config.json",
+        "-y"
+      ],
+      "raw_artifacts": {
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/run-record.json": "8e80385fd7c997bc7873f5877c9b5050e86576fa1b593bba874537cf2296bcdc",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/harbor-config.json": "64e4616f674f31526469d5e9565c40ce291f823459383274763179e052df265d",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/harbor.log": "9f1c7a68b645567fbedbdcab2c79facd718e15772f4c1c418e20d9136eb148c6",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/jobs/vllm-streaming-session-continuation--base/result.json": "56edf6a410bf55a9ce6f9f1c4faa44530b74b686596650033a4a9b608738929d",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/jobs/vllm-streaming-session-continuation--base/vllm-streaming-session-continuat__fmb7pV9/result.json": "5cddda2d497547f1367bcfad64c512e4655ee6dd7643ce67c8f07335ddd86261",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/jobs/vllm-streaming-session-continuation--base/vllm-streaming-session-continuat__fmb7pV9/verifier/test-stdout.txt": "2c43f0f1e914f419f4d18391dc9851e36a59318776811eb8a3c769cfc4e7c91a",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/jobs/vllm-streaming-session-continuation--base/vllm-streaming-session-continuat__fmb7pV9/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/jobs/vllm-streaming-session-continuation--base/vllm-streaming-session-continuat__fmb7pV9/verifier/workload.json": "340220a2edfb85904d33e925225b9bf0a01fc7e45189b1bad8b3cfa212bf2b5d",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/jobs/vllm-streaming-session-continuation--base/vllm-streaming-session-continuat__fmb7pV9/verifier/observations.json": "ce0e79e1202b9dc37afab2f78b0d7a22e9c2802c1a918da4269f83bc4d7fb370",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/jobs/vllm-streaming-session-continuation--base/vllm-streaming-session-continuat__fmb7pV9/verifier/report.json": "f5b5b733480e94c33dae3976ede9b94c7320b853dbbc7b9d4d2dc2cffddf7da3",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/jobs/vllm-streaming-session-continuation--base/vllm-streaming-session-continuat__fmb7pV9/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+      }
+    },
+    "oracle": {
+      "case": "oracle",
+      "declared_expected_reward": 1,
+      "actual_reward": 1,
+      "job_id": "6b987ef9-2f32-4c5a-a4da-4038a557a0ec",
+      "trial_id": "2fad7fad-52d8-482d-8a31-13b04e089ee9",
+      "task_checksum": "6e66d8e1f8b4c8f16bebb66c0d5abc72c949c0d7e5d373bdfc3ee49a82dbfec4",
+      "harbor_errors": 0,
+      "exception_info": null,
+      "image_id": "sha256:7089f7eb9e06fff0a086aa0c8ad919aa20fc5f1ec6911a954e81e3316f35846e",
+      "gpu_uuids": [],
+      "worker_exit_code": 0,
+      "behavior_report": {
+        "schema_version": "trusted_behavior_report.v1",
+        "completed": true,
+        "expected_stages": [
+          "repeated_continuation",
+          "partial_absorption",
+          "interleaved_sessions",
+          "prompt_embeddings",
+          "ordinary_new_request",
+          "sampling_refresh",
+          "mrope_refresh",
+          "pooling_refresh"
+        ],
+        "stages_passed": [
+          "repeated_continuation",
+          "partial_absorption",
+          "interleaved_sessions",
+          "prompt_embeddings",
+          "ordinary_new_request",
+          "sampling_refresh",
+          "mrope_refresh",
+          "pooling_refresh"
+        ],
+        "failures": [],
+        "worker_exit_code": 0,
+        "worker_uid": 1000,
+        "scorer_uid": 0
+      },
+      "boundary_markers": {
+        "EARLY_OS_EXIT_REACHED": false,
+        "EARLY_SYSTEM_EXIT_REACHED": false,
+        "FORGED_REPORT_CONTROL_REACHED": false,
+        "REPORT_WRITE_DENIED": false,
+        "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+      },
+      "command": [
+        "harbor",
+        "run",
+        "--config",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/harbor-config.json",
+        "-y"
+      ],
+      "raw_artifacts": {
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/run-record.json": "98f4141125e4455cad33383862d0004ef4d416536ccd20abad836d5dbe393406",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/harbor-config.json": "6317195e9f8ab47a6f87d49700d1b1ce7e502d016be099fbd0a8f9bad08ddbf5",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/harbor.log": "642ad82b3d51ece7d0a2ffff7845f2c4139040f04b5118fd5cfaeb494b5cdd6f",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/jobs/vllm-streaming-session-continuation--oracle/result.json": "5f4a0c734135c76c2b240d78325ea61121dab29442ce5f8cdd4eee7f315555dc",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/jobs/vllm-streaming-session-continuation--oracle/vllm-streaming-session-continuat__zcgsXS6/result.json": "e28d080753165e1ec2b69f2460fcf89ff685e514c1ca53e20c35975f93db09ce",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/jobs/vllm-streaming-session-continuation--oracle/vllm-streaming-session-continuat__zcgsXS6/verifier/test-stdout.txt": "dad3ef65e05616142380ce13049c7f136241f16f2997753d30d2ba8d9643b9bb",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/jobs/vllm-streaming-session-continuation--oracle/vllm-streaming-session-continuat__zcgsXS6/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/jobs/vllm-streaming-session-continuation--oracle/vllm-streaming-session-continuat__zcgsXS6/verifier/workload.json": "40486643abcebb05d0f848b72d226ef5ac4139c2f40681438e388b702a867ece",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/jobs/vllm-streaming-session-continuation--oracle/vllm-streaming-session-continuat__zcgsXS6/verifier/observations.json": "9e4d98f439ff9e3fb7071384afee4c20d9d9e144814a52565be08a8a8e766269",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/jobs/vllm-streaming-session-continuation--oracle/vllm-streaming-session-continuat__zcgsXS6/verifier/report.json": "d04f5476896097a573f535c9d0179a4b5131340e6f3769cf6db9492a001495bf",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/jobs/vllm-streaming-session-continuation--oracle/vllm-streaming-session-continuat__zcgsXS6/verifier/reward.json": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+      }
+    },
+    "matrix": [
+      {
+        "case": "base",
+        "declared_expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "b3ef9655-2a1d-4ad9-b432-d9195fb7c98c",
+        "trial_id": "fa75eeb6-da16-4db3-8176-8e92e0763a16",
+        "task_checksum": "6e66d8e1f8b4c8f16bebb66c0d5abc72c949c0d7e5d373bdfc3ee49a82dbfec4",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:7089f7eb9e06fff0a086aa0c8ad919aa20fc5f1ec6911a954e81e3316f35846e",
+        "gpu_uuids": [],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": false,
+          "expected_stages": [
+            "repeated_continuation",
+            "partial_absorption",
+            "interleaved_sessions",
+            "prompt_embeddings",
+            "ordinary_new_request",
+            "sampling_refresh",
+            "mrope_refresh",
+            "pooling_refresh"
+          ],
+          "stages_passed": [],
+          "failures": [
+            "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 64, in main\n    passed = check(raw, workload)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/tests/check_behavior.py\", line 19, in check\n    assert set(observed['rows'])==set(expected) and len(observed['rows'])==len(expected)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n"
+          ],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/run-record.json": "8e80385fd7c997bc7873f5877c9b5050e86576fa1b593bba874537cf2296bcdc",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/harbor-config.json": "64e4616f674f31526469d5e9565c40ce291f823459383274763179e052df265d",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/harbor.log": "9f1c7a68b645567fbedbdcab2c79facd718e15772f4c1c418e20d9136eb148c6",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/jobs/vllm-streaming-session-continuation--base/result.json": "56edf6a410bf55a9ce6f9f1c4faa44530b74b686596650033a4a9b608738929d",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/jobs/vllm-streaming-session-continuation--base/vllm-streaming-session-continuat__fmb7pV9/result.json": "5cddda2d497547f1367bcfad64c512e4655ee6dd7643ce67c8f07335ddd86261",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/jobs/vllm-streaming-session-continuation--base/vllm-streaming-session-continuat__fmb7pV9/verifier/test-stdout.txt": "2c43f0f1e914f419f4d18391dc9851e36a59318776811eb8a3c769cfc4e7c91a",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/jobs/vllm-streaming-session-continuation--base/vllm-streaming-session-continuat__fmb7pV9/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/jobs/vllm-streaming-session-continuation--base/vllm-streaming-session-continuat__fmb7pV9/verifier/workload.json": "340220a2edfb85904d33e925225b9bf0a01fc7e45189b1bad8b3cfa212bf2b5d",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/jobs/vllm-streaming-session-continuation--base/vllm-streaming-session-continuat__fmb7pV9/verifier/observations.json": "ce0e79e1202b9dc37afab2f78b0d7a22e9c2802c1a918da4269f83bc4d7fb370",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/jobs/vllm-streaming-session-continuation--base/vllm-streaming-session-continuat__fmb7pV9/verifier/report.json": "f5b5b733480e94c33dae3976ede9b94c7320b853dbbc7b9d4d2dc2cffddf7da3",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/base/jobs/vllm-streaming-session-continuation--base/vllm-streaming-session-continuat__fmb7pV9/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "alternate-continuation",
+        "declared_expected_reward": 1,
+        "actual_reward": 1,
+        "job_id": "bd065776-4a24-48b2-a030-1ccfa104d4db",
+        "trial_id": "f3e580dd-fa5a-4280-914c-0dbefa75f49c",
+        "task_checksum": "74585b33da9545fde63bdb5f564567f2cd660b39134542572fcd7426c89b4b04",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:7089f7eb9e06fff0a086aa0c8ad919aa20fc5f1ec6911a954e81e3316f35846e",
+        "gpu_uuids": [],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": true,
+          "expected_stages": [
+            "repeated_continuation",
+            "partial_absorption",
+            "interleaved_sessions",
+            "prompt_embeddings",
+            "ordinary_new_request",
+            "sampling_refresh",
+            "mrope_refresh",
+            "pooling_refresh"
+          ],
+          "stages_passed": [
+            "repeated_continuation",
+            "partial_absorption",
+            "interleaved_sessions",
+            "prompt_embeddings",
+            "ordinary_new_request",
+            "sampling_refresh",
+            "mrope_refresh",
+            "pooling_refresh"
+          ],
+          "failures": [],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/alternate-continuation/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/alternate-continuation/run-record.json": "842142b4a0ac6bf08b733300a35535bd6f9382593511017cbd64785ea7d52d40",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/alternate-continuation/harbor-config.json": "7123734977a32e23bbaa6d7a32575f8bb5c5760179116b1f3bcadb102bf48414",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/alternate-continuation/harbor.log": "e15276ea73dfbfd5198b441f3b462a4eeb45750521d2d25e05cc4b93a28472fc",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/alternate-continuation/jobs/vllm-streaming-session-continuation--alternate-continuation/result.json": "ac052f5aa6c0fe896a60b78cf833d1ced64d3bb9b3aae3f2935c62afcc408511",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/alternate-continuation/jobs/vllm-streaming-session-continuation--alternate-continuation/vllm-streaming-session-continuat__RNAr6bu/result.json": "46f377ac9797f3c44733b0f995c912c0d26dd39aca148eae1831d3fef8accb9d",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/alternate-continuation/jobs/vllm-streaming-session-continuation--alternate-continuation/vllm-streaming-session-continuat__RNAr6bu/verifier/test-stdout.txt": "c9516e30247ae7b7262756e85089189005ad1a5897ace025d58c31454cabf795",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/alternate-continuation/jobs/vllm-streaming-session-continuation--alternate-continuation/vllm-streaming-session-continuat__RNAr6bu/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/alternate-continuation/jobs/vllm-streaming-session-continuation--alternate-continuation/vllm-streaming-session-continuat__RNAr6bu/verifier/workload.json": "ac2ce48d6a13f4b8dfb1baa3433c149e8b7b9df26b26c1ae383f40dfcc5edf8d",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/alternate-continuation/jobs/vllm-streaming-session-continuation--alternate-continuation/vllm-streaming-session-continuat__RNAr6bu/verifier/observations.json": "4b98ec7b9a61c6cb1d95ecdcab4c851d28140233ae641df7fe1d47d20c6a5a21",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/alternate-continuation/jobs/vllm-streaming-session-continuation--alternate-continuation/vllm-streaming-session-continuat__RNAr6bu/verifier/report.json": "d04f5476896097a573f535c9d0179a4b5131340e6f3769cf6db9492a001495bf",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/alternate-continuation/jobs/vllm-streaming-session-continuation--alternate-continuation/vllm-streaming-session-continuat__RNAr6bu/verifier/reward.json": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+        }
+      },
+      {
+        "case": "early-exit-os-exit",
+        "declared_expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "74137843-2fb3-4640-88f1-7cb16c12fb4c",
+        "trial_id": "7f946190-e323-4441-bcd5-fa7729584ede",
+        "task_checksum": "f067e8756ddfc6253fda7853312088aee6e418d7d5d8435262f9250e403013c4",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:7089f7eb9e06fff0a086aa0c8ad919aa20fc5f1ec6911a954e81e3316f35846e",
+        "gpu_uuids": [],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": false,
+          "expected_stages": [
+            "repeated_continuation",
+            "partial_absorption",
+            "interleaved_sessions",
+            "prompt_embeddings",
+            "ordinary_new_request",
+            "sampling_refresh",
+            "mrope_refresh",
+            "pooling_refresh"
+          ],
+          "stages_passed": [],
+          "failures": [
+            "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 58, in main\n    if obs.stat().st_size > 100_000_000:\n       ^^^^^^^^^^\n  File \"/usr/lib/python3.12/pathlib.py\", line 840, in stat\n    return os.stat(self, follow_symlinks=follow_symlinks)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: '/tmp/behavior-observations-pkz_wbnq/observations.json'\n"
+          ],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": true,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-os-exit/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-os-exit/run-record.json": "268bcd95c0ef9f53c7d65860a3ea96577c78992b598f69bf8e4b74e07c9b79a9",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-os-exit/harbor-config.json": "394b3736dce9b3de3e70197daf6bd90391b17b32b77ee61c3b59969bc09e2d4f",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-os-exit/harbor.log": "ad720f84d42dbe5ece785427199c021c53b4bc1987a92cd878d30312fa0c20f4",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-os-exit/jobs/vllm-streaming-session-continuation--early-exit-os-exit/result.json": "c2b8714b5a19fb59cf53f4e3014e542d927445f0dd39b3c54f676f15eedb654a",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-os-exit/jobs/vllm-streaming-session-continuation--early-exit-os-exit/vllm-streaming-session-continuat__Bd5fEss/result.json": "44991d2e02e8e8e97a3badbf5b0e77136d9d49c7f43e8b9ea71472bf00905c11",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-os-exit/jobs/vllm-streaming-session-continuation--early-exit-os-exit/vllm-streaming-session-continuat__Bd5fEss/verifier/test-stdout.txt": "468027bfee1a05221dc7b58e6243a6ca5b986c6585bba01a34bd8e1d8008de8c",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-os-exit/jobs/vllm-streaming-session-continuation--early-exit-os-exit/vllm-streaming-session-continuat__Bd5fEss/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-os-exit/jobs/vllm-streaming-session-continuation--early-exit-os-exit/vllm-streaming-session-continuat__Bd5fEss/verifier/workload.json": "557f67d0409ade31105e80c1ebaa818dd77a9a2f050494c2d10dc862441fd6f0",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-os-exit/jobs/vllm-streaming-session-continuation--early-exit-os-exit/vllm-streaming-session-continuat__Bd5fEss/verifier/report.json": "f66e88fd0953826a0216de6ed0ba4bf1380ee467d60fad6713e99f8b8d34268f",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-os-exit/jobs/vllm-streaming-session-continuation--early-exit-os-exit/vllm-streaming-session-continuat__Bd5fEss/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "early-exit-system-exit",
+        "declared_expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "f81b30ab-b8a0-4e91-a253-fac76910b137",
+        "trial_id": "70261578-d266-45b0-9461-7a4e1bec1044",
+        "task_checksum": "2d87e5b02bf165f6d3f63c3b378cd41cf6be23083c4ffa9005b0fde8c3849fc5",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:7089f7eb9e06fff0a086aa0c8ad919aa20fc5f1ec6911a954e81e3316f35846e",
+        "gpu_uuids": [],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": false,
+          "expected_stages": [
+            "repeated_continuation",
+            "partial_absorption",
+            "interleaved_sessions",
+            "prompt_embeddings",
+            "ordinary_new_request",
+            "sampling_refresh",
+            "mrope_refresh",
+            "pooling_refresh"
+          ],
+          "stages_passed": [],
+          "failures": [
+            "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 58, in main\n    if obs.stat().st_size > 100_000_000:\n       ^^^^^^^^^^\n  File \"/usr/lib/python3.12/pathlib.py\", line 840, in stat\n    return os.stat(self, follow_symlinks=follow_symlinks)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: '/tmp/behavior-observations-72jm_qtu/observations.json'\n"
+          ],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": true,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-system-exit/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-system-exit/run-record.json": "7fed474d874f3e43c13b23d43f47f7e337304eb13e4860dc3d94c6950b70c9b4",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-system-exit/harbor-config.json": "31407ff9a076a8a22386f33ab020306fba651a0aa0e8e24348319daef3b75320",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-system-exit/harbor.log": "d001a092798a3c6505f7cbccbf8d1adf328789f4fe371b46ecf09623126e9eee",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-system-exit/jobs/vllm-streaming-session-continuation--early-exit-system-exit/result.json": "214da602eb3f9470f022b2c199fc7effe11b6bf35bcb76d40701a0dc385e4b77",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-system-exit/jobs/vllm-streaming-session-continuation--early-exit-system-exit/vllm-streaming-session-continuat__8tUm7Fu/result.json": "5290275749c637f253dc2d67b7b74ed7e43e535460210e18af7441fae1c82e0f",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-system-exit/jobs/vllm-streaming-session-continuation--early-exit-system-exit/vllm-streaming-session-continuat__8tUm7Fu/verifier/test-stdout.txt": "6b23c77dc59c35fd6c3fac0a9cc483c2f6c0ade177c6032b2bb40b6c1f4ffd01",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-system-exit/jobs/vllm-streaming-session-continuation--early-exit-system-exit/vllm-streaming-session-continuat__8tUm7Fu/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-system-exit/jobs/vllm-streaming-session-continuation--early-exit-system-exit/vllm-streaming-session-continuat__8tUm7Fu/verifier/workload.json": "0cfacb551dd0c6847efc79e252612cd0ca442aa954823051b84ced155da34654",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-system-exit/jobs/vllm-streaming-session-continuation--early-exit-system-exit/vllm-streaming-session-continuat__8tUm7Fu/verifier/report.json": "fef5e284408e97979a0c1930716bb9de75bd7a0101c9b486f676765740fb4475",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/early-exit-system-exit/jobs/vllm-streaming-session-continuation--early-exit-system-exit/vllm-streaming-session-continuat__8tUm7Fu/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "incomplete-output-absorption",
+        "declared_expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "49503bb6-e4d4-47fa-9221-013bafd3d125",
+        "trial_id": "1888a520-50d3-462e-a797-8a76839c493d",
+        "task_checksum": "d834bb310ab12c7f961e46c581fbbba0527e1712aa975668433abea1487a22c0",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:7089f7eb9e06fff0a086aa0c8ad919aa20fc5f1ec6911a954e81e3316f35846e",
+        "gpu_uuids": [],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": false,
+          "expected_stages": [
+            "repeated_continuation",
+            "partial_absorption",
+            "interleaved_sessions",
+            "prompt_embeddings",
+            "ordinary_new_request",
+            "sampling_refresh",
+            "mrope_refresh",
+            "pooling_refresh"
+          ],
+          "stages_passed": [],
+          "failures": [
+            "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 64, in main\n    passed = check(raw, workload)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/tests/check_behavior.py\", line 25, in check\n    assert state['outputs']==state['batch_outputs']==[]\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n"
+          ],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/incomplete-output-absorption/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/incomplete-output-absorption/run-record.json": "c4f651e0339cdfa4c388074c4154a1904314261e44a6b5e8c3e426b6253ef330",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/incomplete-output-absorption/harbor-config.json": "00170617ed200a337346e35c488509d95af19ba28e59118ed8b1bee63b8d4775",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/incomplete-output-absorption/harbor.log": "04dbdd1088a8ba91eb81478a85579606c4d5e58bafb095ceadd294467f43727f",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/incomplete-output-absorption/jobs/vllm-streaming-session-continuation--incomplete-output-absorption/result.json": "f7341ddf78275bcf5f7c93d68b59fa8b94c1ac05426a49c8837962d24612dbda",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/incomplete-output-absorption/jobs/vllm-streaming-session-continuation--incomplete-output-absorption/vllm-streaming-session-continuat__UEtTLe5/result.json": "cd79651c8f63811b0554948c9745574451336782c435ada3950131f94397ef4e",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/incomplete-output-absorption/jobs/vllm-streaming-session-continuation--incomplete-output-absorption/vllm-streaming-session-continuat__UEtTLe5/verifier/test-stdout.txt": "529e78ae88a222f262f44673686d81bd3346c6d6595f614537904a8737484930",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/incomplete-output-absorption/jobs/vllm-streaming-session-continuation--incomplete-output-absorption/vllm-streaming-session-continuat__UEtTLe5/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/incomplete-output-absorption/jobs/vllm-streaming-session-continuation--incomplete-output-absorption/vllm-streaming-session-continuat__UEtTLe5/verifier/workload.json": "d0964cdfbcf85f575e3e3543fe2d7724d3fa9a73bf5a76cc3c73179c9fc3d3ef",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/incomplete-output-absorption/jobs/vllm-streaming-session-continuation--incomplete-output-absorption/vllm-streaming-session-continuat__UEtTLe5/verifier/observations.json": "37dfe8ed502881644944da73a4f7f65a378d25937a4412aca52635391317cbd7",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/incomplete-output-absorption/jobs/vllm-streaming-session-continuation--incomplete-output-absorption/vllm-streaming-session-continuat__UEtTLe5/verifier/report.json": "f66fdde7504163c0e268463bb24f71b54fc6fabc603f6b1d1e373853dc00a63c",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/incomplete-output-absorption/jobs/vllm-streaming-session-continuation--incomplete-output-absorption/vllm-streaming-session-continuat__UEtTLe5/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "forged-report-exit",
+        "declared_expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "9496be2e-09e0-4459-9fe6-dcadd60d3ee1",
+        "trial_id": "7e8b8818-4c33-4066-9541-e2bf97f647cc",
+        "task_checksum": "20c72cf4b96bc512eb65b5f1255f9db00b32ac8af501a2e431da9e5c33585452",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:7089f7eb9e06fff0a086aa0c8ad919aa20fc5f1ec6911a954e81e3316f35846e",
+        "gpu_uuids": [],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": false,
+          "expected_stages": [
+            "repeated_continuation",
+            "partial_absorption",
+            "interleaved_sessions",
+            "prompt_embeddings",
+            "ordinary_new_request",
+            "sampling_refresh",
+            "mrope_refresh",
+            "pooling_refresh"
+          ],
+          "stages_passed": [],
+          "failures": [
+            "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 58, in main\n    if obs.stat().st_size > 100_000_000:\n       ^^^^^^^^^^\n  File \"/usr/lib/python3.12/pathlib.py\", line 840, in stat\n    return os.stat(self, follow_symlinks=follow_symlinks)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: '/tmp/behavior-observations-yb65p1vx/observations.json'\n"
+          ],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": true,
+          "REPORT_WRITE_DENIED": true,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/forged-report-exit/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/forged-report-exit/run-record.json": "85c2d5ab0bf477bc94043a690ecff0f6b3eb77dedadcb6dc9887767e988b0402",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/forged-report-exit/harbor-config.json": "54cfd99992296292045c3c3f2d3e7f58d26ece91a2e8a590de3a3889841953a5",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/forged-report-exit/harbor.log": "0dad0420bc4b580b13732bbde819bd4e5290c63ae0f2bbe76f0b1e16f22801e6",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/forged-report-exit/jobs/vllm-streaming-session-continuation--forged-report-exit/result.json": "31bfc800b61f7d14f296e4ca329aaa0aa50bd1fbb7afaa615c4abccc0b87c806",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/forged-report-exit/jobs/vllm-streaming-session-continuation--forged-report-exit/vllm-streaming-session-continuat__bt6qkvP/result.json": "3f732f99febe29e7114096e1f8216e8eac69f4e04f45dd552b30ea36dcc52f43",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/forged-report-exit/jobs/vllm-streaming-session-continuation--forged-report-exit/vllm-streaming-session-continuat__bt6qkvP/verifier/test-stdout.txt": "c527429125c2cefcb831784b8b8778c5243e4315a73af41bc6eca0fa7b41d2e1",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/forged-report-exit/jobs/vllm-streaming-session-continuation--forged-report-exit/vllm-streaming-session-continuat__bt6qkvP/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/forged-report-exit/jobs/vllm-streaming-session-continuation--forged-report-exit/vllm-streaming-session-continuat__bt6qkvP/verifier/workload.json": "a68999b0a5f1cdf78cab7a060253e822c31489050b7189a847b262f60db7fb94",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/forged-report-exit/jobs/vllm-streaming-session-continuation--forged-report-exit/vllm-streaming-session-continuat__bt6qkvP/verifier/report.json": "42ed7fcb4cd5cee58efe2d4bbc01b2db99ddf2734310cd1a66bee719dbcd43e0",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/forged-report-exit/jobs/vllm-streaming-session-continuation--forged-report-exit/vllm-streaming-session-continuat__bt6qkvP/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "replay-observations",
+        "declared_expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "8e4d7685-af3d-4fd5-b097-be0577f4ec12",
+        "trial_id": "673d268c-4388-4687-a60d-52e7bda5fde0",
+        "task_checksum": "4f02c6e4eafb4c8f6d592cf9a66e2871d88a00b5a3643e480dedf0e292d31292",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:7089f7eb9e06fff0a086aa0c8ad919aa20fc5f1ec6911a954e81e3316f35846e",
+        "gpu_uuids": [],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": false,
+          "expected_stages": [
+            "repeated_continuation",
+            "partial_absorption",
+            "interleaved_sessions",
+            "prompt_embeddings",
+            "ordinary_new_request",
+            "sampling_refresh",
+            "mrope_refresh",
+            "pooling_refresh"
+          ],
+          "stages_passed": [],
+          "failures": [
+            "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 64, in main\n    passed = check(raw, workload)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/tests/check_behavior.py\", line 6, in check\n    assert raw['initial'] == {rid:v['prompt'] for rid,v in workload['initial'].items()}, 'initial prompts differ from current workload'\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: initial prompts differ from current workload\n"
+          ],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": true
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/replay-observations/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/replay-observations/run-record.json": "e0915a91a0cd0b9075a26e52478b560dcf757f81ddff7f69751cdfa66dd584d0",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/replay-observations/harbor-config.json": "a9b35c741d2d2db9471349c3a4e12c45fdfcd6eaa7487d0f6cb96cdf6d845f39",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/replay-observations/harbor.log": "8b6564559a691257eccad157766ef9105a19f7020821411bdea318eda57e5027",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/replay-observations/jobs/vllm-streaming-session-continuation--replay-observations/result.json": "76d72c869073ffb26688b7a1890f85291ce3b6166b3d19f0c95fcf640157063d",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/replay-observations/jobs/vllm-streaming-session-continuation--replay-observations/vllm-streaming-session-continuat__xeZaa4F/result.json": "6954b270edd1fa1220049471de2698283dbc40dc27931599abb51306d8a3077a",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/replay-observations/jobs/vllm-streaming-session-continuation--replay-observations/vllm-streaming-session-continuat__xeZaa4F/verifier/test-stdout.txt": "d2d83262ecd555c1984839b279048bae1ba298137a361c19f0e947c5f747eeca",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/replay-observations/jobs/vllm-streaming-session-continuation--replay-observations/vllm-streaming-session-continuat__xeZaa4F/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/replay-observations/jobs/vllm-streaming-session-continuation--replay-observations/vllm-streaming-session-continuat__xeZaa4F/verifier/workload.json": "82533b710680a5b652d1646ba1ca496d8af7109f85df2ff8a21f5d393da1e197",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/replay-observations/jobs/vllm-streaming-session-continuation--replay-observations/vllm-streaming-session-continuat__xeZaa4F/verifier/observations.json": "93b0a1c7d0026189ee04d91438d6a560bf4328d24206c35bb1da349e15867f9d",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/replay-observations/jobs/vllm-streaming-session-continuation--replay-observations/vllm-streaming-session-continuat__xeZaa4F/verifier/report.json": "4efa617f42ebd76e53718d32255ad50f3e467f9b686a5de8ddabd2374e1859e8",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/replay-observations/jobs/vllm-streaming-session-continuation--replay-observations/vllm-streaming-session-continuat__xeZaa4F/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "oracle",
+        "declared_expected_reward": 1,
+        "actual_reward": 1,
+        "job_id": "6b987ef9-2f32-4c5a-a4da-4038a557a0ec",
+        "trial_id": "2fad7fad-52d8-482d-8a31-13b04e089ee9",
+        "task_checksum": "6e66d8e1f8b4c8f16bebb66c0d5abc72c949c0d7e5d373bdfc3ee49a82dbfec4",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:7089f7eb9e06fff0a086aa0c8ad919aa20fc5f1ec6911a954e81e3316f35846e",
+        "gpu_uuids": [],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": true,
+          "expected_stages": [
+            "repeated_continuation",
+            "partial_absorption",
+            "interleaved_sessions",
+            "prompt_embeddings",
+            "ordinary_new_request",
+            "sampling_refresh",
+            "mrope_refresh",
+            "pooling_refresh"
+          ],
+          "stages_passed": [
+            "repeated_continuation",
+            "partial_absorption",
+            "interleaved_sessions",
+            "prompt_embeddings",
+            "ordinary_new_request",
+            "sampling_refresh",
+            "mrope_refresh",
+            "pooling_refresh"
+          ],
+          "failures": [],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/run-record.json": "98f4141125e4455cad33383862d0004ef4d416536ccd20abad836d5dbe393406",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/harbor-config.json": "6317195e9f8ab47a6f87d49700d1b1ce7e502d016be099fbd0a8f9bad08ddbf5",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/harbor.log": "642ad82b3d51ece7d0a2ffff7845f2c4139040f04b5118fd5cfaeb494b5cdd6f",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/jobs/vllm-streaming-session-continuation--oracle/result.json": "5f4a0c734135c76c2b240d78325ea61121dab29442ce5f8cdd4eee7f315555dc",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/jobs/vllm-streaming-session-continuation--oracle/vllm-streaming-session-continuat__zcgsXS6/result.json": "e28d080753165e1ec2b69f2460fcf89ff685e514c1ca53e20c35975f93db09ce",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/jobs/vllm-streaming-session-continuation--oracle/vllm-streaming-session-continuat__zcgsXS6/verifier/test-stdout.txt": "dad3ef65e05616142380ce13049c7f136241f16f2997753d30d2ba8d9643b9bb",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/jobs/vllm-streaming-session-continuation--oracle/vllm-streaming-session-continuat__zcgsXS6/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/jobs/vllm-streaming-session-continuation--oracle/vllm-streaming-session-continuat__zcgsXS6/verifier/workload.json": "40486643abcebb05d0f848b72d226ef5ac4139c2f40681438e388b702a867ece",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/jobs/vllm-streaming-session-continuation--oracle/vllm-streaming-session-continuat__zcgsXS6/verifier/observations.json": "9e4d98f439ff9e3fb7071384afee4c20d9d9e144814a52565be08a8a8e766269",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/jobs/vllm-streaming-session-continuation--oracle/vllm-streaming-session-continuat__zcgsXS6/verifier/report.json": "d04f5476896097a573f535c9d0179a4b5131340e6f3769cf6db9492a001495bf",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/streaming/oracle/jobs/vllm-streaming-session-continuation--oracle/vllm-streaming-session-continuat__zcgsXS6/verifier/reward.json": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+        }
+      }
+    ],
+    "fresh_run_count": 8,
+    "declared_expectations_matched": true,
+    "warning": null
+  },
+  "independent_challenges": [
+    {
+      "task": "streaming",
+      "case": "base",
+      "expected_pass": false,
+      "passed": false,
+      "exit_code": 1,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/publish-reviewed3-20260909T052504Z/streaming/tasks/vllm-streaming-session-continuation:/task:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/challenge:ro",
+        "sha256:7089f7eb9e06fff0a086aa0c8ad919aa20fc5f1ec6911a954e81e3316f35846e",
+        "-euc",
+        "python3 /challenge/streaming.py\n"
+      ],
+      "log": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/streaming-base.log",
+      "sha256": "4662411cf78dd5535eeec4eb0911d164149f1ae9515956fa565b597bf6ab6b33",
+      "scope": "direct container independent challenge; not Harbor"
+    },
+    {
+      "task": "streaming",
+      "case": "oracle",
+      "expected_pass": true,
+      "passed": true,
+      "exit_code": 0,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/publish-reviewed3-20260909T052504Z/streaming/tasks/vllm-streaming-session-continuation:/task:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/challenge:ro",
+        "sha256:7089f7eb9e06fff0a086aa0c8ad919aa20fc5f1ec6911a954e81e3316f35846e",
+        "-euc",
+        "git apply /task/solution/oracle.patch\npython3 /challenge/streaming.py\n"
+      ],
+      "log": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/streaming-oracle.log",
+      "sha256": "be109bbd910d8166ac95ef259147f4506f457a25265ecade533c3706a7fb55d6",
+      "scope": "direct container independent challenge; not Harbor"
+    },
+    {
+      "task": "streaming",
+      "case": "alternate-continuation",
+      "expected_pass": true,
+      "passed": true,
+      "exit_code": 0,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/publish-reviewed3-20260909T052504Z/streaming/tasks/vllm-streaming-session-continuation:/task:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/challenge:ro",
+        "sha256:7089f7eb9e06fff0a086aa0c8ad919aa20fc5f1ec6911a954e81e3316f35846e",
+        "-euc",
+        "git apply /task/validation/alternate-continuation.patch\npython3 /challenge/streaming.py\n"
+      ],
+      "log": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/streaming-alternate-continuation.log",
+      "sha256": "1509c10f7f213fab638362b40970ed4225567eb77b8deab620ca0c0ffeab3041",
+      "scope": "direct container independent challenge; not Harbor"
+    }
+  ],
+  "new_component_probes": [],
+  "probe_infrastructure_note": null,
+  "astra_rollout": {
+    "source_report": "/data/yinchen/astra-streaming-modular-20260911T154735Z/review/RESULT.md",
+    "fresh_integrity_check": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/astra-evidence-check.json",
+    "new_model_run": false,
+    "original_instruction_sha256": "8812973d263a7939fad5d92cc24c217406a64e3090d953ec9050eb3f4fa8c967",
+    "current_instruction_sha256": "9de76b2e7cacc493f8766b046069715708aa4646ae4ec164ea7060f8fb4dd7c5",
+    "grading_implementation_unchanged": true,
+    "new_prepare_probe_passed": null
+  },
+  "environment_audit": {
+    "fresh_logs": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/environment/streaming",
+    "image_rebuilt": false,
+    "reason": "Environment inputs are unchanged."
+  },
+  "artifacts": {
+    "files": {
+      ".dockerignore": "fe57c1ef2dcfcb5ceaa20f0582985984061600f14d404fd7f1ef5de91a710cc8",
+      "task.toml": "4c844771e8d55a2ed1a1fd3f572d2c9f8e576e796869e9b67c53b6973f4900ba",
+      "environment/.dockerignore": "20fbcdd9e55a74487fa7c55f5303f09341e79f19e921d369d1fe6dcb924b813d",
+      "environment/Dockerfile": "3bad5b9bf5c68fe98ab87b6f72deaeefd239c650512d2fcdd403c647f23ddece",
+      "environment/image-manifest.json": "4e4ca3d9054c77530617eb1fa2f4cb38da16d142cee1c797954fc6854e3842eb",
+      "environment/lock/final-native.sha256": "bb6ffbd11800ad6e47d1e6aa575be7ec24297eaf43a9a34ef47e68a2c595b84a",
+      "environment/lock/native-donor.sha256": "b0edf0e731a385ece0c4e51e243a9952bc3117e5ead2d640038507ab44b25a9d",
+      "environment/lock/requirements.txt": "10e49fa8a345423dce0ea86ccd208b8b745dce86979445ffa2fcd987851457de",
+      "environment/lock/manifest.json": "2351854d4d00b77c8f6a783df7b67f2987ebbc8a95b1eeac0fe5f15851d2c8f0",
+      "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+      "solution/oracle.patch": "ab3e9b42e90b3655c33e02c0dfab505fc71516eff8873cc4b99584e1b1a9eec4",
+      "tests/test.sh": "de1a5c76f880bc75c013e4b76ef11eaf6ff801de09a0aa88e8096e6a7163579d",
+      "tests/verify_streaming_runner_update.py": "f1c0e9cb18a4348693d413f4c752d61a1839b828ba86f7a2afc17c7b56f407f6",
+      "tests/trusted_score.py": "9b97c3756a9347af2e491633ed885ebf18d683b76dfd864617f0b5fde7b7af06",
+      "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+      "tests/check_behavior.py": "0c58e7480041378801436fe65a49ae6979ea58acb57d7c3c919e8dbbb1b2ed69",
+      "tests/workload.py": "74e5c3ff5cdd2f4ef98e1304775497e176e66bef49424aa989b4093f91eb0f30",
+      "validation/alternate-continuation.patch": "27e220f4cd9c3b2564d34af5d2045f4c09ab90db7c93f1998577e0e3d52c9963",
+      "validation/ci-cases.json": "46acc6e511e25d2c934b7f8d4dd7ff4bb20954874085aef1bc8b015ebd810cb1",
+      "validation/incomplete-output-absorption.patch": "ffb085a057ec8a472cc0dc6812e261d2111c88244e3a45aa6b274a8642a0355f",
+      "validation/early-exit-os-exit.patch": "c34a59bcee96cc2e599e1dbfda9a2e849e507191a1c5ab748d52078427e69033",
+      "validation/early-exit-system-exit.patch": "a953b6d100d29bc5a85b4794337a9291ce829c2ba75d3e1cc57804a89f7d7100",
+      "validation/forged-report-exit.patch": "5d9e304321097bcb6ed7dc89d74fdb462a2c45b59b62b4668fc212a28750a529",
+      "validation/replay-observations.patch": "e9afac9bc5eeba137be79cc385b1121b8cb6f08ad7caf3e17432a8bf62d30a96",
+      "validation/challenge/challenge_streaming_continuation.py": "e2b00a5135cbe737b526a5b728b90b6bc52a63fdd8eaa405422152921c80ccc1",
+      "validation/evidence/environment-review.json": "f615fbb71dbc3a5c7a10abba9677b1ccbb6b46038f8e96919e807313f8fcb64b",
+      "instruction.md": "9de76b2e7cacc493f8766b046069715708aa4646ae4ec164ea7060f8fb4dd7c5"
+    }
+  },
+  "freeze": {
+    "files": {
+      ".dockerignore": "fe57c1ef2dcfcb5ceaa20f0582985984061600f14d404fd7f1ef5de91a710cc8",
+      "task.toml": "4c844771e8d55a2ed1a1fd3f572d2c9f8e576e796869e9b67c53b6973f4900ba",
+      "environment/.dockerignore": "20fbcdd9e55a74487fa7c55f5303f09341e79f19e921d369d1fe6dcb924b813d",
+      "environment/Dockerfile": "3bad5b9bf5c68fe98ab87b6f72deaeefd239c650512d2fcdd403c647f23ddece",
+      "environment/image-manifest.json": "4e4ca3d9054c77530617eb1fa2f4cb38da16d142cee1c797954fc6854e3842eb",
+      "environment/lock/final-native.sha256": "bb6ffbd11800ad6e47d1e6aa575be7ec24297eaf43a9a34ef47e68a2c595b84a",
+      "environment/lock/native-donor.sha256": "b0edf0e731a385ece0c4e51e243a9952bc3117e5ead2d640038507ab44b25a9d",
+      "environment/lock/requirements.txt": "10e49fa8a345423dce0ea86ccd208b8b745dce86979445ffa2fcd987851457de",
+      "environment/lock/manifest.json": "2351854d4d00b77c8f6a783df7b67f2987ebbc8a95b1eeac0fe5f15851d2c8f0",
+      "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+      "solution/oracle.patch": "ab3e9b42e90b3655c33e02c0dfab505fc71516eff8873cc4b99584e1b1a9eec4",
+      "tests/test.sh": "de1a5c76f880bc75c013e4b76ef11eaf6ff801de09a0aa88e8096e6a7163579d",
+      "tests/verify_streaming_runner_update.py": "f1c0e9cb18a4348693d413f4c752d61a1839b828ba86f7a2afc17c7b56f407f6",
+      "tests/trusted_score.py": "9b97c3756a9347af2e491633ed885ebf18d683b76dfd864617f0b5fde7b7af06",
+      "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+      "tests/check_behavior.py": "0c58e7480041378801436fe65a49ae6979ea58acb57d7c3c919e8dbbb1b2ed69",
+      "tests/workload.py": "74e5c3ff5cdd2f4ef98e1304775497e176e66bef49424aa989b4093f91eb0f30",
+      "validation/alternate-continuation.patch": "27e220f4cd9c3b2564d34af5d2045f4c09ab90db7c93f1998577e0e3d52c9963",
+      "validation/ci-cases.json": "46acc6e511e25d2c934b7f8d4dd7ff4bb20954874085aef1bc8b015ebd810cb1",
+      "validation/incomplete-output-absorption.patch": "ffb085a057ec8a472cc0dc6812e261d2111c88244e3a45aa6b274a8642a0355f",
+      "validation/early-exit-os-exit.patch": "c34a59bcee96cc2e599e1dbfda9a2e849e507191a1c5ab748d52078427e69033",
+      "validation/early-exit-system-exit.patch": "a953b6d100d29bc5a85b4794337a9291ce829c2ba75d3e1cc57804a89f7d7100",
+      "validation/forged-report-exit.patch": "5d9e304321097bcb6ed7dc89d74fdb462a2c45b59b62b4668fc212a28750a529",
+      "validation/replay-observations.patch": "e9afac9bc5eeba137be79cc385b1121b8cb6f08ad7caf3e17432a8bf62d30a96",
+      "validation/challenge/challenge_streaming_continuation.py": "e2b00a5135cbe737b526a5b728b90b6bc52a63fdd8eaa405422152921c80ccc1",
+      "validation/evidence/environment-review.json": "f615fbb71dbc3a5c7a10abba9677b1ccbb6b46038f8e96919e807313f8fcb64b",
+      "instruction.md": "9de76b2e7cacc493f8766b046069715708aa4646ae4ec164ea7060f8fb4dd7c5"
+    },
+    "frozen_before_all_listed_Harbor_runs": true
+  },
+  "provenance_gates": {
+    "new_instruction_used_in_all_listed_Harbor_runs": true,
+    "no_harbor_errors": true,
+    "final_oracle_reward_one": true,
+    "contract_review_passed": true
+  },
+  "historical_evidence": {
+    "path": "validation/history/before-prose-review-20260912.json",
+    "sha256": "1811871f0e0957911404a6f0c7d4269529bc79a6fa96cef14dedba3e84656871",
+    "note": "Preserved unchanged; not relabeled as execution of the revised instruction."
+  },
+  "checksum_note": "Harbor checksum identifies each prepared snapshot. Current evidence/report writes are later documentation changes. The rewritten instruction was frozen before every listed run."
+}

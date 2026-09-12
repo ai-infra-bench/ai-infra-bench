@@ -1,0 +1,49 @@
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+index 863ed5d..e794281 100644
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -899,6 +899,44 @@ class GPUModelRunner(
+             sampling_params = new_req_data.sampling_params
+             pooling_params = new_req_data.pooling_params
+ 
++            # A new-request record for an already-cached ID is a
++            # streaming-session continuation: reuse the existing object,
++            # refresh its fields, and re-add it to the persistent batch.
++            if req_id in self.requests:
++                req_state = self.requests[req_id]
++                # Remove the stale persistent-batch entry so it can be
++                # re-added cleanly below.
++                self.input_batch.remove_request(req_id)
++                # Compute how many former output tokens are now part of the
++                # new (longer) prompt, and drop them from the output list.
++                new_num_prompt_tokens = length_from_prompt_token_ids_or_embeds(
++                    new_req_data.prompt_token_ids, new_req_data.prompt_embeds
++                )
++                tokens_absorbed = new_num_prompt_tokens - req_state.num_prompt_tokens
++                if tokens_absorbed > 0:
++                    del req_state.output_token_ids[:tokens_absorbed]
++                # Refresh all fields supplied by the new record.
++                req_state.prompt_token_ids = new_req_data.prompt_token_ids
++                req_state.prompt_embeds = new_req_data.prompt_embeds
++                req_state.mm_features = new_req_data.mm_features
++                req_state.sampling_params = sampling_params
++                req_state.pooling_params = pooling_params
++                req_state.block_ids = new_req_data.block_ids
++                req_state.num_computed_tokens = new_req_data.num_computed_tokens
++                req_state.num_prompt_tokens = new_num_prompt_tokens
++                if sampling_params and sampling_params.prompt_logprobs is not None:
++                    self.num_prompt_logprobs[req_id] = (
++                        self.input_batch.vocab_size
++                        if sampling_params.prompt_logprobs == -1
++                        else sampling_params.prompt_logprobs
++                    )
++                if self.uses_mrope:
++                    self._init_mrope_positions(req_state)
++                if self.uses_xdrope_dim > 0:
++                    self._init_xdrope_positions(req_state)
++                reqs_to_add.append(req_state)
++                continue
++
+             if (
+                 sampling_params
+                 and sampling_params.sampling_type == SamplingType.RANDOM_SEED
