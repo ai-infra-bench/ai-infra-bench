@@ -1,7 +1,7 @@
 # vllm-deterministic-bmm-batch-scaling v1.2.4
 
-One GPT-6-Astra / high Harbor run: **reward 1**, zero Harbor errors. Full rollout review passed.
+GPT-6-Astra/high: **reward 1**, zero Harbor errors; rollout review passed.
 
-[Download complete trajectory ZIP](bmm-gpt-6-astra-high-once.zip) — includes native/ATIF/API traces, final source, verifier logs and review evidence.
+[Trajectory ZIP](bmm-gpt-6-astra-high-once.zip) — complete traces, final source, verifier results and review evidence.
 
-SHA-256: `912ab05a313fb7daa044039466ec8d2bc95921fa511035fa6ae3fa15159cb7f1`
+SHA-256: `e729e9f7aaf5cb6da4eb7ab70dc852c9bb139f3559e440efe30ef6c1b8ed725a`
