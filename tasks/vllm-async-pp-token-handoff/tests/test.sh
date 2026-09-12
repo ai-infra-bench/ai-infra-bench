@@ -8,8 +8,8 @@
 #   * This script never imports or executes candidate Python itself, and it
 #     never decides anything from a child's exit code alone.
 #   * All candidate execution happens inside untrusted workers launched by
-#     /tests/trusted_supervisor.py. Their only channel to scoring is the single
-#     framed, nonce-bearing payload the supervisor validates.
+#     /tests/trusted_supervisor.py. Scoring requires complete driver reports
+#     plus independent GPU input comparison and model output verification.
 #   * The trusted preflight below runs BEFORE any candidate import and is where
 #     task-owned facts are frozen (see PREFLIGHT FACTS).
 set -uo pipefail
@@ -75,7 +75,7 @@ STAGING=/trusted/staging
 WORKER_TMP=/tmp/async-pp-worker
 rm -rf "${STAGING}"
 mkdir -p "${STAGING}" || fail_closed staging_mkdir
-for f in trusted_supervisor.py verify_async_pp.py task_fixtures.py worker_fixtures.py handoff_observer.py lifecycle_cases.py trusted_transport.py mp_e2e.py; do
+for f in trusted_supervisor.py verify_async_pp.py task_fixtures.py worker_fixtures.py handoff_observer.py lifecycle_cases.py trusted_transport.py mp_e2e.py mp_behavior.py; do
   cp "/tests/${f}" "${STAGING}/${f}" || fail_closed "staging_copy_${f}"
 done
 cp -r /tests/fixtures "${STAGING}/fixtures" || fail_closed staging_copy_fixtures
@@ -132,7 +132,7 @@ printf 'supervisor_exit=%s\n' "${supervisor_rc}" \
 python3 -I - "${MANIFEST}" <<'PY' > /logs/verifier/scoring.log 2>&1
 import json, sys
 
-REQUIRED_STAGES = {"CPU_SUITE": [0], "GPU_SUITE": [0, 1]}
+REQUIRED_STAGES = {"CPU_SUITE": [0], "GPU_SUITE": [0]}
 LIFECYCLE = ("production_returned", "downstream_consumed", "barrier", "final_report")
 # The unprivileged worker uid this scorer requires the parent to have observed.
 EXPECT_WORKER_UID = 65534
@@ -173,9 +173,8 @@ for name, ranks in REQUIRED_STAGES.items():
     if st.get("anomalies"):
         problems.append(f"{name}:anomalies={st['anomalies'][:4]}")
 
-    # Rank identity must come from per-rank process association: the manifest
-    # carries one record per spawned rank, each with its OWN pipe and its own
-    # parent-observed uid. A payload's self-reported rank is never authoritative.
+    # These are driver identities, not PP worker ranks. Each driver has its
+    # own parent-observed pipe and uid; the GPU driver owns a real mp executor.
     per_rank = st.get("ranks")
     if not isinstance(per_rank, dict):
         problems.append(f"{name}:no_per_rank_records")

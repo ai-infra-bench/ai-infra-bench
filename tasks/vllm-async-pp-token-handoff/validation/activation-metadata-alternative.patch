@@ -1,0 +1,79 @@
+diff --git a/vllm/distributed/parallel_state.py b/vllm/distributed/parallel_state.py
+--- a/vllm/distributed/parallel_state.py
++++ b/vllm/distributed/parallel_state.py
+@@ -636,67 +636,16 @@
+         return obj_list
+ 
+     def send_object(self, obj: Any, dst: int) -> None:
+-        """Send the input object list to the destination rank."""
+-        """NOTE: `dst` is the local rank of the destination rank."""
+-
+-        assert dst < self.world_size, f"Invalid dst rank ({dst})"
+-
+-        assert dst != self.rank_in_group, (
+-            "Invalid destination rank. Destination rank is the same "
+-            "as the current rank."
+-        )
+-
+-        # Serialize object to tensor and get the size as well
+-        object_tensor = torch.frombuffer(pickle.dumps(obj), dtype=torch.uint8)
+-
+-        size_tensor = torch.tensor(
+-            [object_tensor.numel()], dtype=torch.long, device="cpu"
+-        )
+-
+-        # Send object size
+-
+-        torch.distributed.send(size_tensor, dst=self.ranks[dst], group=self.cpu_group)
+-
+-        # Send object
+-        torch.distributed.send(object_tensor, dst=self.ranks[dst], group=self.cpu_group)
+-
+-        return None
++        assert 0 <= dst < self.world_size and dst != self.rank_in_group
++        torch.distributed.send_object_list(
++            [obj], dst=self.ranks[dst], group=self.cpu_group)
+ 
+     def recv_object(self, src: int) -> Any:
+-        """Receive the input object list from the source rank."""
+-        """NOTE: `src` is the local rank of the source rank."""
+-
+-        assert src < self.world_size, f"Invalid src rank ({src})"
+-
+-        assert src != self.rank_in_group, (
+-            "Invalid source rank. Source rank is the same as the current rank."
+-        )
+-
+-        size_tensor = torch.empty(1, dtype=torch.long, device="cpu")
+-
+-        # Receive object size
+-        rank_size = torch.distributed.recv(
+-            size_tensor, src=self.ranks[src], group=self.cpu_group
+-        )
+-
+-        # Tensor to receive serialized objects into.
+-        object_tensor = torch.empty(  # type: ignore[call-overload]
+-            size_tensor.item(),  # type: ignore[arg-type]
+-            dtype=torch.uint8,
+-            device="cpu",
+-        )
+-
+-        rank_object = torch.distributed.recv(
+-            object_tensor, src=self.ranks[src], group=self.cpu_group
+-        )
+-
+-        assert rank_object == rank_size, (
+-            "Received object sender rank does not match the size sender rank."
+-        )
+-
+-        obj = pickle.loads(object_tensor.numpy().tobytes())
+-
+-        return obj
++        assert 0 <= src < self.world_size and src != self.rank_in_group
++        objects = [None]
++        torch.distributed.recv_object_list(
++            objects, src=self.ranks[src], group=self.cpu_group)
++        return objects[0]
+ 
+     def broadcast_tensor_dict(
+         self,

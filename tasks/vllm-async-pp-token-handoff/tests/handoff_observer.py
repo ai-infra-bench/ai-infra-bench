@@ -14,12 +14,14 @@ from torch.overrides import TorchFunctionMode
 
 
 class HandoffObserver(TorchFunctionMode):
-    def __init__(self, *, prior_event_ids=()):
+    def __init__(self, *, prior_event_ids=(), check_object_communication=True):
         super().__init__()
         self.transfers = []
         self.violations = []
         self.prior_event_ids = set(prior_event_ids)
         self.recorded_event_ids = set()
+        self.active = True
+        self.check_object_communication = check_object_communication
 
     def _transfer(self, op, non_blocking):
         record = {"kind": "device_to_host_copy", "op": op,
@@ -30,6 +32,8 @@ class HandoffObserver(TorchFunctionMode):
 
     def __torch_function__(self, func, types, args=(), kwargs=None):
         kwargs = kwargs or {}
+        if not self.active:
+            return func(*args, **kwargs)
         source = args[0] if args else None
         name = getattr(func, "__name__", str(func))
         gpu_source = isinstance(source, torch.Tensor) and source.is_cuda
@@ -62,11 +66,35 @@ class HandoffObserver(TorchFunctionMode):
         return result
 
     @contextmanager
+    def pause(self):
+        """Exclude task-owned GPU observations; candidate calls stay observed."""
+        active = self.active
+        self.active = False
+        try:
+            with torch.profiler.record_function('async_pp_test_observation'):
+                yield
+        finally:
+            self.active = active
+
+    @contextmanager
     def observe(self):
         previous = sys.getprofile()
         prior_event_scopes = []
+        import torch.distributed as dist
+        originals = {}
+        for name in ('broadcast_object_list', 'all_gather_object', 'gather_object',
+                     'scatter_object_list', 'send_object_list', 'recv_object_list'):
+            original = getattr(dist, name)
+            originals[name] = original
+            def wrapped(*args, _name=name, _original=original, **kwargs):
+                if self.active and self.check_object_communication:
+                    self.violations.append({'kind': 'cpu_object_communication', 'op': _name})
+                return _original(*args, **kwargs)
+            setattr(dist, name, wrapped)
 
         def observe_call(frame, event, function):
+            if not self.active:
+                return
             if event == "c_call":
                 name = getattr(function, "__name__", "")
                 owner = getattr(function, "__self__", None)
@@ -106,6 +134,8 @@ class HandoffObserver(TorchFunctionMode):
                     yield self
                 finally:
                     sys.setprofile(previous)
+                    for name, original in originals.items():
+                        setattr(dist, name, original)
         for event in trace.events():
             if event.name not in ("cudaStreamSynchronize", "cudaDeviceSynchronize",
                                   "cudaEventSynchronize", "cuStreamSynchronize",
@@ -114,7 +144,7 @@ class HandoffObserver(TorchFunctionMode):
             parent = event.cpu_parent
             prior_input_event = False
             while parent is not None and parent.name != "async_pp_handoff_boundary":
-                prior_input_event |= parent.name == 'async_pp_prior_input_event'
+                prior_input_event |= parent.name in ('async_pp_prior_input_event', 'async_pp_test_observation')
                 parent = parent.cpu_parent
             if parent is not None and not prior_input_event:
                 self.violations.append({"kind": "cuda_runtime_host_wait", "op": event.name})

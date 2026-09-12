@@ -1,63 +1,21 @@
 #!/usr/bin/env python3
-"""Trusted supervisor for the async-PP token-handoff verifier.
+"""Root-owned supervisor; candidate imports occur only in unprivileged children.
 
-Boundary contract
------------------
-This process is the ONLY component whose output is allowed to influence the
-final reward. It runs as root and MUST NOT import the candidate ``vllm``
-package, the candidate ``tests.*`` tree, or any module resolved out of
-``/workspace/repo``. It therefore never executes candidate code in-process.
+The CPU suite and GPU suite each have one driver process. GPU driver rank 0 is
+an identity assigned by this parent, not a PP rank. The GPU driver starts a real
+mp executor with two Worker processes; both load the candidate implementation.
 
-Everything the candidate can influence runs in *untrusted worker* children.
-A worker's only channel to the supervisor is a single framed payload on stdout:
+Per-driver process association, observed uid, exit status, nonce and complete
+framing reject missing checks and premature successful exits. Framed values
+remain claims made by candidate-containing processes, not independent proof.
+For the GPU suite an additional root-owned process supplies fresh samples and
+compares actual next-model GPU inputs over separate observation groups.
 
-    ##ASYNC_PP_PAYLOAD <nonce> <one-line-json> ##END
-
-The supervisor independently declares the required stages (REQUIRED_STAGES
-below), mints a fresh per-stage nonce, records for every child its launch, its
-declared rank, its exit code and its framed payloads, and only then decides.
-
-A stage is satisfied ONLY when every one of these holds:
-  * the child was launched by this supervisor,
-  * the child exited 0,
-  * exactly one well-formed frame arrived per required rank,
-  * the frame's nonce equals the nonce minted for this stage (defeats stale or
-    pre-planted payloads: the nonce does not exist before launch),
-  * the frame's declared rank set equals the required rank set exactly -- no
-    missing rank, no duplicate rank, no extra rank,
-  * the payload declares ``stage_completed: true`` and carries the required
-    per-stage observation keys.
-
-Anything else -- import-time ``sys.exit(0)``, a crash before reporting, a
-truncated or malformed frame, a silent rank, a duplicated rank -- leaves a
-required stage unsatisfied and the manifest verdict is FAIL. The supervisor
-fails closed: the verdict is FAIL unless it is positively established.
-
-What is INDEPENDENTLY established by this process (not self-reported):
-  * rank identity -- each rank is spawned as its own child with its own stdout
-    pipe, so identity comes from process association. The ``rank`` field inside a
-    payload is NEVER used to decide which rank reported;
-  * per-rank exit status and per-rank frame count;
-  * the worker's effective uid, read from /proc/<pid>/status by this parent
-    while the child is alive -- not from any value the worker prints;
-  * that a required stage ran at all (a stage that dies before framing is
-    unsatisfied).
-
-What is NOT a secret, and therefore NOT a security argument:
-  * the per-stage challenge file and this source file are readable by the
-    worker. An earlier version of this module claimed a worker "cannot obtain the
-    expected digest" -- that claim was WRONG and has been removed. The worker can
-    read both. The digest is an INTEGRITY check (it catches a worker reporting
-    values that disagree with the task's own expectation), NOT proof of work.
-
-RESIDUAL RISK, explicitly still open (not claimed closed):
-  * a worker that executes candidate code can print a well-formed frame whose
-    observation values are fabricated but happen to equal the expected ones. The
-    fields ``gpu_collective_seen``, ``sender_lifecycle`` and ``call_counts`` are
-    worker-declared and cannot be confirmed by this parent; they are recorded as
-    observations only. Closing that requires either in-parent recomputation of
-    the observed quantity or kernel/collective instrumentation outside the
-    worker's reach, neither of which is implemented here.
+The supervisor never imports candidate code. Its source and framing protocol
+are readable by children; neither is a secret. Python instrumentation inside
+candidate-containing workers is not a general security boundary. The controls
+establish resistance to the demonstrated report-only and early-exit bypasses,
+not arbitrary malicious rewriting of task instrumentation.
 """
 
 from __future__ import annotations
@@ -121,13 +79,13 @@ FRAME_RE = re.compile(
     r"^##ASYNC_PP_PAYLOAD\s+(?P<nonce>[0-9a-f]{32})\s+(?P<body>\{.*\})\s+##END$"
 )
 
-# Compatible scenarios share imports and CUDA/NCCL setup, but construct fresh
-# runner/request state. Every suite must finish before its frame can pass.
+# Compatible scenarios share a real mp engine and CUDA/NCCL setup. Requests
+# are completed or aborted between cases. Each suite must finish before framing.
 REQUIRED_STAGES = {
     "CPU_SUITE": {"kind": "single", "argv": ["--suite", "cpu"], "ranks": [0],
                   "required_keys": ["async_scheduling_allowed", "scheduler_reentry_request_counts"],
                   "expected_call_counts": {}},
-    "GPU_SUITE": {"kind": "dist", "argv": ["--suite", "gpu"], "ranks": [0, 1],
+    "GPU_SUITE": {"kind": "single", "argv": ["--suite", "gpu"], "ranks": [0],
                   "port": 29618, "required_keys": ["scenarios_passed", "sender_lifecycle"],
                   "expected_call_counts": {}},
 }
@@ -139,8 +97,8 @@ EXPECTED_OBSERVATIONS = {
 }
 SCENARIO_TOKENS = {}
 
-# Ranks that performed the GPU broadcast must prove they finished the whole
-# post-broadcast protocol, not merely that the broadcast was observed.
+# Legacy frame labels describe driver completion claims. They do not establish
+# the PP protocol; independent GPU observations are additionally required.
 SENDER_LIFECYCLE_STEPS = ("production_returned", "downstream_consumed", "barrier", "final_report")
 
 
@@ -171,7 +129,7 @@ def parse_frames(text: str) -> tuple[list[dict], list[str]]:
 
 # A worker must never be able to hang the scorer. Every wait is bounded, and the
 # child's whole process group is reaped even on the error paths.
-RANK_TIMEOUT_S = 300
+RANK_TIMEOUT_S = 720
 
 
 def _reap_group(proc: subprocess.Popen) -> None:
