@@ -1,0 +1,346 @@
+{
+  "record_kind": "archived_pre_hardening_summary_not_current_validation",
+  "warnings": [
+    "Not certification of the current executable snapshot.",
+    "Original summaries may contain review-identified errors; consult raw logs."
+  ],
+  "original_file_sha256": "c05d22ba2d1f24be5ea739ceab056ed339b4f35e65ffcbfe18de00f954f83499",
+  "original_record": {
+    "schema_version": "vllm_harbor_task_validation.v1",
+    "recorded_at": "2026-09-06T11:14:03+08:00",
+    "source": {
+      "task": "ai-infra-bench/vllm-multimodal-encoder-cache-accounting",
+      "repository": "vllm-project/vllm",
+      "pull_request": "https://github.com/vllm-project/vllm/pull/30475",
+      "base_commit": "676db55eecf8b6d9ec38ea243cf6f35ea8378ec6",
+      "dependency_cutoff": "2025-12-16T09:37:15Z"
+    },
+    "image": {
+      "canonical_tag": "ai-infra-bench/vllm-pr-30475:v1.2.1-remediate-20260904T165410Z",
+      "image_id": "sha256:7f384099c16e399c1d0675753aa6ac64b3ff408e6089dfcc1dbd5be27e541841",
+      "size_bytes": 15924622802,
+      "dockerfile_sha256": "458445dd431931c2e85eda13dd725f2d804c4a2e541a86381bc7a8ba3debcfe6",
+      "dependency_lock_sha256": "f6b15ebe7c5bdcf2449127d5ba223dfa44043b6803a45ff29256007ab0685985",
+      "dependency_lock_manifest_sha256": "10f0c3a5a400c11b23843214223220c13970d095f6274e49ca4fefb1708c8528"
+    },
+    "artifacts": {
+      "files": {
+        "instruction.md": {
+          "sha256": "e5fc7444a40adc8b22af73f93d04b02cc033283d9cc8c2af9e8ea43110548bc9"
+        },
+        "solution/oracle.patch": {
+          "sha256": "44115053c5735bee4bb75802acf1e13d1ee76a6081165065caf46180f66e9f04"
+        },
+        "solution/solve.sh": {
+          "sha256": "198c03acc4f469e7cb08e7286ca3a3dd905479071e01645e9aa0a7509a3ad155"
+        },
+        "task.toml": {
+          "sha256": "99816dab605f52e3bfe7881168668be9750c54a430f35aa10775447358081d43"
+        },
+        "tests/test.sh": {
+          "sha256": "42d488f9e51c1838c4dfee535f9d034a883dcf51a076eefe0237ab0b2e889b35"
+        },
+        "tests/verify_encoder_cache.py": {
+          "sha256": "29d9576e3a62182ff8aede0ecdfda020f60eea7a02411e22e9576dd3eed3b780"
+        },
+        "validation/ci-cases.json": {
+          "sha256": "768d7e1844dd71f1eb324b15ac7f5fdfa0fb06d50bac1792d77ab1f3a19ec0d6"
+        },
+        "validation/alternate-direct-mask-count.patch": {
+          "sha256": "d46330a3e3e39d471e7a7f543414a93cda07c8e6d759b4182c030b5c9d94cd61"
+        },
+        "validation/partial-budget-omission.patch": {
+          "sha256": "4cc3fb3c35d6a784155c45c288ab20da7bed5c1cd3486892d3cd0479dfa0e817"
+        },
+        "environment/image-manifest.json": {
+          "sha256": "70e6da43f94093010ad2ded00b05e69ae414f58e63e7371fceb040273d6f7523"
+        }
+      },
+      "task_toml_sha256": "99816dab605f52e3bfe7881168668be9750c54a430f35aa10775447358081d43",
+      "task_metadata_sha256": "99816dab605f52e3bfe7881168668be9750c54a430f35aa10775447358081d43",
+      "instruction_sha256": "e5fc7444a40adc8b22af73f93d04b02cc033283d9cc8c2af9e8ea43110548bc9",
+      "image_manifest_sha256": "70e6da43f94093010ad2ded00b05e69ae414f58e63e7371fceb040273d6f7523",
+      "oracle_patch_sha256": "44115053c5735bee4bb75802acf1e13d1ee76a6081165065caf46180f66e9f04",
+      "solve_script_sha256": "198c03acc4f469e7cb08e7286ca3a3dd905479071e01645e9aa0a7509a3ad155",
+      "test_script_sha256": "42d488f9e51c1838c4dfee535f9d034a883dcf51a076eefe0237ab0b2e889b35",
+      "ci_cases_sha256": "768d7e1844dd71f1eb324b15ac7f5fdfa0fb06d50bac1792d77ab1f3a19ec0d6"
+    },
+    "verifier_contract": {
+      "semantic_boundary": "PlaceholderRange mask selection + EncoderCacheManager budget + Scheduler._try_schedule_encoder_inputs -> embedding-row accounting -> admission/compact-slice observable via reward",
+      "reward_source": "verifier reward.txt / Harbor eval mean; reward in {0,1}",
+      "marker": "ENCODER_CACHE_VERIFIER=PASS",
+      "implementation_independence": "verifier runs from the read-only tests mount and scores the contract, not a memorized case; the independent challenge perturbs SEMANTIC boundaries to confirm Base fails and Oracle passes."
+    },
+    "real_lifecycle_boundary": {
+      "kind": "real EncoderCacheManager allocate/free lifecycle with Scheduler._try_schedule_encoder_inputs budget admission over a compact-gather multi-item schedule; GPU model execution substituted by verifier-supplied embedding data, scheduler/cache/budget logic real",
+      "physical_gpu_used_in_repeated_runs": false
+    },
+    "repeated_runs": [
+      {
+        "case": "base",
+        "rounds": 5,
+        "rewards": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "all_zero": true,
+        "total_errored_trials": 0,
+        "runs": [
+          {
+            "round": "s401",
+            "job_id": "6366288c-40fa-402e-9b86-d2295ad6b128",
+            "trial_id": "8a97527c-536b-4eac-bec4-d03cd353e6a5",
+            "trial_name": "base__eGCnEqn",
+            "reward": 0,
+            "n_completed_trials": 1,
+            "n_errored_trials": 0,
+            "task_checksum": "2f96b78136928be3feb2d17db301a2b7c8d96c09ab7c1b739ab0734ad584665f",
+            "runtime_seconds": 35.0,
+            "started_at": "2026-09-06T01:15:49.011077",
+            "finished_at": "2026-09-06T01:16:24.040425"
+          },
+          {
+            "round": "s402",
+            "job_id": "fc4826ca-93eb-4ae6-bbbd-a0d28098bb26",
+            "trial_id": "020bb636-1b00-4c63-be77-9fee7b502fef",
+            "trial_name": "base__bByp35W",
+            "reward": 0,
+            "n_completed_trials": 1,
+            "n_errored_trials": 0,
+            "task_checksum": "2f96b78136928be3feb2d17db301a2b7c8d96c09ab7c1b739ab0734ad584665f",
+            "runtime_seconds": 34.2,
+            "started_at": "2026-09-06T01:19:25.524429",
+            "finished_at": "2026-09-06T01:19:59.677617"
+          },
+          {
+            "round": "s403",
+            "job_id": "b084377c-e9bc-40b4-bcaa-7c8eae3a1b1c",
+            "trial_id": "160f05de-314f-44ae-adc1-46b7dd887876",
+            "trial_name": "base__n3mVMBY",
+            "reward": 0,
+            "n_completed_trials": 1,
+            "n_errored_trials": 0,
+            "task_checksum": "2f96b78136928be3feb2d17db301a2b7c8d96c09ab7c1b739ab0734ad584665f",
+            "runtime_seconds": 34.2,
+            "started_at": "2026-09-06T01:20:05.861539",
+            "finished_at": "2026-09-06T01:20:40.017172"
+          },
+          {
+            "round": "s404",
+            "job_id": "348f5945-3c03-4f59-a522-9cf7bfa9fe93",
+            "trial_id": "a94d3db0-5cc1-4160-b05e-0857896e384e",
+            "trial_name": "base__PB9VYSe",
+            "reward": 0,
+            "n_completed_trials": 1,
+            "n_errored_trials": 0,
+            "task_checksum": "2f96b78136928be3feb2d17db301a2b7c8d96c09ab7c1b739ab0734ad584665f",
+            "runtime_seconds": 34.1,
+            "started_at": "2026-09-06T01:20:49.251112",
+            "finished_at": "2026-09-06T01:21:23.384105"
+          },
+          {
+            "round": "s405",
+            "job_id": "3270e7fc-99ca-4194-96bd-ff147c38c561",
+            "trial_id": "69237896-2a60-49fd-8f5f-3fc55d3f5635",
+            "trial_name": "base__SbenHbJ",
+            "reward": 0,
+            "n_completed_trials": 1,
+            "n_errored_trials": 0,
+            "task_checksum": "2f96b78136928be3feb2d17db301a2b7c8d96c09ab7c1b739ab0734ad584665f",
+            "runtime_seconds": 35.0,
+            "started_at": "2026-09-06T01:21:30.318963",
+            "finished_at": "2026-09-06T01:22:05.285323"
+          }
+        ]
+      },
+      {
+        "case": "oracle",
+        "rounds": 5,
+        "rewards": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "all_one": true,
+        "total_errored_trials": 0,
+        "runs": [
+          {
+            "round": "s401",
+            "job_id": "9ef86e39-ae05-4dd4-b01c-c439ecb56f21",
+            "trial_id": "ea8f38c6-fff6-42b0-ae09-a1969bb266dd",
+            "trial_name": "oracle__CiJR6io",
+            "reward": 1,
+            "n_completed_trials": 1,
+            "n_errored_trials": 0,
+            "task_checksum": "2f96b78136928be3feb2d17db301a2b7c8d96c09ab7c1b739ab0734ad584665f",
+            "runtime_seconds": 35.8,
+            "started_at": "2026-09-06T01:16:30.617407",
+            "finished_at": "2026-09-06T01:17:06.464047"
+          },
+          {
+            "round": "s402",
+            "job_id": "b567c5d3-8a90-47fd-8c28-e36a946a3e68",
+            "trial_id": "d2deab65-97eb-4e18-984d-6b194cc41d8d",
+            "trial_name": "oracle__cvfmFVU",
+            "reward": 1,
+            "n_completed_trials": 1,
+            "n_errored_trials": 0,
+            "task_checksum": "2f96b78136928be3feb2d17db301a2b7c8d96c09ab7c1b739ab0734ad584665f",
+            "runtime_seconds": 35.8,
+            "started_at": "2026-09-06T01:22:12.944625",
+            "finished_at": "2026-09-06T01:22:48.760075"
+          },
+          {
+            "round": "s403",
+            "job_id": "05f1f083-8058-41df-ae86-1ff46a30b092",
+            "trial_id": "5078b37d-f19d-42a2-aca9-8bcf6bbe3a5c",
+            "trial_name": "oracle__TYS3r2b",
+            "reward": 1,
+            "n_completed_trials": 1,
+            "n_errored_trials": 0,
+            "task_checksum": "2f96b78136928be3feb2d17db301a2b7c8d96c09ab7c1b739ab0734ad584665f",
+            "runtime_seconds": 34.6,
+            "started_at": "2026-09-06T01:22:55.603969",
+            "finished_at": "2026-09-06T01:23:30.218166"
+          },
+          {
+            "round": "s404",
+            "job_id": "887d0184-8332-4c18-af53-38bade38e2c0",
+            "trial_id": "effc7fe5-8ad9-46b2-a48e-742406b4cf9e",
+            "trial_name": "oracle__bVmYXNs",
+            "reward": 1,
+            "n_completed_trials": 1,
+            "n_errored_trials": 0,
+            "task_checksum": "2f96b78136928be3feb2d17db301a2b7c8d96c09ab7c1b739ab0734ad584665f",
+            "runtime_seconds": 34.9,
+            "started_at": "2026-09-06T01:23:38.096964",
+            "finished_at": "2026-09-06T01:24:13.032245"
+          },
+          {
+            "round": "s405",
+            "job_id": "bb45f563-e443-434e-87ca-9c9166a70acd",
+            "trial_id": "f55de08c-f094-4197-b64f-43ef861c516e",
+            "trial_name": "oracle__RmAiRpC",
+            "reward": 1,
+            "n_completed_trials": 1,
+            "n_errored_trials": 0,
+            "task_checksum": "2f96b78136928be3feb2d17db301a2b7c8d96c09ab7c1b739ab0734ad584665f",
+            "runtime_seconds": 35.4,
+            "started_at": "2026-09-06T01:24:25.289025",
+            "finished_at": "2026-09-06T01:25:00.676539"
+          }
+        ]
+      }
+    ],
+    "alternative_implementation_run": {
+      "round": "s401",
+      "job_id": "23ad4721-e2e0-44cc-bd36-b4edbc173db3",
+      "trial_id": "29205e8d-d695-42e2-8f43-9ff06591dbe3",
+      "trial_name": "alternate-direct-mask-count__pL9zrhF",
+      "reward": 1,
+      "n_completed_trials": 1,
+      "n_errored_trials": 0,
+      "task_checksum": "f12b24920f1b950924f832a39bfb3cdaa554b7c00932dc3e2748345d1a72367a",
+      "runtime_seconds": 35.0,
+      "started_at": "2026-09-06T01:17:57.084301",
+      "finished_at": "2026-09-06T01:18:32.094303",
+      "case": "alternate-direct-mask-count",
+      "patch": "alternate-direct-mask-count.patch",
+      "patch_sha256": "d46330a3e3e39d471e7a7f543414a93cda07c8e6d759b4182c030b5c9d94cd61"
+    },
+    "adversarial_runs": [
+      {
+        "round": "s401",
+        "job_id": "9df71515-b675-40da-88ae-d4aa32ce24eb",
+        "trial_id": "ace33160-f6f4-464f-a64f-6300bbee7673",
+        "trial_name": "partial-budget-omission__HbXPiLT",
+        "reward": 0,
+        "n_completed_trials": 1,
+        "n_errored_trials": 0,
+        "task_checksum": "4a4df4482fe2e5c6363c759bbd66cacf344cf21f74dbbdffdd8e2187a937b1bb",
+        "runtime_seconds": 34.5,
+        "started_at": "2026-09-06T01:17:14.156544",
+        "finished_at": "2026-09-06T01:17:48.697812",
+        "case": "partial-budget-omission",
+        "patch": "partial-budget-omission.patch",
+        "patch_sha256": "4cc3fb3c35d6a784155c45c288ab20da7bed5c1cd3486892d3cd0479dfa0e817"
+      }
+    ],
+    "challenge": {
+      "oracle": {
+        "marker": "CHALLENGE_ENCODER_CACHE=PASS",
+        "marker_count": 1,
+        "expected_marker": "CHALLENGE_ENCODER_CACHE=PASS",
+        "challenge_exit": 0,
+        "docker_exit": 0,
+        "verdict": "OK",
+        "canary": "CANARY_OK: cpu task sees no GPU"
+      },
+      "alternate": {
+        "marker": "CHALLENGE_ENCODER_CACHE=PASS",
+        "marker_count": 1,
+        "expected_marker": "CHALLENGE_ENCODER_CACHE=PASS",
+        "challenge_exit": 0,
+        "docker_exit": 0,
+        "verdict": "OK",
+        "canary": "CANARY_OK: cpu task sees no GPU"
+      },
+      "control": {
+        "marker": "CHALLENGE_ENCODER_CACHE=FAIL",
+        "marker_count": 1,
+        "expected_marker": "CHALLENGE_ENCODER_CACHE=FAIL",
+        "challenge_exit": 1,
+        "docker_exit": 0,
+        "verdict": "OK",
+        "canary": "CANARY_OK: cpu task sees no GPU"
+      }
+    },
+    "harbor": {
+      "version": "0.22.0",
+      "run_root": "/data/yinchen/vllm-pr8-controls/20260905T151902Z-stage4-dynamic",
+      "round": "oracle--round-s405",
+      "job_id": "bb45f563-e443-434e-87ca-9c9166a70acd",
+      "trial_id": "f55de08c-f094-4197-b64f-43ef861c516e",
+      "trial_name": "oracle__RmAiRpC",
+      "agent": "oracle",
+      "environment": "docker",
+      "n_completed_trials": 1,
+      "n_errored_trials": 0,
+      "reward": 1,
+      "runtime_seconds": 35.4,
+      "started_at": "2026-09-06T01:24:25.289025",
+      "finished_at": "2026-09-06T01:25:00.676539",
+      "input_task_checksum": "2f96b78136928be3feb2d17db301a2b7c8d96c09ab7c1b739ab0734ad584665f",
+      "task_checksum": "2f96b78136928be3feb2d17db301a2b7c8d96c09ab7c1b739ab0734ad584665f",
+      "canonical_image_retained_after_run": true,
+      "final_selection_note": "oracle--round-s405 is the final canonical Harbor Oracle trial for this task, taken from run-root /data/yinchen/vllm-pr8-controls/20260905T151902Z-stage4-dynamic. It is an independent Harbor job/trial (completed=1, errored=0, reward=1)."
+    },
+    "upstream_regression": {
+      "status": "not-run-in-this-validation",
+      "note": "No upstream-regression trial was executed in these run-roots; this field is recorded as not-run rather than fabricated. Base/Oracle discrimination, the alternate acceptance, the adversarial controls, and the independent 3-state challenge provide the correctness evidence."
+    },
+    "provenance_gates": {
+      "image_identity": {
+        "manifest_image_id": "sha256:7f384099c16e399c1d0675753aa6ac64b3ff408e6089dfcc1dbd5be27e541841",
+        "task_toml_image_digest": "sha256:7f384099c16e399c1d0675753aa6ac64b3ff408e6089dfcc1dbd5be27e541841",
+        "match": true
+      },
+      "freeze_identity": {
+        "source": "freeze.stage4-current-20260905T133915Z",
+        "executable_snapshot_match": true
+      },
+      "frozen_run_challenge_sha256": "3253b515723e3006e2fa883158ed6e11638f2824091ae7ed75088d659d14687c",
+      "independent_challenge_three_state": {
+        "oracle": "OK",
+        "alternate": "OK",
+        "control": "OK"
+      }
+    },
+    "_self_reference_note": "This file is validation/e2e-evidence.json. Writing it changes the task directory checksum but does NOT change the executable task snapshot (task.toml, instruction, environment, solution, tests, ci-cases, challenge, patches are untouched). The Harbor input_task_checksum recorded above refers to the executable task snapshot as it stood when the Harbor trial ran, i.e. before this evidence-only write."
+  }
+}
