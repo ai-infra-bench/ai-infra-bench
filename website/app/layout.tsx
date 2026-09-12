@@ -1,43 +1,68 @@
-import type { CSSProperties } from 'react';
-import type { Metadata } from 'next';
-import { Geist, Geist_Mono, Newsreader } from 'next/font/google';
-import { withBasePath } from '@/app/lib/base-path';
-import './globals.css';
+import type { Metadata } from "next";
+import { DM_Sans, Geist_Mono, EB_Garamond } from "next/font/google";
+import { withBasePath } from "@/app/lib/base-path";
+import "./globals.css";
+import "./site.css";
+import "./site-chrome.css";
+import "./print-home.css";
+import "./catalogue.css";
+import "./section-surfaces.css";
+import "./page-flow.css";
+import "./results-layout.css";
+import "./catalogue-browser.css";
+import "./masthead-vignette.css";
+import "./plot-interactions.css";
+import "./site-interactions.css";
+import "./editorial-index.css";
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
+const geistSans = DM_Sans({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
 });
 
 const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
 });
 
-const newsreader = Newsreader({
-  variable: '--font-newsreader',
-  subsets: ['latin'],
+const displayFont = EB_Garamond({
+  variable: "--font-print-display",
+  subsets: ["latin"],
 });
+
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+const siteName = "AI Infra Bench";
+const siteDescription =
+  "AI Infra Bench evaluates frontier models on real-world AI infrastructure engineering workloads, beginning with vLLM.";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
-  title: 'AI Infra Bench | AI Infrastructure Benchmark',
-  description:
-    'AI Infra Bench evaluates frontier models on real-world AI infrastructure engineering workloads, beginning with vLLM.',
+  metadataBase: new URL(siteUrl),
+  title: "AI Infra Bench | AI Infrastructure Benchmark",
+  description: siteDescription,
   icons: {
-    icon: [{ url: withBasePath('/favicon.svg'), type: 'image/svg+xml' }],
+    icon: [
+      {
+        url: withBasePath("/favicon-32.png"),
+        type: "image/png",
+        sizes: "32x32",
+      },
+      {
+        url: withBasePath("/favicon.svg?v=contour-mono"),
+        type: "image/svg+xml",
+        sizes: "any",
+      },
+    ],
   },
   openGraph: {
-    title: 'AI Infra Bench | AI Infrastructure Benchmark',
-    description:
-      'AI Infra Bench evaluates frontier models on real-world AI infrastructure engineering workloads, beginning with vLLM.',
-    type: 'website',
+    title: "AI Infra Bench | AI Infrastructure Benchmark",
+    description: siteDescription,
+    siteName,
+    type: "website",
   },
   twitter: {
-    card: 'summary_large_image',
-    title: 'AI Infra Bench | AI Infrastructure Benchmark',
-    description:
-      'AI Infra Bench evaluates frontier models on real-world AI infrastructure engineering workloads, beginning with vLLM.',
+    card: "summary_large_image",
+    title: "AI Infra Bench | AI Infrastructure Benchmark",
+    description: siteDescription,
   },
 };
 
@@ -46,16 +71,25 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const bodyStyle = {
-    '--paper-texture-url': `url("${withBasePath('/brand/paper-texture.webp')}")`,
-  } as CSSProperties;
-
   return (
-    <html lang="en">
+    <html lang="en" className="editorial-index">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${newsreader.variable} antialiased`}
-        style={bodyStyle}
+        className={`${geistSans.variable} ${geistMono.variable} ${displayFont.variable} antialiased craft-press`}
       >
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              name: siteName,
+              alternateName: "AI infrastructure benchmark",
+              description: siteDescription,
+              url: new URL("/", siteUrl).toString(),
+              sameAs: ["https://github.com/ai-infra-bench/ai-infra-bench"],
+            }),
+          }}
+        />
         {children}
       </body>
     </html>
