@@ -1,7 +1,7 @@
 # vllm-fused-moe-config-lifecycle v1.2.6
 
-One GPT-6-Astra / high Harbor run: **reward 1**, zero Harbor errors. Full rollout review passed.
+GPT-6-Astra/high: **reward 1**, zero Harbor errors; rollout review passed.
 
-[Download complete trajectory ZIP](fused-gpt-6-astra-high-once.zip) — includes native/ATIF/API traces, final source, verifier logs and review evidence.
+[Trajectory ZIP](fused-gpt-6-astra-high-once.zip) — complete traces, final source, verifier results and review evidence.
 
-SHA-256: `af863b1a719c2a75527fab339ddc611d06c853e5efac95ee13304ef5fb3221e2`
+SHA-256: `75df7926fdf80b1b88541e793ae0349f2eb9d5b77d19bf387ec4c3b64c0c7f8d`
