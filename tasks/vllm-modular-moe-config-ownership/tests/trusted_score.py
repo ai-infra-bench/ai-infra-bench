@@ -46,6 +46,9 @@ def main():
     obs = obs_dir / "observations.json"
     env = {k: v for k, v in os.environ.items() if not k.startswith("AIB_") and k not in ("PYTHONPATH", "PYTHONHOME")}
     env.update(AIB_OBSERVATIONS=str(obs), AIB_SEED=str(seed), AIB_WORKLOAD=str(workload_path), PYTHONDONTWRITEBYTECODE="1")
+    # FlashInfer initializes its ordinary JIT cache on import. The worker runs
+    # as agent, so place that cache in its writable per-run directory.
+    env["FLASHINFER_WORKSPACE_BASE"] = str(obs_dir)
     # Paths are added explicitly; site .pth and sitecustomize are never run.
     bootstrap = "import runpy,sys; sys.path.extend(" + repr(["/workspace/repo","/tests",sysconfig.get_path("purelib"),sysconfig.get_path("platlib")]) + "); runpy.run_path(sys.argv[1],run_name='__main__')"
     result = subprocess.run([sys.executable, "-I", "-S", "-c", bootstrap, sys.argv[1]],

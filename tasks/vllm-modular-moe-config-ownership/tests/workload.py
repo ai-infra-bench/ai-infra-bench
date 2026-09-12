@@ -23,4 +23,5 @@ def make_workload(seed):
         weights = torch.softmax(weights,dim=-1)
         cases.append({"x":x,"w1":w1,"w2":w2,"weights":weights.float().tolist(),
                       "ids":ids.tolist(),"dtype":str(dtype)})
-    return {"numerics":cases}
+    from pipeline_workload import make_pipeline_workload
+    return {"numerics":cases, "flashinfer_pipeline":make_pipeline_workload(seed)}

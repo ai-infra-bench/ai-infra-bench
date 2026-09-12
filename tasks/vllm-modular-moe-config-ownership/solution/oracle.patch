@@ -1,5 +1,17 @@
+diff --git a/vllm/lora/layers/fused_moe.py b/vllm/lora/layers/fused_moe.py
+index 24cab79..d364adc 100644
+--- a/vllm/lora/layers/fused_moe.py
++++ b/vllm/lora/layers/fused_moe.py
+@@ -131,6 +131,7 @@ class FusedMoEWithLoRA(BaseLayerWithLoRA):
+             ),
+             self.base_layer.shared_experts,
+             getattr(self.base_layer, "shared_experts_stream", None),
++            moe_parallel_config=self.base_layer.moe_parallel_config,
+         )
+         if quant_config.use_mxfp4_w4a16:
+             assert isinstance(
 diff --git a/vllm/model_executor/layers/fused_moe/cutlass_moe.py b/vllm/model_executor/layers/fused_moe/cutlass_moe.py
-index 552e38a71bf98c87072979def2cdd911f29f302e..4a0b4e82c1b3902b0dacb90cd1c6c9a053f2f75d 100644
+index 552e38a..4a0b4e8 100644
 --- a/vllm/model_executor/layers/fused_moe/cutlass_moe.py
 +++ b/vllm/model_executor/layers/fused_moe/cutlass_moe.py
 @@ -460,7 +460,6 @@ def cutlass_moe_fp8(
@@ -19,7 +31,7 @@ index 552e38a71bf98c87072979def2cdd911f29f302e..4a0b4e82c1b3902b0dacb90cd1c6c9a0
  
      return fn(
 diff --git a/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py b/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
-index 1947423bf4777b1c6b9a444cab0528bd7007c257..9c9bc2514bb4b1630bd8209d3612be3b6eaa3712 100644
+index 1947423..9c9bc25 100644
 --- a/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
 +++ b/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
 @@ -43,11 +43,6 @@ class FusedMoEModularMethod(FusedMoEMethodBase, CustomOp):
@@ -44,7 +56,7 @@ index 1947423bf4777b1c6b9a444cab0528bd7007c257..9c9bc2514bb4b1630bd8209d3612be3b
          )
  
 diff --git a/vllm/model_executor/layers/fused_moe/modular_kernel.py b/vllm/model_executor/layers/fused_moe/modular_kernel.py
-index 9e75a7c08070ed90f61c4be27cba114878249ee3..484314091cb15820f860b4129c99fd6c0f522b80 100644
+index 9e75a7c..4843140 100644
 --- a/vllm/model_executor/layers/fused_moe/modular_kernel.py
 +++ b/vllm/model_executor/layers/fused_moe/modular_kernel.py
 @@ -10,10 +10,12 @@ from typing import final
@@ -93,7 +105,7 @@ index 9e75a7c08070ed90f61c4be27cba114878249ee3..484314091cb15820f860b4129c99fd6c
  
          self._post_init_setup()
 diff --git a/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py b/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py
-index 5ad26f9318df3069ebf1839014f16d9b21a1d911..18c2ab026b2baf1cf877c54bcaaeee2f00ab2802 100644
+index 5ad26f9..18c2ab0 100644
 --- a/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py
 +++ b/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py
 @@ -1266,9 +1266,6 @@ class CompressedTensorsW8A8Fp8MoEMethod(CompressedTensorsMoEMethod):
@@ -107,12 +119,17 @@ index 5ad26f9318df3069ebf1839014f16d9b21a1d911..18c2ab026b2baf1cf877c54bcaaeee2f
  
          else:
 diff --git a/vllm/model_executor/layers/quantization/utils/flashinfer_utils.py b/vllm/model_executor/layers/quantization/utils/flashinfer_utils.py
-index 09d0fe6a2f3ada135533c22337758c2ee745d9a5..3d6e9cda8766775e2bee50fd039d2493890f237e 100644
+index 09d0fe6..a6e34fa 100644
 --- a/vllm/model_executor/layers/quantization/utils/flashinfer_utils.py
 +++ b/vllm/model_executor/layers/quantization/utils/flashinfer_utils.py
-@@ -247,11 +247,6 @@ def flashinfer_cutlass_moe_fp8(
+@@ -246,12 +246,11 @@ def flashinfer_cutlass_moe_fp8(
+     quant_config = layer.quant_method.get_fused_moe_quant_config(layer)
      assert quant_config is not None
  
++    # Use the active layer for preparation, expert selection and execution.
++    # An optional config captured by an older caller must not change ownership.
++    moe = getattr(layer, "moe_config", moe)
++
      # Construct modular kernel with block-scale support when requested.
 -    parallel_config = getattr(
 -        getattr(layer, "vllm_config", None),
@@ -122,7 +139,7 @@ index 09d0fe6a2f3ada135533c22337758c2ee745d9a5..3d6e9cda8766775e2bee50fd039d2493
      fused_experts = mk.FusedMoEModularKernel(
          build_flashinfer_fp8_cutlass_moe_prepare_finalize(
              moe=moe, use_deepseek_fp8_block_scale=use_deepseek_fp8_block_scale
-@@ -262,7 +257,7 @@ def flashinfer_cutlass_moe_fp8(
+@@ -262,7 +261,7 @@ def flashinfer_cutlass_moe_fp8(
              out_dtype=hidden_states.dtype,
              use_deepseek_fp8_block_scale=use_deepseek_fp8_block_scale,
          ),
@@ -131,14 +148,3 @@ index 09d0fe6a2f3ada135533c22337758c2ee745d9a5..3d6e9cda8766775e2bee50fd039d2493
      )
  
      return fused_experts(
-diff --git a/vllm/lora/layers/fused_moe.py b/vllm/lora/layers/fused_moe.py
---- a/vllm/lora/layers/fused_moe.py
-+++ b/vllm/lora/layers/fused_moe.py
-@@ -131,6 +131,7 @@
-             ),
-             self.base_layer.shared_experts,
-             getattr(self.base_layer, "shared_experts_stream", None),
-+            moe_parallel_config=self.base_layer.moe_parallel_config,
-         )
-         if quant_config.use_mxfp4_w4a16:
-             assert isinstance(

@@ -1,0 +1,268 @@
+diff --git a/vllm/lora/layers/fused_moe.py b/vllm/lora/layers/fused_moe.py
+index 24cab79a7..f1c680441 100644
+--- a/vllm/lora/layers/fused_moe.py
++++ b/vllm/lora/layers/fused_moe.py
+@@ -131,6 +131,7 @@ class FusedMoEWithLoRA(BaseLayerWithLoRA):
+             ),
+             self.base_layer.shared_experts,
+             getattr(self.base_layer, "shared_experts_stream", None),
++            moe_config=self.base_layer.moe_config,
+         )
+         if quant_config.use_mxfp4_w4a16:
+             assert isinstance(
+diff --git a/vllm/model_executor/layers/fused_moe/cutlass_moe.py b/vllm/model_executor/layers/fused_moe/cutlass_moe.py
+index 552e38a71..d28605a2c 100644
+--- a/vllm/model_executor/layers/fused_moe/cutlass_moe.py
++++ b/vllm/model_executor/layers/fused_moe/cutlass_moe.py
+@@ -9,7 +9,10 @@ import torch
+ import vllm.model_executor.layers.fused_moe.modular_kernel as mk
+ from vllm import _custom_ops as ops
+ from vllm.logger import init_logger
+-from vllm.model_executor.layers.fused_moe.config import FusedMoEQuantConfig
++from vllm.model_executor.layers.fused_moe.config import (
++    FusedMoEConfig,
++    FusedMoEQuantConfig,
++)
+ from vllm.model_executor.layers.fused_moe.moe_permute_unpermute import (
+     moe_permute,
+     moe_unpermute,
+@@ -460,7 +463,7 @@ def cutlass_moe_fp8(
+     expert_map: torch.Tensor | None = None,
+     apply_router_weight_on_input: bool = False,
+     global_num_experts: int = -1,
+-    parallel_config=None,
++    moe_config: FusedMoEConfig | None = None,
+ ) -> torch.Tensor:
+     """
+     This function computes a a8w8-quantized Mixture of Experts (MoE) layer
+@@ -538,7 +541,7 @@ def cutlass_moe_fp8(
+             c_strides2=c_strides2,
+             quant_config=quant_config,
+         ),
+-        parallel_config=parallel_config,
++        moe_config=moe_config,
+     )
+ 
+     return fn(
+diff --git a/vllm/model_executor/layers/fused_moe/fused_marlin_moe.py b/vllm/model_executor/layers/fused_moe/fused_marlin_moe.py
+index 92d72b756..2e3501325 100644
+--- a/vllm/model_executor/layers/fused_moe/fused_marlin_moe.py
++++ b/vllm/model_executor/layers/fused_moe/fused_marlin_moe.py
+@@ -8,7 +8,10 @@ import torch
+ 
+ import vllm._custom_ops as ops
+ import vllm.model_executor.layers.fused_moe.modular_kernel as mk
+-from vllm.model_executor.layers.fused_moe.config import FusedMoEQuantConfig
++from vllm.model_executor.layers.fused_moe.config import (
++    FusedMoEConfig,
++    FusedMoEQuantConfig,
++)
+ from vllm.model_executor.layers.fused_moe.moe_align_block_size import (
+     batched_moe_align_block_size,
+     moe_align_block_size,
+@@ -712,12 +715,15 @@ class MarlinExperts(MarlinExpertsBase):
+ 
+ 
+ def modular_marlin_fused_moe(
+-    quant_config: FusedMoEQuantConfig, shared_experts: torch.nn.Module | None = None
++    quant_config: FusedMoEQuantConfig,
++    shared_experts: torch.nn.Module | None = None,
++    moe_config: FusedMoEConfig | None = None,
+ ) -> mk.FusedMoEModularKernel:
+     return mk.FusedMoEModularKernel(
+         MoEPrepareAndFinalizeNoEP(),
+         MarlinExperts(quant_config),
+         shared_experts,
++        moe_config=moe_config,
+     )
+ 
+ 
+diff --git a/vllm/model_executor/layers/fused_moe/fused_moe.py b/vllm/model_executor/layers/fused_moe/fused_moe.py
+index b286c3bc6..ea3b596b6 100644
+--- a/vllm/model_executor/layers/fused_moe/fused_moe.py
++++ b/vllm/model_executor/layers/fused_moe/fused_moe.py
+@@ -21,6 +21,7 @@ from vllm.model_executor.layers.batch_invariant import (
+ )
+ from vllm.model_executor.layers.fused_moe.config import (
+     FUSED_MOE_UNQUANTIZED_CONFIG,
++    FusedMoEConfig,
+     FusedMoEQuantConfig,
+     _get_config_dtype_str,
+ )
+@@ -2214,10 +2215,13 @@ class TritonExperts(mk.FusedMoEPermuteExpertsUnpermute):
+ 
+ 
+ def modular_triton_fused_moe(
+-    quant_config: FusedMoEQuantConfig, shared_experts: torch.nn.Module | None = None
++    quant_config: FusedMoEQuantConfig,
++    shared_experts: torch.nn.Module | None = None,
++    moe_config: FusedMoEConfig | None = None,
+ ) -> mk.FusedMoEModularKernel:
+     return mk.FusedMoEModularKernel(
+         MoEPrepareAndFinalizeNoEP(),
+         TritonExperts(quant_config),
+         shared_experts,
++        moe_config=moe_config,
+     )
+diff --git a/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py b/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
+index 1947423bf..a40969153 100644
+--- a/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
++++ b/vllm/model_executor/layers/fused_moe/fused_moe_modular_method.py
+@@ -2,6 +2,8 @@
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ 
+ 
++from copy import copy
++
+ import torch
+ 
+ from vllm.logger import init_logger
+@@ -25,7 +27,8 @@ class FusedMoEModularMethod(FusedMoEMethodBase, CustomOp):
+     def __init__(
+         self, old_quant_method: FusedMoEMethodBase, experts: FusedMoEModularKernel
+     ):
+-        super().__init__(old_quant_method.moe)
++        moe_config = experts.moe_config
++        super().__init__(moe_config if moe_config is not None else old_quant_method.moe)
+         self.moe_quant_config = old_quant_method.moe_quant_config
+         self.fused_experts = experts
+         self.disable_expert_map = getattr(
+@@ -43,11 +46,12 @@ class FusedMoEModularMethod(FusedMoEMethodBase, CustomOp):
+         prepare_finalize: FusedMoEPrepareAndFinalize,
+         shared_experts: torch.nn.Module | None,
+     ) -> "FusedMoEModularMethod":
+-        parallel_config = getattr(
+-            getattr(moe_layer, "vllm_config", None),
+-            "parallel_config",
+-            None,
+-        )
++        moe_config = getattr(moe_layer, "moe_config", None)
++        if moe_config is not None and old_quant_method.moe is not moe_config:
++            # Bind backend selection and downstream consumers to this layer
++            # without changing a method that may still belong to another layer.
++            old_quant_method = copy(old_quant_method)
++            old_quant_method.moe = moe_config
+         return FusedMoEModularMethod(
+             old_quant_method,
+             FusedMoEModularKernel(
+@@ -55,7 +59,7 @@ class FusedMoEModularMethod(FusedMoEMethodBase, CustomOp):
+                 old_quant_method.select_gemm_impl(prepare_finalize, moe_layer),
+                 shared_experts,
+                 getattr(moe_layer, "shared_experts_stream", None),
+-                parallel_config=parallel_config,
++                moe_config=moe_config,
+             ),
+         )
+ 
+diff --git a/vllm/model_executor/layers/fused_moe/modular_kernel.py b/vllm/model_executor/layers/fused_moe/modular_kernel.py
+index 9e75a7c08..6a8e0986a 100644
+--- a/vllm/model_executor/layers/fused_moe/modular_kernel.py
++++ b/vllm/model_executor/layers/fused_moe/modular_kernel.py
+@@ -10,10 +10,12 @@ from typing import final
+ import torch
+ 
+ import vllm.envs as envs
+-from vllm.config import ParallelConfig, get_current_vllm_config
+ from vllm.forward_context import get_forward_context, is_forward_context_available
+ from vllm.logger import init_logger
+-from vllm.model_executor.layers.fused_moe.config import FusedMoEQuantConfig
++from vllm.model_executor.layers.fused_moe.config import (
++    FusedMoEConfig,
++    FusedMoEQuantConfig,
++)
+ from vllm.model_executor.layers.fused_moe.utils import (
+     _resize_cache,
+     count_expert_num_tokens,
+@@ -681,7 +683,7 @@ class FusedMoEModularKernel(torch.nn.Module):
+         fused_experts: FusedMoEPermuteExpertsUnpermute,
+         shared_experts: torch.nn.Module | None = None,
+         shared_experts_stream: torch.cuda.Stream | None = None,
+-        parallel_config: ParallelConfig | None = None,
++        moe_config: FusedMoEConfig | None = None,
+     ):
+         super().__init__()
+         self.prepare_finalize = prepare_finalize
+@@ -689,13 +691,9 @@ class FusedMoEModularKernel(torch.nn.Module):
+         self.shared_experts = shared_experts
+         self.shared_experts_stream = shared_experts_stream
+ 
+-        # cache whether this worker is using DP+EP
+-        if parallel_config is None:
+-            parallel_config = get_current_vllm_config().parallel_config
+-        self.is_dp_ep = (
+-            parallel_config.data_parallel_size > 1
+-            and parallel_config.enable_expert_parallel
+-        )
++        # Configuration belongs to this layer, never to the ambient process.
++        # Standalone compatibility callers have no DP+EP configuration.
++        self.moe_config = moe_config
+ 
+         self._post_init_setup()
+         assert (
+@@ -707,6 +705,12 @@ class FusedMoEModularKernel(torch.nn.Module):
+             f"{fused_experts.activation_formats[0]}"
+         )
+ 
++    @property
++    def is_dp_ep(self) -> bool:
++        return self.moe_config is not None and (
++            self.moe_config.dp_size > 1 and self.moe_config.use_ep
++        )
++
+     def _post_init_setup(self):
+         """
+         Resolve any leftover setup dependencies between self.prepare_finalize
+diff --git a/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py b/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py
+index 5ad26f931..bbc0812f1 100644
+--- a/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py
++++ b/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py
+@@ -1266,9 +1266,7 @@ class CompressedTensorsW8A8Fp8MoEMethod(CompressedTensorsMoEMethod):
+                     ab_strides2=self.ab_strides2,
+                     c_strides1=self.c_strides1,
+                     c_strides2=self.ab_strides1_c_strides2,
+-                    parallel_config=getattr(
+-                        getattr(layer, "vllm_config", None), "parallel_config", None
+-                    ),
++                    moe_config=layer.moe_config,
+                 )
+ 
+         else:
+diff --git a/vllm/model_executor/layers/quantization/fp8.py b/vllm/model_executor/layers/quantization/fp8.py
+index 6909bac1e..931286e3a 100644
+--- a/vllm/model_executor/layers/quantization/fp8.py
++++ b/vllm/model_executor/layers/quantization/fp8.py
+@@ -721,7 +721,6 @@ class Fp8MoEMethod(FusedMoEMethodBase):
+                 )
+             self.flashinfer_moe_fn = partial(
+                 flashinfer_cutlass_moe_fp8,
+-                moe=self.moe,
+                 use_deepseek_fp8_block_scale=self.block_quant,
+             )
+ 
+diff --git a/vllm/model_executor/layers/quantization/utils/flashinfer_utils.py b/vllm/model_executor/layers/quantization/utils/flashinfer_utils.py
+index 09d0fe6a2..0c3a9e919 100644
+--- a/vllm/model_executor/layers/quantization/utils/flashinfer_utils.py
++++ b/vllm/model_executor/layers/quantization/utils/flashinfer_utils.py
+@@ -247,11 +247,8 @@ def flashinfer_cutlass_moe_fp8(
+     assert quant_config is not None
+ 
+     # Construct modular kernel with block-scale support when requested.
+-    parallel_config = getattr(
+-        getattr(layer, "vllm_config", None),
+-        "parallel_config",
+-        None,
+-    )
++    # The active layer takes precedence over a config captured by a partial.
++    moe = getattr(layer, "moe_config", moe)
+     fused_experts = mk.FusedMoEModularKernel(
+         build_flashinfer_fp8_cutlass_moe_prepare_finalize(
+             moe=moe, use_deepseek_fp8_block_scale=use_deepseek_fp8_block_scale
+@@ -262,7 +259,7 @@ def flashinfer_cutlass_moe_fp8(
+             out_dtype=hidden_states.dtype,
+             use_deepseek_fp8_block_scale=use_deepseek_fp8_block_scale,
+         ),
+-        parallel_config=parallel_config,
++        moe_config=moe,
+     )
+ 
+     return fused_experts(

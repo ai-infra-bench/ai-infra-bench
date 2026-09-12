@@ -43,7 +43,7 @@ def check_numerics(cases, expected_count, workload):
         nearest = torch.minimum(torch.maximum(actual, low), high)
         torch.testing.assert_close(actual, nearest, rtol=0.03, atol=0.5)
 
-EXPECTED_STAGES = ['compatibility_no_warning','active_owner_workspace_provenance','numerical_path_unchanged','flashinfer_consumer_follows_owner','lora_factory_follows_owner','functional_no_global_dependency']
+EXPECTED_STAGES = ['compatibility_no_warning','active_owner_workspace_provenance','numerical_path_unchanged','flashinfer_consumer_follows_owner','lora_factory_follows_owner','functional_no_global_dependency','flashinfer_prepare_expert_finalize']
 def check(raw, workload):
     # Standard Triton workspace geometry from the frozen backend: two routed
     # intermediates plus output. The task preserves the 16K routing bound.
@@ -63,4 +63,6 @@ def check(raw, workload):
     assert raw['lora_dp_workspace_bytes'] > raw['lora_ordinary_workspace_bytes'] > 0
     assert raw['functional_workspace_bytes'] == raw['ordinary_workspace_bytes']
     check_numerics(raw['numerics'], 8, workload)
+    from pipeline_contract import check_pipeline
+    check_pipeline(raw['flashinfer_pipeline'], workload['flashinfer_pipeline'])
     return EXPECTED_STAGES

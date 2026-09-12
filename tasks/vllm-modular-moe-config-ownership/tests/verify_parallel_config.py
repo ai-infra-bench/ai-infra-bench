@@ -420,7 +420,9 @@ def main() -> None:
     lora_dp = lora_factory_behavior(dp_ep_owner)
     lora_ordinary = lora_factory_behavior(ordinary_owner)
     functional_calls = functional_behavior()
-    write_report(stages, {"lora_dp_workspace_bytes":lora_dp, "lora_ordinary_workspace_bytes":lora_ordinary, "functional_workspace_bytes":functional_calls, "dp_workspace_bytes": workspace_bytes(dp_ep_calls), "ordinary_workspace_bytes": workspace_bytes(ordinary_calls), "dp_consumer_workspace_bytes": dp_ep_flashinfer, "ordinary_consumer_workspace_bytes": ordinary_flashinfer, "warnings": warnings, "numerics": numerical_observations})
+    from flashinfer_pipeline import exercise
+    pipeline = exercise(load_workload()['flashinfer_pipeline'])
+    write_report(stages, {"flashinfer_pipeline": pipeline, "lora_dp_workspace_bytes":lora_dp, "lora_ordinary_workspace_bytes":lora_ordinary, "functional_workspace_bytes":functional_calls, "dp_workspace_bytes": workspace_bytes(dp_ep_calls), "ordinary_workspace_bytes": workspace_bytes(ordinary_calls), "dp_consumer_workspace_bytes": dp_ep_flashinfer, "ordinary_consumer_workspace_bytes": ordinary_flashinfer, "warnings": warnings, "numerics": numerical_observations})
     print("FUSED_MOE_OWNERSHIP_OBSERVATIONS_COMPLETE")
 
 

@@ -73,7 +73,7 @@ jobs:
     env:
       GITHUB_PAGES: 'true'
       GITHUB_PAGES_BASE_PATH: ''
-      NEXT_PUBLIC_SITE_URL: https://ai-infra-bench.github.io
+      NEXT_PUBLIC_SITE_URL: https://infrabench.ai
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -91,12 +91,14 @@ jobs:
       - name: Validate website and leaderboard statistics
         run: |
           npm run generate:tasks
-          npm run test:leaderboard
+          npm run test:website
           npx tsc --noEmit --incremental false
           npm run lint
 
       - name: Build GitHub Pages site
-        run: npm run build:pages
+        run: |
+          npm run build:pages
+          test "$(cat dist/client/CNAME)" = "infrabench.ai"
 
   validate:
     needs: discover
