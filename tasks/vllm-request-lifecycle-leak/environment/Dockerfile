@@ -90,6 +90,9 @@ RUN set -eux; \
     mkdir -p /opt/venv/lib/python3.12/site-packages/vllm-0.0.0+cpu.dist-info; \
     printf 'Metadata-Version: 2.1\nName: vllm\nVersion: 0.0.0+cpu\n' > /opt/venv/lib/python3.12/site-packages/vllm-0.0.0+cpu.dist-info/METADATA
 
+# Install the local test runner in the agent interpreter before going offline.
+RUN python -m pip install --no-cache-dir pytest==8.4.1 pytest-asyncio==1.1.0 tblib==3.1.0
+
 USER agent
 WORKDIR /workspace/repo
 ENTRYPOINT []
