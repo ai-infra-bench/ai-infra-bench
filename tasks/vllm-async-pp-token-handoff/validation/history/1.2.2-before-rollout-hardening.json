@@ -1,0 +1,1731 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "status": "validated",
+  "validation_status": "publication_formatting_final_oracle_passed",
+  "recorded_at": "2026-09-09T06:22:30.918761+00:00",
+  "task": "ai-infra-bench/vllm-async-pp-token-handoff",
+  "task_version": "1.2.2",
+  "source": {
+    "task": "ai-infra-bench/vllm-async-pp-token-handoff",
+    "repository": "vllm-project/vllm",
+    "base_commit": "8ebf372e9d612a325f54aadf5c0c3c6588b6afa3",
+    "dependency_cutoff": "2026-01-28T17:36:56Z"
+  },
+  "image": {
+    "schema_version": "vllm_harbor_image.v1",
+    "task": "ai-infra-bench/vllm-async-pp-token-handoff",
+    "base_commit": "8ebf372e9d612a325f54aadf5c0c3c6588b6afa3",
+    "dependency_cutoff": "2026-01-28T17:36:56Z",
+    "image_id": "sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69",
+    "image_tag": "vllm-async-pp-local:runtime-lock-20260908T092858Z",
+    "repo_digests": [
+      "vllm-async-pp-local@sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69"
+    ],
+    "size_bytes": 10360444918,
+    "created": "2026-09-08T17:36:27.554639782+08:00",
+    "status": "built",
+    "image_check": "passed",
+    "build_context": "environment",
+    "dockerfile_sha256": "fd9de7abd2e3a7ad8bd054595bc115434d97184bf0c2c2f7355feff132a830d9",
+    "dependency_lock_sha256": "647f706918a48499b9ac2cf98d1875b910bf0d4e52dc4bddd6e03a9508585be5",
+    "dependency_lock_manifest_sha256": "14f95bc6b0c8b04cdc3f4dd00d95224f0835db5ba9248e1966c23e7e31140569",
+    "build_notes": "Built from the current environment/ recipe on 2026-09-08 using the isolated Docker daemon, legacy builder, --network host and VLLM_REPOSITORY=git://127.0.0.1:9418/vllm-hist.git. Unchanged layers were allowed to use Docker cache. Base/history/content guards executed as shown in the build log; post-build repository image-check passed. This is not claimed as a no-cache build.",
+    "build_evidence": {
+      "root": "/data/yinchen/task-validation-20260908T092858Z",
+      "log": "pr18-image-build.log",
+      "log_sha256": "9d5251670d4671e0549e0b358e7d1321c478eed8133b902c2359a9dc2b917f07",
+      "inspection": "pr18-image-inspect.json",
+      "history": "pr18-image-history.jsonl",
+      "image_check": "pr18-image-check.log",
+      "recorded_at": "2026-09-08T09:37:40.316766+00:00"
+    }
+  },
+  "review": {
+    "gates": {
+      "task_statement": "pass",
+      "environment": "pass at declared boundary",
+      "verification": "pass for recorded controls and alternatives"
+    },
+    "contract": {
+      "boundary": "Real initialized production runner with valid model configuration and sampled GPU tensors -> real PP NCCL handoff and retained/discarded bookkeeping -> next GPU input preparation and next async scheduler round",
+      "decision": "Run production constructor. Substitute only model computation/sampling inputs; keep constructor-owned buffers and state. Specify schedule twice before update_from_output while requests remain runnable and resources are sufficient. Retain no CPU-object collective or device-to-host synchronization constraints."
+    },
+    "coverage": "Real constructor and CPU/GPU buffers, CONFIG, SCHEDULER_REENTRY at 1/3 requests, NCCL_BASIC/REORDERED/INTEGRATED with two ranks, production output materialization and next GPU input consumption; independent five-request interleaved-discard challenge.",
+    "substitutions_and_limitations": "Runner initialization and world/TP/PP groups are real. Model weights/attention execution and sampling computation are replaced by valid sampled-tensor inputs. No attention is executed; empty KV groups are supplied to the downstream state slice. This is not a full model generation deployment.",
+    "remaining_blockers": []
+  },
+  "artifacts": {
+    "files": {
+      ".dockerignore": {
+        "sha256": "cf9143fdfce145f9234e589317912e7c9fad341276064294f22da3946d23758e"
+      },
+      "environment/.dockerignore": {
+        "sha256": "20fbcdd9e55a74487fa7c55f5303f09341e79f19e921d369d1fe6dcb924b813d"
+      },
+      "environment/Dockerfile": {
+        "sha256": "fd9de7abd2e3a7ad8bd054595bc115434d97184bf0c2c2f7355feff132a830d9"
+      },
+      "environment/image-manifest.json": {
+        "sha256": "59b0fe4aa9c49dfa1a917273dd14d43f857a1e805c50b794324d4effe6b03a64"
+      },
+      "environment/lock/manifest.json": {
+        "sha256": "14f95bc6b0c8b04cdc3f4dd00d95224f0835db5ba9248e1966c23e7e31140569"
+      },
+      "environment/lock/native-donor.json": {
+        "sha256": "ff142de32c96e742d37ed5485bad1a0e9b2030bc2932bdb7e980909ba7d95915"
+      },
+      "environment/lock/requirements.txt": {
+        "sha256": "647f706918a48499b9ac2cf98d1875b910bf0d4e52dc4bddd6e03a9508585be5"
+      },
+      "environment/lock/runtime-native.json": {
+        "sha256": "275b24e6ea8a9a538b1d9afa6aff2b554f099d5b8e2ab4f3a19b10f5b789edd2"
+      },
+      "instruction.md": {
+        "sha256": "73ff49c4756cbdefe81beadca45ac9bc97da1dd47f37b8ce833b0e559d358e9e"
+      },
+      "solution/oracle.patch": {
+        "sha256": "c35873d77329d7da9ba739b085a21a386a2c9ed1abd70c0aa0b686a3ff043860"
+      },
+      "solution/solve.sh": {
+        "sha256": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16"
+      },
+      "task.toml": {
+        "sha256": "2abc0aa79191a513828af49c96b169e6140cef1db53301af2cac534ccf52b34d"
+      },
+      "tests/docker-compose.yaml": {
+        "sha256": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f"
+      },
+      "tests/fixtures/opt-125m/config.json": {
+        "sha256": "54162c9cd0377110df1859dfabebb106fc0988c8aadb88207ce1ee0d34985df6"
+      },
+      "tests/task_fixtures.py": {
+        "sha256": "1a5f635750a1ce1634f75332375b1e1f845c1f79dfd68414318ecbcf7796fe77"
+      },
+      "tests/test.sh": {
+        "sha256": "547b3a91daf54a9931ebfd2388c1171d69a50892f2b23ca61dbdf5c6c94c4f34"
+      },
+      "tests/trusted_supervisor.py": {
+        "sha256": "5521b8200033007c0179dc710587b2c198c64458d2f145c348099dabda37993c"
+      },
+      "tests/verify_async_pp.py": {
+        "sha256": "bc6b781476bfff4e2b81400da848a198fe19111cd46fe4491352c08dcefaf6b3"
+      },
+      "tests/worker_fixtures.py": {
+        "sha256": "6284c0e1577b8008e177fda0ab434417b4b5e5345d28134bb83520d92727c8aa"
+      },
+      "validation/alternate-inline-nccl.patch": {
+        "sha256": "937a2a6267b67136b268c9fa429a347c45b26244f0e99411a98850d41b127f16"
+      },
+      "validation/challenge/challenge_token_handoff.py": {
+        "sha256": "e2ed97464f27754bf1b3dfd86a33f7525ff40c4c1c31bbf9249ef5b04ed16ba6"
+      },
+      "validation/challenge/run_challenge.py": {
+        "sha256": "8614ae3c3b2bff92fa5d64d2ab5cb80ef08ba72b0ff1937474f522577d6aca25"
+      },
+      "validation/ci-cases.json": {
+        "sha256": "7b74bde9707309a6ad01bd917251f39801aa296ba3c339de82ff09d228e8b241"
+      },
+      "validation/constructor-owned-transport.patch": {
+        "sha256": "7deab219dd6b58094edc5eb2bbe4e3787c4c4967e5c1e982e8b44d981336664f"
+      },
+      "validation/cpu-sync-object-collective.patch": {
+        "sha256": "60347e66178decc27b2fcd83d828a2befd624b7754ac0f6cacc9c1fb09c2eb6e"
+      },
+      "validation/early-os-exit.patch": {
+        "sha256": "185182fbfd8e64e5e1fdd618fb948a800a70e1789019717a261ad5cceb05d505"
+      },
+      "validation/early-system-exit.patch": {
+        "sha256": "acb206aed190703bcecf5420c59f7aafc24ae158a5800fb1f788349b33ee967f"
+      },
+      "validation/group-coordinator-broadcast.patch": {
+        "sha256": "35a901441b5951771023b596dd9136e33e7f1c4541acc329773a8e08524367f3"
+      },
+      "validation/local-regressions.json": {
+        "sha256": "c8cd6e75ea0149298a71e374c973396485d1b6536401bb61725d973dad785b05"
+      },
+      "validation/post-broadcast-failure.patch": {
+        "sha256": "15bd482ff4c00026f8fd5883ba91a2102e49806a41a414aec27ccd01a2a7ce60"
+      },
+      "validation/publication-formatting.json": {
+        "sha256": "c50d613bf884374cd8881b593bc7f4e4277ae72b1eaf51c2b25422b4b9939097"
+      },
+      "validation/evidence/publication-oracle.tar.gz": {
+        "sha256": "7b115cd3340b164cc9085da8114e838ad8b73e69937a5d7d596d1fe8d38be83a"
+      },
+      "validation/evidence/publication-cpu-sync-object-collective.tar.gz": {
+        "sha256": "25915f1a4081657fd150a3f5ddc98b9e4bcde0cd8366fefc737427d75ccf11eb"
+      }
+    }
+  },
+  "freeze": {
+    "scope": "Executable contents used by final publication Oracle; original freeze retained in prior evidence",
+    "files": {
+      "instruction.md": "73ff49c4756cbdefe81beadca45ac9bc97da1dd47f37b8ce833b0e559d358e9e",
+      "task.toml": "2abc0aa79191a513828af49c96b169e6140cef1db53301af2cac534ccf52b34d",
+      "environment/.dockerignore": "20fbcdd9e55a74487fa7c55f5303f09341e79f19e921d369d1fe6dcb924b813d",
+      "environment/Dockerfile": "fd9de7abd2e3a7ad8bd054595bc115434d97184bf0c2c2f7355feff132a830d9",
+      "environment/image-manifest.json": "59b0fe4aa9c49dfa1a917273dd14d43f857a1e805c50b794324d4effe6b03a64",
+      "environment/lock/README.md": "3124edb35f17a63963197e2dfb3ab6a0e2bc8fb8befe1c824fad0f1571bcb9e2",
+      "environment/lock/manifest.json": "14f95bc6b0c8b04cdc3f4dd00d95224f0835db5ba9248e1966c23e7e31140569",
+      "environment/lock/native-donor.json": "ff142de32c96e742d37ed5485bad1a0e9b2030bc2932bdb7e980909ba7d95915",
+      "environment/lock/requirements.txt": "647f706918a48499b9ac2cf98d1875b910bf0d4e52dc4bddd6e03a9508585be5",
+      "environment/lock/runtime-native.json": "275b24e6ea8a9a538b1d9afa6aff2b554f099d5b8e2ab4f3a19b10f5b789edd2",
+      "solution/oracle.patch": "c35873d77329d7da9ba739b085a21a386a2c9ed1abd70c0aa0b686a3ff043860",
+      "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+      "tests/test.sh": "547b3a91daf54a9931ebfd2388c1171d69a50892f2b23ca61dbdf5c6c94c4f34",
+      "tests/verify_async_pp.py": "bc6b781476bfff4e2b81400da848a198fe19111cd46fe4491352c08dcefaf6b3",
+      "tests/trusted_supervisor.py": "5521b8200033007c0179dc710587b2c198c64458d2f145c348099dabda37993c",
+      "tests/task_fixtures.py": "1a5f635750a1ce1634f75332375b1e1f845c1f79dfd68414318ecbcf7796fe77",
+      "tests/worker_fixtures.py": "6284c0e1577b8008e177fda0ab434417b4b5e5345d28134bb83520d92727c8aa",
+      "validation/alternate-inline-nccl.patch": "937a2a6267b67136b268c9fa429a347c45b26244f0e99411a98850d41b127f16",
+      "validation/cpu-sync-object-collective.patch": "60347e66178decc27b2fcd83d828a2befd624b7754ac0f6cacc9c1fb09c2eb6e",
+      "validation/early-system-exit.patch": "acb206aed190703bcecf5420c59f7aafc24ae158a5800fb1f788349b33ee967f",
+      "validation/early-os-exit.patch": "185182fbfd8e64e5e1fdd618fb948a800a70e1789019717a261ad5cceb05d505",
+      "validation/post-broadcast-failure.patch": "15bd482ff4c00026f8fd5883ba91a2102e49806a41a414aec27ccd01a2a7ce60",
+      "validation/group-coordinator-broadcast.patch": "35a901441b5951771023b596dd9136e33e7f1c4541acc329773a8e08524367f3",
+      "validation/constructor-owned-transport.patch": "7deab219dd6b58094edc5eb2bbe4e3787c4c4967e5c1e982e8b44d981336664f",
+      "validation/challenge/challenge_token_handoff.py": "e2ed97464f27754bf1b3dfd86a33f7525ff40c4c1c31bbf9249ef5b04ed16ba6",
+      "validation/challenge/run_challenge.py": "8614ae3c3b2bff92fa5d64d2ab5cb80ef08ba72b0ff1937474f522577d6aca25"
+    }
+  },
+  "provenance_gates": {
+    "current_hashes_match": true,
+    "final_oracle_passed": true,
+    "zero_harbor_errors": true,
+    "image_and_patch_checks_passed": true,
+    "historical_rewards_preserved": true
+  },
+  "harbor": {
+    "version": "0.22.0",
+    "status": "final_oracle_passed_after_formatting",
+    "oracle": {
+      "case": "oracle",
+      "scope": "full Harbor run after formatting-only publication revision",
+      "actual_reward": 1.0,
+      "expected_reward": 1,
+      "job_id": "777472b4-9dec-43dc-b49a-889cbe3b944f",
+      "trial_id": "21d71be3-385a-4bde-9881-bd05b09ba05c",
+      "harbor_errors": 0,
+      "harbor_exit_code": 0,
+      "task_checksum": "45c7af2a849b09f2fda31233c3c56057e4ac019207a2d8c43fe84b09215fe2d8",
+      "image_id": "sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69",
+      "gpu_uuids": [
+        "GPU-3884436a-fd17-98d2-5dad-4ef79dd14589",
+        "GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710"
+      ],
+      "command": [
+        "harbor",
+        "run",
+        "--config",
+        "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/harbor-config.json",
+        "-y"
+      ],
+      "archive": "validation/evidence/publication-oracle.tar.gz",
+      "archive_sha256": "7b115cd3340b164cc9085da8114e838ad8b73e69937a5d7d596d1fe8d38be83a",
+      "raw_artifacts": [
+        {
+          "path": "run/run-record.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/run-record.json",
+          "sha256": "b3957e7aa417155eb27e55e419eb61fe495f1bd9f74542c052e7b02b8a222b09"
+        },
+        {
+          "path": "run/harbor-config.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/harbor-config.json",
+          "sha256": "870664c0f572a99b35f636b0bb2e11273fd4b269dfc0b7324da3b5231dca1547"
+        },
+        {
+          "path": "run/harbor.log",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/harbor.log",
+          "sha256": "ba96d10d6d6d98e519c4e22f05ac11a77809e599de0d27d0a5e69884593d7980"
+        },
+        {
+          "path": "run/agent-canary.log",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/agent-canary.log",
+          "sha256": "e7c3e0e53810f76a618c707fd56148fb257c0d70c9059821f24dcfa1a88af5ab"
+        },
+        {
+          "path": "run/result-check.log",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/result-check.log",
+          "sha256": "4859607480f3aeeb0ad478ff422af01863a2f16093c4941a9f38c4cf1f4746c8"
+        },
+        {
+          "path": "job/result.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/result.json",
+          "sha256": "5170d6ab1338572775b968fb7ca530095cd85b7215482304d1dbec2a61c6fa56"
+        },
+        {
+          "path": "trial/result.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/result.json",
+          "sha256": "15673213033ed773c356b4e4f0908295bf64d226f505df8e1b6aab0bc76bb5ed"
+        },
+        {
+          "path": "verifier/test-stdout.txt",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/test-stdout.txt",
+          "sha256": "dc9442f1b7a758f129b4fa6feedfa03e6c1d8aa46f85468092463b3db28d07cc"
+        },
+        {
+          "path": "verifier/reward.txt",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/reward.txt",
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "path": "verifier/preflight.log",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/preflight.log",
+          "sha256": "0ceec6c6d9fb8edde95fd8cc56fc45a5efe53e6c4b2b5f51db75480b71e6f168"
+        },
+        {
+          "path": "verifier/supervisor.log",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/supervisor.log",
+          "sha256": "eb3f9d4bd96aefd12e8c2863f781ed573e52d351e51491c83f9d0b18097eb8e4"
+        },
+        {
+          "path": "verifier/supervisor-manifest.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/supervisor-manifest.json",
+          "sha256": "926b0c54b2956fcf80ab8982e5e4e3e9c995066a768e4eb42c010e7447ccf02d"
+        },
+        {
+          "path": "verifier/challenge-CONFIG.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/challenge-CONFIG.json",
+          "sha256": "13619a2ba0a64b651088f23e11d3cfff0a79c7edfbcf488389faecd5a0c14733"
+        },
+        {
+          "path": "verifier/stage-CONFIG-rank0.log",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-CONFIG-rank0.log",
+          "sha256": "6178a9ee394b79f78ba51bfe350093b5084d60afd562f36589f7bba08b46e724"
+        },
+        {
+          "path": "verifier/challenge-SCHEDULER_REENTRY.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/challenge-SCHEDULER_REENTRY.json",
+          "sha256": "521f20d27180e78aa012ef1719f82d7c95cd822225005b7f02993d1f32d0f7a3"
+        },
+        {
+          "path": "verifier/stage-SCHEDULER_REENTRY-rank0.log",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-SCHEDULER_REENTRY-rank0.log",
+          "sha256": "5cba98eec007f295eb983a1afb776c5682ca5b4b8843f19896b1b51ea5ff8a6d"
+        },
+        {
+          "path": "verifier/challenge-NCCL_BASIC.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/challenge-NCCL_BASIC.json",
+          "sha256": "b0533cdb617218f0c9195afb32052504bc6a3e5342787235429de8e1a02618d8"
+        },
+        {
+          "path": "verifier/stage-NCCL_BASIC-rank0.log",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_BASIC-rank0.log",
+          "sha256": "e1fc04e3b3f7d55e43a7c296396b7a63d319b0c35b7fd26126ce8d9a185024ac"
+        },
+        {
+          "path": "verifier/stage-NCCL_BASIC-rank1.log",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_BASIC-rank1.log",
+          "sha256": "e4cebb2921d22b8a1a390008c24aeff50bfb6e4113129b23a96cbb2c19ae28aa"
+        },
+        {
+          "path": "verifier/challenge-NCCL_REORDERED.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/challenge-NCCL_REORDERED.json",
+          "sha256": "a75ecaf8366489b12189f7c4024c949b32cb9fa1b00e7e1320d5fc62cf9f94e7"
+        },
+        {
+          "path": "verifier/stage-NCCL_REORDERED-rank0.log",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_REORDERED-rank0.log",
+          "sha256": "0ed9c01c3a52597e5b87e3513388d09082c26e0dc8c0cf173c752f56025f005c"
+        },
+        {
+          "path": "verifier/stage-NCCL_REORDERED-rank1.log",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_REORDERED-rank1.log",
+          "sha256": "59a1df0bc1caf3501f022d11f86de10dae8e02a60d507a64bd6a68e7f6897a5b"
+        },
+        {
+          "path": "verifier/challenge-NCCL_INTEGRATED.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/challenge-NCCL_INTEGRATED.json",
+          "sha256": "24614ccf4b377c8ce75b3494b75c98d08b6fc25e2682052db479baacdcb30e11"
+        },
+        {
+          "path": "verifier/stage-NCCL_INTEGRATED-rank1.log",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_INTEGRATED-rank1.log",
+          "sha256": "60143de85f7a60bb7cd15336846a3bc4b6daa191fd77d8ab0e1df0060767b078"
+        },
+        {
+          "path": "verifier/stage-NCCL_INTEGRATED-rank0.log",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_INTEGRATED-rank0.log",
+          "sha256": "73012e9db7c4acede3438555726f681197aa3c9c1bf14577fbf7d210cafe4d24"
+        },
+        {
+          "path": "verifier/supervisor-exit.txt",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/supervisor-exit.txt",
+          "sha256": "f387e93127ea9a37e4575c18c1159a5d36b1a4dd91dcbe90836922cce59b4fcc"
+        },
+        {
+          "path": "verifier/scoring.log",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/scoring.log",
+          "sha256": "e43262d6deb7daa107530343ad9a09c01a9ef6b197267e2d1fcdf4a91004a539"
+        },
+        {
+          "path": "verifier/stages.json",
+          "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stages.json",
+          "sha256": "1b0c72850cc68d94daee5163396b7018da990dad50f6ad75199926d44374a90a"
+        }
+      ]
+    },
+    "runs": [
+      {
+        "case": "oracle",
+        "scope": "full Harbor run after formatting-only publication revision",
+        "actual_reward": 1.0,
+        "expected_reward": 1,
+        "job_id": "777472b4-9dec-43dc-b49a-889cbe3b944f",
+        "trial_id": "21d71be3-385a-4bde-9881-bd05b09ba05c",
+        "harbor_errors": 0,
+        "harbor_exit_code": 0,
+        "task_checksum": "45c7af2a849b09f2fda31233c3c56057e4ac019207a2d8c43fe84b09215fe2d8",
+        "image_id": "sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69",
+        "gpu_uuids": [
+          "GPU-3884436a-fd17-98d2-5dad-4ef79dd14589",
+          "GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710"
+        ],
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/harbor-config.json",
+          "-y"
+        ],
+        "archive": "validation/evidence/publication-oracle.tar.gz",
+        "archive_sha256": "7b115cd3340b164cc9085da8114e838ad8b73e69937a5d7d596d1fe8d38be83a",
+        "raw_artifacts": [
+          {
+            "path": "run/run-record.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/run-record.json",
+            "sha256": "b3957e7aa417155eb27e55e419eb61fe495f1bd9f74542c052e7b02b8a222b09"
+          },
+          {
+            "path": "run/harbor-config.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/harbor-config.json",
+            "sha256": "870664c0f572a99b35f636b0bb2e11273fd4b269dfc0b7324da3b5231dca1547"
+          },
+          {
+            "path": "run/harbor.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/harbor.log",
+            "sha256": "ba96d10d6d6d98e519c4e22f05ac11a77809e599de0d27d0a5e69884593d7980"
+          },
+          {
+            "path": "run/agent-canary.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/agent-canary.log",
+            "sha256": "e7c3e0e53810f76a618c707fd56148fb257c0d70c9059821f24dcfa1a88af5ab"
+          },
+          {
+            "path": "run/result-check.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/result-check.log",
+            "sha256": "4859607480f3aeeb0ad478ff422af01863a2f16093c4941a9f38c4cf1f4746c8"
+          },
+          {
+            "path": "job/result.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/result.json",
+            "sha256": "5170d6ab1338572775b968fb7ca530095cd85b7215482304d1dbec2a61c6fa56"
+          },
+          {
+            "path": "trial/result.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/result.json",
+            "sha256": "15673213033ed773c356b4e4f0908295bf64d226f505df8e1b6aab0bc76bb5ed"
+          },
+          {
+            "path": "verifier/test-stdout.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/test-stdout.txt",
+            "sha256": "dc9442f1b7a758f129b4fa6feedfa03e6c1d8aa46f85468092463b3db28d07cc"
+          },
+          {
+            "path": "verifier/reward.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/reward.txt",
+            "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+          },
+          {
+            "path": "verifier/preflight.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/preflight.log",
+            "sha256": "0ceec6c6d9fb8edde95fd8cc56fc45a5efe53e6c4b2b5f51db75480b71e6f168"
+          },
+          {
+            "path": "verifier/supervisor.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/supervisor.log",
+            "sha256": "eb3f9d4bd96aefd12e8c2863f781ed573e52d351e51491c83f9d0b18097eb8e4"
+          },
+          {
+            "path": "verifier/supervisor-manifest.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/supervisor-manifest.json",
+            "sha256": "926b0c54b2956fcf80ab8982e5e4e3e9c995066a768e4eb42c010e7447ccf02d"
+          },
+          {
+            "path": "verifier/challenge-CONFIG.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/challenge-CONFIG.json",
+            "sha256": "13619a2ba0a64b651088f23e11d3cfff0a79c7edfbcf488389faecd5a0c14733"
+          },
+          {
+            "path": "verifier/stage-CONFIG-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-CONFIG-rank0.log",
+            "sha256": "6178a9ee394b79f78ba51bfe350093b5084d60afd562f36589f7bba08b46e724"
+          },
+          {
+            "path": "verifier/challenge-SCHEDULER_REENTRY.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/challenge-SCHEDULER_REENTRY.json",
+            "sha256": "521f20d27180e78aa012ef1719f82d7c95cd822225005b7f02993d1f32d0f7a3"
+          },
+          {
+            "path": "verifier/stage-SCHEDULER_REENTRY-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-SCHEDULER_REENTRY-rank0.log",
+            "sha256": "5cba98eec007f295eb983a1afb776c5682ca5b4b8843f19896b1b51ea5ff8a6d"
+          },
+          {
+            "path": "verifier/challenge-NCCL_BASIC.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/challenge-NCCL_BASIC.json",
+            "sha256": "b0533cdb617218f0c9195afb32052504bc6a3e5342787235429de8e1a02618d8"
+          },
+          {
+            "path": "verifier/stage-NCCL_BASIC-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_BASIC-rank0.log",
+            "sha256": "e1fc04e3b3f7d55e43a7c296396b7a63d319b0c35b7fd26126ce8d9a185024ac"
+          },
+          {
+            "path": "verifier/stage-NCCL_BASIC-rank1.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_BASIC-rank1.log",
+            "sha256": "e4cebb2921d22b8a1a390008c24aeff50bfb6e4113129b23a96cbb2c19ae28aa"
+          },
+          {
+            "path": "verifier/challenge-NCCL_REORDERED.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/challenge-NCCL_REORDERED.json",
+            "sha256": "a75ecaf8366489b12189f7c4024c949b32cb9fa1b00e7e1320d5fc62cf9f94e7"
+          },
+          {
+            "path": "verifier/stage-NCCL_REORDERED-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_REORDERED-rank0.log",
+            "sha256": "0ed9c01c3a52597e5b87e3513388d09082c26e0dc8c0cf173c752f56025f005c"
+          },
+          {
+            "path": "verifier/stage-NCCL_REORDERED-rank1.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_REORDERED-rank1.log",
+            "sha256": "59a1df0bc1caf3501f022d11f86de10dae8e02a60d507a64bd6a68e7f6897a5b"
+          },
+          {
+            "path": "verifier/challenge-NCCL_INTEGRATED.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/challenge-NCCL_INTEGRATED.json",
+            "sha256": "24614ccf4b377c8ce75b3494b75c98d08b6fc25e2682052db479baacdcb30e11"
+          },
+          {
+            "path": "verifier/stage-NCCL_INTEGRATED-rank1.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_INTEGRATED-rank1.log",
+            "sha256": "60143de85f7a60bb7cd15336846a3bc4b6daa191fd77d8ab0e1df0060767b078"
+          },
+          {
+            "path": "verifier/stage-NCCL_INTEGRATED-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_INTEGRATED-rank0.log",
+            "sha256": "73012e9db7c4acede3438555726f681197aa3c9c1bf14577fbf7d210cafe4d24"
+          },
+          {
+            "path": "verifier/supervisor-exit.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/supervisor-exit.txt",
+            "sha256": "f387e93127ea9a37e4575c18c1159a5d36b1a4dd91dcbe90836922cce59b4fcc"
+          },
+          {
+            "path": "verifier/scoring.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/scoring.log",
+            "sha256": "e43262d6deb7daa107530343ad9a09c01a9ef6b197267e2d1fcdf4a91004a539"
+          },
+          {
+            "path": "verifier/stages.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stages.json",
+            "sha256": "1b0c72850cc68d94daee5163396b7018da990dad50f6ad75199926d44374a90a"
+          }
+        ]
+      },
+      {
+        "case": "cpu-sync-object-collective",
+        "scope": "full Harbor run after formatting-only publication revision",
+        "actual_reward": 0.0,
+        "expected_reward": 0,
+        "job_id": "6eee53a3-dda9-45a4-ad2b-7a4de6503306",
+        "trial_id": "9d6b4c5c-69ca-4a0f-8393-2e59995ccf13",
+        "harbor_errors": 0,
+        "harbor_exit_code": 0,
+        "task_checksum": "4f96daad59f2c233d21e35694bd9080ef9122b464e1503b45a688f50af48130d",
+        "image_id": "sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69",
+        "gpu_uuids": [
+          "GPU-3884436a-fd17-98d2-5dad-4ef79dd14589",
+          "GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710"
+        ],
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/harbor-config.json",
+          "-y"
+        ],
+        "archive": "validation/evidence/publication-cpu-sync-object-collective.tar.gz",
+        "archive_sha256": "25915f1a4081657fd150a3f5ddc98b9e4bcde0cd8366fefc737427d75ccf11eb",
+        "raw_artifacts": [
+          {
+            "path": "run/run-record.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/run-record.json",
+            "sha256": "a518f3389f62c9f41feb3695761b6642d8ec8725634533bb4521e5f4c4aa554a"
+          },
+          {
+            "path": "run/harbor-config.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/harbor-config.json",
+            "sha256": "54baf195f1261f6f621ec64f880ae8d32215c7e7e8acba14a416a57c130af7ad"
+          },
+          {
+            "path": "run/harbor.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/harbor.log",
+            "sha256": "1fa1088e243140d3449c90d3ac750c32122a643fb1bd9162b240eed5df31f767"
+          },
+          {
+            "path": "run/agent-canary.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/agent-canary.log",
+            "sha256": "e7c3e0e53810f76a618c707fd56148fb257c0d70c9059821f24dcfa1a88af5ab"
+          },
+          {
+            "path": "run/result-check.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/result-check.log",
+            "sha256": "c2e10b37d77d54101df13a143361fc7f227875079d8b0687d75ff6ac2db714b5"
+          },
+          {
+            "path": "job/result.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/result.json",
+            "sha256": "7916d3538560b178ac31034e5953e8162295e14f06d3b504e7f7d8eadb4b9175"
+          },
+          {
+            "path": "trial/result.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/result.json",
+            "sha256": "a287e199ca5a19e163124b482117eb9a43771c9d7e66a2d1cc39cab18e054e86"
+          },
+          {
+            "path": "verifier/test-stdout.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/test-stdout.txt",
+            "sha256": "d2f309443ae49703de2dddde438453a6521fb67315935e1490fee9c3ff74a7f9"
+          },
+          {
+            "path": "verifier/reward.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/reward.txt",
+            "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+          },
+          {
+            "path": "verifier/preflight.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/preflight.log",
+            "sha256": "0ceec6c6d9fb8edde95fd8cc56fc45a5efe53e6c4b2b5f51db75480b71e6f168"
+          },
+          {
+            "path": "verifier/supervisor.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/supervisor.log",
+            "sha256": "d7bc6bace9f094e5d5f58a6438bfa8d6141c5e34bfce16767616d1346dddd0c3"
+          },
+          {
+            "path": "verifier/supervisor-manifest.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/supervisor-manifest.json",
+            "sha256": "2bd32b8cb0188a0948a0f1caf5d7051befe981a9ce140f24783a5c16621d4c4a"
+          },
+          {
+            "path": "verifier/challenge-CONFIG.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/challenge-CONFIG.json",
+            "sha256": "ce2bf1ec2a8c6d2c7eb536b351fe45cb7cc0999627fc9c91bb80ae5833d2fc11"
+          },
+          {
+            "path": "verifier/stage-CONFIG-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stage-CONFIG-rank0.log",
+            "sha256": "18bb3e21897086b7782b0ae08d64f1e68ac1f048237cbd40d5b794bf8de66ce1"
+          },
+          {
+            "path": "verifier/challenge-SCHEDULER_REENTRY.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/challenge-SCHEDULER_REENTRY.json",
+            "sha256": "6be836ce4558356d019c79a7fadfcf5528e087b59c96812e2f65bec641777dba"
+          },
+          {
+            "path": "verifier/stage-SCHEDULER_REENTRY-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stage-SCHEDULER_REENTRY-rank0.log",
+            "sha256": "b5eea73dbde6326ffd0e01f8ae1c1f2786ee16211562dc2395ac273fe2f656de"
+          },
+          {
+            "path": "verifier/challenge-NCCL_BASIC.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/challenge-NCCL_BASIC.json",
+            "sha256": "867f0c161327efa82baf5a4b823a70ae720cb5fb6d8912493ff168c54a79ba83"
+          },
+          {
+            "path": "verifier/stage-NCCL_BASIC-rank1.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stage-NCCL_BASIC-rank1.log",
+            "sha256": "dfbc8cb43dd59e2194ce56ff1ac2bc1e4d7479c97a73565bb8da164fd7204f9b"
+          },
+          {
+            "path": "verifier/stage-NCCL_BASIC-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stage-NCCL_BASIC-rank0.log",
+            "sha256": "cf5912b99d6ebce08a9bb6876be3a02af507ff174348045b8db228ecffe3b11a"
+          },
+          {
+            "path": "verifier/challenge-NCCL_REORDERED.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/challenge-NCCL_REORDERED.json",
+            "sha256": "cc54bb26797827d96ae588328c56f6ba5f7433d1152a21249ab9b28c3f26b508"
+          },
+          {
+            "path": "verifier/stage-NCCL_REORDERED-rank1.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stage-NCCL_REORDERED-rank1.log",
+            "sha256": "ced1538f61f818baf6e3d55c992f605a5dfb6e48025e2d1ecefc12c69fc68c52"
+          },
+          {
+            "path": "verifier/stage-NCCL_REORDERED-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stage-NCCL_REORDERED-rank0.log",
+            "sha256": "83827b5337e14b55f3a0c40107d513273a57ad330d617f9fc6bef18ae4240d08"
+          },
+          {
+            "path": "verifier/challenge-NCCL_INTEGRATED.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/challenge-NCCL_INTEGRATED.json",
+            "sha256": "e742f6b48d4e3617299336c977b0cd990e0765dc9814850ccb02cecbc44c03a8"
+          },
+          {
+            "path": "verifier/stage-NCCL_INTEGRATED-rank1.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stage-NCCL_INTEGRATED-rank1.log",
+            "sha256": "ff6495f979ba69d80388576530663fb523eaf7ea266845f3dda5c2ffdf2d3671"
+          },
+          {
+            "path": "verifier/stage-NCCL_INTEGRATED-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stage-NCCL_INTEGRATED-rank0.log",
+            "sha256": "d1c086e13d310ab640c9e5059d66ce6314084f76631c35b1abbc0eb3acfe3b0e"
+          },
+          {
+            "path": "verifier/supervisor-exit.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/supervisor-exit.txt",
+            "sha256": "6b1679a6351a603d9b2e89bfc33203eec034054aad95b8e9c1b8189ec7f09449"
+          },
+          {
+            "path": "verifier/scoring.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/scoring.log",
+            "sha256": "883d415915f0e49c319a8ae5c68ada4489324206a3bc6b0bc8e7a990c8c42c50"
+          },
+          {
+            "path": "verifier/stages.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stages.json",
+            "sha256": "f55d629e940e7bebcd52a0d99d83e7ef5bb6d133c2ad928e7beeec63ecdb3528"
+          },
+          {
+            "path": "verifier/failure-stage.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/failure-stage.txt",
+            "sha256": "7cfde5a89ca603c628c1799e7817b13f792b17ecf07b808b006aac7c23833f48"
+          }
+        ]
+      }
+    ],
+    "prior_control_matrix": "validation/history/pre-publication-formatting-evidence.json#/harbor"
+  },
+  "independent_challenges": [
+    {
+      "case": "base",
+      "expected_pass": false,
+      "image_id": "sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69",
+      "gpu_uuids": [
+        "GPU-46c9b5d9-82f9-7bca-374e-6441ff3361c6",
+        "GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710"
+      ],
+      "scope": "independent direct-container challenge, not a Harbor trial",
+      "files": {
+        ".dockerignore": "cf9143fdfce145f9234e589317912e7c9fad341276064294f22da3946d23758e",
+        "instruction.md": "73ff49c4756cbdefe81beadca45ac9bc97da1dd47f37b8ce833b0e559d358e9e",
+        "task.toml": "2abc0aa79191a513828af49c96b169e6140cef1db53301af2cac534ccf52b34d",
+        "environment/.dockerignore": "20fbcdd9e55a74487fa7c55f5303f09341e79f19e921d369d1fe6dcb924b813d",
+        "environment/Dockerfile": "fd9de7abd2e3a7ad8bd054595bc115434d97184bf0c2c2f7355feff132a830d9",
+        "environment/image-manifest.json": "59b0fe4aa9c49dfa1a917273dd14d43f857a1e805c50b794324d4effe6b03a64",
+        "environment/lock/README.md": "3124edb35f17a63963197e2dfb3ab6a0e2bc8fb8befe1c824fad0f1571bcb9e2",
+        "environment/lock/manifest.json": "14f95bc6b0c8b04cdc3f4dd00d95224f0835db5ba9248e1966c23e7e31140569",
+        "environment/lock/native-donor.json": "ff142de32c96e742d37ed5485bad1a0e9b2030bc2932bdb7e980909ba7d95915",
+        "environment/lock/requirements.txt": "647f706918a48499b9ac2cf98d1875b910bf0d4e52dc4bddd6e03a9508585be5",
+        "environment/lock/runtime-native.json": "275b24e6ea8a9a538b1d9afa6aff2b554f099d5b8e2ab4f3a19b10f5b789edd2",
+        "solution/oracle.patch": "c35873d77329d7da9ba739b085a21a386a2c9ed1abd70c0aa0b686a3ff043860",
+        "solution/solve.sh": "fcc259e7375224d93400b776de248e11f47c6c31a3b4af9752c53a9154cdd407",
+        "tests/test.sh": "547b3a91daf54a9931ebfd2388c1171d69a50892f2b23ca61dbdf5c6c94c4f34",
+        "tests/verify_async_pp.py": "bc6b781476bfff4e2b81400da848a198fe19111cd46fe4491352c08dcefaf6b3",
+        "tests/trusted_supervisor.py": "5521b8200033007c0179dc710587b2c198c64458d2f145c348099dabda37993c",
+        "tests/task_fixtures.py": "1a5f635750a1ce1634f75332375b1e1f845c1f79dfd68414318ecbcf7796fe77",
+        "tests/worker_fixtures.py": "6284c0e1577b8008e177fda0ab434417b4b5e5345d28134bb83520d92727c8aa",
+        "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+        "tests/fixtures/opt-125m/config.json": "54162c9cd0377110df1859dfabebb106fc0988c8aadb88207ce1ee0d34985df6",
+        "validation/alternate-inline-nccl.patch": "937a2a6267b67136b268c9fa429a347c45b26244f0e99411a98850d41b127f16",
+        "validation/ci-cases.json": "d75260071da3e3066c6ec12d18ce3126e12a3713cc8db7fb197e9c5f76fba8a5",
+        "validation/cpu-sync-object-collective.patch": "3d5e505c532a43c4be145fa70e34f73dadedcfee38743c7dd8469d5340eabe82",
+        "validation/docker-build.md": "99c64604edd1e39e32c7bacc57a6eed6b3833f861d6e36f691b23e9c2df88e6e",
+        "validation/semantic-boundary.md": "4fae1ccb31dbbbdbf946ee3688909242596afac006196fb712bf4144e320e07e",
+        "validation/early-system-exit.patch": "acb206aed190703bcecf5420c59f7aafc24ae158a5800fb1f788349b33ee967f",
+        "validation/early-os-exit.patch": "185182fbfd8e64e5e1fdd618fb948a800a70e1789019717a261ad5cceb05d505",
+        "validation/post-broadcast-failure.patch": "15bd482ff4c00026f8fd5883ba91a2102e49806a41a414aec27ccd01a2a7ce60",
+        "validation/local-regressions.json": "c8cd6e75ea0149298a71e374c973396485d1b6536401bb61725d973dad785b05",
+        "validation/group-coordinator-broadcast.patch": "35a901441b5951771023b596dd9136e33e7f1c4541acc329773a8e08524367f3",
+        "validation/final-review.md": "252f4d7482f4d5770b1b09ceeb6b7f80a806b8c2835f4c3d8cd54555ea30ccac",
+        "validation/constructor-owned-transport.patch": "7deab219dd6b58094edc5eb2bbe4e3787c4c4967e5c1e982e8b44d981336664f",
+        "validation/challenge/README.md": "5b5034a278fc213824c46071d269bcf5dbf2938a9e1b857b3a55e188d8ccd437",
+        "validation/challenge/challenge_token_handoff.py": "e2ed97464f27754bf1b3dfd86a33f7525ff40c4c1c31bbf9249ef5b04ed16ba6",
+        "validation/challenge/run_challenge.py": "8614ae3c3b2bff92fa5d64d2ab5cb80ef08ba72b0ff1937474f522577d6aca25",
+        "validation/history/pre-hardening-e2e-evidence.json": "897a2a9b1138d24c0b17199c4e55095f0df1e5b808ad9d10e73c54254742fb41",
+        "validation/history/corrected-run-index.json": "e2ae90a9877556fd462f359d139a2e6479c46aa9077a40a647d713769fe45e36"
+      },
+      "container_id": "36d5892a93130db859ccc97555ec1fd6a5df0866070e489f24074e6982ff5a24",
+      "command": [
+        "docker",
+        "exec",
+        "36d5892a93130db859ccc97555ec1fd6a5df0866070e489f24074e6982ff5a24",
+        "python3",
+        "/challenge/run_challenge.py"
+      ],
+      "exit_code": 1,
+      "actual_pass": false,
+      "typed_failure_marker": true,
+      "status": "expected_outcome",
+      "recorded_at": "2026-09-09T04:03:26.214504+00:00",
+      "raw_artifacts": {
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-base-final/challenge.log": "d9665e7e59d01539192325227bd01fee27ed9e526f445a4396d8274ba9e47699",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-base-final/record.json": "ddc4f5c7058c21f443710c581966e7cdc2e693698706e02bf76e794c39ac496a",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-base-final/logs/challenge/challenge-manifest.json": "044d8a8d6eb92c5300b8f7bd787904ed0d1f50d0a872743104d6bf46446cd453",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-base-final/logs/challenge/challenge-fresh-interleaved-discard-5req.log": "362a6d487d89850c0e786e2b3f36bcacbc2009db5f089f7f3cbb1f22fdf1a494"
+      }
+    },
+    {
+      "case": "oracle",
+      "expected_pass": true,
+      "image_id": "sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69",
+      "gpu_uuids": [
+        "GPU-46c9b5d9-82f9-7bca-374e-6441ff3361c6",
+        "GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710"
+      ],
+      "scope": "independent direct-container challenge, not a Harbor trial",
+      "files": {
+        ".dockerignore": "cf9143fdfce145f9234e589317912e7c9fad341276064294f22da3946d23758e",
+        "instruction.md": "73ff49c4756cbdefe81beadca45ac9bc97da1dd47f37b8ce833b0e559d358e9e",
+        "task.toml": "2abc0aa79191a513828af49c96b169e6140cef1db53301af2cac534ccf52b34d",
+        "environment/.dockerignore": "20fbcdd9e55a74487fa7c55f5303f09341e79f19e921d369d1fe6dcb924b813d",
+        "environment/Dockerfile": "fd9de7abd2e3a7ad8bd054595bc115434d97184bf0c2c2f7355feff132a830d9",
+        "environment/image-manifest.json": "59b0fe4aa9c49dfa1a917273dd14d43f857a1e805c50b794324d4effe6b03a64",
+        "environment/lock/README.md": "3124edb35f17a63963197e2dfb3ab6a0e2bc8fb8befe1c824fad0f1571bcb9e2",
+        "environment/lock/manifest.json": "14f95bc6b0c8b04cdc3f4dd00d95224f0835db5ba9248e1966c23e7e31140569",
+        "environment/lock/native-donor.json": "ff142de32c96e742d37ed5485bad1a0e9b2030bc2932bdb7e980909ba7d95915",
+        "environment/lock/requirements.txt": "647f706918a48499b9ac2cf98d1875b910bf0d4e52dc4bddd6e03a9508585be5",
+        "environment/lock/runtime-native.json": "275b24e6ea8a9a538b1d9afa6aff2b554f099d5b8e2ab4f3a19b10f5b789edd2",
+        "solution/oracle.patch": "c35873d77329d7da9ba739b085a21a386a2c9ed1abd70c0aa0b686a3ff043860",
+        "solution/solve.sh": "fcc259e7375224d93400b776de248e11f47c6c31a3b4af9752c53a9154cdd407",
+        "tests/test.sh": "547b3a91daf54a9931ebfd2388c1171d69a50892f2b23ca61dbdf5c6c94c4f34",
+        "tests/verify_async_pp.py": "bc6b781476bfff4e2b81400da848a198fe19111cd46fe4491352c08dcefaf6b3",
+        "tests/trusted_supervisor.py": "5521b8200033007c0179dc710587b2c198c64458d2f145c348099dabda37993c",
+        "tests/task_fixtures.py": "1a5f635750a1ce1634f75332375b1e1f845c1f79dfd68414318ecbcf7796fe77",
+        "tests/worker_fixtures.py": "6284c0e1577b8008e177fda0ab434417b4b5e5345d28134bb83520d92727c8aa",
+        "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+        "tests/fixtures/opt-125m/config.json": "54162c9cd0377110df1859dfabebb106fc0988c8aadb88207ce1ee0d34985df6",
+        "validation/alternate-inline-nccl.patch": "937a2a6267b67136b268c9fa429a347c45b26244f0e99411a98850d41b127f16",
+        "validation/ci-cases.json": "d75260071da3e3066c6ec12d18ce3126e12a3713cc8db7fb197e9c5f76fba8a5",
+        "validation/cpu-sync-object-collective.patch": "3d5e505c532a43c4be145fa70e34f73dadedcfee38743c7dd8469d5340eabe82",
+        "validation/docker-build.md": "99c64604edd1e39e32c7bacc57a6eed6b3833f861d6e36f691b23e9c2df88e6e",
+        "validation/semantic-boundary.md": "4fae1ccb31dbbbdbf946ee3688909242596afac006196fb712bf4144e320e07e",
+        "validation/early-system-exit.patch": "acb206aed190703bcecf5420c59f7aafc24ae158a5800fb1f788349b33ee967f",
+        "validation/early-os-exit.patch": "185182fbfd8e64e5e1fdd618fb948a800a70e1789019717a261ad5cceb05d505",
+        "validation/post-broadcast-failure.patch": "15bd482ff4c00026f8fd5883ba91a2102e49806a41a414aec27ccd01a2a7ce60",
+        "validation/local-regressions.json": "c8cd6e75ea0149298a71e374c973396485d1b6536401bb61725d973dad785b05",
+        "validation/group-coordinator-broadcast.patch": "35a901441b5951771023b596dd9136e33e7f1c4541acc329773a8e08524367f3",
+        "validation/final-review.md": "252f4d7482f4d5770b1b09ceeb6b7f80a806b8c2835f4c3d8cd54555ea30ccac",
+        "validation/constructor-owned-transport.patch": "7deab219dd6b58094edc5eb2bbe4e3787c4c4967e5c1e982e8b44d981336664f",
+        "validation/challenge/README.md": "5b5034a278fc213824c46071d269bcf5dbf2938a9e1b857b3a55e188d8ccd437",
+        "validation/challenge/challenge_token_handoff.py": "e2ed97464f27754bf1b3dfd86a33f7525ff40c4c1c31bbf9249ef5b04ed16ba6",
+        "validation/challenge/run_challenge.py": "8614ae3c3b2bff92fa5d64d2ab5cb80ef08ba72b0ff1937474f522577d6aca25",
+        "validation/history/pre-hardening-e2e-evidence.json": "897a2a9b1138d24c0b17199c4e55095f0df1e5b808ad9d10e73c54254742fb41",
+        "validation/history/corrected-run-index.json": "e2ae90a9877556fd462f359d139a2e6479c46aa9077a40a647d713769fe45e36"
+      },
+      "container_id": "92878a9ead56826cab338899fb4d46189f326ee57e654dec30fbad34b088881e",
+      "command": [
+        "docker",
+        "exec",
+        "92878a9ead56826cab338899fb4d46189f326ee57e654dec30fbad34b088881e",
+        "python3",
+        "/challenge/run_challenge.py"
+      ],
+      "exit_code": 0,
+      "actual_pass": true,
+      "typed_failure_marker": false,
+      "status": "expected_outcome",
+      "recorded_at": "2026-09-09T04:03:58.768452+00:00",
+      "raw_artifacts": {
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-oracle-final/apply.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-oracle-final/challenge.log": "cdd6e48b89207ae1dccd1b138c015836737a88867e10b904f31362c9a415b6e4",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-oracle-final/record.json": "dc9288037dc76edac26c11a213ea08a5bc8fa55256726587543d048567ab6cda",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-oracle-final/logs/challenge/challenge-manifest.json": "5ba44cfaa095419d04eda871cad625390bbbf8a58cf93ad1fa64141cc6ff39a3",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-oracle-final/logs/challenge/challenge-fresh-interleaved-discard-5req.log": "ed53de6d5a9bc2a415ef458285021f6245fa66fd194be40d36b737706d2b5430"
+      }
+    },
+    {
+      "case": "alternate-inline-nccl",
+      "expected_pass": true,
+      "image_id": "sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69",
+      "gpu_uuids": [
+        "GPU-46c9b5d9-82f9-7bca-374e-6441ff3361c6",
+        "GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710"
+      ],
+      "scope": "independent direct-container challenge, not a Harbor trial",
+      "files": {
+        ".dockerignore": "cf9143fdfce145f9234e589317912e7c9fad341276064294f22da3946d23758e",
+        "instruction.md": "73ff49c4756cbdefe81beadca45ac9bc97da1dd47f37b8ce833b0e559d358e9e",
+        "task.toml": "2abc0aa79191a513828af49c96b169e6140cef1db53301af2cac534ccf52b34d",
+        "environment/.dockerignore": "20fbcdd9e55a74487fa7c55f5303f09341e79f19e921d369d1fe6dcb924b813d",
+        "environment/Dockerfile": "fd9de7abd2e3a7ad8bd054595bc115434d97184bf0c2c2f7355feff132a830d9",
+        "environment/image-manifest.json": "59b0fe4aa9c49dfa1a917273dd14d43f857a1e805c50b794324d4effe6b03a64",
+        "environment/lock/README.md": "3124edb35f17a63963197e2dfb3ab6a0e2bc8fb8befe1c824fad0f1571bcb9e2",
+        "environment/lock/manifest.json": "14f95bc6b0c8b04cdc3f4dd00d95224f0835db5ba9248e1966c23e7e31140569",
+        "environment/lock/native-donor.json": "ff142de32c96e742d37ed5485bad1a0e9b2030bc2932bdb7e980909ba7d95915",
+        "environment/lock/requirements.txt": "647f706918a48499b9ac2cf98d1875b910bf0d4e52dc4bddd6e03a9508585be5",
+        "environment/lock/runtime-native.json": "275b24e6ea8a9a538b1d9afa6aff2b554f099d5b8e2ab4f3a19b10f5b789edd2",
+        "solution/oracle.patch": "c35873d77329d7da9ba739b085a21a386a2c9ed1abd70c0aa0b686a3ff043860",
+        "solution/solve.sh": "fcc259e7375224d93400b776de248e11f47c6c31a3b4af9752c53a9154cdd407",
+        "tests/test.sh": "547b3a91daf54a9931ebfd2388c1171d69a50892f2b23ca61dbdf5c6c94c4f34",
+        "tests/verify_async_pp.py": "bc6b781476bfff4e2b81400da848a198fe19111cd46fe4491352c08dcefaf6b3",
+        "tests/trusted_supervisor.py": "5521b8200033007c0179dc710587b2c198c64458d2f145c348099dabda37993c",
+        "tests/task_fixtures.py": "1a5f635750a1ce1634f75332375b1e1f845c1f79dfd68414318ecbcf7796fe77",
+        "tests/worker_fixtures.py": "6284c0e1577b8008e177fda0ab434417b4b5e5345d28134bb83520d92727c8aa",
+        "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+        "tests/fixtures/opt-125m/config.json": "54162c9cd0377110df1859dfabebb106fc0988c8aadb88207ce1ee0d34985df6",
+        "validation/alternate-inline-nccl.patch": "937a2a6267b67136b268c9fa429a347c45b26244f0e99411a98850d41b127f16",
+        "validation/ci-cases.json": "d75260071da3e3066c6ec12d18ce3126e12a3713cc8db7fb197e9c5f76fba8a5",
+        "validation/cpu-sync-object-collective.patch": "3d5e505c532a43c4be145fa70e34f73dadedcfee38743c7dd8469d5340eabe82",
+        "validation/docker-build.md": "99c64604edd1e39e32c7bacc57a6eed6b3833f861d6e36f691b23e9c2df88e6e",
+        "validation/semantic-boundary.md": "4fae1ccb31dbbbdbf946ee3688909242596afac006196fb712bf4144e320e07e",
+        "validation/early-system-exit.patch": "acb206aed190703bcecf5420c59f7aafc24ae158a5800fb1f788349b33ee967f",
+        "validation/early-os-exit.patch": "185182fbfd8e64e5e1fdd618fb948a800a70e1789019717a261ad5cceb05d505",
+        "validation/post-broadcast-failure.patch": "15bd482ff4c00026f8fd5883ba91a2102e49806a41a414aec27ccd01a2a7ce60",
+        "validation/local-regressions.json": "c8cd6e75ea0149298a71e374c973396485d1b6536401bb61725d973dad785b05",
+        "validation/group-coordinator-broadcast.patch": "35a901441b5951771023b596dd9136e33e7f1c4541acc329773a8e08524367f3",
+        "validation/final-review.md": "252f4d7482f4d5770b1b09ceeb6b7f80a806b8c2835f4c3d8cd54555ea30ccac",
+        "validation/constructor-owned-transport.patch": "7deab219dd6b58094edc5eb2bbe4e3787c4c4967e5c1e982e8b44d981336664f",
+        "validation/challenge/README.md": "5b5034a278fc213824c46071d269bcf5dbf2938a9e1b857b3a55e188d8ccd437",
+        "validation/challenge/challenge_token_handoff.py": "e2ed97464f27754bf1b3dfd86a33f7525ff40c4c1c31bbf9249ef5b04ed16ba6",
+        "validation/challenge/run_challenge.py": "8614ae3c3b2bff92fa5d64d2ab5cb80ef08ba72b0ff1937474f522577d6aca25",
+        "validation/history/pre-hardening-e2e-evidence.json": "897a2a9b1138d24c0b17199c4e55095f0df1e5b808ad9d10e73c54254742fb41",
+        "validation/history/corrected-run-index.json": "e2ae90a9877556fd462f359d139a2e6479c46aa9077a40a647d713769fe45e36"
+      },
+      "container_id": "4616669f3be0c1e7eef2610fd581fd53ccdb21e53afebc661e21d197469a9c7e",
+      "command": [
+        "docker",
+        "exec",
+        "4616669f3be0c1e7eef2610fd581fd53ccdb21e53afebc661e21d197469a9c7e",
+        "python3",
+        "/challenge/run_challenge.py"
+      ],
+      "exit_code": 0,
+      "actual_pass": true,
+      "typed_failure_marker": false,
+      "status": "expected_outcome",
+      "recorded_at": "2026-09-09T04:04:30.636259+00:00",
+      "raw_artifacts": {
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-alternate-inline-nccl-final/apply.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-alternate-inline-nccl-final/challenge.log": "cdd6e48b89207ae1dccd1b138c015836737a88867e10b904f31362c9a415b6e4",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-alternate-inline-nccl-final/record.json": "52b2dd5d2af7297f069e5a72a537603b88083337e95c024a9a222c8ae30e9c0a",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-alternate-inline-nccl-final/logs/challenge/challenge-manifest.json": "5ba44cfaa095419d04eda871cad625390bbbf8a58cf93ad1fa64141cc6ff39a3",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-alternate-inline-nccl-final/logs/challenge/challenge-fresh-interleaved-discard-5req.log": "2f4c6597bb3bff0fab408d5c5a841f8bd0d2c3a78605ec7f8f1c38254cb5a6f2"
+      }
+    },
+    {
+      "case": "constructor-owned-transport",
+      "expected_pass": true,
+      "image_id": "sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69",
+      "gpu_uuids": [
+        "GPU-46c9b5d9-82f9-7bca-374e-6441ff3361c6",
+        "GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710"
+      ],
+      "scope": "independent direct-container challenge, not a Harbor trial",
+      "files": {
+        ".dockerignore": "cf9143fdfce145f9234e589317912e7c9fad341276064294f22da3946d23758e",
+        "instruction.md": "73ff49c4756cbdefe81beadca45ac9bc97da1dd47f37b8ce833b0e559d358e9e",
+        "task.toml": "2abc0aa79191a513828af49c96b169e6140cef1db53301af2cac534ccf52b34d",
+        "environment/.dockerignore": "20fbcdd9e55a74487fa7c55f5303f09341e79f19e921d369d1fe6dcb924b813d",
+        "environment/Dockerfile": "fd9de7abd2e3a7ad8bd054595bc115434d97184bf0c2c2f7355feff132a830d9",
+        "environment/image-manifest.json": "59b0fe4aa9c49dfa1a917273dd14d43f857a1e805c50b794324d4effe6b03a64",
+        "environment/lock/README.md": "3124edb35f17a63963197e2dfb3ab6a0e2bc8fb8befe1c824fad0f1571bcb9e2",
+        "environment/lock/manifest.json": "14f95bc6b0c8b04cdc3f4dd00d95224f0835db5ba9248e1966c23e7e31140569",
+        "environment/lock/native-donor.json": "ff142de32c96e742d37ed5485bad1a0e9b2030bc2932bdb7e980909ba7d95915",
+        "environment/lock/requirements.txt": "647f706918a48499b9ac2cf98d1875b910bf0d4e52dc4bddd6e03a9508585be5",
+        "environment/lock/runtime-native.json": "275b24e6ea8a9a538b1d9afa6aff2b554f099d5b8e2ab4f3a19b10f5b789edd2",
+        "solution/oracle.patch": "c35873d77329d7da9ba739b085a21a386a2c9ed1abd70c0aa0b686a3ff043860",
+        "solution/solve.sh": "fcc259e7375224d93400b776de248e11f47c6c31a3b4af9752c53a9154cdd407",
+        "tests/test.sh": "547b3a91daf54a9931ebfd2388c1171d69a50892f2b23ca61dbdf5c6c94c4f34",
+        "tests/verify_async_pp.py": "bc6b781476bfff4e2b81400da848a198fe19111cd46fe4491352c08dcefaf6b3",
+        "tests/trusted_supervisor.py": "5521b8200033007c0179dc710587b2c198c64458d2f145c348099dabda37993c",
+        "tests/task_fixtures.py": "1a5f635750a1ce1634f75332375b1e1f845c1f79dfd68414318ecbcf7796fe77",
+        "tests/worker_fixtures.py": "6284c0e1577b8008e177fda0ab434417b4b5e5345d28134bb83520d92727c8aa",
+        "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+        "tests/fixtures/opt-125m/config.json": "54162c9cd0377110df1859dfabebb106fc0988c8aadb88207ce1ee0d34985df6",
+        "validation/alternate-inline-nccl.patch": "937a2a6267b67136b268c9fa429a347c45b26244f0e99411a98850d41b127f16",
+        "validation/ci-cases.json": "d75260071da3e3066c6ec12d18ce3126e12a3713cc8db7fb197e9c5f76fba8a5",
+        "validation/cpu-sync-object-collective.patch": "3d5e505c532a43c4be145fa70e34f73dadedcfee38743c7dd8469d5340eabe82",
+        "validation/docker-build.md": "99c64604edd1e39e32c7bacc57a6eed6b3833f861d6e36f691b23e9c2df88e6e",
+        "validation/semantic-boundary.md": "4fae1ccb31dbbbdbf946ee3688909242596afac006196fb712bf4144e320e07e",
+        "validation/early-system-exit.patch": "acb206aed190703bcecf5420c59f7aafc24ae158a5800fb1f788349b33ee967f",
+        "validation/early-os-exit.patch": "185182fbfd8e64e5e1fdd618fb948a800a70e1789019717a261ad5cceb05d505",
+        "validation/post-broadcast-failure.patch": "15bd482ff4c00026f8fd5883ba91a2102e49806a41a414aec27ccd01a2a7ce60",
+        "validation/local-regressions.json": "c8cd6e75ea0149298a71e374c973396485d1b6536401bb61725d973dad785b05",
+        "validation/group-coordinator-broadcast.patch": "35a901441b5951771023b596dd9136e33e7f1c4541acc329773a8e08524367f3",
+        "validation/final-review.md": "252f4d7482f4d5770b1b09ceeb6b7f80a806b8c2835f4c3d8cd54555ea30ccac",
+        "validation/constructor-owned-transport.patch": "7deab219dd6b58094edc5eb2bbe4e3787c4c4967e5c1e982e8b44d981336664f",
+        "validation/challenge/README.md": "5b5034a278fc213824c46071d269bcf5dbf2938a9e1b857b3a55e188d8ccd437",
+        "validation/challenge/challenge_token_handoff.py": "e2ed97464f27754bf1b3dfd86a33f7525ff40c4c1c31bbf9249ef5b04ed16ba6",
+        "validation/challenge/run_challenge.py": "8614ae3c3b2bff92fa5d64d2ab5cb80ef08ba72b0ff1937474f522577d6aca25",
+        "validation/history/pre-hardening-e2e-evidence.json": "897a2a9b1138d24c0b17199c4e55095f0df1e5b808ad9d10e73c54254742fb41",
+        "validation/history/corrected-run-index.json": "e2ae90a9877556fd462f359d139a2e6479c46aa9077a40a647d713769fe45e36"
+      },
+      "container_id": "3e70c035a86e873dbe8bcaa6ac59a7e3570c661169393e7cd6c69e72997d4586",
+      "command": [
+        "docker",
+        "exec",
+        "3e70c035a86e873dbe8bcaa6ac59a7e3570c661169393e7cd6c69e72997d4586",
+        "python3",
+        "/challenge/run_challenge.py"
+      ],
+      "exit_code": 0,
+      "actual_pass": true,
+      "typed_failure_marker": false,
+      "status": "expected_outcome",
+      "recorded_at": "2026-09-09T04:05:04.166748+00:00",
+      "raw_artifacts": {
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-constructor-owned-transport-final/apply.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-constructor-owned-transport-final/challenge.log": "cdd6e48b89207ae1dccd1b138c015836737a88867e10b904f31362c9a415b6e4",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-constructor-owned-transport-final/record.json": "a6bb0e34a5e6d2c04cc820f15e840daca65d665fd15a7997c815bee8b4cac3a4",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-constructor-owned-transport-final/logs/challenge/challenge-manifest.json": "5ba44cfaa095419d04eda871cad625390bbbf8a58cf93ad1fa64141cc6ff39a3",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-constructor-owned-transport-final/logs/challenge/challenge-fresh-interleaved-discard-5req.log": "c4bf6cce9f678afe49eb7a1f55d6bb6b3d988a49022d3cc3dec80d1a46b035f3"
+      }
+    },
+    {
+      "case": "cpu-sync-object-collective",
+      "expected_pass": false,
+      "image_id": "sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69",
+      "gpu_uuids": [
+        "GPU-46c9b5d9-82f9-7bca-374e-6441ff3361c6",
+        "GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710"
+      ],
+      "scope": "independent direct-container challenge, not a Harbor trial",
+      "files": {
+        ".dockerignore": "cf9143fdfce145f9234e589317912e7c9fad341276064294f22da3946d23758e",
+        "instruction.md": "73ff49c4756cbdefe81beadca45ac9bc97da1dd47f37b8ce833b0e559d358e9e",
+        "task.toml": "2abc0aa79191a513828af49c96b169e6140cef1db53301af2cac534ccf52b34d",
+        "environment/.dockerignore": "20fbcdd9e55a74487fa7c55f5303f09341e79f19e921d369d1fe6dcb924b813d",
+        "environment/Dockerfile": "fd9de7abd2e3a7ad8bd054595bc115434d97184bf0c2c2f7355feff132a830d9",
+        "environment/image-manifest.json": "59b0fe4aa9c49dfa1a917273dd14d43f857a1e805c50b794324d4effe6b03a64",
+        "environment/lock/README.md": "3124edb35f17a63963197e2dfb3ab6a0e2bc8fb8befe1c824fad0f1571bcb9e2",
+        "environment/lock/manifest.json": "14f95bc6b0c8b04cdc3f4dd00d95224f0835db5ba9248e1966c23e7e31140569",
+        "environment/lock/native-donor.json": "ff142de32c96e742d37ed5485bad1a0e9b2030bc2932bdb7e980909ba7d95915",
+        "environment/lock/requirements.txt": "647f706918a48499b9ac2cf98d1875b910bf0d4e52dc4bddd6e03a9508585be5",
+        "environment/lock/runtime-native.json": "275b24e6ea8a9a538b1d9afa6aff2b554f099d5b8e2ab4f3a19b10f5b789edd2",
+        "solution/oracle.patch": "c35873d77329d7da9ba739b085a21a386a2c9ed1abd70c0aa0b686a3ff043860",
+        "solution/solve.sh": "fcc259e7375224d93400b776de248e11f47c6c31a3b4af9752c53a9154cdd407",
+        "tests/test.sh": "547b3a91daf54a9931ebfd2388c1171d69a50892f2b23ca61dbdf5c6c94c4f34",
+        "tests/verify_async_pp.py": "bc6b781476bfff4e2b81400da848a198fe19111cd46fe4491352c08dcefaf6b3",
+        "tests/trusted_supervisor.py": "5521b8200033007c0179dc710587b2c198c64458d2f145c348099dabda37993c",
+        "tests/task_fixtures.py": "1a5f635750a1ce1634f75332375b1e1f845c1f79dfd68414318ecbcf7796fe77",
+        "tests/worker_fixtures.py": "6284c0e1577b8008e177fda0ab434417b4b5e5345d28134bb83520d92727c8aa",
+        "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+        "tests/fixtures/opt-125m/config.json": "54162c9cd0377110df1859dfabebb106fc0988c8aadb88207ce1ee0d34985df6",
+        "validation/alternate-inline-nccl.patch": "937a2a6267b67136b268c9fa429a347c45b26244f0e99411a98850d41b127f16",
+        "validation/ci-cases.json": "d75260071da3e3066c6ec12d18ce3126e12a3713cc8db7fb197e9c5f76fba8a5",
+        "validation/cpu-sync-object-collective.patch": "3d5e505c532a43c4be145fa70e34f73dadedcfee38743c7dd8469d5340eabe82",
+        "validation/docker-build.md": "99c64604edd1e39e32c7bacc57a6eed6b3833f861d6e36f691b23e9c2df88e6e",
+        "validation/semantic-boundary.md": "4fae1ccb31dbbbdbf946ee3688909242596afac006196fb712bf4144e320e07e",
+        "validation/early-system-exit.patch": "acb206aed190703bcecf5420c59f7aafc24ae158a5800fb1f788349b33ee967f",
+        "validation/early-os-exit.patch": "185182fbfd8e64e5e1fdd618fb948a800a70e1789019717a261ad5cceb05d505",
+        "validation/post-broadcast-failure.patch": "15bd482ff4c00026f8fd5883ba91a2102e49806a41a414aec27ccd01a2a7ce60",
+        "validation/local-regressions.json": "c8cd6e75ea0149298a71e374c973396485d1b6536401bb61725d973dad785b05",
+        "validation/group-coordinator-broadcast.patch": "35a901441b5951771023b596dd9136e33e7f1c4541acc329773a8e08524367f3",
+        "validation/final-review.md": "252f4d7482f4d5770b1b09ceeb6b7f80a806b8c2835f4c3d8cd54555ea30ccac",
+        "validation/constructor-owned-transport.patch": "7deab219dd6b58094edc5eb2bbe4e3787c4c4967e5c1e982e8b44d981336664f",
+        "validation/challenge/README.md": "5b5034a278fc213824c46071d269bcf5dbf2938a9e1b857b3a55e188d8ccd437",
+        "validation/challenge/challenge_token_handoff.py": "e2ed97464f27754bf1b3dfd86a33f7525ff40c4c1c31bbf9249ef5b04ed16ba6",
+        "validation/challenge/run_challenge.py": "8614ae3c3b2bff92fa5d64d2ab5cb80ef08ba72b0ff1937474f522577d6aca25",
+        "validation/history/pre-hardening-e2e-evidence.json": "897a2a9b1138d24c0b17199c4e55095f0df1e5b808ad9d10e73c54254742fb41",
+        "validation/history/corrected-run-index.json": "e2ae90a9877556fd462f359d139a2e6479c46aa9077a40a647d713769fe45e36"
+      },
+      "container_id": "0a9367155a165bbf2fc6de3f03fea84c28612c1d76473441cae271a828b816bc",
+      "command": [
+        "docker",
+        "exec",
+        "0a9367155a165bbf2fc6de3f03fea84c28612c1d76473441cae271a828b816bc",
+        "python3",
+        "/challenge/run_challenge.py"
+      ],
+      "exit_code": 1,
+      "actual_pass": false,
+      "typed_failure_marker": true,
+      "status": "expected_outcome",
+      "recorded_at": "2026-09-09T04:05:36.739285+00:00",
+      "raw_artifacts": {
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-cpu-sync-object-collective-final/apply.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-cpu-sync-object-collective-final/challenge.log": "d9665e7e59d01539192325227bd01fee27ed9e526f445a4396d8274ba9e47699",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-cpu-sync-object-collective-final/record.json": "6546361d7401f33da98947b6db0d9ddac893fef48cdd7b05db3b88dd37942070",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-cpu-sync-object-collective-final/logs/challenge/challenge-manifest.json": "044d8a8d6eb92c5300b8f7bd787904ed0d1f50d0a872743104d6bf46446cd453",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-cpu-sync-object-collective-final/logs/challenge/challenge-fresh-interleaved-discard-5req.log": "a523575ef24824e89d6e6da594e7ad764b8b856a80249fb8c1b423a4396df143"
+      }
+    },
+    {
+      "case": "group-coordinator-broadcast",
+      "expected_pass": true,
+      "image_id": "sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69",
+      "gpu_uuids": [
+        "GPU-46c9b5d9-82f9-7bca-374e-6441ff3361c6",
+        "GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710"
+      ],
+      "scope": "independent direct-container challenge, not a Harbor trial",
+      "files": {
+        ".dockerignore": "cf9143fdfce145f9234e589317912e7c9fad341276064294f22da3946d23758e",
+        "instruction.md": "73ff49c4756cbdefe81beadca45ac9bc97da1dd47f37b8ce833b0e559d358e9e",
+        "task.toml": "2abc0aa79191a513828af49c96b169e6140cef1db53301af2cac534ccf52b34d",
+        "environment/.dockerignore": "20fbcdd9e55a74487fa7c55f5303f09341e79f19e921d369d1fe6dcb924b813d",
+        "environment/Dockerfile": "fd9de7abd2e3a7ad8bd054595bc115434d97184bf0c2c2f7355feff132a830d9",
+        "environment/image-manifest.json": "59b0fe4aa9c49dfa1a917273dd14d43f857a1e805c50b794324d4effe6b03a64",
+        "environment/lock/README.md": "3124edb35f17a63963197e2dfb3ab6a0e2bc8fb8befe1c824fad0f1571bcb9e2",
+        "environment/lock/manifest.json": "14f95bc6b0c8b04cdc3f4dd00d95224f0835db5ba9248e1966c23e7e31140569",
+        "environment/lock/native-donor.json": "ff142de32c96e742d37ed5485bad1a0e9b2030bc2932bdb7e980909ba7d95915",
+        "environment/lock/requirements.txt": "647f706918a48499b9ac2cf98d1875b910bf0d4e52dc4bddd6e03a9508585be5",
+        "environment/lock/runtime-native.json": "275b24e6ea8a9a538b1d9afa6aff2b554f099d5b8e2ab4f3a19b10f5b789edd2",
+        "solution/oracle.patch": "c35873d77329d7da9ba739b085a21a386a2c9ed1abd70c0aa0b686a3ff043860",
+        "solution/solve.sh": "fcc259e7375224d93400b776de248e11f47c6c31a3b4af9752c53a9154cdd407",
+        "tests/test.sh": "547b3a91daf54a9931ebfd2388c1171d69a50892f2b23ca61dbdf5c6c94c4f34",
+        "tests/verify_async_pp.py": "bc6b781476bfff4e2b81400da848a198fe19111cd46fe4491352c08dcefaf6b3",
+        "tests/trusted_supervisor.py": "5521b8200033007c0179dc710587b2c198c64458d2f145c348099dabda37993c",
+        "tests/task_fixtures.py": "1a5f635750a1ce1634f75332375b1e1f845c1f79dfd68414318ecbcf7796fe77",
+        "tests/worker_fixtures.py": "6284c0e1577b8008e177fda0ab434417b4b5e5345d28134bb83520d92727c8aa",
+        "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+        "tests/fixtures/opt-125m/config.json": "54162c9cd0377110df1859dfabebb106fc0988c8aadb88207ce1ee0d34985df6",
+        "validation/alternate-inline-nccl.patch": "937a2a6267b67136b268c9fa429a347c45b26244f0e99411a98850d41b127f16",
+        "validation/ci-cases.json": "d75260071da3e3066c6ec12d18ce3126e12a3713cc8db7fb197e9c5f76fba8a5",
+        "validation/cpu-sync-object-collective.patch": "3d5e505c532a43c4be145fa70e34f73dadedcfee38743c7dd8469d5340eabe82",
+        "validation/docker-build.md": "99c64604edd1e39e32c7bacc57a6eed6b3833f861d6e36f691b23e9c2df88e6e",
+        "validation/semantic-boundary.md": "4fae1ccb31dbbbdbf946ee3688909242596afac006196fb712bf4144e320e07e",
+        "validation/early-system-exit.patch": "acb206aed190703bcecf5420c59f7aafc24ae158a5800fb1f788349b33ee967f",
+        "validation/early-os-exit.patch": "185182fbfd8e64e5e1fdd618fb948a800a70e1789019717a261ad5cceb05d505",
+        "validation/post-broadcast-failure.patch": "15bd482ff4c00026f8fd5883ba91a2102e49806a41a414aec27ccd01a2a7ce60",
+        "validation/local-regressions.json": "c8cd6e75ea0149298a71e374c973396485d1b6536401bb61725d973dad785b05",
+        "validation/group-coordinator-broadcast.patch": "35a901441b5951771023b596dd9136e33e7f1c4541acc329773a8e08524367f3",
+        "validation/final-review.md": "252f4d7482f4d5770b1b09ceeb6b7f80a806b8c2835f4c3d8cd54555ea30ccac",
+        "validation/constructor-owned-transport.patch": "7deab219dd6b58094edc5eb2bbe4e3787c4c4967e5c1e982e8b44d981336664f",
+        "validation/challenge/README.md": "5b5034a278fc213824c46071d269bcf5dbf2938a9e1b857b3a55e188d8ccd437",
+        "validation/challenge/challenge_token_handoff.py": "e2ed97464f27754bf1b3dfd86a33f7525ff40c4c1c31bbf9249ef5b04ed16ba6",
+        "validation/challenge/run_challenge.py": "8614ae3c3b2bff92fa5d64d2ab5cb80ef08ba72b0ff1937474f522577d6aca25",
+        "validation/history/pre-hardening-e2e-evidence.json": "897a2a9b1138d24c0b17199c4e55095f0df1e5b808ad9d10e73c54254742fb41",
+        "validation/history/corrected-run-index.json": "e2ae90a9877556fd462f359d139a2e6479c46aa9077a40a647d713769fe45e36"
+      },
+      "container_id": "84832a87f420b38ac75031cc242d91368a76497b3e251b73fd5e4cf87388100e",
+      "command": [
+        "docker",
+        "exec",
+        "84832a87f420b38ac75031cc242d91368a76497b3e251b73fd5e4cf87388100e",
+        "python3",
+        "/challenge/run_challenge.py"
+      ],
+      "exit_code": 0,
+      "actual_pass": true,
+      "typed_failure_marker": false,
+      "status": "expected_outcome",
+      "recorded_at": "2026-09-09T04:06:09.539515+00:00",
+      "raw_artifacts": {
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-group-coordinator-broadcast-final/apply.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-group-coordinator-broadcast-final/challenge.log": "cdd6e48b89207ae1dccd1b138c015836737a88867e10b904f31362c9a415b6e4",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-group-coordinator-broadcast-final/record.json": "29670ead9acbfd6b9c819620a8ea9d6e51aa278c1c1f3155d80fb676d6183dd9",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-group-coordinator-broadcast-final/logs/challenge/challenge-manifest.json": "5ba44cfaa095419d04eda871cad625390bbbf8a58cf93ad1fa64141cc6ff39a3",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/challenges/pr18-group-coordinator-broadcast-final/logs/challenge/challenge-fresh-interleaved-discard-5req.log": "ad37beba311e62f77595edff6afc80b6d760834064397b2f35f07892c93b113a"
+      }
+    }
+  ],
+  "regression": {
+    "same_correct_candidate_patch_sha256": "7deab219dd6b58094edc5eb2bbe4e3787c4c4967e5c1e982e8b44d981336664f",
+    "before": {
+      "case": "constructor-owned-transport",
+      "scope": "full Harbor run",
+      "run_root": "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before",
+      "expected_reward": 1,
+      "actual_reward": 0.0,
+      "current_executable_hashes_match": false,
+      "differences": [
+        "tests/verify_async_pp.py",
+        "tests/worker_fixtures.py",
+        "validation/challenge/challenge_token_handoff.py",
+        "validation/ci-cases.json",
+        "validation/group-coordinator-broadcast.patch",
+        "validation/post-broadcast-failure.patch"
+      ],
+      "job_id": "042aa010-36a3-48f1-8ebd-2efccfb333ed",
+      "trial_id": "244e0975-85b2-4e84-97b7-4982de7a3f1a",
+      "task_checksum": "d351930b1cb59d709b65dbbf4e19bc7c485157a8af032b3266f1ca574a117b09",
+      "harbor_errors": 0,
+      "harbor_exit_code": 0,
+      "gpu_uuids": [
+        "GPU-80425545-47ae-bd24-9051-ba17a38ce9f8",
+        "GPU-a6a45da0-8978-3ea7-4fa0-1786ea9f3329"
+      ],
+      "image_id": "sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69",
+      "command": [
+        "harbor",
+        "run",
+        "--config",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/harbor-config.json",
+        "-y"
+      ],
+      "raw_artifacts": {
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/run-record.json": "818d2bd80b49c830503cf3f6974f06469cde55ef0b585bb8c0834b8049c4a7f2",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/harbor-config.json": "538cc987a431eee1556cc9f38b3f96ba9519987536b93d495e3b703aed443801",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/harbor.log": "1ead70ba03d3efdcdf9898f1887ee0abee7362f6217b55c4f2f19621d10fc775",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/agent-canary.log": "e7c3e0e53810f76a618c707fd56148fb257c0d70c9059821f24dcfa1a88af5ab",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/result-check.log": "8edaf583c1002afe583935be3aa22769995bc25440fa004b853308ae9a175766",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/result.json": "0e22e9a8381e7aa6945e07500462a6f985c78a70d019452acb410f6d2c8e210c",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/result.json": "464763e60b77ee16f11570d56f2eb3e22bc84f64c4f61188a029b5d8eceeefe5",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/test-stdout.txt": "bdef26605c81418f2f33c206411dc7bf556d372f85ac65c844f8978910117d47",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/preflight.log": "1951dd4a9e47fd51ab9646aab59390804e9b42a3f4fdecc10389361ee228f49a",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/supervisor.log": "d7bc6bace9f094e5d5f58a6438bfa8d6141c5e34bfce16767616d1346dddd0c3",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/supervisor-manifest.json": "4a3128ccbcdf4adbfff4c5155d12d4116b145e9b1dd7b735f4aaad1ee8b1f485",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/challenge-CONFIG.json": "c9ef6d649b089548e19929c770e2117169b6a79018c75ce8bc83e7d5e0a251d6",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/stage-CONFIG-rank0.log": "25733047180d53e6fee2812909bc2feebac1dc61bd35698cfaf1f172ccccab9b",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/challenge-SCHEDULER_REENTRY.json": "fbb03cc8b1d17871fa6d29d2f3e8602f379ecd9a014f2165272d6cc1499bdbe4",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/stage-SCHEDULER_REENTRY-rank0.log": "b513c04e76e90963291472fb7c6f6350c88bef393109b330a0f2209c2b6cefaa",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/challenge-NCCL_BASIC.json": "fddc12eba953a405342294cb0a88e67f97891d6ed63ecb32e1f18c81f935076c",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/stage-NCCL_BASIC-rank1.log": "d5ed62388126ff0c74f533d7f75148a6022ba9d50991bc1fb23c14f1195ecd43",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/stage-NCCL_BASIC-rank0.log": "b1c5d2be5638bdd0d5222d1f72f8d77f410e6b09b1a44d85a2d5bb755820842d",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/challenge-NCCL_REORDERED.json": "031a87d603a55d3909f9efcd52973e7a65a36b837c667a2becd455a5508b1516",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/stage-NCCL_REORDERED-rank0.log": "bbd831fe06a68b18b1e2bfb02e03e784d34d3fc773de9d2a7ea5f848e466ca0d",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/stage-NCCL_REORDERED-rank1.log": "8ee27220aa5332c287d351e5453f2ae21dc6cfbeb6122fbb5d0057c17362b7af",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/challenge-NCCL_INTEGRATED.json": "06869df58b541d1e578f006d5d5e9d56ff8bcad3224439f00a625fe0f81f3323",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/stage-NCCL_INTEGRATED-rank1.log": "9fa6e4cc85f4ec0ee0f6a800f48362dfdcb16604df77071cfef5dd907fb660c6",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/stage-NCCL_INTEGRATED-rank0.log": "d29220806ec480fd3384a3ba77d63dab8ec13c0aa7c6b4dbd02da9a8e97b6955",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/supervisor-exit.txt": "6b1679a6351a603d9b2e89bfc33203eec034054aad95b8e9c1b8189ec7f09449",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/scoring.log": "cd0c2e68b08e0fd55e0e548440a45ae2072fd269c35299e889295a7d5ab2200c",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/stages.json": "f55d629e940e7bebcd52a0d99d83e7ef5bb6d133c2ad928e7beeec63ecdb3528",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-before/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__wxzarrj/verifier/failure-stage.txt": "7cfde5a89ca603c628c1799e7817b13f792b17ecf07b808b006aac7c23833f48"
+      },
+      "verdict": "FAIL",
+      "stages": {
+        "CONFIG": true,
+        "NCCL_BASIC": false,
+        "NCCL_INTEGRATED": false,
+        "NCCL_REORDERED": false,
+        "SCHEDULER_REENTRY": true
+      },
+      "infra_error_observed": true
+    },
+    "after_probe": {
+      "case": "constructor-owned-transport",
+      "scope": "full Harbor run",
+      "run_root": "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe",
+      "expected_reward": 1,
+      "actual_reward": 1.0,
+      "current_executable_hashes_match": false,
+      "differences": [
+        "validation/ci-cases.json",
+        "validation/group-coordinator-broadcast.patch",
+        "validation/post-broadcast-failure.patch"
+      ],
+      "job_id": "7e48d1d9-52ab-41e2-95d4-1fa18290f8cb",
+      "trial_id": "1c8cc3d5-7733-42d4-b5e3-2a8314687cfa",
+      "task_checksum": "4ed2da4649b9703201a4e9471ffc53d7627a14533680bb05d7888b2cfe077294",
+      "harbor_errors": 0,
+      "harbor_exit_code": 0,
+      "gpu_uuids": [
+        "GPU-3815a178-ad22-4b81-5669-0533760a7e6b",
+        "GPU-3884436a-fd17-98d2-5dad-4ef79dd14589"
+      ],
+      "image_id": "sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69",
+      "command": [
+        "harbor",
+        "run",
+        "--config",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/harbor-config.json",
+        "-y"
+      ],
+      "raw_artifacts": {
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/run-record.json": "94e1b5cd5351ddea750f2a501448767cba6b5e8af1ef886a635000f8fa95c69f",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/harbor-config.json": "4f0ce7c1ee33f26958482e970b7deef2317f4ef3b29a19f085d8dde73a2ef135",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/harbor.log": "a9995f81ddd1c5d63d0bdb52ec861d563b2b282356759cac6a0cec1917d7fe26",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/agent-canary.log": "e7c3e0e53810f76a618c707fd56148fb257c0d70c9059821f24dcfa1a88af5ab",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/result-check.log": "4859607480f3aeeb0ad478ff422af01863a2f16093c4941a9f38c4cf1f4746c8",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/result.json": "19e0dd5f4454733a23f9a78e3415e74aed52541c743193138bfe226157221178",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/result.json": "3c4afad84cefcf1d772b71c890b7041cbd6ca9bf7e2786c17602e14ed87f5990",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/test-stdout.txt": "dc9442f1b7a758f129b4fa6feedfa03e6c1d8aa46f85468092463b3db28d07cc",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/preflight.log": "0ceec6c6d9fb8edde95fd8cc56fc45a5efe53e6c4b2b5f51db75480b71e6f168",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/supervisor.log": "eb3f9d4bd96aefd12e8c2863f781ed573e52d351e51491c83f9d0b18097eb8e4",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/supervisor-manifest.json": "b0d4e2330c9a1978aa669bf302f06b604a3ec939beafa0b0adde43047abb7981",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/challenge-CONFIG.json": "5f4b6e076a6f77d664755c7e8447f009b59d40272eb925ad2a667121b6f14ffa",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/stage-CONFIG-rank0.log": "5f1d95dad2f4cbdf0d3731f2bd9449b6d1c0bfc53995f1373b42b1bb8ec4f5bf",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/challenge-SCHEDULER_REENTRY.json": "97676c021841c1f74c2abe3fa6bfc78aad56d1cbb983b108c9365a6b1f9fe23d",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/stage-SCHEDULER_REENTRY-rank0.log": "df7e81b89b438a37f36d422ceb5c003c544f2e85cd1a186516d0339ddbaafc84",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/challenge-NCCL_BASIC.json": "f23dc422dc8fffea5fb0a083d6380eb1f0b87090ab8405103665cda0b9eecb13",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/stage-NCCL_BASIC-rank1.log": "7bfb001804f13cc3a23543593724892412dd5dae040cd9f8f3b4fb9b2b461a8e",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/stage-NCCL_BASIC-rank0.log": "991c06dbfd02d2a71b27745a343d491ce30f1c59a4ca5de7ed1ecb61507a2df4",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/challenge-NCCL_REORDERED.json": "a71ac5911c03822ebd59676fde01627340603dcd91849fe8879038c52a3e3421",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/stage-NCCL_REORDERED-rank1.log": "47277fcfd80edf8a59d3a72403aa0fae03fe18fa59daf0a292b01177d63ef871",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/stage-NCCL_REORDERED-rank0.log": "88595ffc6f83fd5045af40c47025206c5aee1012e48b3e834db28d9e572393b9",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/challenge-NCCL_INTEGRATED.json": "41900c8853fb30a633baf79984dd5b7cc790cf1947e58d54ca6ad9884bf64ed9",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/stage-NCCL_INTEGRATED-rank1.log": "1ccfe44f48ed5cd6daa7ca5f8e3828474f627161d4304dd60669c33c63f26a4d",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/stage-NCCL_INTEGRATED-rank0.log": "1f0929923fb269eeb24bdb7a230ce7da312d11d2fa0e2c69dca92f23a94653ba",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/supervisor-exit.txt": "f387e93127ea9a37e4575c18c1159a5d36b1a4dd91dcbe90836922cce59b4fcc",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/scoring.log": "e43262d6deb7daa107530343ad9a09c01a9ef6b197267e2d1fcdf4a91004a539",
+        "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-constructor-probe/jobs/vllm-async-pp-token-handoff--constructor-owned-transport/vllm-async-pp-token-handoff__n4nV8sD/verifier/stages.json": "1b0c72850cc68d94daee5163396b7018da990dad50f6ad75199926d44374a90a"
+      },
+      "verdict": "PASS",
+      "stages": {
+        "CONFIG": true,
+        "NCCL_BASIC": true,
+        "NCCL_INTEGRATED": true,
+        "NCCL_REORDERED": true,
+        "SCHEDULER_REENTRY": true
+      },
+      "infra_error_observed": false
+    },
+    "note": "Only current final matrix/final Oracle certify the final packaging. This probe establishes the constructor regression."
+  },
+  "prior_review_superseded": "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/before/pr18/validation/e2e-evidence.json",
+  "prior_review_correction": "Previous Oracle/control success did not establish compatibility/fairness at these newly confirmed boundaries. Old results remain historical.",
+  "environment_audit": {
+    "unchanged_build_inputs": true,
+    "image_rebuilt": false,
+    "checks": {
+      "agent-inspection": 0,
+      "image-inspect": 0,
+      "image-history": 0,
+      "repository-image-check": 0,
+      "image_patch_errors": 0,
+      "image_patch_warnings": 0
+    },
+    "raw_artifacts": {
+      "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/image-audits/pr18/agent-inspection.log": "aee62b4f017cbc69468bab1dd87a6a83bd6d09654f58618f6b68062101c1ea14",
+      "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/image-audits/pr18/image-inspect.log": "3abd47bd5bc886057249c5d59289f40d568390285053cd531aef5447aa65d745",
+      "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/image-audits/pr18/image-history.log": "2d28ec215ab1e9115ccdeb1830c9f54506d412be1a0fdc3906ded0d75e818ae3",
+      "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/image-audits/pr18/repository-image-check.log": "a5bfb16b57e5d057495343ce23ad9f367aeb0f41ce904aaeb70ca1b5935240dd",
+      "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/image-audits/pr18/results.json": "58bec0b8f198466e2fbf03180910131d71e0830d0fa0c88183c9e34acef36dc3"
+    }
+  },
+  "skill": {
+    "path": "/tmp/ai-infra-task-review-main-20260908/.agents/skills/ai-infra-bench-task-review",
+    "file_hashes": {
+      "SKILL.md": "d95343d9408abd45190c0061eca41abf66ed6be3ca5471e2039e5759d5c7bacb",
+      "references/review-rubric.md": "c4413205916752c5fc793e26c74a20d15e2538b7043fe612c1741e7fa9901167",
+      "references/validation-playbook.md": "803fc8d1b120753003db681b20f1990d697f01ae52952e121255071af86a342e",
+      "scripts/audit_task_artifacts.py": "3c4f882ed2aa3542ddbb2d2c51522819be17dc22a12f2cd492076bd882190022"
+    }
+  },
+  "worktree_provenance": {
+    "/data/yinchen/ai-infra-bench-pr18-fix": {
+      "head": "cb2de7fee4ae86c7df3fdbd6de0a2102352aa2d1",
+      "status": "M .github/scripts/task_ci.py\n M tasks/vllm-async-pp-token-handoff/environment/Dockerfile\n M tasks/vllm-async-pp-token-handoff/environment/image-manifest.json\n M tasks/vllm-async-pp-token-handoff/environment/lock/manifest.json\n M tasks/vllm-async-pp-token-handoff/task.toml\nA  tasks/vllm-async-pp-token-handoff/tests/task_fixtures.py\n M tasks/vllm-async-pp-token-handoff/tests/test.sh\nAM tasks/vllm-async-pp-token-handoff/tests/trusted_supervisor.py\n M tasks/vllm-async-pp-token-handoff/tests/verify_async_pp.py\n M tasks/vllm-async-pp-token-handoff/validation/alternate-inline-nccl.patch\n M tasks/vllm-async-pp-token-handoff/validation/challenge/README.md\n M tasks/vllm-async-pp-token-handoff/validation/challenge/challenge_token_handoff.py\nAM tasks/vllm-async-pp-token-handoff/validation/challenge/run_challenge.py\n M tasks/vllm-async-pp-token-handoff/validation/ci-cases.json\n M tasks/vllm-async-pp-token-handoff/validation/docker-build.md\nMM tasks/vllm-async-pp-token-handoff/validation/e2e-evidence.json\n M tasks/vllm-async-pp-token-handoff/validation/semantic-boundary.md\n?? .github/scripts/__pycache__/\n?? tasks/vllm-async-pp-token-handoff/environment/lock/runtime-native.json\n?? tasks/vllm-async-pp-token-handoff/tests/docker-compose.yaml\n?? tasks/vllm-async-pp-token-handoff/tests/worker_fixtures.py\n?? tasks/vllm-async-pp-token-handoff/validation/early-os-exit.patch\n?? tasks/vllm-async-pp-token-handoff/validation/early-system-exit.patch\n?? tasks/vllm-async-pp-token-handoff/validation/final-review.md\n?? tasks/vllm-async-pp-token-handoff/validation/group-coordinator-broadcast.patch\n?? tasks/vllm-async-pp-token-handoff/validation/history/\n?? tasks/vllm-async-pp-token-handoff/validation/local-regressions.json\n?? tasks/vllm-async-pp-token-handoff/validation/post-broadcast-failure.patch",
+      "branch": ""
+    },
+    "/data/yinchen/ai-infra-bench-remediate-8tasks": {
+      "head": "a59c9dd013dbd4194ee95b1aa4c9bb70125148fd",
+      "status": "?? tasks/vllm-async-pp-token-handoff/\n?? tasks/vllm-deterministic-bmm-batch-scaling/\n?? tasks/vllm-fused-moe-config-lifecycle/\n?? tasks/vllm-int8-per-token-group-quantization/\n?? tasks/vllm-modular-moe-config-ownership/\n?? tasks/vllm-moe-permute-batch-scaling/\n?? tasks/vllm-multimodal-encoder-cache-accounting/\n?? tasks/vllm-streaming-session-continuation/",
+      "branch": "ci/lowercase-ghcr-namespace"
+    },
+    "/tmp/ai-infra-task-review-main-20260908": {
+      "head": "ee32cad166ca065f02945bda6b2f6dca3a025ddd",
+      "status": "?? .agents/skills/ai-infra-bench-task-review/scripts/__pycache__/",
+      "branch": "main"
+    }
+  },
+  "checksum_note": "Final Harbor input checksum predates evidence/report-only publication updates; executable files did not change after the final Oracle.",
+  "publication": {
+    "state": "prepared_for_authorized_pull_request",
+    "historical_publication_state": "See prior evidence; old uncommitted statements refer to original review time."
+  },
+  "control_packaging": [
+    {
+      "case": "group-coordinator-broadcast",
+      "old_overlay_sha256": "ebd96eb20da6ea75a0683cfdac72598f134816bca2a61d0ccc4967cfc001b9c0",
+      "new_base_patch_sha256": "35a901441b5951771023b596dd9136e33e7f1c4541acc329773a8e08524367f3",
+      "identical_resulting_source": true,
+      "source_hashes": {
+        "tests/test_config.py": "2cd1745dcf0192820e382b41652ef441d8a0cde48c89e0df091eef7045e4b671",
+        "tests/v1/core/test_scheduler.py": "012315701d6655a022b26eb4183afdc0738fc14cc9e7d54965f748212ce76216",
+        "vllm/v1/core/sched/scheduler.py": "c065763224110bea00b5bc130b1f7a9e10719420d2194876dd9c82be5b734a1d",
+        "vllm/v1/worker/gpu_model_runner.py": "3944fe46477bb35d032cc6c28dd6715bb1ac6605584489ded7aa115c6e198910"
+      }
+    },
+    {
+      "case": "post-broadcast-failure",
+      "old_overlay_sha256": "ffde1d5c91e26ed1d3a7da7ff209cb86bde42f7219630ffb68ff749106650745",
+      "new_base_patch_sha256": "15bd482ff4c00026f8fd5883ba91a2102e49806a41a414aec27ccd01a2a7ce60",
+      "identical_resulting_source": true,
+      "source_hashes": {
+        "tests/test_config.py": "2cd1745dcf0192820e382b41652ef441d8a0cde48c89e0df091eef7045e4b671",
+        "tests/v1/core/test_scheduler.py": "012315701d6655a022b26eb4183afdc0738fc14cc9e7d54965f748212ce76216",
+        "vllm/v1/core/sched/scheduler.py": "c065763224110bea00b5bc130b1f7a9e10719420d2194876dd9c82be5b734a1d",
+        "vllm/v1/worker/gpu_model_runner.py": "f1b86afab43ebca9a8bd3bd4a9c7cadaa449d482458fa784122d0bf1461d2311"
+      }
+    }
+  ],
+  "strict_artifact_audit": {
+    "exit_code": 0,
+    "log": "/data/yinchen/task-contract-fixture-fix-20260909T033612Z/pr18-strict-audit.log",
+    "sha256": "5c9a69aa32471f0fe29d9b0fec0f580eacf32a39a8c7eee81a852b66843a85ec"
+  },
+  "publication_revision": {
+    "schema_version": "ai_infra_bench_publication_formatting.v1",
+    "recorded_at": "2026-09-09T06:22:30.918761+00:00",
+    "changes": [
+      {
+        "path": "solution/solve.sh",
+        "before_sha256": "fcc259e7375224d93400b776de248e11f47c6c31a3b4af9752c53a9154cdd407",
+        "after_sha256": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+        "removed_bytes": 1,
+        "change": "Remove surplus blank lines at EOF; preserve all nonempty lines."
+      },
+      {
+        "path": "validation/cpu-sync-object-collective.patch",
+        "before_sha256": "3d5e505c532a43c4be145fa70e34f73dadedcfee38743c7dd8469d5340eabe82",
+        "after_sha256": "60347e66178decc27b2fcd83d828a2befd624b7754ac0f6cacc9c1fb09c2eb6e",
+        "removed_bytes": 2,
+        "change": "Remove one trailing blank context line and adjust final unified-diff hunk counts; patched candidate contents must remain identical."
+      },
+      {
+        "path": "validation/ci-cases.json",
+        "before_sha256": "d75260071da3e3066c6ec12d18ce3126e12a3713cc8db7fb197e9c5f76fba8a5",
+        "after_sha256": "7b74bde9707309a6ad01bd917251f39801aa296ba3c339de82ff09d228e8b241",
+        "change": "Update the trimmed control patch SHA256; expected reward and control behavior unchanged."
+      }
+    ],
+    "runs": [
+      {
+        "case": "oracle",
+        "scope": "full Harbor run after formatting-only publication revision",
+        "actual_reward": 1.0,
+        "expected_reward": 1,
+        "job_id": "777472b4-9dec-43dc-b49a-889cbe3b944f",
+        "trial_id": "21d71be3-385a-4bde-9881-bd05b09ba05c",
+        "harbor_errors": 0,
+        "harbor_exit_code": 0,
+        "task_checksum": "45c7af2a849b09f2fda31233c3c56057e4ac019207a2d8c43fe84b09215fe2d8",
+        "image_id": "sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69",
+        "gpu_uuids": [
+          "GPU-3884436a-fd17-98d2-5dad-4ef79dd14589",
+          "GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710"
+        ],
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/harbor-config.json",
+          "-y"
+        ],
+        "archive": "validation/evidence/publication-oracle.tar.gz",
+        "archive_sha256": "7b115cd3340b164cc9085da8114e838ad8b73e69937a5d7d596d1fe8d38be83a",
+        "raw_artifacts": [
+          {
+            "path": "run/run-record.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/run-record.json",
+            "sha256": "b3957e7aa417155eb27e55e419eb61fe495f1bd9f74542c052e7b02b8a222b09"
+          },
+          {
+            "path": "run/harbor-config.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/harbor-config.json",
+            "sha256": "870664c0f572a99b35f636b0bb2e11273fd4b269dfc0b7324da3b5231dca1547"
+          },
+          {
+            "path": "run/harbor.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/harbor.log",
+            "sha256": "ba96d10d6d6d98e519c4e22f05ac11a77809e599de0d27d0a5e69884593d7980"
+          },
+          {
+            "path": "run/agent-canary.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/agent-canary.log",
+            "sha256": "e7c3e0e53810f76a618c707fd56148fb257c0d70c9059821f24dcfa1a88af5ab"
+          },
+          {
+            "path": "run/result-check.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/result-check.log",
+            "sha256": "4859607480f3aeeb0ad478ff422af01863a2f16093c4941a9f38c4cf1f4746c8"
+          },
+          {
+            "path": "job/result.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/result.json",
+            "sha256": "5170d6ab1338572775b968fb7ca530095cd85b7215482304d1dbec2a61c6fa56"
+          },
+          {
+            "path": "trial/result.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/result.json",
+            "sha256": "15673213033ed773c356b4e4f0908295bf64d226f505df8e1b6aab0bc76bb5ed"
+          },
+          {
+            "path": "verifier/test-stdout.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/test-stdout.txt",
+            "sha256": "dc9442f1b7a758f129b4fa6feedfa03e6c1d8aa46f85468092463b3db28d07cc"
+          },
+          {
+            "path": "verifier/reward.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/reward.txt",
+            "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+          },
+          {
+            "path": "verifier/preflight.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/preflight.log",
+            "sha256": "0ceec6c6d9fb8edde95fd8cc56fc45a5efe53e6c4b2b5f51db75480b71e6f168"
+          },
+          {
+            "path": "verifier/supervisor.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/supervisor.log",
+            "sha256": "eb3f9d4bd96aefd12e8c2863f781ed573e52d351e51491c83f9d0b18097eb8e4"
+          },
+          {
+            "path": "verifier/supervisor-manifest.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/supervisor-manifest.json",
+            "sha256": "926b0c54b2956fcf80ab8982e5e4e3e9c995066a768e4eb42c010e7447ccf02d"
+          },
+          {
+            "path": "verifier/challenge-CONFIG.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/challenge-CONFIG.json",
+            "sha256": "13619a2ba0a64b651088f23e11d3cfff0a79c7edfbcf488389faecd5a0c14733"
+          },
+          {
+            "path": "verifier/stage-CONFIG-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-CONFIG-rank0.log",
+            "sha256": "6178a9ee394b79f78ba51bfe350093b5084d60afd562f36589f7bba08b46e724"
+          },
+          {
+            "path": "verifier/challenge-SCHEDULER_REENTRY.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/challenge-SCHEDULER_REENTRY.json",
+            "sha256": "521f20d27180e78aa012ef1719f82d7c95cd822225005b7f02993d1f32d0f7a3"
+          },
+          {
+            "path": "verifier/stage-SCHEDULER_REENTRY-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-SCHEDULER_REENTRY-rank0.log",
+            "sha256": "5cba98eec007f295eb983a1afb776c5682ca5b4b8843f19896b1b51ea5ff8a6d"
+          },
+          {
+            "path": "verifier/challenge-NCCL_BASIC.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/challenge-NCCL_BASIC.json",
+            "sha256": "b0533cdb617218f0c9195afb32052504bc6a3e5342787235429de8e1a02618d8"
+          },
+          {
+            "path": "verifier/stage-NCCL_BASIC-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_BASIC-rank0.log",
+            "sha256": "e1fc04e3b3f7d55e43a7c296396b7a63d319b0c35b7fd26126ce8d9a185024ac"
+          },
+          {
+            "path": "verifier/stage-NCCL_BASIC-rank1.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_BASIC-rank1.log",
+            "sha256": "e4cebb2921d22b8a1a390008c24aeff50bfb6e4113129b23a96cbb2c19ae28aa"
+          },
+          {
+            "path": "verifier/challenge-NCCL_REORDERED.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/challenge-NCCL_REORDERED.json",
+            "sha256": "a75ecaf8366489b12189f7c4024c949b32cb9fa1b00e7e1320d5fc62cf9f94e7"
+          },
+          {
+            "path": "verifier/stage-NCCL_REORDERED-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_REORDERED-rank0.log",
+            "sha256": "0ed9c01c3a52597e5b87e3513388d09082c26e0dc8c0cf173c752f56025f005c"
+          },
+          {
+            "path": "verifier/stage-NCCL_REORDERED-rank1.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_REORDERED-rank1.log",
+            "sha256": "59a1df0bc1caf3501f022d11f86de10dae8e02a60d507a64bd6a68e7f6897a5b"
+          },
+          {
+            "path": "verifier/challenge-NCCL_INTEGRATED.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/challenge-NCCL_INTEGRATED.json",
+            "sha256": "24614ccf4b377c8ce75b3494b75c98d08b6fc25e2682052db479baacdcb30e11"
+          },
+          {
+            "path": "verifier/stage-NCCL_INTEGRATED-rank1.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_INTEGRATED-rank1.log",
+            "sha256": "60143de85f7a60bb7cd15336846a3bc4b6daa191fd77d8ab0e1df0060767b078"
+          },
+          {
+            "path": "verifier/stage-NCCL_INTEGRATED-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stage-NCCL_INTEGRATED-rank0.log",
+            "sha256": "73012e9db7c4acede3438555726f681197aa3c9c1bf14577fbf7d210cafe4d24"
+          },
+          {
+            "path": "verifier/supervisor-exit.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/supervisor-exit.txt",
+            "sha256": "f387e93127ea9a37e4575c18c1159a5d36b1a4dd91dcbe90836922cce59b4fcc"
+          },
+          {
+            "path": "verifier/scoring.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/scoring.log",
+            "sha256": "e43262d6deb7daa107530343ad9a09c01a9ef6b197267e2d1fcdf4a91004a539"
+          },
+          {
+            "path": "verifier/stages.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-oracle-certified/jobs/vllm-async-pp-token-handoff--oracle/vllm-async-pp-token-handoff__7G3pH2b/verifier/stages.json",
+            "sha256": "1b0c72850cc68d94daee5163396b7018da990dad50f6ad75199926d44374a90a"
+          }
+        ]
+      },
+      {
+        "case": "cpu-sync-object-collective",
+        "scope": "full Harbor run after formatting-only publication revision",
+        "actual_reward": 0.0,
+        "expected_reward": 0,
+        "job_id": "6eee53a3-dda9-45a4-ad2b-7a4de6503306",
+        "trial_id": "9d6b4c5c-69ca-4a0f-8393-2e59995ccf13",
+        "harbor_errors": 0,
+        "harbor_exit_code": 0,
+        "task_checksum": "4f96daad59f2c233d21e35694bd9080ef9122b464e1503b45a688f50af48130d",
+        "image_id": "sha256:cf04408e8aed807333ff1522f952182aa7948f2a32e3caeee79dac9b95911e69",
+        "gpu_uuids": [
+          "GPU-3884436a-fd17-98d2-5dad-4ef79dd14589",
+          "GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710"
+        ],
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/harbor-config.json",
+          "-y"
+        ],
+        "archive": "validation/evidence/publication-cpu-sync-object-collective.tar.gz",
+        "archive_sha256": "25915f1a4081657fd150a3f5ddc98b9e4bcde0cd8366fefc737427d75ccf11eb",
+        "raw_artifacts": [
+          {
+            "path": "run/run-record.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/run-record.json",
+            "sha256": "a518f3389f62c9f41feb3695761b6642d8ec8725634533bb4521e5f4c4aa554a"
+          },
+          {
+            "path": "run/harbor-config.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/harbor-config.json",
+            "sha256": "54baf195f1261f6f621ec64f880ae8d32215c7e7e8acba14a416a57c130af7ad"
+          },
+          {
+            "path": "run/harbor.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/harbor.log",
+            "sha256": "1fa1088e243140d3449c90d3ac750c32122a643fb1bd9162b240eed5df31f767"
+          },
+          {
+            "path": "run/agent-canary.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/agent-canary.log",
+            "sha256": "e7c3e0e53810f76a618c707fd56148fb257c0d70c9059821f24dcfa1a88af5ab"
+          },
+          {
+            "path": "run/result-check.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/result-check.log",
+            "sha256": "c2e10b37d77d54101df13a143361fc7f227875079d8b0687d75ff6ac2db714b5"
+          },
+          {
+            "path": "job/result.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/result.json",
+            "sha256": "7916d3538560b178ac31034e5953e8162295e14f06d3b504e7f7d8eadb4b9175"
+          },
+          {
+            "path": "trial/result.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/result.json",
+            "sha256": "a287e199ca5a19e163124b482117eb9a43771c9d7e66a2d1cc39cab18e054e86"
+          },
+          {
+            "path": "verifier/test-stdout.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/test-stdout.txt",
+            "sha256": "d2f309443ae49703de2dddde438453a6521fb67315935e1490fee9c3ff74a7f9"
+          },
+          {
+            "path": "verifier/reward.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/reward.txt",
+            "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+          },
+          {
+            "path": "verifier/preflight.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/preflight.log",
+            "sha256": "0ceec6c6d9fb8edde95fd8cc56fc45a5efe53e6c4b2b5f51db75480b71e6f168"
+          },
+          {
+            "path": "verifier/supervisor.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/supervisor.log",
+            "sha256": "d7bc6bace9f094e5d5f58a6438bfa8d6141c5e34bfce16767616d1346dddd0c3"
+          },
+          {
+            "path": "verifier/supervisor-manifest.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/supervisor-manifest.json",
+            "sha256": "2bd32b8cb0188a0948a0f1caf5d7051befe981a9ce140f24783a5c16621d4c4a"
+          },
+          {
+            "path": "verifier/challenge-CONFIG.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/challenge-CONFIG.json",
+            "sha256": "ce2bf1ec2a8c6d2c7eb536b351fe45cb7cc0999627fc9c91bb80ae5833d2fc11"
+          },
+          {
+            "path": "verifier/stage-CONFIG-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stage-CONFIG-rank0.log",
+            "sha256": "18bb3e21897086b7782b0ae08d64f1e68ac1f048237cbd40d5b794bf8de66ce1"
+          },
+          {
+            "path": "verifier/challenge-SCHEDULER_REENTRY.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/challenge-SCHEDULER_REENTRY.json",
+            "sha256": "6be836ce4558356d019c79a7fadfcf5528e087b59c96812e2f65bec641777dba"
+          },
+          {
+            "path": "verifier/stage-SCHEDULER_REENTRY-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stage-SCHEDULER_REENTRY-rank0.log",
+            "sha256": "b5eea73dbde6326ffd0e01f8ae1c1f2786ee16211562dc2395ac273fe2f656de"
+          },
+          {
+            "path": "verifier/challenge-NCCL_BASIC.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/challenge-NCCL_BASIC.json",
+            "sha256": "867f0c161327efa82baf5a4b823a70ae720cb5fb6d8912493ff168c54a79ba83"
+          },
+          {
+            "path": "verifier/stage-NCCL_BASIC-rank1.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stage-NCCL_BASIC-rank1.log",
+            "sha256": "dfbc8cb43dd59e2194ce56ff1ac2bc1e4d7479c97a73565bb8da164fd7204f9b"
+          },
+          {
+            "path": "verifier/stage-NCCL_BASIC-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stage-NCCL_BASIC-rank0.log",
+            "sha256": "cf5912b99d6ebce08a9bb6876be3a02af507ff174348045b8db228ecffe3b11a"
+          },
+          {
+            "path": "verifier/challenge-NCCL_REORDERED.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/challenge-NCCL_REORDERED.json",
+            "sha256": "cc54bb26797827d96ae588328c56f6ba5f7433d1152a21249ab9b28c3f26b508"
+          },
+          {
+            "path": "verifier/stage-NCCL_REORDERED-rank1.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stage-NCCL_REORDERED-rank1.log",
+            "sha256": "ced1538f61f818baf6e3d55c992f605a5dfb6e48025e2d1ecefc12c69fc68c52"
+          },
+          {
+            "path": "verifier/stage-NCCL_REORDERED-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stage-NCCL_REORDERED-rank0.log",
+            "sha256": "83827b5337e14b55f3a0c40107d513273a57ad330d617f9fc6bef18ae4240d08"
+          },
+          {
+            "path": "verifier/challenge-NCCL_INTEGRATED.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/challenge-NCCL_INTEGRATED.json",
+            "sha256": "e742f6b48d4e3617299336c977b0cd990e0765dc9814850ccb02cecbc44c03a8"
+          },
+          {
+            "path": "verifier/stage-NCCL_INTEGRATED-rank1.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stage-NCCL_INTEGRATED-rank1.log",
+            "sha256": "ff6495f979ba69d80388576530663fb523eaf7ea266845f3dda5c2ffdf2d3671"
+          },
+          {
+            "path": "verifier/stage-NCCL_INTEGRATED-rank0.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stage-NCCL_INTEGRATED-rank0.log",
+            "sha256": "d1c086e13d310ab640c9e5059d66ce6314084f76631c35b1abbc0eb3acfe3b0e"
+          },
+          {
+            "path": "verifier/supervisor-exit.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/supervisor-exit.txt",
+            "sha256": "6b1679a6351a603d9b2e89bfc33203eec034054aad95b8e9c1b8189ec7f09449"
+          },
+          {
+            "path": "verifier/scoring.log",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/scoring.log",
+            "sha256": "883d415915f0e49c319a8ae5c68ada4489324206a3bc6b0bc8e7a990c8c42c50"
+          },
+          {
+            "path": "verifier/stages.json",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/stages.json",
+            "sha256": "f55d629e940e7bebcd52a0d99d83e7ef5bb6d133c2ad928e7beeec63ecdb3528"
+          },
+          {
+            "path": "verifier/failure-stage.txt",
+            "original_path": "/data/yinchen/publish-next3-20260909T061334Z/format-runs/pr18-cpu-sync-object-collective/jobs/vllm-async-pp-token-handoff--cpu-sync-object-collective/vllm-async-pp-token-handoff__UwuobRb/verifier/failure-stage.txt",
+            "sha256": "7cfde5a89ca603c628c1799e7817b13f792b17ecf07b808b006aac7c23833f48"
+          }
+        ]
+      }
+    ],
+    "prior_evidence": "validation/history/pre-publication-formatting-evidence.json",
+    "scope": "Shell/Python commands and grading thresholds unchanged. Historical controls remain tied to their original hashes; new final Oracle executed for publication. PR18 trimmed control was also rerun.",
+    "control_patch_equivalence": {
+      "patched_files_byte_identical": true,
+      "files": {
+        "vllm/v1/core/sched/scheduler.py": "6697b0873aaffdcd96463e62d90cde51a6087f15566098589ff6fc650d7705e8",
+        "vllm/v1/worker/gpu_model_runner.py": "834f73e8c0f45c6a76e5a6d44cd2e0d3a88965ed2c8d5af5c7991e4f7a45d162"
+      }
+    }
+  }
+}
