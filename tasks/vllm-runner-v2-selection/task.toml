@@ -1,0 +1,49 @@
+schema_version = "1.4"
+artifacts = ["/workspace/repo/vllm"]
+
+[task]
+name = "ai-infra-bench/vllm-runner-v2-selection"
+version = "1.0.1"
+description = "Select Model Runner V2 by configuration and propagate the decision to GPUWorker."
+authors = [{ name = "AI Infra Bench Curators" }]
+keywords = ["vllm", "model-runner", "configuration", "gpu-worker"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+track = "representative"
+source_ids = ["vllm__pr__39337"]
+repository = "vllm-project/vllm"
+base_commit = "c7560af42487b1570c4e6f4cea5df1605a4d59fc"
+image_digest = "sha256:d22ddb74a5d77fe9df2ce4a04b91fa937c83c9b8ed9105e3dec91fa838019189"
+oracle_commit = "0579be818c0d2b438cd41b76d8d09f9338ac1fd8"
+workload_type = "feature_fix"
+subsystems = ["configuration", "worker", "model_runner"]
+dependency_cutoff = "2026-05-14T14:12:30Z"
+environment_template = "vllm-cutoff-pinned"
+publication_state = "hardening-pending-validation"
+difficulty = "hard"
+grader_kind = "correctness"
+
+[agent]
+timeout_sec = 36000
+user = "agent"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 600.0
+environment_mode = "separate"
+user = "root"
+network_mode = "no-network"
+
+[environment]
+docker_image = "ai-infra-bench/vllm-runner-v2-selection:base-c7560af42487"
+network_mode = "no-network"
+build_timeout_sec = 14400.0
+accelerator = "A100"
+topology = 1
+cpus = 4
+memory_mb = 16384
+storage_mb = 24576
+workdir = "/workspace/repo"
+gpus = 1
+gpu_types = ["A100"]

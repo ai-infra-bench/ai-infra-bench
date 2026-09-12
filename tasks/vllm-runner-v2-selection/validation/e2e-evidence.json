@@ -1,0 +1,80 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-06",
+  "status": "hardening-pending-validation",
+  "reviewed_revision": "41106b16eab924a15e7c7efc7c402d73b7098aec",
+  "source": {
+    "repository": "vllm-project/vllm",
+    "pull_request": 39337,
+    "base_commit": "c7560af42487b1570c4e6f4cea5df1605a4d59fc",
+    "oracle_commit": "0579be818c0d2b438cd41b76d8d09f9338ac1fd8",
+    "scope": "tri-state or presence-aware automatic runner selection plus production GPUWorker consumption"
+  },
+  "artifacts": {
+    "files": {
+      ".dockerignore": "fe57c1ef2dcfcb5ceaa20f0582985984061600f14d404fd7f1ef5de91a710cc8",
+      "README.md": "b51ad3df6b403d694de51a806a61e05380ece0d2f2a0b7dc8fa5ffb30723f34e",
+      "environment/Dockerfile": "2d66e3d81ff0df75e76a18615793c2c39b6114ba13d9d7073d7f3509ef269d7a",
+      "environment/docker-compose.yaml": "cd850676bd02cc735fa6ce09ae8734251b9c56252b40bf0de55b874b5ab225d8",
+      "environment/image-manifest.json": "6432a0bf18081a7f6fded60314ad2fa10cffe89047f31a62e2f4afb9b0719a9c",
+      "environment/lock/README.md": "b7ce6665595479c1edb6e300c94d4f0d7e83223e703b0677f5327ba48967c792",
+      "environment/lock/manifest.json": "4f88b301ecd59800af472e3473ba470453be4e525be5afbeb80eda1d55e16de2",
+      "environment/lock/native.sha256": "04e76eabada8a083478120eadab285dcfb3c3c0ce16fde063ce315bed8eb09ca",
+      "environment/lock/requirements.txt": "cb3b63dd4ccb3861651fb63081183ffaf801162ccf99830a8e71179c1fdb88cb",
+      "instruction.md": "4cdc516c9c5e160f99540984cf078bceb5c05bf9748f435fad093380eb54a254",
+      "solution/oracle.patch": "4498c4ae89237df6b750ba9c4d73530790dd25789feb8538d43560a73fa4f9e1",
+      "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+      "task.toml": "6602cd9be93275e47c27f5074d3409aaaa8aea0b886fa89cf164091bb311112b",
+      "tests/docker-compose.yaml": "8dd1b4bd6ae0bffdc71045fc4a6fe078d1c8eb4efad9a17a4bb7fa093b66ab4f",
+      "tests/fixtures/qwen2/config.json": "0e1252c54896de0d33e2dafc35bcbee8a3fca12d43bff3e4f8d88eb1478a855b",
+      "tests/fixtures/qwen3/config.json": "f6832afbacadf460bdb281c305cfcbae20b9d5e83c52b777105a118f8007b01a",
+      "tests/supervise_runner_consumers.py": "71b3a0e66d36b982c6ac1ae0279c3fac7baaca13aa8c2b3b68006a8252d30527",
+      "tests/test.sh": "30db09e0b1622ea10a65d7148f428e5e17b17190902940c1df52cb8a5453a974",
+      "tests/verify_runner_consumers.py": "9badb1c30ec6f4cb966a98d422c2b4237c7d833020c447d14179feca2115444b",
+      "validation/alternative-agent-implementation.patch": "35f6af2a6cd6467e12ce0164c5e35cf90dc118bbb5ea921d96add7e7a45ddc26",
+      "validation/boolean-accessor-alternative.patch": "2e05eaf7a27d4b9d1728def16ad8ba0d483c0edd9a197c384567d8684a30db02",
+      "validation/ci-cases.json": "f4f79d4b91c11346c3c8ec927a5901127b0cf19f6ef7f524fa82f3e2d86da7b9",
+      "validation/docker-build.md": "bfc1145f479437c931e543deed9e8ab06d5b1e714b19352e89265f74ab5b368e",
+      "validation/history/pr3-fba6a6c-e2e-evidence.json": "a59bcf18e48c288fa0493590e54c0766de1adab654bf5cd6f408d2e1ba05bd47",
+      "validation/incomplete-agent-implementation.patch": "f60b1d69086cd6c4f20cad1f3bf995c0723675c83f6a21046d4d85445ecbb4f8",
+      "validation/os-exit-zero-bypass.patch": "02f8ba93689b9197eb1cdd31868a358b4abf0c016013c084683e00ed1ba2a0c0",
+      "validation/remediation-matrix.md": "ffce8b365d5b442f94a7292c1cbd2e5b1f90c587b10d1a38d90397b79f23c5bc",
+      "validation/system-exit-zero-bypass.patch": "46857414f715b704e0ea8a8d35ef8efaffb8438c6a6d729b956ead2df12937de"
+    }
+  },
+  "contract": {
+    "automatic_supported": "dense, unquantized Qwen3 text generation selects V2",
+    "automatic_fallbacks": [
+      "other architecture",
+      "pooling runner",
+      "KV sharing fast prefill",
+      "custom logits processor"
+    ],
+    "explicit": "0 selects V1; 1 selects V2 when compatible",
+    "forced_incompatibility": "startup rejects clearly before returning a usable worker",
+    "representation_independence": "unset accessor may be None or legacy False; validation may occur during config construction or worker startup"
+  },
+  "e2e_boundary": {
+    "path": "environment override plus local HF config -> production ModelConfig -> production VllmConfig -> production GPUWorker.__init__ -> observed worker selection",
+    "substitution": "Tiny local Qwen3 and Qwen2 Hugging Face configs replace external weights and tokenizer downloads.",
+    "preserved_semantics": "Configuration parsing, support checks, startup error propagation, CUDA availability, and the production worker consumer remain real.",
+    "limitations": "No model weights, inference kernels, Scheduler migration, or Distributed FlashInfer/NIXL behavior are claimed."
+  },
+  "validation": {
+    "execution_status": "not-rerun-at-maintainer-request",
+    "note": "Only Python/Shell syntax and whitespace checks are performed. Non-root host collection, venv execution, GPU Base/Oracle and controls remain unverified for this revision."
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-runner-v2-selection:base-c7560af42487",
+    "image_id": "sha256:d22ddb74a5d77fe9df2ce4a04b91fa937c83c9b8ed9105e3dec91fa838019189",
+    "size_bytes": 26366057540,
+    "created": "2026-09-04T15:41:50.91749769Z",
+    "retained": true,
+    "reused_because": "environment and dependency files did not change"
+  },
+  "historical_evidence": {
+    "path": "validation/history/pr3-fba6a6c-e2e-evidence.json",
+    "source_commit": "fba6a6c3d214ac13dbd9eb31ab120ff9f24107dd",
+    "note": "Original runtime results predate permission and interpreter-path changes."
+  }
+}

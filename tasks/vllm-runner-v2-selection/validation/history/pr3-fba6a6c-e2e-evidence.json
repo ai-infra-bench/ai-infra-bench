@@ -1,0 +1,146 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-05T15:01:13+08:00",
+  "status": "direct-final-snapshot-validated",
+  "reviewed_revision": "41106b16eab924a15e7c7efc7c402d73b7098aec",
+  "source": {
+    "repository": "vllm-project/vllm",
+    "pull_request": 39337,
+    "base_commit": "c7560af42487b1570c4e6f4cea5df1605a4d59fc",
+    "oracle_commit": "0579be818c0d2b438cd41b76d8d09f9338ac1fd8",
+    "scope": "tri-state or presence-aware automatic runner selection plus production GPUWorker consumption"
+  },
+  "artifacts": {
+    "files": {
+      ".dockerignore": "fe57c1ef2dcfcb5ceaa20f0582985984061600f14d404fd7f1ef5de91a710cc8",
+      "README.md": "8149cb84644e5600256095a7e040e6c284dcbe8bd66c4906d08138993d01738f",
+      "environment/Dockerfile": "2d66e3d81ff0df75e76a18615793c2c39b6114ba13d9d7073d7f3509ef269d7a",
+      "environment/docker-compose.yaml": "cd850676bd02cc735fa6ce09ae8734251b9c56252b40bf0de55b874b5ab225d8",
+      "environment/image-manifest.json": "6432a0bf18081a7f6fded60314ad2fa10cffe89047f31a62e2f4afb9b0719a9c",
+      "environment/lock/manifest.json": "4f88b301ecd59800af472e3473ba470453be4e525be5afbeb80eda1d55e16de2",
+      "environment/lock/native.sha256": "04e76eabada8a083478120eadab285dcfb3c3c0ce16fde063ce315bed8eb09ca",
+      "environment/lock/requirements.txt": "cb3b63dd4ccb3861651fb63081183ffaf801162ccf99830a8e71179c1fdb88cb",
+      "instruction.md": "4cdc516c9c5e160f99540984cf078bceb5c05bf9748f435fad093380eb54a254",
+      "solution/oracle.patch": "4498c4ae89237df6b750ba9c4d73530790dd25789feb8538d43560a73fa4f9e1",
+      "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+      "task.toml": "4ea62bf2e670e52274f2bcc701a93ef7fe04d055ba232c61776e0f8f90d7b4d8",
+      "tests/docker-compose.yaml": "8dd1b4bd6ae0bffdc71045fc4a6fe078d1c8eb4efad9a17a4bb7fa093b66ab4f",
+      "tests/fixtures/qwen2/config.json": "0e1252c54896de0d33e2dafc35bcbee8a3fca12d43bff3e4f8d88eb1478a855b",
+      "tests/fixtures/qwen3/config.json": "f6832afbacadf460bdb281c305cfcbae20b9d5e83c52b777105a118f8007b01a",
+      "tests/supervise_runner_consumers.py": "7fb5ffefb690354b1d22deee2a33ce502a96bdc7b9fa1c20c24ff9fae56aed17",
+      "tests/test.sh": "84e0ddfaa9c8077f2c0b896db6398e9c79a0b7324db2c93590e983a5a150e80d",
+      "tests/verify_runner_consumers.py": "9badb1c30ec6f4cb966a98d422c2b4237c7d833020c447d14179feca2115444b",
+      "validation/alternative-agent-implementation.patch": "35f6af2a6cd6467e12ce0164c5e35cf90dc118bbb5ea921d96add7e7a45ddc26",
+      "validation/boolean-accessor-alternative.patch": "2e05eaf7a27d4b9d1728def16ad8ba0d483c0edd9a197c384567d8684a30db02",
+      "validation/incomplete-agent-implementation.patch": "f60b1d69086cd6c4f20cad1f3bf995c0723675c83f6a21046d4d85445ecbb4f8",
+      "validation/system-exit-zero-bypass.patch": "46857414f715b704e0ea8a8d35ef8efaffb8438c6a6d729b956ead2df12937de",
+      "validation/os-exit-zero-bypass.patch": "02f8ba93689b9197eb1cdd31868a358b4abf0c016013c084683e00ed1ba2a0c0",
+      "validation/ci-cases.json": "19b25a5914680ce6988b24987521c294cbeae1612cd9150e7fdb869ba79513a7",
+      "validation/docker-build.md": "bfc1145f479437c931e543deed9e8ab06d5b1e714b19352e89265f74ab5b368e",
+      "validation/remediation-matrix.md": "6db2e763ec8e494e8613bf8589fcd500ad9ff0c502b67a387f321683a10fd7ff"
+    }
+  },
+  "contract": {
+    "automatic_supported": "dense, unquantized Qwen3 text generation selects V2",
+    "automatic_fallbacks": [
+      "other architecture",
+      "pooling runner",
+      "KV sharing fast prefill",
+      "custom logits processor"
+    ],
+    "explicit": "0 selects V1; 1 selects V2 when compatible",
+    "forced_incompatibility": "startup rejects clearly before returning a usable worker",
+    "representation_independence": "unset accessor may be None or legacy False; validation may occur during config construction or worker startup"
+  },
+  "e2e_boundary": {
+    "path": "environment override plus local HF config -> production ModelConfig -> production VllmConfig -> production GPUWorker.__init__ -> observed worker selection",
+    "substitution": "Tiny local Qwen3 and Qwen2 Hugging Face configs replace external weights and tokenizer downloads.",
+    "preserved_semantics": "Configuration parsing, support checks, startup error propagation, CUDA availability, and the production worker consumer remain real.",
+    "limitations": "No model weights, inference kernels, Scheduler migration, or Distributed FlashInfer/NIXL behavior are claimed."
+  },
+  "validation": {
+    "case_count": 17,
+    "integrity": {
+      "trusted_parent_imports_candidate": false,
+      "observation_child_user": "agent",
+      "reward_owner": "root",
+      "reward_default": 0,
+      "case_enumerator_and_grader": "trusted root parent",
+      "observation_processes": 17,
+      "aggregate_candidate_success_marker_accepted": false,
+      "nonce_bound_observations": true,
+      "zero_skips_required": true
+    },
+    "base": {
+      "reward": 0,
+      "accepted_observations": 16,
+      "failure_boundary": "supported dense Qwen3 remains on V1"
+    },
+    "oracle": {
+      "reward": 1,
+      "accepted_observations": 17
+    },
+    "correct_alternatives": [
+      {
+        "name": "tri-state accessor with eager cached resolution",
+        "reward": 1
+      },
+      {
+        "name": "legacy boolean accessor with environment-presence resolution",
+        "reward": 1,
+        "accepted_observations": 17
+      }
+    ],
+    "negative_controls": [
+      {
+        "name": "tri-state-only incomplete implementation",
+        "reward": 0
+      },
+      {
+        "name": "SystemExit(0) during candidate package import",
+        "direct_reward": 0,
+        "accepted_observations": 0
+      },
+      {
+        "name": "os._exit(0) during candidate package import",
+        "direct_reward": 0,
+        "accepted_observations": 0
+      }
+    ],
+    "historical_pre_parent_grading_harbor_oracle": {
+      "version": "0.22.0",
+      "job_id": "39fa4cdd-8bb7-45a5-a62f-bcd7bc359fe7",
+      "trial_id": "f7bc1ee6-8b3e-4aee-a873-9b5d459ae2db",
+      "trial_name": "vllm-runner-v2-selection__8rmo8P2",
+      "input_task_checksum": "27569b8976cbbd4730355f0c8ac2135714286ef882f0a1fbc94c34f0e44fd3ff",
+      "n_completed_trials": 1,
+      "n_errored_trials": 0,
+      "reward": 1,
+      "started_at": "2026-09-05T06:59:16.286670Z",
+      "finished_at": "2026-09-05T07:00:45.176552Z",
+      "job_directory": "/root/workspace/dxz-workspace/ai-infra-bench-data/pr3-review-fix-20260905/oracle-final/jobs/pr3-review-fix-oracle-final",
+      "checksum_note": "Historical only: this preceded parent-owned per-case grading and is not used as final validation."
+    },
+    "exact_commit_harbor": "Oracle and both early-exit controls are retained with the pull request after the immutable commit is pushed; this avoids a self-referential task-directory checksum."
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-runner-v2-selection:base-c7560af42487",
+    "image_id": "sha256:d22ddb74a5d77fe9df2ce4a04b91fa937c83c9b8ed9105e3dec91fa838019189",
+    "size_bytes": 26366057540,
+    "created": "2026-09-04T15:41:50.91749769Z",
+    "retained": true,
+    "reused_because": "environment and dependency files did not change"
+  },
+  "provenance_gates": {
+    "head_matches_base": true,
+    "future_reference_commit_absent": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_validation_absent_from_image": true,
+    "candidate_import_from_base_worktree": true,
+    "worktree_clean_at_container_start": true,
+    "runtime_network_disabled": true,
+    "verifier_mount_read_only": true,
+    "task_metadata_image_digest_matches": true
+  }
+}

@@ -1,0 +1,190 @@
+diff --git a/vllm/config/vllm.py b/vllm/config/vllm.py
+index 9f93ab7..bad5019 100644
+--- a/vllm/config/vllm.py
++++ b/vllm/config/vllm.py
+@@ -1233,8 +1233,10 @@ class VllmConfig:
+             )
+         current_platform.check_and_update_config(self)
+ 
+-        if envs.VLLM_USE_V2_MODEL_RUNNER:
+-            self._validate_v2_model_runner()
++        # Resolve the single V2-vs-V1 model runner decision once here so that
++        # every production consumer (workers, scheduler, attention backends)
++        # reads the same answer instead of independently rereading the env.
++        self.use_v2_model_runner = self._resolve_use_v2_model_runner()
+ 
+         # Re-compute compile ranges after platform-specific config updates
+         # (e.g., XPU may lower max_num_batched_tokens when MLA is enabled)
+@@ -1908,8 +1910,13 @@ class VllmConfig:
+             f"kernel_config={self.kernel_config!r}"
+         )
+ 
+-    def _validate_v2_model_runner(self) -> None:
+-        """Check for features not yet supported by the V2 model runner."""
++    def _v2_model_runner_unsupported_features(self) -> list[str]:
++        """Collect features not yet supported by the V2 model runner.
++
++        Returns a human-readable list of the unsupported features present in
++        this configuration. An empty list means the configuration is
++        compatible with the V2 model runner.
++        """
+         unsupported: list[str] = []
+ 
+         if self.model_config is not None and self.model_config.has_inner_state:
+@@ -1945,12 +1952,100 @@ class VllmConfig:
+             # Will be added by https://github.com/vllm-project/vllm/pull/38390
+             unsupported.append("EC transfer")
+ 
++        return unsupported
++
++    def _validate_v2_model_runner(self) -> None:
++        """Raise if any V2-unsupported feature is enabled.
++
++        Only used when the V2 model runner is explicitly requested, so that
++        forcing V2 reports unsupported features instead of silently falling
++        back to V1.
++        """
++        unsupported = self._v2_model_runner_unsupported_features()
+         if unsupported:
+             raise ValueError(
+                 "VLLM_USE_V2_MODEL_RUNNER does not yet support: "
+                 + ", ".join(unsupported)
+             )
+ 
++    def _model_defaults_to_v2_model_runner(self) -> bool:
++        """Whether the resolved model config defaults to the V2 model runner.
++
++        For this rollout only eligible dense, unquantized Qwen3
++        text-generation models default to V2. Everything else (other
++        architectures, MoE or quantized variants, pooling models, ...) stays
++        on V1 unless V2 is explicitly forced.
++        """
++        model_config = self.model_config
++        if model_config is None:
++            return False
++
++        # Pooling / embedding and other non text-generation models stay on V1.
++        if model_config.runner_type != "generate":
++            return False
++
++        # Only the dense Qwen3 causal LM architecture is in the rollout. MoE
++        # variants use a different architecture (e.g. Qwen3MoeForCausalLM) and
++        # are excluded here.
++        if model_config.architecture != "Qwen3ForCausalLM":
++            return False
++
++        # Defensive: exclude MoE checkpoints regardless of architecture string.
++        if model_config.is_moe:
++            return False
++
++        # Quantized checkpoints (either an explicit quantization method or a
++        # quantization_config in the HF config) stay on V1 for now.
++        if model_config.quantization is not None or model_config.is_quantized:
++            return False
++
++        return True
++
++    @property
++    def use_v2_model_runner(self) -> bool:
++        if hasattr(self, "_resolved_use_v2_model_runner"):
++            return self._resolved_use_v2_model_runner
++        return self._resolve_use_v2_model_runner()
++
++    @use_v2_model_runner.setter
++    def use_v2_model_runner(self, value: bool) -> None:
++        self._resolved_use_v2_model_runner = value
++
++    def _resolve_use_v2_model_runner(self) -> bool:
++        """Resolve the single V2-vs-V1 model runner decision for this config.
++
++        Keeps the legacy boolean environment accessor and distinguishes an
++        unset value by checking whether the variable is present:
++
++        - present and false (env ``0``): always use V1.
++        - present and true (env ``1``): use V2 and validate that no unsupported
++          feature is enabled, reporting rather than silently falling back.
++        - absent: default to V2 only for eligible model
++          configurations that carry no unsupported V2 features; otherwise V1.
++
++        The result is cached on ``self.use_v2_model_runner`` so every
++        production consumer shares the same decision.
++        """
++        if "VLLM_USE_V2_MODEL_RUNNER" in os.environ:
++            override = envs.VLLM_USE_V2_MODEL_RUNNER
++            if not override:
++                return False
++
++            # Explicitly forced: report unsupported features instead of
++            # silently falling back to V1.
++            self._validate_v2_model_runner()
++            return True
++
++        # Unset: defer to the resolved model configuration. Only default to V2
++        # when the model is eligible and no unsupported feature is present.
++        if not self._model_defaults_to_v2_model_runner():
++            return False
++
++        if self._v2_model_runner_unsupported_features():
++            return False
++
++        return True
++
+     def validate_block_size(self) -> None:
+         """Validate block_size against DCP and mamba constraints.
+ 
+@@ -1998,7 +2093,7 @@ class VllmConfig:
+                 "in the middle of a mm input"
+             )
+             # TODO: support align mamba cache mode for model runner v2
+-            assert not envs.VLLM_USE_V2_MODEL_RUNNER, (
++            assert not self.use_v2_model_runner, (
+                 "Model Runner V2 has not yet supported mamba_cache_mode='align'. "
+             )
+ 
+diff --git a/vllm/v1/attention/backends/flashinfer.py b/vllm/v1/attention/backends/flashinfer.py
+index dc4b1cc..2b206cb 100755
+--- a/vllm/v1/attention/backends/flashinfer.py
++++ b/vllm/v1/attention/backends/flashinfer.py
+@@ -681,7 +681,7 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+         # reused CPU buffers to avoid a race condition between step N async copies to
+         # GPU and step N+1 buffer updates.
+         self.pin_memory = (
+-            not envs.VLLM_USE_V2_MODEL_RUNNER and is_pin_memory_available()
++            not vllm_config.use_v2_model_runner and is_pin_memory_available()
+         )
+         self.paged_kv_indptr = self._make_buffer(max_num_reqs + 1)
+         self.paged_kv_indptr_cpu_buffer = torch.zeros_like(
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index e6edbb2..1b46657 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -7,7 +7,6 @@ from collections.abc import Iterable
+ from dataclasses import replace
+ from typing import Any
+ 
+-from vllm import envs
+ from vllm.compilation.cuda_graph import CUDAGraphStat
+ from vllm.config import VllmConfig
+ from vllm.distributed.ec_transfer.ec_connector.base import (
+@@ -242,7 +241,7 @@ class Scheduler(SchedulerInterface):
+             self.connector.bind_gpu_block_pool(self.kv_cache_manager.block_pool)
+ 
+         self.use_pp = self.parallel_config.pipeline_parallel_size > 1
+-        self.use_v2_model_runner = envs.VLLM_USE_V2_MODEL_RUNNER
++        self.use_v2_model_runner = vllm_config.use_v2_model_runner
+         self.scheduler_reserve_full_isl = (
+             self.scheduler_config.scheduler_reserve_full_isl
+         )
+diff --git a/vllm/v1/worker/gpu_worker.py b/vllm/v1/worker/gpu_worker.py
+index 18c7941..53e62c9 100644
+--- a/vllm/v1/worker/gpu_worker.py
++++ b/vllm/v1/worker/gpu_worker.py
+@@ -153,7 +153,7 @@ class Worker(WorkerBase):
+         if self.profiler_config.profiler not in ("torch", "cuda", None):
+             raise ValueError(f"Unknown profiler type: {self.profiler_config.profiler}")
+ 
+-        self.use_v2_model_runner = envs.VLLM_USE_V2_MODEL_RUNNER
++        self.use_v2_model_runner = vllm_config.use_v2_model_runner
+         # pending non-blocking PP send work from the previous iteration
+         self._pp_send_work: list[Handle] = []
+ 
