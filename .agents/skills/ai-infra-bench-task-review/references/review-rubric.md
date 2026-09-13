@@ -415,8 +415,7 @@ promote an unsupported concern to a blocker.
 
 ## 7. Review report
 
-Start with whether the task can be retained and whether it passes, needs
-hardening, or is invalid. Report:
+Start with whether the task can be retained and whether it passes, needs hardening, is invalid, or remains pending verification. Immediately show the ten-dimension scorecard below, followed by detailed evidence. Report:
 
 1. Realistic workflow, evidence classification, and any unsupported historical
    or quoted claims. Do not produce a source-difference table unless the task
@@ -428,3 +427,35 @@ hardening, or is invalid. Report:
 4. Findings with priorities, evidence, reproducible counterexamples, affected
    artifacts, and non-blocking proposals for making the task harder or more
    interesting.
+
+### 7.1 Ten-dimension scorecard
+
+Include all ten dimensions, in this order, in every task PR review and updated review report. This is a task-quality scorecard, not the candidate reward. Use the user's language for the report while preserving the dimension numbers and meanings. Evaluate only the task's applicable contract; examples such as GPU execution or asynchronous scheduling are not requirements for unrelated tasks.
+
+| Score / status | Meaning |
+|---|---|
+| 2 — Pass | Available evidence establishes the dimension's applicable criteria; no known requirement gap remains. This is scoped assurance, not exhaustive proof. |
+| 1 — Partial | Evidence establishes some criteria and a concrete shortfall remains. Name the shortfall and whether it blocks acceptance. |
+| 0 — Fail | Evidence establishes a fundamental failure of the dimension. Identify the failing requirement and finding. |
+| U — Unverified | Evidence is insufficient to assign a score. State what needs inspection or execution; do not infer success or treat unknown as failure. |
+
+A known failure can receive 0 even when other checks remain pending. A confirmed absence of required coverage is a finding, not merely U. Missing execution evidence must not be converted into a numeric score solely to complete the table. Static inspection can substantiate wording and explicit contract findings; actual behavior or reward claims require the corresponding execution evidence.
+
+| # | Dimension | Criteria to assess |
+|---|---|---|
+| 1 | Is the task realistic and clear? | A plausible developer request with valid interfaces, clear scope, preconditions and boundaries. Use concise, natural language and familiar terms such as PP, KV and NCCL without unnecessary expansion; retain concrete behavior and edge conditions. Support historical or quoted observations when claimed. |
+| 2 | Is correctness independent of the source PR? | The statement defines correctness; upstream material provides context without prescribing the historical implementation. Later fixes are included only when within the agreed scope and already possible at the frozen Base. |
+| 3 | Can the agent solve the task in the environment? | The agent's actual user, permissions, network and resources support reconstructing the semantic path from normal source and components. No reviewer-only dependency, material answer leak or recoverable future source; apply the cutoff rules above. |
+| 4 | Are the statement and tests aligned in both directions? | Every promised behavior has coverage and every reward-affecting requirement has a contractual basis or justified implication. Fixtures satisfy preconditions, and representative interacting conditions are exercised without demanding an exhaustive product of cases or publishing Oracle internals. |
+| 5 | Do tests exercise the actual behavior-determining path? | Semantic components and lifecycle transitions run for real; substitutions preserve relevant semantics. Observe actual inputs, outputs and state transitions, with causal checks for progress or waiting when required. Instrumentation must not perform missing candidate work. |
+| 6 | Can different correct implementations pass? | No unjustified dependence on private helpers, sentinels, containers, storage order or unspecified protocols. A materially different correct alternative passes, and its correctness is justified independently of its reward. |
+| 7 | Are incorrect implementations rejected for the right reasons? | Base and applicable incomplete or adversarial controls fail for the intended contract violation after reaching the target path, rather than malformed reports, invalid fixtures or infrastructure failures. |
+| 8 | Is the Oracle independently validated? | Independently derived invariants and at least one contract-valid challenge not copied from the existing test inventory assess the Oracle. Applicable historical defects are addressed; the Oracle completes the same required checks without exemptions. |
+| 9 | Is the grading result trustworthy? | Trust and read/write boundaries are explicit. Required checks demonstrably complete; reports, early successful exits or copied reference answers cannot establish success by themselves. Security claims remain limited to demonstrated evidence. |
+| 10 | Is acceptance reproducible and the handoff clear? | Evidence matches the final artifacts and environment; the formal grading path runs, resource use and timeouts are justified, and reproduction details, failure causes, coverage limits and worktree/commit state are accurate. Distinguish inspection, local probes and final-entrypoint validation. |
+
+Use a compact report table with columns `# | Dimension | Score / status | Key evidence or gap | Next action`. Link evidence or finding IDs rather than repeating full findings. Keep all ten rows even in an interim review; use U for unfinished dimensions. For an updated review, identify the task snapshot and explain changed scores from new evidence or artifact changes. Earlier-revision results do not automatically certify the current revision.
+
+Above the table, show the overall disposition, scored dimensions (`k/10`), unverified dimensions, and blocking findings. When all ten dimensions are scored, show the sum out of 20. If any dimension is U, show only the scored subtotal `S/(2k)` alongside the coverage count and explicitly leave the overall score pending; do not normalize it to a full-task percentage or present it as a completed score. When k is zero, omit the subtotal.
+
+Retain the three-gate and priority rules. A high aggregate score never offsets a blocker in any dimension, and incomplete required verification prevents a final pass. A minor non-blocking shortfall may remain a 1 with an explicit explanation; no numerical threshold replaces the acceptance criteria. Follow the table with the blocking issues and smallest concrete next actions. Avoid duplicating the same finding in the total blocker count when it affects several dimensions.

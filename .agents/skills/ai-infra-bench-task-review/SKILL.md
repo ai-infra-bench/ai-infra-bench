@@ -102,11 +102,7 @@ Use the priority definitions in the rubric. P0 and P1 findings require concrete
 evidence such as a reproducible wrong reward, an unreachable target path, an
 agent-visible leak, or an explicit contract contradiction.
 
-Start the report with whether the task can be retained. Report each gate, the
-semantic boundary and allowed substitutions, behavior-to-test coverage, actual
-Base/Oracle/control results, reproducible counterexamples, and required artifact
-changes. Suggestions that only improve difficulty or interest should remain
-non-blocking unless the current task is invalid.
+Start the report with whether the task can be retained, followed by the mandatory [ten-dimension scorecard](references/review-rubric.md#71-ten-dimension-scorecard) for every task PR review. Show evidence-backed scores, unverified dimensions, blockers, and next actions before detailed findings. Report each gate, the semantic boundary and allowed substitutions, behavior-to-test coverage, actual Base/Oracle/control results, reproducible counterexamples, and required artifact changes. Suggestions that only improve difficulty or interest should remain non-blocking unless the current task is invalid. Scores summarize the review; they never override gate blockers or substitute for evidence.
 
 After authorized hardening, report final executable hashes, image identity,
 stability and Harbor results, and the exact uncommitted, commit, or PR state. Do
