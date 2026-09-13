@@ -229,6 +229,7 @@ def matrix_entry(task_dir: Path, mode: str) -> dict[str, Any]:
         approval_environment = "task-validation"
     return {
         "task": task_dir.name,
+        "accelerator": config["environment"]["accelerator"],
         "runs_on": runner["github_labels"],
         "platform": runner["platform"],
         "approval_environment": approval_environment,

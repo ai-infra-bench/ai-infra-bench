@@ -4,7 +4,6 @@ set -euo pipefail
 : "${TASK_NAME:?TASK_NAME is required}"
 : "${TARGET_PLATFORM:?TARGET_PLATFORM is required}"
 : "${PUBLISH_IMAGE:=false}"
-: "${GHCR_REPOSITORY:=ghcr.io/${GITHUB_REPOSITORY_OWNER}/ai-infra-bench-task-envs}"
 : "${HARBOR_JOBS_DIR:=${GITHUB_WORKSPACE:-$PWD}/harbor-jobs}"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -36,14 +35,28 @@ environment_key="$(
     --task "$TASK_NAME" \
     --platform "$TARGET_PLATFORM"
 )"
-image_ref="${GHCR_REPOSITORY}:${TASK_NAME}-${environment_key}"
 cache_hit=false
+if (( gpu_count > 0 )); then
+  # Always rebuild on the local GPU runner. BuildKit reuses its persistent
+  # local layers, while rebuilding ensures Dockerfile/environment changes can
+  # never accidentally reuse a stale canonical image ID from task.toml.
+  image_ref="ai-infra-bench-task-envs:${TASK_NAME}-${environment_key}"
+else
+  : "${GHCR_REPOSITORY:=ghcr.io/${GITHUB_REPOSITORY_OWNER}/ai-infra-bench-task-envs}"
+  image_ref="${GHCR_REPOSITORY}:${TASK_NAME}-${environment_key}"
+  if docker pull "$image_ref"; then
+    cache_hit=true
+  fi
+fi
 
-if docker pull "$image_ref"; then
-  cache_hit=true
+if [[ "$cache_hit" == true ]]; then
   printf 'Using cached image %s\n' "$image_ref"
 else
-  printf 'No cached image for %s; building locally\n' "$image_ref"
+  if (( gpu_count > 0 )); then
+    printf 'Building GPU image locally; BuildKit layers may be reused\n'
+  else
+    printf 'No cached image for %s; building locally\n' "$image_ref"
+  fi
   test -f "$task_dir/environment/Dockerfile"
   docker buildx build \
     --load \
@@ -58,7 +71,7 @@ else
 fi
 
 runtime_image="$image_ref"
-if [[ "$cache_hit" == true ]]; then
+if (( gpu_count == 0 )) && [[ "$cache_hit" == true ]]; then
   runtime_image="$(
     docker image inspect \
       --format '{{range .RepoDigests}}{{println .}}{{end}}' \
@@ -109,13 +122,13 @@ while IFS= read -r case_json; do
 done < <(jq -c '.[]' <<<"$cases_json")
 
 published=false
-if [[ "$cache_hit" == false && "$PUBLISH_IMAGE" == true ]]; then
+if (( gpu_count == 0 )) && [[ "$cache_hit" == false && "$PUBLISH_IMAGE" == true ]]; then
   docker push "$image_ref"
   published=true
 fi
 
 digest=""
-if [[ "$image_ref" == ghcr.io/* && ("$cache_hit" == true || "$published" == true) ]]; then
+if (( gpu_count == 0 )) && [[ "$image_ref" == ghcr.io/* && ("$cache_hit" == true || "$published" == true) ]]; then
   digest="$(docker buildx imagetools inspect "$image_ref" --format '{{json .Manifest.Digest}}' | tr -d '"')"
 fi
 

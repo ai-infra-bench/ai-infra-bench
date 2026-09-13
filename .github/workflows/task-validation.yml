@@ -118,13 +118,13 @@ jobs:
       TARGET_PLATFORM: ${{ matrix.platform }}
       HARBOR_VERSION: 0.22.0
       PUBLISH_IMAGE: "false"
-      GHCR_REPOSITORY: ghcr.io/${{ github.repository_owner }}/ai-infra-bench-task-envs
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
 
       - name: Log in to GHCR for cache reads
+        if: matrix.accelerator == 'CPU'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
