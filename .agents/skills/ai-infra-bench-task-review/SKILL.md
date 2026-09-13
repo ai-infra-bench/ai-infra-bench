@@ -34,10 +34,7 @@ loaded skill file is modified relative to HEAD, record the SHA-256 of
 `SKILL.md` and every reference or script actually used. Do not identify dirty
 skill contents by the HEAD commit alone.
 
-For every review, read
-[references/review-rubric.md](references/review-rubric.md) in full. When the
-user authorizes changes, validation, a commit, or a PR, also read
-[references/validation-playbook.md](references/validation-playbook.md) in full.
+For every review, read the [fourteen-step review workflow](references/review-workflow.md) and [review rubric](references/review-rubric.md) in full. The workflow guides execution, the rubric defines acceptance criteria, and the ten-dimension scorecard summarizes findings for human readers; completing the scorecard does not replace executing the review. When the user authorizes changes, validation, a commit, or a PR, also read [references/validation-playbook.md](references/validation-playbook.md) in full.
 
 ## Working modes
 

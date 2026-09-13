@@ -4,6 +4,8 @@ A valid task presents a realistic problem, lets a strong solver reconstruct the
 behavior-determining path in a normal development environment, and rewards the
 observable contract without requiring the Oracle's implementation.
 
+Use the [fourteen-step workflow](review-workflow.md) to conduct the review. This rubric supplies the acceptance criteria; the ten-dimension scorecard in section 7.1 is the human-readable summary, not a substitute for that workflow.
+
 ## 1. Fix the review revision and target
 
 If the user requests a remote branch, commit, or worktree version of the skill,

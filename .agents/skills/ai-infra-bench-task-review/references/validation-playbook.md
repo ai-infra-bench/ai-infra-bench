@@ -4,6 +4,8 @@ Use this workflow after the user authorizes changes, validation, a commit, or a
 PR. The review rubric defines correctness; this file defines execution order and
 evidence discipline.
 
+The [fourteen-step review workflow](review-workflow.md) covers the complete review, including early diagnosis and counterexamples. Use this playbook for its authorized hardening and final-validation stages; the ten-dimension scorecard reports the results to human readers.
+
 ## 1. Confirm revision, scope, and authorization
 
 - Continue from the reviewed version in the same isolated worktree.
