@@ -34,7 +34,7 @@ loaded skill file is modified relative to HEAD, record the SHA-256 of
 `SKILL.md` and every reference or script actually used. Do not identify dirty
 skill contents by the HEAD commit alone.
 
-For every review, read the [fourteen-step review workflow](references/review-workflow.md) and [review rubric](references/review-rubric.md) in full. The workflow guides execution, the rubric defines acceptance criteria, and the ten-dimension scorecard summarizes findings for human readers; completing the scorecard does not replace executing the review. When the user authorizes changes, validation, a commit, or a PR, also read [references/validation-playbook.md](references/validation-playbook.md) in full.
+For every review, read [references/review-rubric.md](references/review-rubric.md) in full. It is the single detailed reference: fourteen execution steps with acceptance and validation rules, followed by a ten-dimension scorecard for human readers. Use the steps to conduct the review and the scorecard to communicate its results.
 
 ## Working modes
 
@@ -73,7 +73,7 @@ or consumers may be substituted when the substitution preserves the relevant
 state, cardinality, ordering, timing class, and lifecycle semantics. The number
 of technologies mentioned in the user story does not determine E2E depth.
 
-For Gate 3, apply the [early-exit checks](references/review-rubric.md#55-base-oracle-and-result-integrity)
+For Gate 3, apply the [early-exit checks](references/review-rubric.md#9-trace-scoring-trust-and-completion-integrity)
 when candidate code can terminate a process participating in verification.
 
 ## Fixed project rules
@@ -99,7 +99,7 @@ Use the priority definitions in the rubric. P0 and P1 findings require concrete
 evidence such as a reproducible wrong reward, an unreachable target path, an
 agent-visible leak, or an explicit contract contradiction.
 
-Start the report with whether the task can be retained, followed by the mandatory [ten-dimension scorecard](references/review-rubric.md#71-ten-dimension-scorecard) for every task PR review. Show evidence-backed scores, unverified dimensions, blockers, and next actions before detailed findings. Report each gate, the semantic boundary and allowed substitutions, behavior-to-test coverage, actual Base/Oracle/control results, reproducible counterexamples, and required artifact changes. Suggestions that only improve difficulty or interest should remain non-blocking unless the current task is invalid. Scores summarize the review; they never override gate blockers or substitute for evidence.
+Start the report with whether the task can be retained, followed by the mandatory [ten-dimension scorecard](references/review-rubric.md#ten-dimension-scorecard) for every task PR review. Show evidence-backed scores, unverified dimensions, blockers, and next actions before detailed findings. Report each gate, the semantic boundary and allowed substitutions, behavior-to-test coverage, actual Base/Oracle/control results, reproducible counterexamples, and required artifact changes. Suggestions that only improve difficulty or interest should remain non-blocking unless the current task is invalid. Scores summarize the review; they never override gate blockers or substitute for evidence.
 
 After authorized hardening, report final executable hashes, image identity,
 stability and Harbor results, and the exact uncommitted, commit, or PR state. Do
