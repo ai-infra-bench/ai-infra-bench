@@ -59,6 +59,8 @@ Checkpoint: the agreed scope and applicable historical failures are explicit eno
 
 Write `input or event -> behavior-determining subsystem or state transition -> observable result`. Include the necessary lifecycle, not just an isolated function call.
 
+Enter reward-bearing tests through a public or stable subsystem interface and observe user-visible outputs, state, side effects, persistence, errors, or lifecycle behavior. Private helpers and intermediate state may assist diagnosis but must not determine reward unless they are themselves part of the stated contract.
+
 Classify components as semantic, substitutable, or context-only. A component must run for real if a contract-valid deterministic replacement could remove, reverse, or materially change the target Base-versus-Oracle distinction. For each allowed substitution, explain how it preserves relevant state, cardinality, ordering, timing, and lifecycle.
 
 For an async PP task, controlled model outputs can help component tests isolate token handoff, while an actual mp engine test checks the requested executor lifecycle. Do not replace the scheduler or worker execution responsible for the concurrency property being tested. Conversely, do not require an unrelated HTTP deployment merely because a user story mentions a service.
@@ -168,6 +170,8 @@ An exit-code-only scoring pattern is a review lead, not by itself a demonstrated
 
 For applicable early-exit controls, prove that the control reaches the intended import or execution boundary and terminates before required checks complete, while final reward is 0. An unrelated import error is not evidence of completion integrity. Keep control patches in curator-only validation artifacts; the scorer must not read them or compare candidate code with the Oracle.
 
+Run each required early-exit control through the actual grading entrypoint on the final task image, including artifact transfer, verifier isolation, and reward collection. If that path is unavailable, record the narrower probe and leave full-entrypoint validation pending; a local rejection alone does not satisfy this requirement.
+
 Checkpoint: the formal scorer requires completed behavioral checks, and the claimed isolation properties have evidence. Keep arbitrary-code tampering claims within the demonstrated boundary.
 
 ## 10. Run a compact set of distinguishing controls first
@@ -237,7 +241,7 @@ For each consequential finding, identify the behavior, contractual basis, eviden
 
 When trajectory review is requested, inspect the actual commands, edits, and final run evidence separately. Do not infer exploitation from a verifier weakness or equate one successful rollout with task validity.
 
-Before an authorized commit or PR, inspect the staged scope and diff, include only approved paths, and report the exact worktree, branch, commit, and PR state. Distinguish files changed, targeted checks passed, final acceptance passed, and changes committed or published.
+Distinguish files changed, targeted checks passed, final acceptance passed, and changes committed or published. A review may conclude with findings or pending verification; that is not final task acceptance and does not authorize otherwise unrequested fixes or publication.
 
 ### 14.1 Finding priorities and evidence
 
@@ -254,7 +258,7 @@ The report must cover the realistic workflow and evidence classification; unsupp
 
 Before an authorized commit or PR, run the staged-scope audit, inspect the staged diff, and preserve unrelated tracked and untracked changes. Report final hashes, image identity, validation results, and the exact worktree, branch, commit and PR state. Commit, push, or create a PR only with explicit authorization.
 
-Completion requires all three gates to pass, no open blocker, repository checks to pass, expected Base/Oracle/control behavior, successful final Harbor validation, and evidence matching the executable artifacts. An agent timeout below 10 hours remains a reported non-blocking warning.
+Final task acceptance requires all three gates to pass, no open blocker, repository checks to pass, expected Base/Oracle/control behavior, successful final Harbor validation, and evidence matching the executable artifacts. An agent timeout below 10 hours remains a reported non-blocking warning.
 
 Checkpoint: another reviewer can understand the current state at a glance and follow the evidence to reproduce the conclusion. Required validation that was not run remains pending rather than being represented as complete.
 
