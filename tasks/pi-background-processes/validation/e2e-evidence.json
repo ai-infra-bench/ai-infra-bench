@@ -5,26 +5,31 @@
   "base_commit": "d981de1229ef899957bbe968bc8dcda02a21f477",
   "dependency_cutoff": "2026-09-05T11:54:46Z",
   "image": {
-    "tag": "ai-infra-bench/pi-background-processes:local",
-    "image_id": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d",
-    "platform": "linux/arm64",
-    "published": false
+    "canonical_tag": "ai-infra-bench/pi-background-processes:base-d981de1229ef",
+    "image_id": "sha256:40fe5f960138c58e4697f4fa2798accc4e383809d3f340242c8b3320f0eb91e8",
+    "platform": "linux/amd64 (built with templates/pi-harbor-node/build.py --platform linux/amd64 under qemu on an arm64 host; CI's x64 runner rebuilds the same Dockerfile natively)",
+    "template": "pi-harbor-node",
+    "build_context": "empty",
+    "published": false,
+    "previous_local_images": {
+      "arm64_validated": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d (all 15 Harbor cases, real-agent rollouts, independent challenge)",
+      "amd64_qemu_smoke": "sha256:aa16b0932abd1dbe1da0ed89e008fefe8644c0049f5985c35b8c7c6db58367a3 (base 0 / oracle 1)"
+    }
   },
   "harbor_version": "0.22.0",
-  "hardware": "local macOS (Apple Silicon) host, colima docker VM (12 CPU / 28 GiB), linux/arm64 image; CI x64 runner not yet used",
+  "hardware": "local macOS (Apple Silicon) host, colima docker VM (12 CPU / 28 GiB); full matrix on a linux/arm64 build of the same Dockerfile, base/oracle smoke on the linux/amd64 template build under qemu; CI x64 runner not yet used",
   "executable_hashes": {
-    "instruction_sha256": "4949879a76a269bc0ee03b3456bb5ae745e3bab8b9638e692fbc6d756d68846f",
-    "task_toml_sha256": "11e4fb343500ace3b9562a12d3ef4a56ab9145ae21fabc38bb1ed68dfec6d247",
-    "dockerfile_sha256": "4c1bfd74f4398561607f51e172289d3bc31add85e113c8a92cbb2de08c4ae7be",
-    "baseline_check_sha256": "1947fb95338c5bda3ad5c03e256b961bde453b6bb8676f9e2cafa7c27f95fb73",
+    "instruction_sha256": "0ef5e714100af77f2b1f98054d629b2060619cd140858f7bf82fd5cd8ea64f42",
+    "task_toml_sha256": "5dcdb6c4bc07fbcba6d17c8dff6ee7d07474e15da72ba61ff55e8388b601b57a",
+    "dockerfile_sha256": "a0e0bce4acc153635c2541adada3d167865c6b14ccd95ca207c93e48d856817a",
     "oracle_patch_sha256": "1011d89f0ea5e635bd6fc2c606baba8f4107adef0df436365f1eebb2d4c7886a",
     "solve_script_sha256": "9fc62fd65f4dafe37cd88285894776535c4bfa300e62d5570140f49fdc93a8f9",
     "test_script_sha256": "b7e9e56659b88fac3401b1daef03bb14d83f7015a1f4747fdd3ef3d0b8cb2cb7",
     "check_junit_sha256": "72698cffca76ae6b0848ef62122572ed776d2bfb225f9088c1860af35c1456d7",
-    "check_pass_to_pass_sha256": "ac1e8a2078521bcacae99bfe03eb5def1b33fe32c787d20ba6ebf8bcdf1cbe89",
-    "case_contract_sha256": "8692452f8f32662ca6a241e4c57f40f840c711ea5d8c416e8982657966ce41fe",
-    "bg_support_sha256": "a94c2e53359064d17f603367cf8ce6eb7be0003f1bc58a12952db8eb099b79d8",
-    "contract_test_sha256": "16e4fe2f3feddc6bce7f6a63e8d877e14a7f6f77370a5fd3e775d6b6992fdd6f",
+    "check_pass_to_pass_sha256": "bb671023d7a7a199a945c0241acf24c62284783695297a89894380bad2f36629",
+    "case_contract_sha256": "e522a8d409f29f6bfae6facebd4c8421db3155a47a5af129f9349713496fd3ca",
+    "bg_support_sha256": "bda0541ce32d42bd01666de47a151f1b270a8e72b52a4e16b014698f7680f123",
+    "contract_test_sha256": "0fef5b44a730a5ee7fd19f3daa59cee262b9fe8212386e155bc076781e7d02ce",
     "lifecycle_test_sha256": "9b255c92a2ee93dea834c2e917892cf5d122680c0f3bb46e883f346d147b92aa",
     "fixtures": {
       "emit.mjs": "d37b7b497a0705ba8db411898ebebd6c853d4965f6a0c8c97674f5900a84f33e",
@@ -210,6 +215,30 @@
           "elapsed_sec": 85
         }
       ]
+    },
+    "template_image_smoke": {
+      "date": "2026-09-14",
+      "image_id": "sha256:40fe5f960138c58e4697f4fa2798accc4e383809d3f340242c8b3320f0eb91e8",
+      "platform": "linux/amd64 under qemu",
+      "reason": "Dockerfile regenerated from templates/pi-harbor-node and built with build.py; verifier and Oracle bytes unchanged, so only base and oracle were rerun (image-check passed first)",
+      "log": "~/ai-infra-scratch/template-image-smoke.log",
+      "results": [
+        {
+          "case": "base",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 166
+        },
+        {
+          "case": "oracle",
+          "expected_reward": 1,
+          "reward": 1,
+          "status": "OK",
+          "elapsed_sec": 167
+        }
+      ],
+      "all_match": true
     },
     "revised_verifier_2026-09-14": {
       "runner": "tools/local_task_validation.py",
@@ -861,10 +890,9 @@
     "historical_note": "historical_* entries record the first frozen 14-case revision and its 10 controls (run before later verifier changes; control-wake-per-reason-no-coalescing was removed with the coalescing case). The authoritative current results are `latest` (15-case matrix) and `allowed_failures_rerun`."
   },
   "known_limitations": [
-    "Only linux/arm64 has been validated natively; the CI contract expects x64 and a published GHCR image. task.toml image_digest records the validated local arm64 image until CI publishes.",
     "JUnit exact-inventory checks are not tamper-proof on their own: control-forged-junit passed the inventory check and was rejected by vitest's exit status; both are required for reward.",
     "One real-agent rollout (claude-code, claude-opus-5) scored 0; its submission fails the coalescing and bg_kill-wake cases. Judge defects it exposed are fixed and the matrix was rerun.",
-    "The amd64 image exists only as a local qemu-emulated build (Base 0 / Oracle 1 smoke passed). After the first native x64 CI build, compare the image's /opt/pi-baseline/summary.json failed_on_base with tests/baseline-pins.json allowed_failures: an unlisted environmental failure makes Oracle score 0 with a baseline_pin_problems message, and the fix is to extend the pin, not the task."
+    "The full 15-case matrix, the real-agent rollouts and the independent challenge ran on a linux/arm64 build of the same Dockerfile; the canonical linux/amd64 image (templates/pi-harbor-node/build.py under qemu) has only Base 0 / Oracle 1 through Harbor. CI must rebuild it natively and publish to GHCR. After that build, compare the image's /opt/pi-baseline/summary.json failed_on_base with tests/baseline-pins.json allowed_failures: an unlisted environmental failure makes Oracle score 0 with a baseline_pin_problems message, and the fix is to extend the pin, not the task."
   ],
   "real_agent_rollouts": [
     {
@@ -891,18 +919,17 @@
   ],
   "artifacts": {
     "files": {
-      "README.md": "756f2d0dede6d6b7b776cac6b679a1491e631c8440ac8382178c5f94df345bee",
-      "environment/Dockerfile": "4c1bfd74f4398561607f51e172289d3bc31add85e113c8a92cbb2de08c4ae7be",
-      "environment/baseline_check.py": "1947fb95338c5bda3ad5c03e256b961bde453b6bb8676f9e2cafa7c27f95fb73",
-      "environment/image-manifest.json": "69dd4a04c045d82830aeb6b3a44b230a243444dce0b6d4b6c05deb95dc6e667a",
+      "README.md": "0853fd7c0d3aa922e7130f3a8e6f184e89837677613be4f561b53f5cefc7829d",
+      "environment/Dockerfile": "a0e0bce4acc153635c2541adada3d167865c6b14ccd95ca207c93e48d856817a",
+      "environment/image-manifest.json": "67eb50fab3e3c023d07204b8f0d9ca406bc266f993e48d8762a14956e82180c9",
       "environment/lock/manifest.json": "967f6a3c67d25bae5ed6be1dad6bc7ca15d2cfd3d3539f93366a02100d13cf2f",
       "environment/lock/package-lock.json": "e3569b99e673a0051be908f2bed57651b90a966a5a0d208913c29e6830a6a6c2",
       "instruction.md": "0ef5e714100af77f2b1f98054d629b2060619cd140858f7bf82fd5cd8ea64f42",
       "solution/README.md": "bf50f6f9f22850a108a2775196d28eb989079a7c2b772d7253dae06554976810",
       "solution/oracle.patch": "1011d89f0ea5e635bd6fc2c606baba8f4107adef0df436365f1eebb2d4c7886a",
       "solution/solve.sh": "9fc62fd65f4dafe37cd88285894776535c4bfa300e62d5570140f49fdc93a8f9",
-      "task.toml": "11e4fb343500ace3b9562a12d3ef4a56ab9145ae21fabc38bb1ed68dfec6d247",
-      "tests/baseline-pins.json": "4dfc976d1ffc48c503ad1bc7b0cd5d3ac40d64506460c3b87c94d388fcc93fa2",
+      "task.toml": "5dcdb6c4bc07fbcba6d17c8dff6ee7d07474e15da72ba61ff55e8388b601b57a",
+      "tests/baseline-pins.json": "a1618c332ca4f20f37c06ca13a53b30b759bc9dd1044f6d9c4bb38c2c7ef04b9",
       "tests/bg.contract.test.ts": "0fef5b44a730a5ee7fd19f3daa59cee262b9fe8212386e155bc076781e7d02ce",
       "tests/bg.lifecycle.test.ts": "9b255c92a2ee93dea834c2e917892cf5d122680c0f3bb46e883f346d147b92aa",
       "tests/bg_support.ts": "bda0541ce32d42bd01666de47a151f1b270a8e72b52a4e16b014698f7680f123",
@@ -929,7 +956,7 @@
       "validation/control-report-killed-before-group-gone.patch": "cdca95cf77f708515bca2375472ac09165c51eef1540d6509eeae0b022ad8ff5",
       "validation/control-stall-kills-instead-of-backgrounding.patch": "02a855aa4a2b0b2151bf716e9a6ec579d00b7ac6327478e048ed2d42f6e72a8b",
       "validation/control-swallow-cleanup-failure.patch": "93659bf58836768fe19315b0c5023983516f22c91cb8aa2c9c2a35a2807403dd",
-      "validation/controls-plan.md": "925660b4d13a1e305594f5780e0e4f603cdcf281e2da65eb2ea0882f10bf19d8",
+      "validation/controls-plan.md": "488c2b9170fcff481ca35c90c3ce1dc2296099169950a324bb334d774ef5cc5b",
       "validation/independent_challenge.py": "63daeeb6cca135336ee3291b7a9bb85be613ce5f508b64d1f429645e7653cf7e",
       "validation/independent_probe.mjs": "f3175c253fef0f1631adf02b1fa2939f02b05cddf530f59b49e8838230418b21",
       "validation/rollout-2026-09-14-claude-code.md": "f7b757e121e1ae54462d0e81555b737c91b877f083c51f78d7309a101e2f619d",
@@ -989,6 +1016,7 @@
       "reward": 1,
       "elapsed_sec": 178
     },
-    "log": "~/ai-infra-scratch/amd64-smoke.log"
+    "log": "~/ai-infra-scratch/amd64-smoke.log",
+    "note": "first qemu build before the template; superseded by harbor_runs.template_image_smoke on the canonical image"
   }
 }

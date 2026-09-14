@@ -3,10 +3,10 @@
 # workspace. The agent phase and the verifier run with no network.
 # Generated from templates/pi-harbor-node by generate.py; edit the template.
 
-ARG PI_BASE_SHA=d981de1229ef899957bbe968bc8dcda02a21f477
-ARG PI_DEPENDENCY_CUTOFF=2026-09-05T11:54:46Z
-ARG PI_CACHE_NAMESPACE=d981de1229ef899957bbe968bc8dcda02a21f477-e3569b99e673a005
-ARG PI_LOCK_SHA256=e3569b99e673a0051be908f2bed57651b90a966a5a0d208913c29e6830a6a6c2
+ARG PI_BASE_SHA=__PI_BASE_SHA__
+ARG PI_DEPENDENCY_CUTOFF=__PI_DEPENDENCY_CUTOFF__
+ARG PI_CACHE_NAMESPACE=__PI_CACHE_NAMESPACE__
+ARG PI_LOCK_SHA256=__PI_LOCK_SHA256__
 ARG PI_REPO=https://github.com/earendil-works/pi.git
 
 ######################### PINNED SOURCE #########################

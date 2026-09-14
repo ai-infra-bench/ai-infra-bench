@@ -72,3 +72,11 @@ Text-only change 2026-09-14: `instruction.md` now states that a relative
 `bg_run` `cwd` resolves against the session's working directory and the record
 stores the absolute path (a behaviour the independent challenge already
 relied on). No verifier or Oracle bytes changed, so no matrix rerun.
+
+Image rebuild 2026-09-14 (template): the Dockerfile is now generated from
+`templates/pi-harbor-node` (lock sha256 check, embedded baseline checker,
+provenance labels; the installed software is unchanged) and the canonical image
+was built with `build.py --platform linux/amd64`. Verifier and Oracle bytes did
+not change, so only base and oracle were rerun on the new image through Harbor
+(see `e2e-evidence.json` `harbor_runs.template_image_smoke`); the controls are
+not affected by the image identity.

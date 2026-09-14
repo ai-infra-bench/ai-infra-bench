@@ -1,11 +1,12 @@
 # pi-background-processes
 
-**Status: staged (`staged-smoke-only`), validated locally through the Harbor
-entrypoint on a linux/arm64 image, with a linux/amd64 build smoke-tested under
-emulation (Base 0 / Oracle 1).** Base = 0, Oracle = 1, one correct alternative = 1, negative
-controls = 0, independent oracle challenge passed for Oracle and alternative
-(see `validation/`). `image_digest` records the validated local image; the CI
-x64 runner has not built or published the image yet.
+**Status: staged (`staged-smoke-only`).** Fully validated through the Harbor
+entrypoint on a linux/arm64 build (Base 0, Oracle 1, one correct alternative 1,
+12 negative controls 0, independent oracle challenge passed); the canonical
+image is now built from `templates/pi-harbor-node` for linux/amd64 (CI's
+platform, under qemu locally) and smoke-tested with Base/Oracle. `image_digest`
+records that template build; the CI x64 runner has not built or published it
+yet.
 
 ## What the agent does
 
@@ -28,8 +29,11 @@ exit wake the agent. See [`instruction.md`](instruction.md).
   `--no-require-git` flag pi's find tool uses), `ripgrep` from Debian, so pi's
   tools-manager finds both on PATH and never downloads at runtime.
 - `/opt/pi-baseline/`: pi's own coding-agent vitest suite run on Base inside the
-  image (2158 cases, 50 skipped without keys, 4 environmental failures recorded
-  in `summary.json`). This is the PASS_TO_PASS baseline.
+  image (2158 cases, 50 skipped without keys, a few environmental failures
+  recorded in `summary.json`). This is the PASS_TO_PASS baseline.
+- The Dockerfile is generated from `templates/pi-harbor-node` (the Node
+  counterpart of the vLLM template): `generate.py --check` verifies it, and
+  `build.py` builds it from an empty context and writes `image-manifest.json`.
 - CPU only, `no-network` for agent and verifier, agent timeout 10 h.
 - No real model is ever contacted during verification: the image has no network,
   `test.sh` unsets every provider credential pi recognises and sets
@@ -97,12 +101,12 @@ See [`validation/rollout-2026-09-14-grok-build.md`](validation/rollout-2026-09-1
 
 ```
 pi-background-processes/
+├── .gitattributes                 # patch files: no blank-at-eol check (as in the vLLM tasks)
 ├── instruction.md                 # agent-facing contract
 ├── task.toml                      # CPU, no-network, 10 h agent budget
 ├── environment/
-│   ├── Dockerfile                 # pinned source stage + Node workspace + PASS_TO_PASS baseline
-│   ├── baseline_check.py          # records /opt/pi-baseline/summary.json at build time
-│   ├── image-manifest.json        # local image identity and installed versions
+│   ├── Dockerfile                 # generated from templates/pi-harbor-node: pinned source + Node workspace + PASS_TO_PASS baseline
+│   ├── image-manifest.json        # image identity, installed versions, recorded baseline (written by build.py)
 │   └── lock/{package-lock.json, manifest.json}
 ├── tests/                         # verifier (never in the agent image)
 │   ├── test.sh, check_junit.py, check_pass_to_pass.py, case_contract.py
@@ -130,9 +134,10 @@ pi-background-processes/
 
 ```bash
 # CI-equivalent local run (python 3.12 for task_ci.py, Harbor 0.22.0); the same flow as CI, in one script:
-# python3.12 tools/local_task_validation.py pi-background-processes ai-infra-bench/pi-background-processes:local
-docker build --tag ai-infra-bench/pi-background-processes:local -f tasks/pi-background-processes/environment/Dockerfile tasks/pi-background-processes/environment
-python3.12 .github/scripts/task_ci.py image-check --task pi-background-processes --image ai-infra-bench/pi-background-processes:local
+# python3.12 tools/local_task_validation.py pi-background-processes ai-infra-bench/pi-background-processes:base-d981de1229ef
+python3 templates/pi-harbor-node/generate.py --check tasks/pi-background-processes
+python3 templates/pi-harbor-node/build.py --platform linux/amd64 tasks/pi-background-processes   # canonical tag ai-infra-bench/pi-background-processes:base-d981de1229ef
+python3.12 .github/scripts/task_ci.py image-check --task pi-background-processes --image ai-infra-bench/pi-background-processes:base-d981de1229ef
 # then prepare-case / harbor run / check-result per case as in .github/scripts/run_task_validation.sh
 
 # Real agent rollout (credentials in ~/.ai-infra-bench/rollout.env; agent preinstalled in the image
@@ -167,5 +172,5 @@ tools/local_agent_rollout.sh pi-background-processes ai-infra-bench/pi-backgroun
    Oracle score 0 with a `baseline_pin_problems` message, and the fix is to
    extend the pin (the pin is the union of every platform's Base failures).
 2. Independent review with the task-review skill (ten-dimension scorecard).
-3. Repository: a Node environment template for future harness tasks (this
-   task's `environment/` is the reference for now).
+3. Repository: `templates/pi-harbor-node` is new with this task; a second pi
+   task should exercise it before it is treated as stable.
