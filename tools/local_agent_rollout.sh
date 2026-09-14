@@ -41,6 +41,7 @@ SCRATCH=${AI_INFRA_SCRATCH:-$HOME/ai-infra-scratch}   # colima shares only $HOME
 HARBOR_VERSION=${HARBOR_VERSION:-0.22.0}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 
+# shellcheck source=/dev/null
 if [ -f "$ROLLOUT_ENV" ]; then set -a; . "$ROLLOUT_ENV"; set +a; fi
 case "$AGENT" in
   *grok_build_oauth*)

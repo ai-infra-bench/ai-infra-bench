@@ -25,7 +25,12 @@ unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_OAUTH_TOKEN OPENAI_API_KE
   AWS_CONTAINER_CREDENTIALS_FULL_URI AWS_WEB_IDENTITY_TOKEN_FILE
 export HOME=/tmp/pi-verifier-home
 mkdir -p "$HOME"
-cd /workspace/pi/packages/coding-agent
+if ! cd /workspace/pi/packages/coding-agent; then
+  echo "verifier: workspace /workspace/pi/packages/coding-agent is missing" | tee /logs/verifier/verifier-error.log
+  printf '0\n' > /logs/verifier/reward.txt
+  printf '{"reward":0,"command_exit_code":1,"error":"workspace missing"}\n' > /logs/verifier/reward.json
+  exit 0
+fi
 rm -rf test/__verifier__
 
 contract_rc=0

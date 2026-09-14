@@ -16,6 +16,7 @@ Requirements and local pitfalls:
 - Each case is a full Harbor trial (image start, agent, verifier); expect roughly a
   minute per case for CPU tasks.
 """
+
 import json
 import os
 import shutil
@@ -36,7 +37,9 @@ JOBS = Path()
 
 
 def ci(*args: str) -> str:
-    return subprocess.run([PY, str(CI), *args], cwd=REPO, check=True, text=True, capture_output=True).stdout.strip()
+    return subprocess.run(
+        [PY, str(CI), *args], cwd=REPO, check=True, text=True, capture_output=True
+    ).stdout.strip()
 
 
 def main() -> int:
@@ -58,34 +61,73 @@ def main() -> int:
     outcomes = []
     for name in names:
         case_dir = Path(tempfile.mkdtemp(prefix="ai-infra-case.", dir=str(SCRATCH / "cases")))
-        agent = ci("prepare-case", "--task", TASK, "--image", image, "--case", name, "--output", str(case_dir))
+        agent = ci(
+            "prepare-case",
+            "--task",
+            TASK,
+            "--image",
+            image,
+            "--case",
+            name,
+            "--output",
+            str(case_dir),
+        )
         job = f"{TASK}--{name}"
         shutil.rmtree(JOBS / job, ignore_errors=True)
         print(f"=============== {job} agent={agent} expected={expected[name]}", flush=True)
         start = time.time()
         with open(JOBS / f"{job}.harbor.log", "w") as log:
             run = subprocess.run(
-                [*HARBOR, "run", "--path", str(case_dir), "--agent", agent, "--env", "docker",
-                 "--jobs-dir", str(JOBS), "--job-name", job, "--n-concurrent", "1",
-                 "--cpus", "ignore", "--memory", "ignore", "--delete", "--yes"],
-                stdout=log, stderr=subprocess.STDOUT,
+                [
+                    *HARBOR,
+                    "run",
+                    "--path",
+                    str(case_dir),
+                    "--agent",
+                    agent,
+                    "--env",
+                    "docker",
+                    "--jobs-dir",
+                    str(JOBS),
+                    "--job-name",
+                    job,
+                    "--n-concurrent",
+                    "1",
+                    "--cpus",
+                    "ignore",
+                    "--memory",
+                    "ignore",
+                    "--delete",
+                    "--yes",
+                ],
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                check=False,
             )
         elapsed = int(time.time() - start)
         check = subprocess.run(
-            [PY, str(CI), "check-result", "--result", str(JOBS / job / "result.json"), "--expected-reward", str(expected[name])],
-            cwd=REPO, text=True, capture_output=True,
+            [
+                PY,
+                str(CI),
+                "check-result",
+                "--result",
+                str(JOBS / job / "result.json"),
+                "--expected-reward",
+                str(expected[name]),
+            ],
+            cwd=REPO,
+            text=True,
+            capture_output=True,
+            check=False,
         )
         ok = check.returncode == 0
-        result_path = JOBS / job / "result.json"
-        reward = None
-        if result_path.exists():
-            try:
-                data = json.loads(result_path.read_text())
-                reward = data.get("stats", {}).get("reward") or data
-            except Exception:
-                reward = "unreadable"
         outcomes.append((name, expected[name], ok, elapsed))
-        print(f"RESULT {name}: {'OK' if ok else 'MISMATCH'} expected={expected[name]} harbor_exit={run.returncode} elapsed={elapsed}s\n{check.stdout.strip()[-400:]}{check.stderr.strip()[-400:]}", flush=True)
+        print(
+            f"RESULT {name}: {'OK' if ok else 'MISMATCH'} expected={expected[name]} "
+            f"harbor_exit={run.returncode} elapsed={elapsed}s\n"
+            f"{check.stdout.strip()[-400:]}{check.stderr.strip()[-400:]}",
+            flush=True,
+        )
         shutil.rmtree(case_dir, ignore_errors=True)
     print("SUMMARY")
     for name, exp, ok, elapsed in outcomes:

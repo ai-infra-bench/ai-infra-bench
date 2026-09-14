@@ -1,16 +1,18 @@
 # pi Harbor Node Dockerfile template
 
 Environment template for agent-harness tasks on [pi](https://github.com/earendil-works/pi)
-(`earendil-works/pi`, a Node 22 npm workspace). It is the Node counterpart of
-`templates/vllm-harbor-all-in-one`: each task keeps its own self-contained
-`environment/Dockerfile`, generated from this template and the task's
-`task.toml` (`base_commit`, `dependency_cutoff`) plus the checked-in
-dependency lock.
+(`earendil-works/pi`, a Node 22 npm workspace). Each task keeps its own
+self-contained `environment/Dockerfile`, generated from this template and the
+task's `task.toml` (`base_commit`, `dependency_cutoff`) plus the checked-in
+dependency lock. The layout and conventions (generate / build / lock scripts,
+empty build context, provenance labels, image manifest) are the same as
+`templates/vllm-harbor-all-in-one`, so the two kinds of task are reviewed and
+built the same way.
 
 What the generated image contains:
 
 - pi's monorepo at the pinned commit, fetched by SHA with no tags, remotes, or
-  reflogs (the same source stage as the vLLM template).
+  reflogs (the source stage CI's `image-check` expects).
 - `node:22.19.0-bookworm-slim` pinned by its multi-arch manifest digest, `npm ci`
   from the repository's own `package-lock.json` (its sha256 is embedded in the
   Dockerfile and checked at build time), `npm run build` so the published

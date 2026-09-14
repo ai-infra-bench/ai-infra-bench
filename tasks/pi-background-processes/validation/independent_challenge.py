@@ -16,13 +16,13 @@ that already finished.
       -e PI_OFFLINE=1 -e PI_TELEMETRY=0 -e PI_NO_LOCAL_LLM=1 -e HOME=/tmp/vh \\
       <image-with-candidate-applied> python3 /validation/independent_challenge.py
 """
+
 from __future__ import annotations
 
 import json
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 WORKDIR = Path(os.environ.get("PI_WORKSPACE", "/workspace/pi")) / "packages/coding-agent"
@@ -40,19 +40,26 @@ def main() -> int:
     shutil.copy2(PROBE, probe)
     env = dict(os.environ, PI_OFFLINE="1", PI_TELEMETRY="0", PI_NO_LOCAL_LLM="1")
     for key in list(env):
-        if key.endswith("_API_KEY") or key.endswith("_AUTH_TOKEN") or key.endswith("_OAUTH_TOKEN"):
+        if key.endswith(("_API_KEY", "_AUTH_TOKEN", "_OAUTH_TOKEN")):
             env.pop(key)
     with (OUTPUT / "independent.log").open("w") as log:
         proc = subprocess.run(
             ["node", str(probe), str(result_file)],
-            cwd=WORKDIR, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=300, check=False,
+            cwd=WORKDIR,
+            env=env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            timeout=300,
+            check=False,
         )
     summary = {"exit_code": proc.returncode, "passed": False, "checks": {}}
     if result_file.is_file():
         data = json.loads(result_file.read_text())
         summary["passed"] = bool(data.get("passed"))
         summary["checks"] = data.get("checks", {})
-    (OUTPUT / "independent-summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n")
+    (OUTPUT / "independent-summary.json").write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False) + "\n"
+    )
     print(json.dumps(summary, ensure_ascii=False))
     shutil.rmtree(target, ignore_errors=True)
     return 0 if summary["passed"] and proc.returncode == 0 else 1

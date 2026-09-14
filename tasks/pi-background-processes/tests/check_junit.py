@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Check exact inventories and completed outcomes without importing candidates."""
+
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sys
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 from case_contract import CONTRACT_CASES, LIFECYCLE_CASES
 
@@ -18,21 +19,33 @@ def main() -> int:
     try:
         root = ET.parse(path).getroot()
         suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
-        totals = {key: sum(int(s.attrib.get(key, "0")) for s in suites)
-                  for key in ("tests", "failures", "errors", "skipped")}
+        totals = {
+            key: sum(int(s.attrib.get(key, "0")) for s in suites)
+            for key in ("tests", "failures", "errors", "skipped")
+        }
         cases = root.findall(".//testcase")
         # vitest prefixes nested describe titles with " > "; this suite uses none.
         names = [case.attrib.get("name", "").split(" > ")[-1] for case in cases]
-        failed_cases = [name for name, case in zip(names, cases)
-                        if any(case.find(tag) is not None for tag in ("failure", "error", "skipped"))]
+        failed_cases = [
+            name
+            for name, case in zip(names, cases)
+            if any(case.find(tag) is not None for tag in ("failure", "error", "skipped"))
+        ]
         valid = (
-            bool(suites) and totals["tests"] == len(expected)
-            and len(cases) == len(expected) and set(names) == expected
+            bool(suites)
+            and totals["tests"] == len(expected)
+            and len(cases) == len(expected)
+            and set(names) == expected
             and totals["failures"] == totals["errors"] == totals["skipped"] == 0
             and not failed_cases
         )
-        result.update(passed=valid, **totals, failed_cases=failed_cases,
-                      missing=sorted(expected - set(names)), unexpected=sorted(set(names) - expected))
+        result.update(
+            passed=valid,
+            **totals,
+            failed_cases=failed_cases,
+            missing=sorted(expected - set(names)),
+            unexpected=sorted(set(names) - expected),
+        )
     except (OSError, ValueError, ET.ParseError) as error:
         result["error"] = f"{type(error).__name__}: {error}"
     path.parent.mkdir(parents=True, exist_ok=True)

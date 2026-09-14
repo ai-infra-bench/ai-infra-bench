@@ -37,8 +37,16 @@ def generate(task_dir: Path) -> None:
 
     with tempfile.TemporaryDirectory(prefix="pi-lock-") as tmp:
         subprocess.run(["git", "init", "-q", tmp], check=True)
-        subprocess.run(["git", "-C", tmp, "fetch", "-q", "--depth", "1", "--no-tags", PI_REPO, base_commit], check=True)
-        lock_text = subprocess.run(["git", "-C", tmp, "show", f"{base_commit}:package-lock.json"], check=True, text=True, stdout=subprocess.PIPE).stdout
+        subprocess.run(
+            ["git", "-C", tmp, "fetch", "-q", "--depth", "1", "--no-tags", PI_REPO, base_commit],
+            check=True,
+        )
+        lock_text = subprocess.run(
+            ["git", "-C", tmp, "show", f"{base_commit}:package-lock.json"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout
     (lock_dir / "package-lock.json").write_text(lock_text)
     digest = hashlib.sha256(lock_text.encode()).hexdigest()
 
@@ -55,7 +63,12 @@ def generate(task_dir: Path) -> None:
         "dependency_cutoff": cutoff,
         "node_version": node_version.group(1) if node_version else None,
         "node_image": node_image,
-        "inputs": {"package-lock.json": {"source": "package-lock.json at base_commit, unchanged", "sha256": digest}},
+        "inputs": {
+            "package-lock.json": {
+                "source": "package-lock.json at base_commit, unchanged",
+                "sha256": digest,
+            }
+        },
         "output": {"path": "environment/lock/package-lock.json", "sha256": digest},
         "notes": [
             "The repository lock file at the base commit is used verbatim; npm ci resolves every package from it.",

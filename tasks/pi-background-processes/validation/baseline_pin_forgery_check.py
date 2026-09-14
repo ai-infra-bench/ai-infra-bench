@@ -9,6 +9,7 @@ dropped; every key-gated skip removed; two unlisted cases marked failed (stays
 under the failure cap, so only the allowed-failure pin can reject it).
 The genuine baseline must be accepted and every forgery rejected.
 """
+
 import json
 import subprocess
 import sys
@@ -40,7 +41,11 @@ def forge(genuine: Path, kind: str, out: Path) -> Path:
     elif kind == "exempt-two":
         marked = 0
         for case in root.findall(".//testcase"):
-            if case.find("skipped") is None and case.find("failure") is None and "session-manager" in case.get("classname", ""):
+            if (
+                case.find("skipped") is None
+                and case.find("failure") is None
+                and "session-manager" in case.get("classname", "")
+            ):
                 ET.SubElement(case, "failure", {"message": "forged exemption"})
                 marked += 1
                 if marked == 2:
@@ -51,9 +56,18 @@ def forge(genuine: Path, kind: str, out: Path) -> Path:
 
 
 def verdict(baseline: Path, genuine: Path) -> dict:
-    result = subprocess.run([sys.executable, str(CHECKER), str(baseline), str(genuine), str(PINS)], capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, str(CHECKER), str(baseline), str(genuine), str(PINS)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     summary = json.loads(result.stdout.strip().splitlines()[-1])
-    return {"exit_code": result.returncode, "passed": summary["passed"], "pin_problems": summary.get("baseline_pin_problems", [])}
+    return {
+        "exit_code": result.returncode,
+        "passed": summary["passed"],
+        "pin_problems": summary.get("baseline_pin_problems", []),
+    }
 
 
 def main() -> int:
@@ -64,7 +78,9 @@ def main() -> int:
         report["genuine"] = verdict(genuine, genuine)
         for kind in ["all-failed", "drop-cases", "unskip", "exempt-two"]:
             report[kind] = verdict(forge(genuine, kind, out), genuine)
-    ok = report["genuine"]["passed"] and all(not v["passed"] for k, v in report.items() if k != "genuine")
+    ok = report["genuine"]["passed"] and all(
+        not v["passed"] for k, v in report.items() if k != "genuine"
+    )
     print(json.dumps({"ok": ok, "report": report}, indent=2))
     return 0 if ok else 1
 

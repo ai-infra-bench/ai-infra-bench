@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Build and retain generated pi task images with provenance manifests.
 
-Mirrors templates/vllm-harbor-all-in-one/build.py: the generated Dockerfile is
-checked against the template, built from an empty context (so tests, the
-Oracle, and curator files cannot enter the image), and described in
-environment/image-manifest.json, including the PASS_TO_PASS baseline the
-image recorded at build time.
+The generated Dockerfile is checked against the template, built from an empty
+context (so tests, the Oracle, and curator files cannot enter the image), and
+described in environment/image-manifest.json, including the PASS_TO_PASS
+baseline the image recorded at build time. Same layout and conventions as
+templates/vllm-harbor-all-in-one/build.py.
 """
 
 from __future__ import annotations
@@ -54,8 +54,18 @@ def build(task_dir: Path, platform: str | None) -> None:
     platform_args = ["--platform", platform] if platform else []
     with tempfile.TemporaryDirectory(prefix="ai-infra-build-context-") as context:
         run(
-            "docker", "buildx", "build", "--load", "--provenance=false", "--progress=plain",
-            *platform_args, "--tag", tag, "--file", str(dockerfile), context,
+            "docker",
+            "buildx",
+            "build",
+            "--load",
+            "--provenance=false",
+            "--progress=plain",
+            *platform_args,
+            "--tag",
+            tag,
+            "--file",
+            str(dockerfile),
+            context,
         )
 
     inspect = json.loads(run("docker", "image", "inspect", tag, capture=True).stdout)[0]
@@ -71,13 +81,26 @@ def build(task_dir: Path, platform: str | None) -> None:
 
     probe = (
         "set -e; cd /workspace/pi;"
-        " printf '{\"node\":\"%s\",\"npm\":\"%s\",\"fd\":\"%s\",\"ripgrep\":\"%s\",\"python3\":\"%s\",\"git\":\"%s\",\"pi\":\"%s\",\"baseline\":%s}\\n'"
-        " \"$(node --version | sed s/^v//)\" \"$(npm --version)\" \"$(fd --version | awk '{print $2}')\""
+        ' printf \'{"node":"%s","npm":"%s","fd":"%s","ripgrep":"%s","python3":"%s","git":"%s","pi":"%s","baseline":%s}\\n\''
+        ' "$(node --version | sed s/^v//)" "$(npm --version)" "$(fd --version | awk \'{print $2}\')"'
         " \"$(rg --version | head -1 | awk '{print $2}')\" \"$(python3 --version | awk '{print $2}')\""
-        " \"$(git --version | awk '{print $3}')\" \"$(node -p \"require('./packages/coding-agent/package.json').version\")\""
-        " \"$(cat /opt/pi-baseline/summary.json)\""
+        ' "$(git --version | awk \'{print $3}\')" "$(node -p "require(\'./packages/coding-agent/package.json\').version")"'
+        ' "$(cat /opt/pi-baseline/summary.json)"'
     )
-    probe_result = json.loads(run("docker", "run", "--rm", "--network=none", *platform_args, tag, "bash", "-lc", probe, capture=True).stdout)
+    probe_result = json.loads(
+        run(
+            "docker",
+            "run",
+            "--rm",
+            "--network=none",
+            *platform_args,
+            tag,
+            "bash",
+            "-lc",
+            probe,
+            capture=True,
+        ).stdout
+    )
     baseline = probe_result.pop("baseline")
     versions = probe_result
     versions["pi"] = f"{versions['pi']} (workspace build)"
@@ -102,7 +125,9 @@ def build(task_dir: Path, platform: str | None) -> None:
         "dependency_lock_sha256": sha256_file(lock_path),
         "dependency_lock_manifest_sha256": sha256_file(lock_manifest_path),
         "build_context": "empty",
-        "build_command": f"python3 templates/{TEMPLATE_DIR.name}/build.py" + (f" --platform {platform}" if platform else "") + f" tasks/{task_dir.name}",
+        "build_command": f"python3 templates/{TEMPLATE_DIR.name}/build.py"
+        + (f" --platform {platform}" if platform else "")
+        + f" tasks/{task_dir.name}",
         "cache_policy": {
             "shared": ["source-independent OCI layers"],
             "base_and_lock_scoped": ["npm ci from the pinned package-lock.json"],
@@ -130,7 +155,9 @@ def build(task_dir: Path, platform: str | None) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("task_dirs", nargs="+", type=Path)
-    parser.add_argument("--platform", help="docker platform, e.g. linux/amd64 (CI's x64 runners); default: the host")
+    parser.add_argument(
+        "--platform", help="docker platform, e.g. linux/amd64 (CI's x64 runners); default: the host"
+    )
     args = parser.parse_args()
     for raw in args.task_dirs:
         build(raw if raw.is_absolute() else REPO_ROOT / raw, args.platform)

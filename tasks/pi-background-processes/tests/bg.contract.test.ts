@@ -9,6 +9,7 @@ import { existsSync } from "node:fs";
 import { afterEach, expect, it } from "vitest";
 import {
 	BG_TOOLS,
+	customEntriesInFile,
 	emitCommand,
 	firstUserEntryId,
 	killGroupQuietly,
@@ -27,7 +28,6 @@ import {
 	WAKE_TYPE,
 	waitFor,
 	withAcks,
-	customEntriesInFile,
 } from "./bg_support.ts";
 
 const lives: Array<{ dispose: () => Promise<void>; box: { cleanup: () => void }; drain: () => Promise<void> }> = [];
@@ -109,14 +109,19 @@ async function drainRuntime(r: LiveRuntime) {
 	const list = payload(rec.lastResult("bg_list"));
 	const running = (list.processes ?? list).filter((p: any) => p.state === "running");
 	if (running.length === 0) return;
-	r.faux.setResponses(withAcks([...running.map((p: any) => toolCall("bg_kill", { id: p.id, timeoutSec: 1 })), say("drained")]));
+	r.faux.setResponses(
+		withAcks([...running.map((p: any) => toolCall("bg_kill", { id: p.id, timeoutSec: 1 })), say("drained")]),
+	);
 	await r.runtime.session.prompt("drain kill", { expandPromptTemplates: false, source: "interactive" });
 	await sleep(200);
 }
 
 async function startProcess(l: Live, flags: string, extra: Record<string, unknown> = {}, id?: string) {
 	const pidfile = l.box.file(`${id ?? "proc"}-${Math.random().toString(36).slice(2)}.pid`);
-	await prompt(l, [toolCall("bg_run", { command: emitCommand(`${flags} --pidfile ${pidfile}`), ...extra }, id), say("started")]);
+	await prompt(l, [
+		toolCall("bg_run", { command: emitCommand(`${flags} --pidfile ${pidfile}`), ...extra }, id),
+		say("started"),
+	]);
 	const rec = payload(l.rec.lastResult("bg_run"));
 	pids.push(await readPid(pidfile));
 	return { rec, pidfile };
@@ -124,7 +129,10 @@ async function startProcess(l: Live, flags: string, extra: Record<string, unknow
 
 it("registers bg_run, bg_logs, bg_list, bg_kill and bg_watch", async () => {
 	const l = await live("register");
-	const names = l.ext.api().getAllTools().map((tool) => tool.name);
+	const names = l.ext
+		.api()
+		.getAllTools()
+		.map((tool) => tool.name);
 	for (const tool of BG_TOOLS) expect(names, `missing tool ${tool}`).toContain(tool);
 	await prompt(l, [toolCall("bg_list", {}), say("listed")]);
 	const list = payload(l.rec.lastResult("bg_list"));
@@ -295,7 +303,10 @@ it("cleanup runs after the group is gone and a failing cleanup is reported", asy
 	const page = payload(l.rec.lastResult("bg_logs"));
 	expect(page.lines.some((line: string) => line.includes("CLEANED"))).toBe(true);
 
-	await prompt(l, [toolCall("bg_run", { command: emitCommand("--exit-after 60000"), cleanup: { command: "true" } }), say("s")]);
+	await prompt(l, [
+		toolCall("bg_run", { command: emitCommand("--exit-after 60000"), cleanup: { command: "true" } }),
+		say("s"),
+	]);
 	const ok = payload(l.rec.lastResult("bg_run"));
 	await prompt(l, [toolCall("bg_kill", { id: ok.id, timeoutSec: 1 }), say("k")]);
 	const okKilled = payload(l.rec.lastResult("bg_kill"));
@@ -321,7 +332,12 @@ it("processes survive new session and fork and remain killable", async () => {
 	const r = await runtime("runtime");
 	let rec = await r.rebind();
 	const pidfile = r.box.file("runtime.pid");
-	r.faux.setResponses(withAcks([toolCall("bg_run", { command: emitCommand(`--exit-after 60000 --pidfile ${pidfile}`) }), say("started")]));
+	r.faux.setResponses(
+		withAcks([
+			toolCall("bg_run", { command: emitCommand(`--exit-after 60000 --pidfile ${pidfile}`) }),
+			say("started"),
+		]),
+	);
 	await r.runtime.session.prompt("start", { expandPromptTemplates: false, source: "interactive" });
 	const started = payload(rec.lastResult("bg_run"));
 	const pid = await readPid(pidfile);
@@ -340,7 +356,9 @@ it("processes survive new session and fork and remain killable", async () => {
 	await r.runtime.switchSession(originalFile);
 	await r.runtime.fork(forkEntry);
 	rec = await r.rebind();
-	r.faux.setResponses(withAcks([toolCall("bg_list", {}), toolCall("bg_kill", { id: started.id, timeoutSec: 1 }), say("done")]));
+	r.faux.setResponses(
+		withAcks([toolCall("bg_list", {}), toolCall("bg_kill", { id: started.id, timeoutSec: 1 }), say("done")]),
+	);
 	await r.runtime.session.prompt("fork-list", { expandPromptTemplates: false, source: "interactive" });
 	list = payload(rec.lastResult("bg_list"));
 	expect((list.processes ?? list).find((p: any) => p.id === started.id).state).toBe("running");
@@ -352,7 +370,12 @@ it("wake goes to the active session after the starting session was replaced", as
 	const r = await runtime("handover");
 	let rec = await r.rebind();
 	const pidfile = r.box.file("handover.pid");
-	r.faux.setResponses(withAcks([toolCall("bg_run", { command: emitCommand(`--exit-after 2000 --exit-code 4 --pidfile ${pidfile}`) }), say("started")]));
+	r.faux.setResponses(
+		withAcks([
+			toolCall("bg_run", { command: emitCommand(`--exit-after 2000 --exit-code 4 --pidfile ${pidfile}`) }),
+			say("started"),
+		]),
+	);
 	await r.runtime.session.prompt("start", { expandPromptTemplates: false, source: "interactive" });
 	payload(rec.lastResult("bg_run"));
 	pids.push(await readPid(pidfile));
@@ -360,7 +383,10 @@ it("wake goes to the active session after the starting session was replaced", as
 	await r.runtime.newSession();
 	rec = await r.rebind();
 	r.faux.setResponses(withAcks([]));
-	const wake = await waitFor(() => wakeMessages(r.runtime.session)[0], { label: "wake in replacement session", timeoutMs: 8000 });
+	const wake = await waitFor(() => wakeMessages(r.runtime.session)[0], {
+		label: "wake in replacement session",
+		timeoutMs: 8000,
+	});
 	expect(wake.details.reasons).toEqual(["exit"]);
 	expect(wake.details.exitCode).toBe(4);
 	await sleep(300);
@@ -373,8 +399,16 @@ it("two processes firing in one window wake in first-fire order", async () => {
 	const a = l.box.file("order-a.pid");
 	const b = l.box.file("order-b.pid");
 	await prompt(l, [
-		toolCall("bg_run", { command: emitCommand(`--ready-after 800 --exit-after 60000 --pidfile ${a}`), name: "late", wake: { ready: "^READY" } }),
-		toolCall("bg_run", { command: emitCommand(`--ready-after 100 --exit-after 60000 --pidfile ${b}`), name: "early", wake: { ready: "^READY" } }),
+		toolCall("bg_run", {
+			command: emitCommand(`--ready-after 800 --exit-after 60000 --pidfile ${a}`),
+			name: "late",
+			wake: { ready: "^READY" },
+		}),
+		toolCall("bg_run", {
+			command: emitCommand(`--ready-after 100 --exit-after 60000 --pidfile ${b}`),
+			name: "early",
+			wake: { ready: "^READY" },
+		}),
 		toolCall("slow_wait", { ms: 1500 }),
 		say("after slow wait"),
 	]);

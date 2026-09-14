@@ -54,7 +54,9 @@ def lock_sha256(task_dir: Path) -> str:
         raise FileNotFoundError(f"{manifest_path}: output.path {output['path']} does not exist")
     actual = sha256_file(lock_path)
     if actual != output["sha256"]:
-        raise ValueError(f"{lock_path}: sha256 {actual} differs from lock manifest {output['sha256']}")
+        raise ValueError(
+            f"{lock_path}: sha256 {actual} differs from lock manifest {output['sha256']}"
+        )
     if manifest.get("base_commit") != metadata_value(task_dir / "task.toml", "base_commit"):
         raise ValueError(f"{manifest_path}: base_commit differs from task.toml")
     return actual
@@ -85,8 +87,15 @@ def render(task_dir: Path, template: str) -> tuple[Path, str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("task_dirs", nargs="+", type=Path, help="Task directories, absolute or relative to the repository root")
-    parser.add_argument("--check", action="store_true", help="Fail if a generated Dockerfile is missing or stale")
+    parser.add_argument(
+        "task_dirs",
+        nargs="+",
+        type=Path,
+        help="Task directories, absolute or relative to the repository root",
+    )
+    parser.add_argument(
+        "--check", action="store_true", help="Fail if a generated Dockerfile is missing or stale"
+    )
     args = parser.parse_args()
 
     template = TEMPLATE_PATH.read_text()

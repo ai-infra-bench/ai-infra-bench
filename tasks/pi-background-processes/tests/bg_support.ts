@@ -13,16 +13,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
+	type FauxProviderHandle,
+	type FauxResponseStep,
 	fauxAssistantMessage,
 	fauxProvider,
 	fauxText,
 	fauxToolCall,
-	type FauxProviderHandle,
-	type FauxResponseStep,
 } from "@earendil-works/pi-ai/providers/faux";
 import { Type } from "typebox";
-import { type AgentSession, type AgentSessionEvent } from "../../src/core/agent-session.ts";
-import { createAgentSessionRuntime, type AgentSessionRuntime } from "../../src/core/agent-session-runtime.ts";
+import type { AgentSession, AgentSessionEvent } from "../../src/core/agent-session.ts";
+import { type AgentSessionRuntime, createAgentSessionRuntime } from "../../src/core/agent-session-runtime.ts";
 import { createAgentSessionServices } from "../../src/core/agent-session-services.ts";
 import type { ExtensionAPI, ExtensionCommandContext, InlineExtension } from "../../src/core/extensions/types.ts";
 import { DefaultResourceLoader } from "../../src/core/resource-loader.ts";
@@ -110,9 +110,7 @@ export function record(session: AgentSession): Recorder {
 		assistantTexts: () =>
 			entries.flatMap((entry, entryIndex) => {
 				if (entry.type !== "message" || entry.message.role !== "assistant") return [];
-				const text = entry.message.content
-					.flatMap((block) => (block.type === "text" ? [block.text] : []))
-					.join("");
+				const text = entry.message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
 				return text ? [{ text, entryIndex }] : [];
 			}),
 		toolResults: (toolName) => toolCalls.filter((call) => call.toolName === toolName),
@@ -139,7 +137,9 @@ export function payload(call: ToolCallRecord): any {
 		throw new Error(`tool ${call.toolName} returned an error: ${text}`);
 	}
 	if (message.details && typeof message.details === "object") return message.details;
-	const text = message.content.flatMap((block) => (block.type === "text" && block.text ? [block.text] : [])).join("\n");
+	const text = message.content
+		.flatMap((block) => (block.type === "text" && block.text ? [block.text] : []))
+		.join("\n");
 	return JSON.parse(text);
 }
 
@@ -269,7 +269,10 @@ export interface Live {
 	dispose: () => Promise<void>;
 }
 
-export async function startSession(tag: string, options: { box?: Sandbox; sessionManager?: SessionManager } = {}): Promise<Live> {
+export async function startSession(
+	tag: string,
+	options: { box?: Sandbox; sessionManager?: SessionManager } = {},
+): Promise<Live> {
 	const box = options.box ?? sandbox();
 	const faux = newFaux(tag);
 	const ext = verifierExtension(faux, tag);
@@ -371,7 +374,11 @@ export async function startRuntime(tag: string, box = sandbox()): Promise<LiveRu
 	};
 }
 
-export async function prompt(live: { session: AgentSession; faux: FauxProviderHandle }, steps: FauxResponseStep[], text = "go") {
+export async function prompt(
+	live: { session: AgentSession; faux: FauxProviderHandle },
+	steps: FauxResponseStep[],
+	text = "go",
+) {
 	live.faux.setResponses(withAcks(steps));
 	await live.session.prompt(text, { expandPromptTemplates: false, source: "interactive" });
 }

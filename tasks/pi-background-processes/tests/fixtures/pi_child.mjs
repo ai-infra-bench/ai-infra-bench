@@ -11,10 +11,15 @@
  *   run-to-exit     <sessionDir> <cwd> <agentDir> <out.json>   run a fixture to completion (exit code 7), wait for the exit wake, exit
  *   resume-read     <sessionFile> <cwd> <agentDir> <out.json> <id>   open the session file in a fresh process and read the finished record + logs
  */
-import { writeFileSync, readFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import {
+	createAgentSession,
+	DefaultResourceLoader,
+	SessionManager,
+	SettingsManager,
+} from "@earendil-works/pi-coding-agent";
 
 const [mode, target, cwd, agentDir, outFile, extra] = process.argv.slice(2);
 const workspace = process.env.PI_WORKSPACE ?? "/workspace/pi";
@@ -46,7 +51,8 @@ const loader = new DefaultResourceLoader({
 });
 await loader.reload();
 
-const sessionManager = mode === "resume-read" ? SessionManager.open(target, dirname(target)) : SessionManager.create(cwd, target);
+const sessionManager =
+	mode === "resume-read" ? SessionManager.open(target, dirname(target)) : SessionManager.create(cwd, target);
 const { session } = await createAgentSession({
 	cwd,
 	agentDir,
@@ -61,7 +67,8 @@ const { session } = await createAgentSession({
 await session.bindExtensions({});
 const results = [];
 session.subscribe((event) => {
-	if (event.type === "tool_execution_end") results.push({ toolName: event.toolName, result: event.result, isError: event.isError });
+	if (event.type === "tool_execution_end")
+		results.push({ toolName: event.toolName, result: event.result, isError: event.isError });
 });
 const payload = (toolName) => {
 	const hit = [...results].reverse().find((r) => r.toolName === toolName);

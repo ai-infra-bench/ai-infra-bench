@@ -63,7 +63,9 @@ class GrokBuildOAuth(GrokBuild):
     ) -> Any:
         if env and env.get("XAI_API_KEY") == _PLACEHOLDER:
             env = {k: v for k, v in env.items() if k != "XAI_API_KEY"}
-        return await super().exec_as_agent(environment, command, env=env, cwd=cwd, timeout_sec=timeout_sec)
+        return await super().exec_as_agent(
+            environment, command, env=env, cwd=cwd, timeout_sec=timeout_sec
+        )
 
     # --- install: the built-in flow plus the session file --------------------------------
 

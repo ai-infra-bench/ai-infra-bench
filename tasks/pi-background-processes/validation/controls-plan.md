@@ -80,3 +80,11 @@ was built with `build.py --platform linux/amd64`. Verifier and Oracle bytes did
 not change, so only base and oracle were rerun on the new image through Harbor
 (see `e2e-evidence.json` `harbor_runs.template_image_smoke`); the controls are
 not affected by the image identity.
+
+Rerun 2026-09-14 (style pass): the verifier TypeScript and Python files were
+reformatted with pi's biome configuration and ruff (import order, two lint
+fixes in `bg.lifecycle.test.ts`, `test.sh` now writes reward 0 when the
+workspace is missing instead of continuing). No contract semantics changed;
+the full fifteen-case matrix was rerun anyway on the arm64 image (all match)
+and base/oracle on the canonical amd64 image (0 / 1). See `e2e-evidence.json`
+`harbor_runs.style_pass_rerun`.
