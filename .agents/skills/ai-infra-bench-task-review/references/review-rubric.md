@@ -1,6 +1,6 @@
 # Task Review Rubric
 
-This is the complete reference for task PR review: fourteen execution steps with their acceptance criteria, followed by the ten-dimension scorecard for human readers. Completing the scorecard does not replace carrying out the review. Evaluate only the task's applicable contract; examples of GPU, concurrency, or service behavior are not universal task requirements.
+This is the complete reference for task PR review: fifteen execution steps with their acceptance criteria, followed by the ten-dimension scorecard for human readers. Completing the scorecard does not replace carrying out the review. Evaluate only the task's applicable contract; examples of GPU, concurrency, or service behavior are not universal task requirements.
 
 A valid task presents a realistic problem, lets a strong solver reconstruct the behavior-determining path in a normal development environment, and rewards observable behavior without requiring the Oracle's implementation. The statement defines correctness; upstream PRs, issues, and incidents provide context.
 
@@ -98,7 +98,7 @@ Place real source, semantic dependencies, configuration, tools, and resources in
 | `task.toml` | Harness metadata, not agent-visible | Validate metadata; do not label it a solver leak |
 | Task `tests/`, `solution/`, and `validation/` | Verifier/CI-only | Ensure they never enter the agent image or its layers |
 
-Inspect the actual harness and update this visibility model if it differs. Information is a solver leak only when visible during the agent phase and materially revealing the answer, tests, or investigation path. Ordinary upstream tests at Base are not hidden-verifier leaks. Separately assess candidate-process access during verification in step 9.
+Inspect the actual harness and update this visibility model if it differs. Information is a solver leak only when visible during the agent phase and materially revealing the answer, tests, or investigation path. Ordinary upstream tests at Base are not hidden-verifier leaks. Separately assess candidate-process access during verification in step 10.
 
 ### 5.3 Cutoff and image audit
 
@@ -121,7 +121,7 @@ Checkpoint: demonstrate solvability using the agent's normal development materia
 
 ## 6. Build the bidirectional behavior-to-test map
 
-For each requirement, record its preconditions, triggering scenario, real execution path, observed result, and relevant case group. Then trace every reward-affecting assertion back to a statement requirement or justified implication.
+For each requirement, record its preconditions, triggering scenario, real execution path, observed result, and relevant case group. For directly constructed internal fixtures, link the reachability evidence checked in step 8. Then trace every reward-affecting assertion back to a statement requirement or justified implication.
 
 Check conditions such as available generation budget and KV capacity before requiring progress. Cover representative interacting dimensions: independently passing prefill, completion, and batch-movement cases do not establish that their interleaving works. Choose combinations from the contract rather than requiring an exhaustive Cartesian product.
 
@@ -144,9 +144,23 @@ Assess validation timing and failure behavior at the observable boundary. Automa
 
 For retention or cleanup, execute creation and use, the applicable completion/cancellation/stream-end event, and owner release before checking reclamation. Include a still-live case where retention is required. Callback counts or sentinel results alone do not establish real hashing or cache behavior.
 
-Checkpoint: the fixture reaches the target behavior through valid interfaces, and a legal change of internal representation or repair location does not invalidate the evaluation.
+Checkpoint: the test executes the necessary lifecycle and observes the actual behavior without depending on a particular internal representation. Check the reachability of constructed states in step 8.
 
-## 8. Test progress and waiting through causal observations
+For resource-cleanup contracts, observe the resources that must be released. Service unreachability does not establish cleanup: an HTTP timeout or failed health probe cannot prove that a listening socket closed or a process exited. Check listener state and relevant process identities separately when both are required. Retain identities before shutdown so reparented children remain observable. Include an applicable incorrect control that stops responding while retaining resources. Record direct resource-state observations, and confirm that verifier teardown removes test resources after both successful and failing checks; cleanup performed by verifier teardown must not be mistaken for candidate cleanup success. Apply these checks only to resources within the task contract.
+
+## 8. Verify fixture reachability
+
+Hidden tests must be concrete consequences of the public task contract under supported inputs and lifecycle transitions at the frozen Base. Deliberately chosen rare edge cases are valid; impossible internal states and unstated defensive requirements are not. Invalid external inputs may be tested when rejection or recovery is part of the contract, through the boundary that accepts those inputs rather than by bypassing its validation. An agent missing a case does not make it unfair, and many agents failing it does not make it valid.
+
+When a fixture directly constructs or mutates internal objects, establish how the tested state can arise within the stated workflow. Constructor success, correct field types, and a local function reproducer are insufficient on their own. Check constraints imposed by preprocessing, validation, scheduling, and earlier lifecycle transitions, including relationships between fields that cannot vary independently. For example, moving a media range while keeping token IDs fixed needs evidence that the supported processor can produce that combination; a cache collision in a hand-built Request alone does not establish it.
+
+Record a supported input or event sequence, the path that produces the relevant state, and the evidence connecting it to the fixture. A clear source-level derivation can establish straightforward invariants. When preprocessing or another disputed transformation determines whether the state can occur, run that transformation on representative valid input and inspect the resulting state. Reviewers must independently check this connection rather than infer reachability from an upstream merge or an Oracle pass. Keep reproduction evidence curator-only; do not expose hidden cases or add internal defensive requirements to the statement merely to justify a fixture.
+
+Once reachability is established, a smaller behavioral test may reuse or reconstruct the state while preserving the relevant constraints and real behavior-determining components. This does not require running the entire service for every case or every scoring run. Mark unresolved reachability as unverified and keep the case diagnostic-only until resolved; do not use it to deduct reward, approve the task, or attribute failure to agent capability. If it currently affects reward, resolve the evidence gap or revise the case before acceptance. Remove or replace cases shown to be unreachable under the contract. Rare but reachable cases remain eligible even without a reported production incident.
+
+Checkpoint: each reward-affecting fixture has evidence connecting it to supported inputs and lifecycle transitions, preserves the constraints of that path, and reaches the target behavior through valid interfaces. A legal change of internal representation or repair location must not invalidate the evaluation. Record unresolved reachability in the behavior-to-test map and the affected scorecard dimensions before acceptance.
+
+## 9. Test progress and waiting through causal observations
 
 Apply this step when concurrency, nonblocking execution, synchronization, or liveness is part of the contract. Correct final outputs and total runtime alone do not establish those properties.
 
@@ -158,9 +172,11 @@ Audit the observer itself: extra device synchronization, token copies, mapping r
 
 Checkpoint: evidence demonstrates the required causal relationship at the relevant boundary. Retain a control that preserves outputs while violating that relationship when applicable.
 
-## 9. Trace scoring trust and completion integrity
+## 10. Trace scoring trust and completion integrity
 
 Identify which processes load candidate code, produce expected results, write reports, and decide reward, together with their read/write access. A candidate-written success flag, digest, nonce, or zero exit status cannot independently establish that required behavior occurred.
+
+Check verifier permissions under the actual host and container identities. Candidate code must not modify trusted grading scripts or final rewards, but Harbor must be able to traverse/read the collected output paths. A non-root owner on a trusted read-only harness mount is not by itself a trust failure; root ownership alone is not proof of effective isolation. If files are staged, verify their trusted origin and protection before candidate execution. Record relevant owners, modes, and mount restrictions for failures. Separate permission/setup/collection failures from behavioral reward 0, and require collection evidence with the intended non-root host when applicable. Root-only local success does not establish non-root CI compatibility. Do not remove completion safeguards to make collection pass.
 
 When candidate code can terminate a process participating in verification, require early-success-exit controls at reachable boundaries, including both `SystemExit(0)` and `os._exit(0)` for Python when applicable. Catching the former does not protect against the latter. Confirm the scoring parent rejects incomplete checks. A root-owned script or independent container is not by itself sufficient when it executes candidate code.
 
@@ -174,7 +190,7 @@ Run each required early-exit control through the actual grading entrypoint on th
 
 Checkpoint: the formal scorer requires completed behavioral checks, and the claimed isolation properties have evidence. Keep arbitrary-code tampering claims within the demonstrated boundary.
 
-## 10. Run a compact set of distinguishing controls first
+## 11. Run a compact set of distinguishing controls first
 
 Before an expensive full matrix, challenge the verifier with Base, Oracle, a materially different correct implementation, and a small set of applicable incomplete or adversarial implementations. Prioritize controls likely to expose false acceptance or rejection: partial-path repairs, correct-output serial execution, implicit waits, and report-only or early-exit success where relevant.
 
@@ -190,7 +206,7 @@ Challenge implicit runtime behavior as well as explicit error branches. When sha
 
 Checkpoint: record expected and observed behavior, actual rejection causes, and evidence scope. Use local probes for fast diagnosis, then confirm consequential wrong-reward findings through the full grading entrypoint. Do not describe a local probe as a completed harness run.
 
-## 11. Harden in dependency order and rerun affected checks
+## 12. Harden in dependency order and rerun affected checks
 
 Within the authorized scope, repair statement defects first, environment defects second, and Oracle or verifier defects after those contracts are stable. Continue independent diagnosis when useful, but do not certify later stages against an unsettled requirement.
 
@@ -204,7 +220,7 @@ Freeze the agreed statement before changing the environment or verifier. Add or 
 
 Checkpoint: distinguish confirmed failures, unresolved risks, fixes, and verified outcomes by version. This process does not expand the authorization already given.
 
-## 12. Measure and optimize validation before the full matrix
+## 13. Measure and optimize validation before the full matrix
 
 Add stage timing before diagnosing cost: separate image preparation, process startup, CUDA/NCCL initialization, model loading, scenario execution, and timeout cleanup. Report single-candidate cost separately from the whole control matrix.
 
@@ -214,7 +230,7 @@ Choose concurrency from available GPUs, CPU, memory, I/O, and existing workloads
 
 Checkpoint: coverage is unchanged, state does not leak across reused scenarios, and observed timing supports the resource plan. Progress reports identify the snapshot, completed stage, remaining work, and whether an ETA concerns one candidate or the entire matrix.
 
-## 13. Validate the final snapshot through the formal entrypoint
+## 14. Validate the final snapshot through the formal entrypoint
 
 Use this final-validation order within the authorized scope:
 
@@ -233,7 +249,7 @@ The Harbor input checksum identifies the task snapshot before final evidence is 
 
 Checkpoint: reproducible evidence certifies the final executable snapshot. Static checks supplement behavioral evidence and cannot establish authenticity, fairness, or actual control behavior by themselves.
 
-## 14. Report the disposition, limits, and handoff
+## 15. Report the disposition, limits, and handoff
 
 Lead with whether the task can be retained and whether it passes, needs hardening, is invalid, or awaits verification. Present the ten-dimension scorecard for human readers, then the gate conclusions, blockers, evidence, and concrete next actions. Preserve the distinction between unknown evidence and a demonstrated failure; no aggregate score overrides a blocker.
 
@@ -243,7 +259,7 @@ When trajectory review is requested, inspect the actual commands, edits, and fin
 
 Distinguish files changed, targeted checks passed, final acceptance passed, and changes committed or published. A review may conclude with findings or pending verification; that is not final task acceptance and does not authorize otherwise unrequested fixes or publication.
 
-### 14.1 Finding priorities and evidence
+### 15.1 Finding priorities and evidence
 
 - **P0:** false task premise, material agent-visible answer leakage, direct verifier bypass, or fabricated evidence.
 - **P1:** wrong reward, Oracle contract violation, correct alternative rejected, Base failing for an unrelated reason, or the core semantic path being unreachable.
@@ -254,7 +270,7 @@ P0 and P1 require a reproducible counterexample, actual failure, material visibl
 
 The report must cover the realistic workflow and evidence classification; unsupported historical or quoted claims; the semantic boundary, real components, substitutions and solver reconstruction path; cutoff and visibility; bidirectional coverage, E2E composition and regressions; independent Oracle challenges and actual Base/Oracle/control results; findings, affected artifacts and non-blocking improvement proposals. Do not add a source-difference table unless the statement claims historical identity.
 
-### 14.2 Acceptance and publication
+### 15.2 Acceptance and publication
 
 Before an authorized commit or PR, run the staged-scope audit, inspect the staged diff, and preserve unrelated tracked and untracked changes. Report final hashes, image identity, validation results, and the exact worktree, branch, commit and PR state. Commit, push, or create a PR only with explicit authorization.
 
@@ -280,8 +296,8 @@ A known failure can receive 0 even when other checks remain pending. A confirmed
 | 1 | Is the task realistic and clear? | A plausible developer request with valid interfaces, clear scope, preconditions and boundaries. Use concise, natural language and familiar terms such as PP, KV and NCCL without unnecessary expansion; retain concrete behavior and edge conditions. Support historical or quoted observations when claimed. |
 | 2 | Is correctness independent of the source PR? | The statement defines correctness; upstream material provides context without prescribing the historical implementation. Later fixes are included only when within the agreed scope and already possible at the frozen Base. |
 | 3 | Can the agent solve the task in the environment? | The agent's actual user, permissions, network and resources support reconstructing the semantic path from normal source and components. No reviewer-only dependency, material answer leak or recoverable future source; apply the cutoff rules above. |
-| 4 | Are the statement and tests aligned in both directions? | Every promised behavior has coverage and every reward-affecting requirement has a contractual basis or justified implication. Fixtures satisfy preconditions, and representative interacting conditions are exercised without demanding an exhaustive product of cases or publishing Oracle internals. |
-| 5 | Do tests exercise the actual behavior-determining path? | Semantic components and lifecycle transitions run for real; substitutions preserve relevant semantics. Observe actual inputs, outputs and state transitions, with causal checks for progress or waiting when required. Instrumentation must not perform missing candidate work. |
+| 4 | Are the statement and tests aligned in both directions? | Every promised behavior has coverage and every reward-affecting requirement has a contractual basis or justified implication. Scored cases follow from supported inputs and lifecycle transitions, with reachability evidence for constructed internal states; they impose no unstated defensive requirements. Cover representative interactions without an exhaustive product of cases or publishing Oracle internals. |
+| 5 | Do tests exercise the actual behavior-determining path? | Semantic components and lifecycle transitions run for real; substitutions preserve relevant semantics, including input preparation and relationships between fields. Simplified fixtures retain the constraints of the evidenced product path. Observe actual inputs, outputs and state transitions, with causal checks for progress or waiting when required. Instrumentation must not perform missing candidate work. |
 | 6 | Can different correct implementations pass? | No unjustified dependence on private helpers, sentinels, containers, storage order or unspecified protocols. A materially different correct alternative passes, and its correctness is justified independently of its reward. |
 | 7 | Are incorrect implementations rejected for the right reasons? | Base and applicable incomplete or adversarial controls fail for the intended contract violation after reaching the target path, rather than malformed reports, invalid fixtures or infrastructure failures. |
 | 8 | Is the Oracle independently validated? | Independently derived invariants and at least one contract-valid challenge not copied from the existing test inventory assess the Oracle. Applicable historical defects are addressed; the Oracle completes the same required checks without exemptions. |
@@ -290,6 +306,8 @@ A known failure can receive 0 even when other checks remain pending. A confirmed
 
 Use a compact report table with columns `# | Dimension | Score / status | Key evidence or gap | Next action`. Link evidence or finding IDs rather than repeating full findings. Keep all ten rows even in an interim review; use U for unfinished dimensions. For an updated review, identify the task snapshot and explain changed scores from new evidence or artifact changes. Earlier-revision results do not automatically certify the current revision.
 
+Report fixture reachability under dimension 4 (contract and supported scenarios) and dimension 5 (input path and substitutions), citing the same finding when both are affected. If the evidence cannot justify a scored case, use U for the unresolved assessment rather than treating an Oracle pass or candidate failures as proof. A demonstrated unreachable scored case is a verifier defect, not merely U; apply the failure criteria above. Do not count the same issue twice as separate blockers.
+
 Above the table, show the overall disposition, scored dimensions (`k/10`), unverified dimensions, and blocking findings. When all ten dimensions are scored, show the sum out of 20. If any dimension is U, show only the scored subtotal `S/(2k)` alongside the coverage count and explicitly leave the overall score pending; do not normalize it to a full-task percentage or present it as a completed score. When k is zero, omit the subtotal.
 
-Retain the three-gate decisions and the priorities in step 14. A high aggregate score never offsets a blocker in any dimension, and incomplete required verification prevents a final pass. A minor non-blocking shortfall may remain a 1 with an explicit explanation; no numerical threshold replaces the acceptance criteria. Follow the table with the blocking issues and smallest concrete next actions. Avoid duplicating the same finding in the total blocker count when it affects several dimensions.
+Retain the three-gate decisions and the priorities in step 15. A high aggregate score never offsets a blocker in any dimension, and incomplete required verification prevents a final pass. A minor non-blocking shortfall may remain a 1 with an explicit explanation; no numerical threshold replaces the acceptance criteria. Follow the table with the blocking issues and smallest concrete next actions. Avoid duplicating the same finding in the total blocker count when it affects several dimensions.
