@@ -1,0 +1,75 @@
+{
+  "schema_version": "ai_infra_bench_image_manifest.v1",
+  "task": "ai-infra-bench/pi-background-processes",
+  "canonical_tag": "ai-infra-bench/pi-background-processes:local",
+  "image_id": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d",
+  "repo_digests": [],
+  "platform": "linux/arm64 (local colima build, fully validated through Harbor); a linux/amd64 build of the same Dockerfile was produced under qemu emulation and smoke-tested (see amd64_build)",
+  "size_bytes": 362135267,
+  "created": "2026-09-14T12:43:18+08:00",
+  "recorded_at": "2026-09-14T12:03:24+00:00",
+  "base_commit": "d981de1229ef899957bbe968bc8dcda02a21f477",
+  "dependency_cutoff": "2026-09-05T11:54:46Z",
+  "dockerfile_sha256": "4c1bfd74f4398561607f51e172289d3bc31add85e113c8a92cbb2de08c4ae7be",
+  "baseline_check_sha256": "1947fb95338c5bda3ad5c03e256b961bde453b6bb8676f9e2cafa7c27f95fb73",
+  "dependency_lock_sha256": "e3569b99e673a0051be908f2bed57651b90a966a5a0d208913c29e6830a6a6c2",
+  "dependency_lock_manifest_sha256": "967f6a3c67d25bae5ed6be1dad6bc7ca15d2cfd3d3539f93366a02100d13cf2f",
+  "build_context": "environment/ (Dockerfile, baseline_check.py, lock/)",
+  "build_command": "DOCKER_BUILDKIT=0 docker build --tag ai-infra-bench/pi-background-processes:local --file Dockerfile .",
+  "installed_versions": {
+    "node": "22.19.0",
+    "npm": "10.9.3",
+    "fd": "10.2.0",
+    "ripgrep": "13.0.0",
+    "python3": "3.11.2",
+    "git": "2.39.5",
+    "pi": "0.85.1 (workspace build)"
+  },
+  "pass_to_pass_baseline": {
+    "path": "/opt/pi-baseline/coding-agent-junit.xml",
+    "tests": 2158,
+    "failures": 4,
+    "errors": 0,
+    "skipped": 50,
+    "failed_on_base": [
+      "test/auth-storage.test.ts::AuthStorage > keeps a coalesced reload alive while another credential reader is waiting",
+      "test/config.test.ts::detectInstallMethod > does not self-update when npm install path is not writable",
+      "test/tools.test.ts::Coding Agent Tools > edit tool > should include EACCES for read-only files",
+      "test/tools.test.ts::Coding Agent Tools > edit tool > should include EACCES in diff preview for unreadable files"
+    ],
+    "note": "root ignores file modes (EACCES cases), install-method detection differs in the image, auth-storage reload timing fails consistently in this container; all four are excluded from the required set by tests/check_pass_to_pass.py"
+  },
+  "cache_policy": "npm ci from the pinned lock; no runtime downloads (fd/rg preinstalled, PI_OFFLINE=1)",
+  "amd64_build": {
+    "image_id": "sha256:aa16b0932abd1dbe1da0ed89e008fefe8644c0049f5985c35b8c7c6db58367a3",
+    "built": "2026-09-14 (docker buildx --platform linux/amd64 under qemu)",
+    "size_bytes": 350142715,
+    "pass_to_pass_baseline": {
+      "tests": 2158,
+      "failures": 3,
+      "errors": 0,
+      "skipped": 50,
+      "failed_on_base": [
+        "test/config.test.ts::detectInstallMethod > does not self-update when npm install path is not writable",
+        "test/tools.test.ts::Coding Agent Tools > edit tool > should include EACCES for read-only files",
+        "test/tools.test.ts::Coding Agent Tools > edit tool > should include EACCES in diff preview for unreadable files"
+      ],
+      "note": "the auth-storage timing case that fails on arm64 passes on amd64; case inventory and skipped set are identical to arm64 (tests/baseline-pins.json)"
+    },
+    "harbor_smoke": {
+      "date": "2026-09-14",
+      "runner": "tools/local_task_validation.py on colima with qemu user-mode emulation (--platform linux/amd64)",
+      "base": {
+        "expected": 0,
+        "reward": 0,
+        "elapsed_sec": 161
+      },
+      "oracle": {
+        "expected": 1,
+        "reward": 1,
+        "elapsed_sec": 178
+      },
+      "note": "contract 15/15, lifecycle 3/3 and PASS_TO_PASS all pass under emulation; the sub-second timing windows of the contract suite held, so no window was widened. The canonical x64 image is still the one CI builds and publishes."
+    }
+  }
+}

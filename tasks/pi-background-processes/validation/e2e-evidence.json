@@ -1,0 +1,994 @@
+{
+  "schema_version": "ai_infra_bench_e2e_evidence.v1",
+  "task": "ai-infra-bench/pi-background-processes",
+  "recorded_at": "2026-09-14T12:24:19+00:00",
+  "base_commit": "d981de1229ef899957bbe968bc8dcda02a21f477",
+  "dependency_cutoff": "2026-09-05T11:54:46Z",
+  "image": {
+    "tag": "ai-infra-bench/pi-background-processes:local",
+    "image_id": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d",
+    "platform": "linux/arm64",
+    "published": false
+  },
+  "harbor_version": "0.22.0",
+  "hardware": "local macOS (Apple Silicon) host, colima docker VM (12 CPU / 28 GiB), linux/arm64 image; CI x64 runner not yet used",
+  "executable_hashes": {
+    "instruction_sha256": "4949879a76a269bc0ee03b3456bb5ae745e3bab8b9638e692fbc6d756d68846f",
+    "task_toml_sha256": "11e4fb343500ace3b9562a12d3ef4a56ab9145ae21fabc38bb1ed68dfec6d247",
+    "dockerfile_sha256": "4c1bfd74f4398561607f51e172289d3bc31add85e113c8a92cbb2de08c4ae7be",
+    "baseline_check_sha256": "1947fb95338c5bda3ad5c03e256b961bde453b6bb8676f9e2cafa7c27f95fb73",
+    "oracle_patch_sha256": "1011d89f0ea5e635bd6fc2c606baba8f4107adef0df436365f1eebb2d4c7886a",
+    "solve_script_sha256": "9fc62fd65f4dafe37cd88285894776535c4bfa300e62d5570140f49fdc93a8f9",
+    "test_script_sha256": "b7e9e56659b88fac3401b1daef03bb14d83f7015a1f4747fdd3ef3d0b8cb2cb7",
+    "check_junit_sha256": "72698cffca76ae6b0848ef62122572ed776d2bfb225f9088c1860af35c1456d7",
+    "check_pass_to_pass_sha256": "ac1e8a2078521bcacae99bfe03eb5def1b33fe32c787d20ba6ebf8bcdf1cbe89",
+    "case_contract_sha256": "8692452f8f32662ca6a241e4c57f40f840c711ea5d8c416e8982657966ce41fe",
+    "bg_support_sha256": "a94c2e53359064d17f603367cf8ce6eb7be0003f1bc58a12952db8eb099b79d8",
+    "contract_test_sha256": "16e4fe2f3feddc6bce7f6a63e8d877e14a7f6f77370a5fd3e775d6b6992fdd6f",
+    "lifecycle_test_sha256": "9b255c92a2ee93dea834c2e917892cf5d122680c0f3bb46e883f346d147b92aa",
+    "fixtures": {
+      "emit.mjs": "d37b7b497a0705ba8db411898ebebd6c853d4965f6a0c8c97674f5900a84f33e",
+      "grandchild.mjs": "d52e19658f0b4ead9f6a20ae85e79c2a47eac979a6db6673861691f5460a4d4e",
+      "pi_child.mjs": "7b36e0a7ba9715175ab4371317b679371c8b420754ac843d2a11f66f3d66c906"
+    },
+    "ci_cases_sha256": "681926e03d79fb091c183c989f9d3f92c2009662136adda34361cd2434b284f8",
+    "tests_bg_support_ts_sha256": "bda0541ce32d42bd01666de47a151f1b270a8e72b52a4e16b014698f7680f123",
+    "tests_bg_contract_test_ts_sha256": "0fef5b44a730a5ee7fd19f3daa59cee262b9fe8212386e155bc076781e7d02ce",
+    "tests_bg_lifecycle_test_ts_sha256": "9b255c92a2ee93dea834c2e917892cf5d122680c0f3bb46e883f346d147b92aa",
+    "tests_check_pass_to_pass_py_sha256": "158157feaac87ff1b44e454c31956279e39df1505da3bd820d18624aeee6d11e",
+    "tests_check_junit_py_sha256": "72698cffca76ae6b0848ef62122572ed776d2bfb225f9088c1860af35c1456d7",
+    "tests_case_contract_py_sha256": "e522a8d409f29f6bfae6facebd4c8421db3155a47a5af129f9349713496fd3ca",
+    "tests_baseline-pins_json_sha256": "762537c3ae5291328f63f0a9c85bf9171b0cf8b6046227fb9da5eb73bb9e8d3c"
+  },
+  "semantic_boundary": "bg_run tool call from the agent loop -> extension spawns a detached process group, streams output to disk, evaluates wake rules, routes wakes through pi's steering queue -> tool results, custom messages in the session, OS process state, files under the session directory",
+  "substitutions": [
+    {
+      "component": "LLM",
+      "replacement": "pi first-party faux provider (@earendil-works/pi-ai/providers/faux), scripted tool calls only"
+    }
+  ],
+  "no_real_model": "verifier unsets every provider credential, PI_OFFLINE=1, image and verifier no-network",
+  "pass_to_pass": {
+    "baseline": "/opt/pi-baseline/coding-agent-junit.xml recorded at image build (2158 cases, 50 skipped, 4 environmental failures listed in /opt/pi-baseline/summary.json)",
+    "policy": "vitest --retry 2 --maxWorkers=4; existing test files must be unchanged vs Base; baseline-passed must pass; skipped set identical; no new failures"
+  },
+  "harbor_runs": {
+    "entrypoint": "python3.12 .github/scripts/task_ci.py {validate,image-check,prepare-case,check-result} + uvx --from harbor==0.22.0 harbor run --env docker --n-concurrent 1 --cpus ignore --memory ignore --delete --yes",
+    "latest": {
+      "date": "2026-09-14",
+      "revision": "15 contract cases, 3 lifecycle cases, semantic baseline pins, alternative case; matches validation/ci-cases.json",
+      "image_id": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d",
+      "log": "~/ai-infra-scratch/rerun-15cases-pins.log",
+      "cases": [
+        {
+          "case": "base",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 67
+        },
+        {
+          "case": "oracle",
+          "expected_reward": 1,
+          "reward": 1,
+          "status": "OK",
+          "elapsed_sec": 85
+        },
+        {
+          "case": "alternative-class-manager-sparse-index",
+          "expected_reward": 1,
+          "reward": 1,
+          "status": "OK",
+          "elapsed_sec": 90
+        },
+        {
+          "case": "control-killall-on-session-shutdown",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 81
+        },
+        {
+          "case": "control-kill-direct-child-only",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 104
+        },
+        {
+          "case": "control-no-exit-hooks",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 96
+        },
+        {
+          "case": "control-in-memory-log",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 74
+        },
+        {
+          "case": "control-report-killed-before-group-gone",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 70
+        },
+        {
+          "case": "control-swallow-cleanup-failure",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 78
+        },
+        {
+          "case": "control-never-trigger-turn",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 80
+        },
+        {
+          "case": "control-process-exit-zero-after-registration",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 78
+        },
+        {
+          "case": "control-forged-junit",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 82
+        },
+        {
+          "case": "control-stall-kills-instead-of-backgrounding",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 79
+        },
+        {
+          "case": "control-normal-path-returns-json",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 83
+        },
+        {
+          "case": "control-backgrounded-no-output-wake",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 84
+        }
+      ],
+      "all_match": true
+    },
+    "allowed_failures_rerun": {
+      "date": "2026-09-14",
+      "reason": "tests/baseline-pins.json gained allowed_failures; only the PASS_TO_PASS layer changed, so base, oracle, the alternative and the two controls that layer rejects were rerun",
+      "image_id": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d",
+      "log": "~/ai-infra-scratch/rerun-allowed-failures.log",
+      "results": [
+        {
+          "case": "base",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 70
+        },
+        {
+          "case": "oracle",
+          "expected_reward": 1,
+          "reward": 1,
+          "status": "OK",
+          "elapsed_sec": 83
+        },
+        {
+          "case": "alternative-class-manager-sparse-index",
+          "expected_reward": 1,
+          "reward": 1,
+          "status": "OK",
+          "elapsed_sec": 87
+        },
+        {
+          "case": "control-forged-junit",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 75
+        },
+        {
+          "case": "control-process-exit-zero-after-registration",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 85
+        }
+      ]
+    },
+    "revised_verifier_2026-09-14": {
+      "runner": "tools/local_task_validation.py",
+      "verifier_changes": [
+        "tests/bg_support.ts: runtime teardown uses session.dispose() (no process-level quit)",
+        "tests/bg_support.ts: pidAlive treats zombies as gone",
+        "tests/test.sh + tests/baseline.sha256: in-image PASS_TO_PASS baseline hash-pinned",
+        "instruction.md: bg_kill does not suppress the exit wake",
+        "instruction.md: coalescing rule defines delivery as the agent receiving the message (contract text only, verifier unchanged)"
+      ],
+      "cases": [
+        {
+          "case": "base",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 78
+        },
+        {
+          "case": "oracle",
+          "match": true,
+          "expected_reward": 1,
+          "harbor_exit": 0,
+          "elapsed_sec": 78
+        },
+        {
+          "case": "control-killall-on-session-shutdown",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 75
+        },
+        {
+          "case": "control-kill-direct-child-only",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 100
+        },
+        {
+          "case": "control-wake-per-reason-no-coalescing",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 79
+        },
+        {
+          "case": "control-no-exit-hooks",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 94
+        },
+        {
+          "case": "control-in-memory-log",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 78
+        },
+        {
+          "case": "control-report-killed-before-group-gone",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 74
+        },
+        {
+          "case": "control-swallow-cleanup-failure",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 77
+        },
+        {
+          "case": "control-never-trigger-turn",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 81
+        },
+        {
+          "case": "control-process-exit-zero-after-registration",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 84
+        },
+        {
+          "case": "control-forged-junit",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 78
+        }
+      ],
+      "all_match": true
+    },
+    "bash_override_2026-09-14": {
+      "runner": "tools/local_task_validation.py",
+      "contract_cases": 16,
+      "lifecycle_cases": 3,
+      "controls": 13,
+      "changes": [
+        "instruction.md: bash override (silent command moves to the background), output wake reason, bg_watch.output",
+        "solution/oracle.patch: bash override + output wake + foreground handling, README, unit test",
+        "tests: two contract cases, rawText helper, case inventory",
+        "validation: three controls (stall-kills-instead-of-backgrounding, normal-path-returns-json, backgrounded-no-output-wake)"
+      ],
+      "cases": [
+        {
+          "case": "base",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 101
+        },
+        {
+          "case": "oracle",
+          "match": true,
+          "expected_reward": 1,
+          "harbor_exit": 0,
+          "elapsed_sec": 93
+        },
+        {
+          "case": "control-killall-on-session-shutdown",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 75
+        },
+        {
+          "case": "control-kill-direct-child-only",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 96
+        },
+        {
+          "case": "control-wake-per-reason-no-coalescing",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 80
+        },
+        {
+          "case": "control-no-exit-hooks",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 94
+        },
+        {
+          "case": "control-in-memory-log",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 77
+        },
+        {
+          "case": "control-report-killed-before-group-gone",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 73
+        },
+        {
+          "case": "control-swallow-cleanup-failure",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 79
+        },
+        {
+          "case": "control-never-trigger-turn",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 91
+        },
+        {
+          "case": "control-process-exit-zero-after-registration",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 81
+        },
+        {
+          "case": "control-forged-junit",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 78
+        },
+        {
+          "case": "control-stall-kills-instead-of-backgrounding",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 83
+        },
+        {
+          "case": "control-normal-path-returns-json",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 87
+        },
+        {
+          "case": "control-backgrounded-no-output-wake",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 83
+        }
+      ],
+      "all_match": true
+    },
+    "coalescing_case_removed_2026-09-14": {
+      "runner": "tools/local_task_validation.py",
+      "contract_cases": 15,
+      "lifecycle_cases": 3,
+      "controls": 12,
+      "changes": [
+        "removed contract case \"error and exit in one window coalesce into a single wake\" and control wake-per-reason-no-coalescing (regulated implementation, not outcome)",
+        "instruction.md: combining reasons into one message is allowed, not required; each reason at most once per window"
+      ],
+      "cases": [
+        {
+          "case": "base",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 84
+        },
+        {
+          "case": "oracle",
+          "match": true,
+          "expected_reward": 1,
+          "harbor_exit": 0,
+          "elapsed_sec": 95
+        },
+        {
+          "case": "control-killall-on-session-shutdown",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 80
+        },
+        {
+          "case": "control-kill-direct-child-only",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 99
+        },
+        {
+          "case": "control-no-exit-hooks",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 94
+        },
+        {
+          "case": "control-in-memory-log",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 80
+        },
+        {
+          "case": "control-report-killed-before-group-gone",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 75
+        },
+        {
+          "case": "control-swallow-cleanup-failure",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 80
+        },
+        {
+          "case": "control-never-trigger-turn",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 82
+        },
+        {
+          "case": "control-process-exit-zero-after-registration",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 75
+        },
+        {
+          "case": "control-forged-junit",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 77
+        },
+        {
+          "case": "control-stall-kills-instead-of-backgrounding",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 86
+        },
+        {
+          "case": "control-normal-path-returns-json",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 88
+        },
+        {
+          "case": "control-backgrounded-no-output-wake",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 85
+        }
+      ],
+      "all_match": true
+    },
+    "agent_diff_snapshot_2026-09-14": {
+      "runner": "tools/local_task_validation.py",
+      "changes": [
+        "tests/test.sh writes /logs/verifier/agent-changes.patch (review aid, no effect on reward)"
+      ],
+      "cases": [
+        {
+          "case": "base",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 80
+        },
+        {
+          "case": "oracle",
+          "match": true,
+          "expected_reward": 1,
+          "harbor_exit": 0,
+          "elapsed_sec": 87
+        },
+        {
+          "case": "control-killall-on-session-shutdown",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 75
+        },
+        {
+          "case": "control-kill-direct-child-only",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 97
+        },
+        {
+          "case": "control-no-exit-hooks",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 97
+        },
+        {
+          "case": "control-in-memory-log",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 76
+        },
+        {
+          "case": "control-report-killed-before-group-gone",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 83
+        },
+        {
+          "case": "control-swallow-cleanup-failure",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 81
+        },
+        {
+          "case": "control-never-trigger-turn",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 94
+        },
+        {
+          "case": "control-process-exit-zero-after-registration",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 75
+        },
+        {
+          "case": "control-forged-junit",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 75
+        },
+        {
+          "case": "control-stall-kills-instead-of-backgrounding",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 81
+        },
+        {
+          "case": "control-normal-path-returns-json",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 81
+        },
+        {
+          "case": "control-backgrounded-no-output-wake",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 83
+        }
+      ],
+      "all_match": true
+    },
+    "baseline_pins_and_alternative_2026-09-14": {
+      "runner": "tools/local_task_validation.py",
+      "changes": [
+        "tests/check_pass_to_pass.py + tests/baseline-pins.json replace the byte-level baseline sha256 pin (which differs per build and platform) with a semantic pin: Base case-inventory digest, key-gated skipped-set digest, failure cap",
+        "validation/alternative-class-manager-sparse-index.patch added as an expected-reward-1 case"
+      ],
+      "cases": [
+        {
+          "case": "base",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 67
+        },
+        {
+          "case": "oracle",
+          "match": true,
+          "expected_reward": 1,
+          "harbor_exit": 0,
+          "elapsed_sec": 85
+        },
+        {
+          "case": "alternative-class-manager-sparse-index",
+          "match": true,
+          "expected_reward": 1,
+          "harbor_exit": 0,
+          "elapsed_sec": 90
+        },
+        {
+          "case": "control-killall-on-session-shutdown",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 81
+        },
+        {
+          "case": "control-kill-direct-child-only",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 104
+        },
+        {
+          "case": "control-no-exit-hooks",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 96
+        },
+        {
+          "case": "control-in-memory-log",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 74
+        },
+        {
+          "case": "control-report-killed-before-group-gone",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 70
+        },
+        {
+          "case": "control-swallow-cleanup-failure",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 78
+        },
+        {
+          "case": "control-never-trigger-turn",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 80
+        },
+        {
+          "case": "control-process-exit-zero-after-registration",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 78
+        },
+        {
+          "case": "control-forged-junit",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 82
+        },
+        {
+          "case": "control-stall-kills-instead-of-backgrounding",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 79
+        },
+        {
+          "case": "control-normal-path-returns-json",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 83
+        },
+        {
+          "case": "control-backgrounded-no-output-wake",
+          "match": true,
+          "expected_reward": 0,
+          "harbor_exit": 0,
+          "elapsed_sec": 84
+        }
+      ],
+      "all_match": true
+    },
+    "historical_first_frozen_revision": [
+      {
+        "case": "base",
+        "agent": "nop",
+        "expected_reward": 0,
+        "reward": 0,
+        "elapsed_sec": 62,
+        "errored_trials": 0,
+        "reward_json": {
+          "contract_exit_code": 1,
+          "contract_integrity_exit_code": 1,
+          "lifecycle_exit_code": 1,
+          "lifecycle_integrity_exit_code": 1,
+          "pass_to_pass_check_exit_code": 0
+        },
+        "failure_reason": "contract 14/14 and lifecycle 3/3 fail with 'Tool bg_run not found'"
+      },
+      {
+        "case": "oracle",
+        "agent": "oracle",
+        "expected_reward": 1,
+        "reward": 1,
+        "elapsed_sec": 74,
+        "errored_trials": 0,
+        "reward_json": {
+          "contract_exit_code": 0,
+          "contract_integrity_exit_code": 0,
+          "lifecycle_exit_code": 0,
+          "lifecycle_integrity_exit_code": 0,
+          "pass_to_pass_check_exit_code": 0
+        },
+        "pass_to_pass": {
+          "baseline_cases": 2158,
+          "candidate_cases": 2159,
+          "regressed": 0,
+          "skip_changed": 0,
+          "newly_skipped": 0,
+          "failed": 0
+        }
+      }
+    ],
+    "historical_controls": [
+      {
+        "case": "control-killall-on-session-shutdown",
+        "expected_reward": 0,
+        "reward": 0,
+        "note": "run before the final test.sh worker-count change; see validation/controls-plan.md for the rejecting layer"
+      },
+      {
+        "case": "control-kill-direct-child-only",
+        "expected_reward": 0,
+        "reward": 0,
+        "note": "run before the final test.sh worker-count change; see validation/controls-plan.md for the rejecting layer"
+      },
+      {
+        "case": "control-no-exit-hooks",
+        "expected_reward": 0,
+        "reward": 0,
+        "note": "run before the final test.sh worker-count change; see validation/controls-plan.md for the rejecting layer"
+      },
+      {
+        "case": "control-in-memory-log",
+        "expected_reward": 0,
+        "reward": 0,
+        "note": "run before the final test.sh worker-count change; see validation/controls-plan.md for the rejecting layer"
+      },
+      {
+        "case": "control-report-killed-before-group-gone",
+        "expected_reward": 0,
+        "reward": 0,
+        "note": "run before the final test.sh worker-count change; see validation/controls-plan.md for the rejecting layer"
+      },
+      {
+        "case": "control-swallow-cleanup-failure",
+        "expected_reward": 0,
+        "reward": 0,
+        "note": "run before the final test.sh worker-count change; see validation/controls-plan.md for the rejecting layer"
+      },
+      {
+        "case": "control-never-trigger-turn",
+        "expected_reward": 0,
+        "reward": 0,
+        "note": "run before the final test.sh worker-count change; see validation/controls-plan.md for the rejecting layer"
+      },
+      {
+        "case": "control-process-exit-zero-after-registration",
+        "expected_reward": 0,
+        "reward": 0,
+        "note": "run before the final test.sh worker-count change; see validation/controls-plan.md for the rejecting layer"
+      },
+      {
+        "case": "control-forged-junit",
+        "expected_reward": 0,
+        "reward": 0,
+        "note": "run before the final test.sh worker-count change; see validation/controls-plan.md for the rejecting layer"
+      }
+    ],
+    "historical_note": "historical_* entries record the first frozen 14-case revision and its 10 controls (run before later verifier changes; control-wake-per-reason-no-coalescing was removed with the coalescing case). The authoritative current results are `latest` (15-case matrix) and `allowed_failures_rerun`."
+  },
+  "known_limitations": [
+    "Only linux/arm64 has been validated natively; the CI contract expects x64 and a published GHCR image. task.toml image_digest records the validated local arm64 image until CI publishes.",
+    "JUnit exact-inventory checks are not tamper-proof on their own: control-forged-junit passed the inventory check and was rejected by vitest's exit status; both are required for reward.",
+    "One real-agent rollout (claude-code, claude-opus-5) scored 0; its submission fails the coalescing and bg_kill-wake cases. Judge defects it exposed are fixed and the matrix was rerun.",
+    "The amd64 image exists only as a local qemu-emulated build (Base 0 / Oracle 1 smoke passed). After the first native x64 CI build, compare the image's /opt/pi-baseline/summary.json failed_on_base with tests/baseline-pins.json allowed_failures: an unlisted environmental failure makes Oracle score 0 with a baseline_pin_problems message, and the fix is to extend the pin, not the task."
+  ],
+  "real_agent_rollouts": [
+    {
+      "date": "2026-09-14",
+      "agent": "claude-code 2.1.270",
+      "model": "claude-opus-5",
+      "auth": "subscription OAuth",
+      "reward": 0,
+      "contract_after_fixes": "12/14",
+      "lifecycle": "3/3",
+      "pass_to_pass": "pass",
+      "evidence": "validation/rollout-2026-09-14-claude-code.md"
+    },
+    {
+      "date": "2026-09-14",
+      "agent": "grok-build (custom session-auth subclass)",
+      "model": "grok-4.6",
+      "reward": 0,
+      "contract": "15/15",
+      "lifecycle": "2/3 (SIGTERM listener deferral)",
+      "pass_to_pass": "pass",
+      "evidence": "validation/rollout-2026-09-14-grok-build.md"
+    }
+  ],
+  "artifacts": {
+    "files": {
+      "README.md": "756f2d0dede6d6b7b776cac6b679a1491e631c8440ac8382178c5f94df345bee",
+      "environment/Dockerfile": "4c1bfd74f4398561607f51e172289d3bc31add85e113c8a92cbb2de08c4ae7be",
+      "environment/baseline_check.py": "1947fb95338c5bda3ad5c03e256b961bde453b6bb8676f9e2cafa7c27f95fb73",
+      "environment/image-manifest.json": "69dd4a04c045d82830aeb6b3a44b230a243444dce0b6d4b6c05deb95dc6e667a",
+      "environment/lock/manifest.json": "967f6a3c67d25bae5ed6be1dad6bc7ca15d2cfd3d3539f93366a02100d13cf2f",
+      "environment/lock/package-lock.json": "e3569b99e673a0051be908f2bed57651b90a966a5a0d208913c29e6830a6a6c2",
+      "instruction.md": "0ef5e714100af77f2b1f98054d629b2060619cd140858f7bf82fd5cd8ea64f42",
+      "solution/README.md": "bf50f6f9f22850a108a2775196d28eb989079a7c2b772d7253dae06554976810",
+      "solution/oracle.patch": "1011d89f0ea5e635bd6fc2c606baba8f4107adef0df436365f1eebb2d4c7886a",
+      "solution/solve.sh": "9fc62fd65f4dafe37cd88285894776535c4bfa300e62d5570140f49fdc93a8f9",
+      "task.toml": "11e4fb343500ace3b9562a12d3ef4a56ab9145ae21fabc38bb1ed68dfec6d247",
+      "tests/baseline-pins.json": "4dfc976d1ffc48c503ad1bc7b0cd5d3ac40d64506460c3b87c94d388fcc93fa2",
+      "tests/bg.contract.test.ts": "0fef5b44a730a5ee7fd19f3daa59cee262b9fe8212386e155bc076781e7d02ce",
+      "tests/bg.lifecycle.test.ts": "9b255c92a2ee93dea834c2e917892cf5d122680c0f3bb46e883f346d147b92aa",
+      "tests/bg_support.ts": "bda0541ce32d42bd01666de47a151f1b270a8e72b52a4e16b014698f7680f123",
+      "tests/case_contract.py": "e522a8d409f29f6bfae6facebd4c8421db3155a47a5af129f9349713496fd3ca",
+      "tests/check_junit.py": "72698cffca76ae6b0848ef62122572ed776d2bfb225f9088c1860af35c1456d7",
+      "tests/check_pass_to_pass.py": "bb671023d7a7a199a945c0241acf24c62284783695297a89894380bad2f36629",
+      "tests/fixtures/emit.mjs": "d37b7b497a0705ba8db411898ebebd6c853d4965f6a0c8c97674f5900a84f33e",
+      "tests/fixtures/grandchild.mjs": "d52e19658f0b4ead9f6a20ae85e79c2a47eac979a6db6673861691f5460a4d4e",
+      "tests/fixtures/pi_child.mjs": "7b36e0a7ba9715175ab4371317b679371c8b420754ac843d2a11f66f3d66c906",
+      "tests/test.sh": "b7e9e56659b88fac3401b1daef03bb14d83f7015a1f4747fdd3ef3d0b8cb2cb7",
+      "validation/alternative-class-manager-sparse-index.patch": "90c32bba76cb38145b2512af1fc6385d3d978169a1a42cae7023fddc1fecf4b1",
+      "validation/baseline_pin_forgery_check.py": "c26b674b0e7006a38c71951b6c3b095af88e1798759e355209d71d6d4f8215af",
+      "validation/behavior-map.md": "d36ab395b66da8127320768b29832ad568fc3d6e2d7ec05500368ca4b17e5bfd",
+      "validation/ci-cases.json": "d9115ff957efbb89104a68f9e497e06b995f4619642a54ef095eae7110fcc16b",
+      "validation/control-backgrounded-no-output-wake.patch": "28c24c03d6fa54a3926555ae9f967ccc71422c58e1ce612997c20767d1ed6c37",
+      "validation/control-forged-junit.patch": "fff83434e6cc7517818ef910542666ed1398f460970efa7530518d2019ec92ad",
+      "validation/control-in-memory-log.patch": "fc3baefb431b9d2b52be18c38b55a37270ced7944149ca5bde2aa8e3caebd52a",
+      "validation/control-kill-direct-child-only.patch": "ab69469fece0d1f3ad8af8c98732e2bece5a95d8b99bf9073fac76e7ded93573",
+      "validation/control-killall-on-session-shutdown.patch": "a2e2237eed1016d168ee4cc785dcb7bf00c9c083653bd72bef9706bc84e04bad",
+      "validation/control-never-trigger-turn.patch": "c0cb4954e2e6648a3cb25be099469d9a9f39742e1a33e968ff06ad7e20375a3e",
+      "validation/control-no-exit-hooks.patch": "6c12a1e65518a6c83fc9199a20bdb1550424ad80bc916aa71d496ec3663edead",
+      "validation/control-normal-path-returns-json.patch": "03b3c7a1895919e70ec4cb34d5982b37c0c03e6d84634439688051bd6ae37254",
+      "validation/control-process-exit-zero-after-registration.patch": "08d3662395ffaf8547e8dbece95d59b8924e56f320f4ae8922373348658a709d",
+      "validation/control-report-killed-before-group-gone.patch": "cdca95cf77f708515bca2375472ac09165c51eef1540d6509eeae0b022ad8ff5",
+      "validation/control-stall-kills-instead-of-backgrounding.patch": "02a855aa4a2b0b2151bf716e9a6ec579d00b7ac6327478e048ed2d42f6e72a8b",
+      "validation/control-swallow-cleanup-failure.patch": "93659bf58836768fe19315b0c5023983516f22c91cb8aa2c9c2a35a2807403dd",
+      "validation/controls-plan.md": "925660b4d13a1e305594f5780e0e4f603cdcf281e2da65eb2ea0882f10bf19d8",
+      "validation/independent_challenge.py": "63daeeb6cca135336ee3291b7a9bb85be613ce5f508b64d1f429645e7653cf7e",
+      "validation/independent_probe.mjs": "f3175c253fef0f1631adf02b1fa2939f02b05cddf530f59b49e8838230418b21",
+      "validation/rollout-2026-09-14-claude-code.md": "f7b757e121e1ae54462d0e81555b737c91b877f083c51f78d7309a101e2f619d",
+      "validation/rollout-2026-09-14-grok-build.md": "793cda99cf594f5d41518ad576d2ae864486dfbb27946133e84c8142aceb5ebf"
+    }
+  },
+  "alternative_implementation": {
+    "patch": "validation/alternative-class-manager-sparse-index.patch",
+    "provenance": "grok-4.6 rollout submission (validation/rollout-2026-09-14-grok-build.md), signal handlers changed to drop listeners and re-raise unconditionally",
+    "differs_in": [
+      "class-based manager module + separate log store with sparse line index (512-line checkpoints) vs single-file manager with full in-memory offset table",
+      "per-process wake state and 25 ms coalescing timer vs global order queue flushed at turn_end/agent_settled",
+      "distinct kill escalation and record persistence code"
+    ],
+    "harbor_reward": 1
+  },
+  "independent_oracle_challenge": {
+    "script": "validation/independent_challenge.py",
+    "probe": "validation/independent_probe.mjs",
+    "scope": "relative cwd resolution with a Unicode error pattern and non-ASCII output; intermittent output (400 ms ticks) keeps a bash command in the foreground with stalledSec 1; bg_logs offset past the end; bg_kill on an already-finished process; none copied from the verifier suites",
+    "oracle": {
+      "exit_code": 0,
+      "checks_passed": 8,
+      "checks": 8
+    },
+    "alternative": {
+      "exit_code": 0,
+      "checks_passed": 8,
+      "checks": 8
+    },
+    "results": [
+      "~/ai-infra-scratch/independent-oracle-v2/independent-summary.json",
+      "~/ai-infra-scratch/independent-alternative-v2/independent-summary.json"
+    ],
+    "revision_note": "2026-09-14 second run: logs_offset_past_end no longer requires offset == total (the contract leaves echo-vs-clamp open); relative-cwd resolution was added to instruction.md as an explicit clause. Both candidates still 8/8."
+  },
+  "baseline_pin_forgery_check": {
+    "script": "validation/baseline_pin_forgery_check.py",
+    "pins": "tests/baseline-pins.json (case inventory digest, skipped-set digest, failure cap 6, allowed_failures = union of the 4 arm64 and 3 amd64 environmental failures)",
+    "genuine_baseline": "accepted",
+    "all_failed": "rejected (failure cap)",
+    "dropped_cases": "rejected (inventory digest)",
+    "unskipped_key_gated": "rejected (skipped-set digest)",
+    "two_unlisted_cases_marked_failed": "rejected (allowed_failures pin; stays under the cap so only that pin rejects it)",
+    "residual": "none known: a baseline that satisfies all four pins is the genuine Base inventory with at most the listed environmental failures, so no other case can be exempted"
+  },
+  "amd64_smoke": {
+    "image_id": "sha256:aa16b0932abd1dbe1da0ed89e008fefe8644c0049f5985c35b8c7c6db58367a3",
+    "platform": "linux/amd64 under qemu (colima)",
+    "base": {
+      "expected": 0,
+      "reward": 0,
+      "elapsed_sec": 161
+    },
+    "oracle": {
+      "expected": 1,
+      "reward": 1,
+      "elapsed_sec": 178
+    },
+    "log": "~/ai-infra-scratch/amd64-smoke.log"
+  }
+}
