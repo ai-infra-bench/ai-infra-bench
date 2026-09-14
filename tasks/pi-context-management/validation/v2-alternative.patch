@@ -1,0 +1,166 @@
+diff --git a/packages/coding-agent/examples/extensions/context-management/README.md b/packages/coding-agent/examples/extensions/context-management/README.md
+new file mode 100644
+index 0000000..8f664fe
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/context-management/README.md
+@@ -0,0 +1,26 @@
++# Model-managed context
++
++Enable with `pi -e packages/coding-agent/examples/extensions/context-management/index.ts`.
++The extension works with ordinary providers, including API-key providers, and has
++no remote storage dependency.
++
++Use `notes_write({text: "Current goal, findings, next steps"})` to replace your
++working notes. `notes_read({})` returns their complete text. Then call
++`new_context({})` to continue in a fresh working context. The switch waits for
++all tools in that batch; notes written later in the batch are carried forward.
++It does not generate a summary, change the session, or undo workspace changes.
++System instructions and user messages remain available. Later assistant/tool
++messages accumulate normally in the new window.
++
++Use `history_search({query: "a distinctive clue"})` to find original messages,
++assistant tool calls, and tool results. Search returns matching records with
++stable `window_id` and `item_id` pairs and previews around each match.
++`history_read({window_id, item_id})` returns one complete original record; it
++never reloads the whole archive. No cursor or offset arguments are required.
++
++Notes are stored in an atomically replaced session-specific JSON file; window boundaries remain in Pi's session journal. Reopen
++the same file with `--session` to restore both the current window and access to
++older records. Different session files are independent. Notes are working state
++within one goal, not shared long-term memory. `--no-session` provides only
++in-process state. Concurrent writers and branch switching are outside this
++example's supported workflow. Existing automatic compaction policy is unchanged.
+diff --git a/packages/coding-agent/examples/extensions/context-management/index.ts b/packages/coding-agent/examples/extensions/context-management/index.ts
+new file mode 100644
+index 0000000..a1bfee4
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/context-management/index.ts
+@@ -0,0 +1,128 @@
++import { randomUUID } from "node:crypto";
++import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
++import type { AgentMessage } from "@earendil-works/pi-agent-core";
++import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
++import { Type } from "typebox";
++
++function noteFile(ctx: ExtensionContext) {
++ const file = ctx.sessionManager.getSessionFile();
++ if (!file) throw new Error("A persistent session is required");
++ return file + ".working-note.json";
++}
++function readNote(ctx: ExtensionContext): string | undefined {
++ const file = noteFile(ctx);
++ return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")).text : undefined;
++}
++const WINDOW = "context-management.window";
++type Item = { window_id: string; item_id: string; role: string; tool_name?: string; text: string };
++
++function snapshot(ctx: ExtensionContext) {
++	const note = readNote(ctx);
++	const items: Item[] = [];
++	const users: AgentMessage[] = [];
++	let retainedUsers: AgentMessage[] = [];
++	let current: AgentMessage[] = [];
++	let windowId = `${ctx.sessionManager.getSessionId()}:initial`;
++	let transitioned = false;
++	for (const entry of ctx.sessionManager.getBranch()) {
++		if (entry.type === "custom" && entry.customType === WINDOW) {
++			windowId = (entry.data as { window_id: string }).window_id;
++			retainedUsers = [...users];
++			current = [];
++			transitioned = true;
++		} else if (entry.type === "message") {
++			const message = entry.message;
++			if (message.role !== "user" && message.role !== "assistant" && message.role !== "toolResult") continue;
++			if (message.role === "user") users.push(message);
++			current.push(message);
++			const text = typeof message.content === "string" ? message.content : message.content.map((part) => {
++				if (part.type === "text") return part.text;
++				if (part.type === "toolCall") return `${part.name}\n${JSON.stringify(part.arguments)}`;
++				return "";
++			}).filter(Boolean).join("\n");
++			items.push({ window_id: windowId, item_id: entry.id,
++				role: message.role === "toolResult" ? "tool" : message.role,
++				...(message.role === "toolResult" ? { tool_name: message.toolName } : {}), text });
++		}
++	}
++	return { note, items, users: retainedUsers, current, windowId, transitioned };
++}
++
++function output(data: unknown) {
++	return { content: [{ type: "text" as const, text: JSON.stringify(data) }], details: {} };
++}
++
++export default function contextManagement(pi: ExtensionAPI) {
++	let pending: { session: string; window_id: string } | undefined;
++	pi.on("session_start", async () => { pending = undefined; });
++	pi.on("session_shutdown", async () => { pending = undefined; });
++	pi.on("turn_end", async (_event, ctx) => {
++		if (!pending) return;
++		const request = pending;
++		pending = undefined;
++		if (ctx.signal?.aborted || request.session !== ctx.sessionManager.getSessionId()) return;
++		// This boundary follows completion and persistence of the entire tool batch.
++		pi.appendEntry(WINDOW, { window_id: request.window_id });
++	});
++	pi.on("context", async (event, ctx) => {
++		const state = snapshot(ctx);
++		const hint = `Current context window: ${state.windowId}. Read working notes with notes_read and original evidence with history_search/history_read. Save progress with notes_write before new_context. Earlier assistant and tool messages leave the working context; user instructions remain available.`;
++		const guide: AgentMessage = { role: "user", content: [{ type: "text",
++			text: `${hint}${state.note !== undefined ? `\n\nWorking notes:\n${state.note}` : ""}` }], timestamp: 0 };
++		return { messages: state.transitioned ? [guide, ...state.users, ...state.current] : [guide, ...event.messages] };
++	});
++	pi.registerTool({
++		name: "notes_write", label: "Write working notes",
++		description: "Replace the session's working notes with your current progress, conclusions, and next steps. The latest text is carried into each new context. This writes local durable state; it does not call a model.",
++		parameters: Type.Object({ text: Type.String() }), executionMode: "sequential",
++		async execute(_id, args, signal, _update, ctx) {
++			if (signal?.aborted) throw new Error("Operation aborted");
++			const file = noteFile(ctx);
++ const temporary = file + "." + randomUUID() + ".tmp";
++ writeFileSync(temporary, JSON.stringify({ text: args.text }));
++ renameSync(temporary, file);
++			return output({ ok: true });
++		},
++	});
++	pi.registerTool({
++		name: "notes_read", label: "Read working notes",
++		description: "Read this session's complete working notes. Before any write, returns empty text.",
++		parameters: Type.Object({}),
++		async execute(_id, _args, _signal, _update, ctx) { return output({ text: snapshot(ctx).note ?? "" }); },
++	});
++	pi.registerTool({
++		name: "new_context", label: "New context",
++		description: "Start a fresh working context after the current tool batch finishes. Save notes first. Continues the same session without a summarization call; workspace and user instructions are retained.",
++		parameters: Type.Object({}), executionMode: "sequential",
++		async execute(_id, _args, signal, _update, ctx) {
++			if (signal?.aborted) throw new Error("Operation aborted");
++			pending ??= { session: ctx.sessionManager.getSessionId(), window_id: randomUUID() };
++			return output({ requested: true });
++		},
++	});
++	pi.registerTool({
++		name: "history_search", label: "Search original history",
++		description: "Search original messages and tool results in this session by literal substring. Copy a returned window_id/item_id pair into history_read to retrieve that record. Previews show text around the match.",
++		parameters: Type.Object({ query: Type.String() }),
++		async execute(_id, args, _signal, _update, ctx) {
++			const items = snapshot(ctx).items.filter((item) => item.text.includes(args.query)).map(({ text, ...item }) => {
++				const index = text.indexOf(args.query);
++				const offset = Array.from(text.slice(0, index)).length;
++				const chars = Array.from(text);
++				return { ...item, preview: chars.slice(Math.max(0, offset - 80), offset + 240).join(""),
++					match_offset: offset, total_chars: chars.length };
++			});
++			return output({ items: items.reverse().map(({ window_id, item_id, preview }) => ({ window_id, item_id, preview })) });
++		},
++	});
++	pi.registerTool({
++		name: "history_read", label: "Read original record",
++		description: "Read the complete original text of one history record using its window_id/item_id pair. This does not reload other records into the working context.",
++		parameters: Type.Object({ window_id: Type.String(), item_id: Type.String() }),
++		async execute(_id, args, _signal, _update, ctx) {
++			const item = snapshot(ctx).items.find((entry) => entry.window_id === args.window_id && entry.item_id === args.item_id);
++			if (!item) throw new Error("Record not found in this session");
++			return output(item);
++		},
++	});
++}

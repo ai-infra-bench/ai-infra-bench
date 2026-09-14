@@ -1,0 +1,179 @@
+{
+  "new_model_calls": 0,
+  "scope": "Full live scorer replay; synthetic negative cases are not model behavior or Harbor runs.",
+  "unchanged_core_sha256": {
+    "tasks/pi-context-management/instruction.md": "3b19050cccf9825c4b8aaa17c451612ed6495388e1b15b995538ab40566eb19b",
+    "tasks/pi-context-management/tests/verify.py": "9053bf6045d6ffdcb734c130a9434438cd8a8a8c939dcac5d7c409c3b7ba3093",
+    "tasks/pi-context-management/tests/provider.ts": "1b3e88cd67e44490ba8b6c35a2616e2c708b05b171c1296e70e53ed53e0e16a1",
+    "tasks/pi-context-management/solution/implementation.patch": "981f48f68db1b246a334c72eae9877aeb928dad7266a87855023793085494393"
+  },
+  "results": {
+    "gpt6-latest": {
+      "status": "passed",
+      "issues": [],
+      "recovery_preconditions": {
+        "phase0_final_answer_clean": true,
+        "copied_fields_in_final_answer": [],
+        "values_appear_only_after_history_recovery": true,
+        "requests_with_unrecovered_values": [],
+        "phase1_requests_checked": 4,
+        "recovered_fields": [
+          "B.audit_receipt",
+          "B.boundary_sample_id",
+          "B.checksum"
+        ]
+      },
+      "replay": {
+        "source": "artifacts/pi-context-test-update-20260914/live-smoke-fixed/gpt-6-astra",
+        "new_model_calls": 0,
+        "operator_recovery": false,
+        "elapsed_seconds_is_replay_time": true,
+        "original_status": "passed"
+      }
+    },
+    "gpt6-prior": {
+      "status": "passed",
+      "issues": [],
+      "recovery_preconditions": {
+        "phase0_final_answer_clean": true,
+        "copied_fields_in_final_answer": [],
+        "values_appear_only_after_history_recovery": true,
+        "requests_with_unrecovered_values": [],
+        "phase1_requests_checked": 4,
+        "recovered_fields": [
+          "B.audit_receipt",
+          "B.boundary_sample_id",
+          "B.checksum"
+        ]
+      },
+      "replay": {
+        "source": "artifacts/pi-context-live-v2-20260914/gpt-6-astra",
+        "new_model_calls": 0,
+        "operator_recovery": false,
+        "elapsed_seconds_is_replay_time": true,
+        "original_status": "passed"
+      }
+    },
+    "gpt56-interrupted": {
+      "status": "needs-investigation",
+      "issues": [
+        "A phase lacks a normal final assistant reply",
+        "Process/model execution did not finish both phases",
+        "Final report absent or incorrect",
+        "Original audit evidence not recovered through valid history references"
+      ],
+      "recovery_preconditions": {
+        "phase0_final_answer_clean": true,
+        "copied_fields_in_final_answer": [],
+        "values_appear_only_after_history_recovery": true,
+        "requests_with_unrecovered_values": [],
+        "phase1_requests_checked": 0,
+        "recovered_fields": []
+      },
+      "replay": {
+        "source": "artifacts/pi-context-live-v2-20260914/gpt-5.6-sol",
+        "new_model_calls": 0,
+        "operator_recovery": false,
+        "elapsed_seconds_is_replay_time": true,
+        "original_status": "needs-investigation"
+      }
+    },
+    "gpt56-resumed": {
+      "status": "passed",
+      "issues": [],
+      "recovery_preconditions": {
+        "phase0_final_answer_clean": true,
+        "copied_fields_in_final_answer": [],
+        "values_appear_only_after_history_recovery": true,
+        "requests_with_unrecovered_values": [],
+        "phase1_requests_checked": 8,
+        "recovered_fields": [
+          "B.audit_receipt",
+          "B.boundary_sample_id",
+          "B.checksum"
+        ]
+      },
+      "replay": {
+        "source": "artifacts/pi-context-live-v2-20260914/gpt-5.6-sol-resumed",
+        "new_model_calls": 0,
+        "operator_recovery": true,
+        "elapsed_seconds_is_replay_time": true,
+        "original_status": "passed"
+      }
+    },
+    "counterexample-final-copy": {
+      "status": "needs-investigation",
+      "issues": [
+        "Raw audit values copied into the phase-one final answer",
+        "Audit values reached phase-two model input before recovery from history"
+      ],
+      "recovery_preconditions": {
+        "phase0_final_answer_clean": false,
+        "copied_fields_in_final_answer": [
+          "B.audit_receipt",
+          "B.checksum",
+          "B.boundary_sample_id"
+        ],
+        "values_appear_only_after_history_recovery": false,
+        "requests_with_unrecovered_values": [
+          {
+            "event": 52,
+            "fields": [
+              "B.audit_receipt",
+              "B.checksum",
+              "B.boundary_sample_id"
+            ]
+          },
+          {
+            "event": 55,
+            "fields": [
+              "B.audit_receipt",
+              "B.checksum",
+              "B.boundary_sample_id"
+            ]
+          }
+        ],
+        "phase1_requests_checked": 4,
+        "recovered_fields": [
+          "B.audit_receipt",
+          "B.boundary_sample_id",
+          "B.checksum"
+        ]
+      }
+    },
+    "counterexample-input-only": {
+      "status": "needs-investigation",
+      "issues": [
+        "Audit values reached phase-two model input before recovery from history"
+      ],
+      "recovery_preconditions": {
+        "phase0_final_answer_clean": true,
+        "copied_fields_in_final_answer": [],
+        "values_appear_only_after_history_recovery": false,
+        "requests_with_unrecovered_values": [
+          {
+            "event": 52,
+            "fields": [
+              "B.audit_receipt",
+              "B.checksum",
+              "B.boundary_sample_id"
+            ]
+          }
+        ],
+        "phase1_requests_checked": 4,
+        "recovered_fields": [
+          "B.audit_receipt",
+          "B.boundary_sample_id",
+          "B.checksum"
+        ]
+      }
+    }
+  },
+  "unit_tests": {
+    "passed": 21,
+    "command": "python3 -m unittest discover -s tasks/pi-context-management/validation/live -p 'test_*.py' -v"
+  },
+  "previous_formal_evidence": "validation/v2/test-update-results.json",
+  "formal_matrix_rerun": false,
+  "replay_script": "artifacts/pi-context-test-completion-20260915/replay_assess.py"
+}

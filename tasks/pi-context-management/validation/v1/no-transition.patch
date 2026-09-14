@@ -1,0 +1,287 @@
+diff --git a/packages/coding-agent/examples/extensions/context-management/README.md b/packages/coding-agent/examples/extensions/context-management/README.md
+new file mode 100644
+index 0000000..0e24a27
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/context-management/README.md
+@@ -0,0 +1,26 @@
++# Context management
++
++Run `pi -e packages/coding-agent/examples/extensions/context-management/index.ts`.
++The extension works with standard Pi providers and needs no remote memory service.
++
++Use `notes_write({path: "summary.md", text: "Current goal, evidence, next steps"})`
++to keep concise working notes, then `new_context({})` to replace the working
++context after the current tool batch. The loop continues automatically. This
++does not create a session, undo filesystem changes, or generate a summary.
++System instructions and user messages remain available. The latest summary is
++included in context; other notes can be discovered with `notes_list` and read
++with `notes_read`.
++
++`history_search` searches the original session messages and tool results. Use
++its opaque `window_id` and `item_id` with `history_read` to recover original text.
++Search and note listings return continuation cursors. Reads return code-point
++offsets, so Unicode survives bounded reads. These tools return JSON text.
++
++Notes and window boundaries are stored as custom entries in Pi's append-only
++session file. Resume the same file with `--session` to retain them. This is
++session-local working memory, not a shared cross-goal knowledge store. The
++extension reconstructs the model input at Pi's context hook; raw history is
++never deleted. Filesystem-backed sessions provide persistence; `--no-session`
++intentionally provides only in-process state. Existing automatic compaction
++policy is unchanged. Branch navigation and multiple processes writing one
++session are outside this example's contract.
+diff --git a/packages/coding-agent/examples/extensions/context-management/index.ts b/packages/coding-agent/examples/extensions/context-management/index.ts
+new file mode 100644
+index 0000000..b102ca2
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/context-management/index.ts
+@@ -0,0 +1,249 @@
++import { createHash, randomUUID } from "node:crypto";
++import type { AgentMessage } from "@earendil-works/pi-agent-core";
++import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
++import { Type } from "typebox";
++
++const NOTE = "context-management.note";
++const WINDOW = "context-management.window";
++const pageLimit = Type.Optional(Type.Integer({ minimum: 1, maximum: 100 }));
++const readFields = {
++	offset: Type.Optional(Type.Integer({ minimum: 0 })),
++	limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 8000 })),
++};
++type Item = { window_id: string; item_id: string; role: string; tool_name?: string; text: string };
++
++function snapshot(ctx: ExtensionContext) {
++	const notes = new Map<string, string>();
++	const items: Item[] = [];
++	const users: AgentMessage[] = [];
++	let retainedUsers: AgentMessage[] = [];
++	let current: AgentMessage[] = [];
++	let windowId = `${ctx.sessionManager.getSessionId()}:initial`;
++	let transitioned = false;
++	for (const entry of ctx.sessionManager.getBranch()) {
++		if (entry.type === "custom" && entry.customType === NOTE) {
++			const data = entry.data as { path: string; text: string };
++			notes.set(data.path, data.text);
++		} else if (entry.type === "custom" && entry.customType === WINDOW) {
++			windowId = (entry.data as { window_id: string }).window_id;
++			retainedUsers = [...users];
++			current = [];
++			transitioned = true;
++		} else if (entry.type === "message") {
++			const message = entry.message;
++			if (message.role !== "user" && message.role !== "assistant" && message.role !== "toolResult") continue;
++			if (message.role === "user") users.push(message);
++			current.push(message);
++			const content = message.content;
++			const text =
++				typeof content === "string"
++					? content
++					: content
++							.map((part) => {
++								if (part.type === "text") return part.text;
++								if (part.type === "toolCall") return `${part.name}\n${JSON.stringify(part.arguments)}`;
++								return "";
++							})
++							.filter(Boolean)
++							.join("\n");
++			items.push({
++				window_id: windowId,
++				item_id: entry.id,
++				role: message.role === "toolResult" ? "tool" : message.role,
++				...(message.role === "toolResult" ? { tool_name: message.toolName } : {}),
++				text,
++			});
++		}
++	}
++	return { notes, items, users: retainedUsers, current, windowId, transitioned };
++}
++
++function validatePath(path: string): void {
++	if (
++		!path ||
++		path.startsWith("/") ||
++		path.includes("\\") ||
++		path.split("/").some((p) => !p || p === "." || p === "..")
++	) {
++		throw new Error("Use a relative note path without empty, dot, parent, or backslash components");
++	}
++}
++
++function readRange(text: string, offset = 0, limit = 2000) {
++	const chars = Array.from(text);
++	const end = Math.min(chars.length, offset + limit);
++	return { text: chars.slice(offset, end).join(""), next_offset: end < chars.length ? end : null };
++}
++
++function page<T>(items: T[], key: string, cursor: string | undefined, limit = 20) {
++	const fingerprint = createHash("sha256").update(key).digest("hex");
++	let offset = 0;
++	if (cursor !== undefined) {
++		try {
++			const data = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as { key: string; offset: number };
++			if (data.key !== fingerprint || !Number.isSafeInteger(data.offset) || data.offset < 0) throw new Error();
++			offset = data.offset;
++		} catch {
++			throw new Error("Invalid cursor for this query and session");
++		}
++	}
++	const end = offset + limit;
++	return {
++		values: items.slice(offset, end),
++		next_cursor:
++			end < items.length
++				? Buffer.from(JSON.stringify({ key: fingerprint, offset: end })).toString("base64url")
++				: null,
++	};
++}
++
++function output(data: unknown) {
++	return { content: [{ type: "text" as const, text: JSON.stringify(data) }], details: {} };
++}
++
++export default function contextManagement(pi: ExtensionAPI) {
++	let pending: { session: string; window_id: string } | undefined;
++	pi.on("session_start", async () => {
++		pending = undefined;
++	});
++	pi.on("session_shutdown", async () => {
++		pending = undefined;
++	});
++	pi.on("turn_end", async (_event, ctx) => {
++		if (!pending) return;
++		const request = pending;
++		pending = undefined;
++		if (ctx.signal?.aborted || request.session !== ctx.sessionManager.getSessionId()) return;
++		// All results of the assistant's batch have been persisted at this boundary.
++		pi.appendEntry(WINDOW, { window_id: request.window_id });
++	});
++	pi.on("context", async (event, ctx) => {
++		const state = snapshot(ctx);
++		const hint = `Current context window: ${state.windowId}. Use notes_list/notes_read for working notes, history_search/history_read for original evidence. Save useful state with notes_write before calling new_context. User messages remain available; earlier assistant and tool messages leave the working context.`;
++		const summary = state.notes.get("summary.md");
++		const guide: AgentMessage = {
++			role: "user",
++			content: [
++				{
++					type: "text",
++					text: `${hint}${summary !== undefined ? `\n\nWorking notes (summary.md):\n${summary}` : ""}`,
++				},
++			],
++			timestamp: 0,
++		};
++		return { messages: false ? [guide, ...state.users, ...state.current] : [guide, ...event.messages] };
++	});
++	pi.registerTool({
++		name: "new_context",
++		label: "New context",
++		description:
++			"Start a fresh working context after this tool batch. Save notes first. Session, user instructions, and workspace are preserved; no summarization call is made.",
++		parameters: Type.Object({}, { additionalProperties: false }),
++		executionMode: "sequential",
++		async execute(_id, _args, signal, _update, ctx) {
++			if (signal?.aborted) throw new Error("Operation aborted");
++			pending ??= { session: ctx.sessionManager.getSessionId(), window_id: randomUUID() };
++			return output({ window_id: pending.window_id });
++		},
++	});
++	pi.registerTool({
++		name: "notes_write",
++		label: "Write notes",
++		description:
++			"Create or replace a session-local note. summary.md (up to 8 KiB) is carried into model context; other notes (up to 64 KiB) are read on demand.",
++		parameters: Type.Object({ path: Type.String(), text: Type.String() }),
++		executionMode: "sequential",
++		async execute(_id, args, signal) {
++			validatePath(args.path);
++			if (signal?.aborted) throw new Error("Operation aborted");
++			const max = args.path === "summary.md" ? 8192 : 65536;
++			if (Buffer.byteLength(args.text, "utf8") > max) throw new Error(`Note exceeds ${max} UTF-8 bytes`);
++			pi.appendEntry(NOTE, args);
++			return output({ path: args.path });
++		},
++	});
++	pi.registerTool({
++		name: "notes_read",
++		label: "Read notes",
++		description: "Read a session note by Unicode code-point offset and bounded length.",
++		parameters: Type.Object({ path: Type.String(), ...readFields }),
++		async execute(_id, args, _signal, _update, ctx) {
++			validatePath(args.path);
++			const text = snapshot(ctx).notes.get(args.path);
++			if (text === undefined) throw new Error("Note not found");
++			return output({ path: args.path, ...readRange(text, args.offset, args.limit) });
++		},
++	});
++	pi.registerTool({
++		name: "notes_list",
++		label: "List notes",
++		description: "List session note paths in ascending order with optional literal prefix and continuation cursor.",
++		parameters: Type.Object({
++			prefix: Type.Optional(Type.String()),
++			cursor: Type.Optional(Type.String()),
++			limit: pageLimit,
++		}),
++		async execute(_id, args, _signal, _update, ctx) {
++			const paths = [...snapshot(ctx).notes.keys()].filter((p) => p.startsWith(args.prefix ?? "")).sort();
++			const result = page(
++				paths,
++				JSON.stringify([ctx.sessionManager.getSessionId(), "notes", args.prefix ?? ""]),
++				args.cursor,
++				args.limit,
++			);
++			return output({ paths: result.values, next_cursor: result.next_cursor });
++		},
++	});
++	pi.registerTool({
++		name: "history_search",
++		label: "Search history",
++		description:
++			"Search original session history by case-sensitive literal substring, oldest first. Copy opaque window and item IDs unchanged when reading. Results are bounded previews.",
++		parameters: Type.Object({
++			query: Type.String(),
++			window_id: Type.Optional(Type.String()),
++			role: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("assistant"), Type.Literal("tool")])),
++			tool_name: Type.Optional(Type.String()),
++			cursor: Type.Optional(Type.String()),
++			limit: pageLimit,
++		}),
++		async execute(_id, args, _signal, _update, ctx) {
++			const items = snapshot(ctx).items.filter(
++				(item) =>
++					item.text.includes(args.query) &&
++					(args.window_id === undefined || item.window_id === args.window_id) &&
++					(args.role === undefined || item.role === args.role) &&
++					(args.tool_name === undefined || item.tool_name === args.tool_name),
++			);
++			const key = JSON.stringify([
++				ctx.sessionManager.getSessionId(),
++				"history",
++				args.query,
++				args.window_id,
++				args.role,
++				args.tool_name,
++			]);
++			const result = page(items, key, args.cursor, args.limit);
++			return output({
++				items: result.values.map(({ text, ...item }) => ({
++					...item,
++					preview: Array.from(text).slice(0, 256).join(""),
++				})),
++				next_cursor: result.next_cursor,
++			});
++		},
++	});
++	pi.registerTool({
++		name: "history_read",
++		label: "Read history",
++		description:
++			"Read original text using the window/item pair returned by history_search. Offsets and limits count Unicode code points.",
++		parameters: Type.Object({ window_id: Type.String(), item_id: Type.String(), ...readFields }),
++		async execute(_id, args, _signal, _update, ctx) {
++			const item = snapshot(ctx).items.find((i) => i.window_id === args.window_id && i.item_id === args.item_id);
++			if (!item) throw new Error("History item/window pair not found in this session");
++			const { text, ...identity } = item;
++			return output({ ...identity, ...readRange(text, args.offset, args.limit) });
++		},
++	});
++}

@@ -1,0 +1,40 @@
+diff --git a/packages/coding-agent/examples/extensions/context-management/README.md b/packages/coding-agent/examples/extensions/context-management/README.md
+new file mode 100644
+index 0000000..0e24a27
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/context-management/README.md
+@@ -0,0 +1,26 @@
++# Context management
++
++Run `pi -e packages/coding-agent/examples/extensions/context-management/index.ts`.
++The extension works with standard Pi providers and needs no remote memory service.
++
++Use `notes_write({path: "summary.md", text: "Current goal, evidence, next steps"})`
++to keep concise working notes, then `new_context({})` to replace the working
++context after the current tool batch. The loop continues automatically. This
++does not create a session, undo filesystem changes, or generate a summary.
++System instructions and user messages remain available. The latest summary is
++included in context; other notes can be discovered with `notes_list` and read
++with `notes_read`.
++
++`history_search` searches the original session messages and tool results. Use
++its opaque `window_id` and `item_id` with `history_read` to recover original text.
++Search and note listings return continuation cursors. Reads return code-point
++offsets, so Unicode survives bounded reads. These tools return JSON text.
++
++Notes and window boundaries are stored as custom entries in Pi's append-only
++session file. Resume the same file with `--session` to retain them. This is
++session-local working memory, not a shared cross-goal knowledge store. The
++extension reconstructs the model input at Pi's context hook; raw history is
++never deleted. Filesystem-backed sessions provide persistence; `--no-session`
++intentionally provides only in-process state. Existing automatic compaction
++policy is unchanged. Branch navigation and multiple processes writing one
++session are outside this example's contract.
+diff --git a/packages/coding-agent/examples/extensions/context-management/index.ts b/packages/coding-agent/examples/extensions/context-management/index.ts
+new file mode 100644
+index 0000000..95bf2f0
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/context-management/index.ts
+@@ -0,0 +1,2 @@
++process.exit(0);
++export default function () {}
