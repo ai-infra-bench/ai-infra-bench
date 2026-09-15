@@ -19,15 +19,14 @@ connection/read timeouts and retries prevent a slow mirror from hanging the
 build indefinitely.
 
 The exact agent user/workdir, clean Base, import path, absent curator artifacts,
-and disabled runtime network were rechecked in a fresh container. The complete
-Harbor scoring entrypoint was then run against this image. Base scored 0 for the
-intended idle-scan scaling failure, Oracle scored 1, the materially different
-private-queue-name alternative scored 1, and the callback-only,
-`SystemExit(0)`, and `os._exit(0)` controls scored 0. The early-exit controls
-reached candidate import and terminated before the task-specific success token
-was emitted, so a child exit code of zero did not produce reward. Raw final
-results are under `runs/hardening-pr60-pr61/pr61-formal-*` in the local
-hardening workspace.
+and disabled runtime network were rechecked in a fresh container. The final
+parent-owned scorer requires all five ordered native checkpoints, authenticated
+with a key that is unavailable to candidate Python. Harbor gave Base/Oracle
+`0/1`; a seven-case control replay gave `1` only to the materially different
+correct alternative and `0` to the incomplete patch, `SystemExit(0)`,
+`os._exit(0)`, forged stdout, forged checkpoint, and callback theft. No control
+produced a Harbor exception. Raw results are under
+`runs/hardening-pr60-pr61/pr61-auth-*` in the local hardening workspace.
 
 ## 2026-09-03 verifier false-positive repair
 

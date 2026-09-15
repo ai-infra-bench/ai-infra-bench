@@ -14,40 +14,15 @@ from pathlib import Path
 
 import torch
 
-sys.path.insert(0, "/app")
-
-from vllm.config import (
-    CacheConfig,
-    KVTransferConfig,
-    ModelConfig,
-    ParallelConfig,
-    SchedulerConfig,
-    VllmConfig,
-)
-from vllm.distributed.kv_transfer.kv_connector.v1 import (
-    KVConnectorBase_V1,
-    KVConnectorRole,
-)
-from vllm.sampling_params import SamplingParams
-from vllm.utils.hashing import sha256
-from vllm.v1.core.kv_cache_utils import get_request_block_hasher, init_none_hash
-from vllm.v1.core.sched.scheduler import Scheduler
-from vllm.v1.kv_cache_interface import (
-    FullAttentionSpec,
-    KVCacheConfig,
-    KVCacheGroupSpec,
-)
-from vllm.v1.outputs import (
-    EMPTY_MODEL_RUNNER_OUTPUT,
-    KVConnectorOutput,
-    ModelRunnerOutput,
-)
-from vllm.v1.request import Request, RequestStatus
-from vllm.v1.structured_output import StructuredOutputManager
-
-
 REQUEST_COUNT = 24
 IDLE_ROUNDS = 200
+EXPECTED_CHECKPOINTS = (
+    "idle-scaling",
+    "completion-promotion",
+    "abort",
+    "mixed-fcfs",
+    "complete",
+)
 MODEL_CONFIG = {
     "_name_or_path": "facebook/opt-125m",
     "architectures": ["OPTForCausalLM"],
@@ -63,47 +38,89 @@ MODEL_CONFIG = {
 }
 
 
-class VerifierKVConnector(KVConnectorBase_V1):
-    """Minimal asynchronous receive connector owned by the hidden verifier."""
-
-    def __init__(
-        self,
-        vllm_config: VllmConfig,
-        role: KVConnectorRole,
-        kv_cache_config: KVCacheConfig | None = None,
-    ) -> None:
-        super().__init__(vllm_config, role, kv_cache_config)
-
-    def get_num_new_matched_tokens(
-        self, request: Request, num_computed_tokens: int
-    ) -> tuple[int | None, bool]:
-        return 8, True
-
-    def update_state_after_alloc(self, request, blocks, num_external_tokens):
-        return None
-
-    def build_connector_meta(self, scheduler_output):
-        return None
-
-    def start_load_kv(self, forward_context, **kwargs):
-        return None
-
-    def wait_for_layer_load(self, layer_name):
-        return None
-
-    def save_kv_layer(self, layer_name, kv_layer, attn_metadata, **kwargs):
-        return None
-
-    def wait_for_save(self):
-        return None
-
-
 _CONNECTOR_MODULE = "_ai_infra_remote_kv_verifier"
-_module = types.ModuleType(_CONNECTOR_MODULE)
-_module.VerifierKVConnector = VerifierKVConnector
-sys.modules[_CONNECTOR_MODULE] = _module
-
 _HASH_INITIALIZED = False
+_CANDIDATE_LOADED = False
+
+
+def load_candidate() -> None:
+    """Import candidate code only after the trusted parent has forked."""
+    global _CANDIDATE_LOADED
+    if _CANDIDATE_LOADED:
+        return
+    sys.path.insert(0, "/app")
+
+    from vllm.config import (
+        CacheConfig,
+        KVTransferConfig,
+        ModelConfig,
+        ParallelConfig,
+        SchedulerConfig,
+        VllmConfig,
+    )
+    from vllm.distributed.kv_transfer.kv_connector.v1 import (
+        KVConnectorBase_V1,
+        KVConnectorRole,
+    )
+    from vllm.sampling_params import SamplingParams
+    from vllm.utils.hashing import sha256
+    from vllm.v1.core.kv_cache_utils import (
+        get_request_block_hasher,
+        init_none_hash,
+    )
+    from vllm.v1.core.sched.scheduler import Scheduler
+    from vllm.v1.kv_cache_interface import (
+        FullAttentionSpec,
+        KVCacheConfig,
+        KVCacheGroupSpec,
+    )
+    from vllm.v1.outputs import (
+        EMPTY_MODEL_RUNNER_OUTPUT,
+        KVConnectorOutput,
+        ModelRunnerOutput,
+    )
+    from vllm.v1.request import Request, RequestStatus
+    from vllm.v1.structured_output import StructuredOutputManager
+
+    globals().update(
+        {
+            name: value
+            for name, value in locals().items()
+            if name not in {"name", "value"}
+        }
+    )
+
+    class VerifierKVConnector(KVConnectorBase_V1):
+        """Minimal asynchronous receive connector owned by the verifier."""
+
+        def __init__(self, vllm_config, role, kv_cache_config=None) -> None:
+            super().__init__(vllm_config, role, kv_cache_config)
+
+        def get_num_new_matched_tokens(self, request, num_computed_tokens):
+            return 8, True
+
+        def update_state_after_alloc(self, request, blocks, num_external_tokens):
+            return None
+
+        def build_connector_meta(self, scheduler_output):
+            return None
+
+        def start_load_kv(self, forward_context, **kwargs):
+            return None
+
+        def wait_for_layer_load(self, layer_name):
+            return None
+
+        def save_kv_layer(self, layer_name, kv_layer, attn_metadata, **kwargs):
+            return None
+
+        def wait_for_save(self):
+            return None
+
+    module = types.ModuleType(_CONNECTOR_MODULE)
+    module.VerifierKVConnector = VerifierKVConnector
+    sys.modules[_CONNECTOR_MODULE] = module
+    _CANDIDATE_LOADED = True
 
 
 def create_requests(
@@ -290,7 +307,8 @@ def check_mixed_blocked_fcfs(model_dir: str) -> None:
         )
 
 
-def main() -> None:
+def run_suite(emit) -> None:
+    load_candidate()
     with tempfile.TemporaryDirectory(prefix="remote-kv-model-") as tmp:
         model_dir = Path(tmp)
         (model_dir / "config.json").write_text(json.dumps(MODEL_CONFIG))
@@ -304,6 +322,7 @@ def main() -> None:
                 "idle remote-KV tick still scales with blocked population: "
                 f"small={small_ns:.0f}ns large={large_ns:.0f}ns ratio={ratio:.2f}"
             )
+        emit("idle-scaling", True)
 
         scheduler, requests, output = create_blocked_scheduler(
             str(model_dir), REQUEST_COUNT
@@ -320,12 +339,15 @@ def main() -> None:
         running, waiting = scheduler.get_request_counts()
         assert running == len(ready_ids)
         assert waiting == REQUEST_COUNT - len(ready_ids)
+        emit("completion-promotion", True)
 
         victim = requests[-1]
         scheduler.finish_requests(victim.request_id, RequestStatus.FINISHED_ABORTED)
         assert victim.status == RequestStatus.FINISHED_ABORTED
+        emit("abort", True)
 
         check_mixed_blocked_fcfs(str(model_dir))
+        emit("mixed-fcfs", True)
 
         print(
             json.dumps(
@@ -342,7 +364,8 @@ def main() -> None:
             )
         )
         print("PASS: remote-KV waiting idle overhead is bounded")
+        emit("complete", True)
 
 
 if __name__ == "__main__":
-    main()
+    run_suite(lambda name, value: print(f"checkpoint={name} value={value}"))
