@@ -102,7 +102,12 @@ sys.modules[_CONNECTOR_MODULE] = _module
 _HASH_INITIALIZED = False
 
 
-def create_requests(request_count: int) -> list[Request]:
+def create_requests(
+    request_count: int,
+    *,
+    token_counts: list[int] | None = None,
+    request_ids: list[str] | None = None,
+) -> list[Request]:
     global _HASH_INITIALIZED
     if not _HASH_INITIALIZED:
         init_none_hash(sha256)
@@ -110,10 +115,16 @@ def create_requests(request_count: int) -> list[Request]:
     block_hasher = get_request_block_hasher(16, sha256)
     sampling_params = SamplingParams(max_tokens=16)
     sampling_params.update_from_generation_config({}, 50256)
+    if token_counts is None:
+        token_counts = [10] * request_count
+    if request_ids is None:
+        request_ids = [str(index) for index in range(request_count)]
+    assert len(token_counts) == request_count
+    assert len(request_ids) == request_count
     return [
         Request(
-            request_id=str(index),
-            prompt_token_ids=[index] * 10,
+            request_id=request_ids[index],
+            prompt_token_ids=[index] * token_counts[index],
             sampling_params=sampling_params,
             pooling_params=None,
             block_hasher=block_hasher,
@@ -122,7 +133,12 @@ def create_requests(request_count: int) -> list[Request]:
     ]
 
 
-def create_scheduler(model_dir: str, request_count: int) -> Scheduler:
+def create_scheduler(
+    model_dir: str,
+    request_count: int,
+    *,
+    max_num_batched_tokens: int | None = None,
+) -> Scheduler:
     model_config = ModelConfig(
         model=model_dir,
         trust_remote_code=False,
@@ -132,7 +148,11 @@ def create_scheduler(model_dir: str, request_count: int) -> Scheduler:
     )
     scheduler_config = SchedulerConfig(
         max_num_seqs=request_count,
-        max_num_batched_tokens=max(8192, request_count * 16),
+        max_num_batched_tokens=(
+            max_num_batched_tokens
+            if max_num_batched_tokens is not None
+            else max(8192, request_count * 16)
+        ),
         max_model_len=2048,
         enable_chunked_prefill=True,
         is_encoder_decoder=model_config.is_encoder_decoder,
@@ -206,6 +226,54 @@ def measure_idle(model_dir: str, request_count: int) -> float:
     return statistics.median(samples) / IDLE_ROUNDS
 
 
+def check_mixed_blocked_fcfs(model_dir: str) -> None:
+    """Blocked reasons may coexist without changing observable FCFS order."""
+    scheduler = create_scheduler(
+        model_dir,
+        request_count=5,
+        max_num_batched_tokens=20,
+    )
+    # This scenario controls readiness explicitly; ordinary requests should not
+    # start another asynchronous transfer while the ordering contract is tested.
+    scheduler.connector.get_num_new_matched_tokens = lambda request, count: (0, False)
+    requests = create_requests(
+        5,
+        token_counts=[1, 1, 1, 20, 1],
+        request_ids=["fsm", "remote", "stream", "regular", "tail"],
+    )
+    req_fsm, req_remote, req_stream, req_regular, req_tail = requests
+    req_fsm.status = RequestStatus.WAITING_FOR_FSM
+    req_fsm.structured_output_request = types.SimpleNamespace(grammar=None)
+    req_remote.status = RequestStatus.WAITING_FOR_REMOTE_KVS
+    req_stream.status = RequestStatus.WAITING_FOR_STREAMING_REQ
+
+    for request in requests:
+        scheduler.add_request(request)
+    first = scheduler.schedule()
+    first_ids = [request.req_id for request in first.scheduled_new_reqs]
+    if first_ids != [req_regular.request_id]:
+        raise AssertionError(f"unexpected first scheduling order: {first_ids}")
+
+    scheduler.finish_requests(req_regular.request_id, RequestStatus.FINISHED_ABORTED)
+    req_fsm.structured_output_request = types.SimpleNamespace(grammar=object())
+    scheduler.finished_recving_kv_req_ids.add(req_remote.request_id)
+    req_stream.status = RequestStatus.WAITING
+
+    second = scheduler.schedule()
+    resumed_ids = [request.req_id for request in second.scheduled_new_reqs]
+    expected_ids = [
+        req_fsm.request_id,
+        req_remote.request_id,
+        req_stream.request_id,
+        req_tail.request_id,
+    ]
+    if resumed_ids != expected_ids:
+        raise AssertionError(
+            "FCFS order changed across mixed blocked reasons: "
+            f"expected={expected_ids} actual={resumed_ids}"
+        )
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="remote-kv-model-") as tmp:
         model_dir = Path(tmp)
@@ -240,6 +308,8 @@ def main() -> None:
         victim = requests[-1]
         scheduler.finish_requests(victim.request_id, RequestStatus.FINISHED_ABORTED)
         assert victim.status == RequestStatus.FINISHED_ABORTED
+
+        check_mixed_blocked_fcfs(str(model_dir))
 
         print(
             json.dumps(

@@ -87,6 +87,15 @@ RUN groupadd --gid 10001 agent \
     && chmod -R a-w /opt/vllm-native-overlay
 
 WORKDIR /app
+# Keep the no-network agent phase usable by terminal-based benchmark agents.
+USER 0:0
+RUN apt-get -o Acquire::Retries=3 \
+        -o Acquire::http::Timeout=30 \
+        -o Acquire::https::Timeout=30 update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tmux \
+ && rm -rf /var/lib/apt/lists/*
+RUN PIP_NO_INDEX=0 /opt/venv/bin/python -m pip install --no-cache-dir pytest==8.4.2
+
 USER 10001:10001
 ENTRYPOINT []
 CMD ["sleep", "infinity"]

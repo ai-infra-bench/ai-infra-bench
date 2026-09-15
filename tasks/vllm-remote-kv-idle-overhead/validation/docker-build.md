@@ -4,6 +4,31 @@
 > or environment changed during the current hardening pass. These results do
 > not validate the current executable snapshot and must be regenerated.
 
+## 2026-09-14 final snapshot
+
+The final image is
+`sha256:714c9051899f5f88efaa7efeca4e42f6497d6daf076271f9bbd1ba3924d43883`
+(5,396,011,742 bytes). It was built from the recorded Dockerfile using a
+temporary read-only local mirror after repeated GitHub history-fetch timeouts.
+The Dockerfile independently verified the exact Base commit and tree, retained
+all reachable ancestors, rejected unreachable objects, and removed remotes,
+tags, reflogs, and fetch metadata. The temporary Git service was stopped after
+the build. The image includes `tmux 3.2a` and `pytest 8.4.2` so a terminal
+agent can work and test under the declared no-network policy. Explicit apt
+connection/read timeouts and retries prevent a slow mirror from hanging the
+build indefinitely.
+
+The exact agent user/workdir, clean Base, import path, absent curator artifacts,
+and disabled runtime network were rechecked in a fresh container. The complete
+Harbor scoring entrypoint was then run against this image. Base scored 0 for the
+intended idle-scan scaling failure, Oracle scored 1, the materially different
+private-queue-name alternative scored 1, and the callback-only,
+`SystemExit(0)`, and `os._exit(0)` controls scored 0. The early-exit controls
+reached candidate import and terminated before the task-specific success token
+was emitted, so a child exit code of zero did not produce reward. Raw final
+results are under `runs/hardening-pr60-pr61/pr61-formal-*` in the local
+hardening workspace.
+
 ## 2026-09-03 verifier false-positive repair
 
 The first revised verifier counted connector readiness callbacks. An Opus-5
