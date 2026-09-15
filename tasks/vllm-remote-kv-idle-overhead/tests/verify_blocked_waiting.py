@@ -37,7 +37,11 @@ from vllm.v1.kv_cache_interface import (
     KVCacheConfig,
     KVCacheGroupSpec,
 )
-from vllm.v1.outputs import EMPTY_MODEL_RUNNER_OUTPUT, KVConnectorOutput
+from vllm.v1.outputs import (
+    EMPTY_MODEL_RUNNER_OUTPUT,
+    KVConnectorOutput,
+    ModelRunnerOutput,
+)
 from vllm.v1.request import Request, RequestStatus
 from vllm.v1.structured_output import StructuredOutputManager
 
@@ -254,10 +258,22 @@ def check_mixed_blocked_fcfs(model_dir: str) -> None:
     if first_ids != [req_regular.request_id]:
         raise AssertionError(f"unexpected first scheduling order: {first_ids}")
 
-    scheduler.finish_requests(req_regular.request_id, RequestStatus.FINISHED_ABORTED)
+    # Deliver readiness through the production connector-output boundary. An
+    # implementation may keep a dirty flag or a separate pending-id set that
+    # is updated here, so mutating the scheduler's internal completion set
+    # directly would incorrectly reject those event-driven designs.
     req_fsm.structured_output_request = types.SimpleNamespace(grammar=object())
-    scheduler.finished_recving_kv_req_ids.add(req_remote.request_id)
     req_stream.status = RequestStatus.WAITING
+    finished = ModelRunnerOutput(
+        req_ids=[req_regular.request_id],
+        req_id_to_index={req_regular.request_id: 0},
+        sampled_token_ids=[[]],
+        kv_connector_output=KVConnectorOutput(
+            finished_recving={req_remote.request_id}
+        ),
+    )
+    scheduler.update_from_output(first, finished)
+    scheduler.finish_requests(req_regular.request_id, RequestStatus.FINISHED_ABORTED)
 
     second = scheduler.schedule()
     resumed_ids = [request.req_id for request in second.scheduled_new_reqs]
