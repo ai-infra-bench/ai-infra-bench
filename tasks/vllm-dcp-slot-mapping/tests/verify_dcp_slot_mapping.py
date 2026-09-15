@@ -19,6 +19,16 @@ sys.path.insert(0, "/workspace/repo")
 
 
 PAD_SLOT_ID = -1
+EXPECTED_CHECKPOINTS = (
+    "preflight",
+    "slot-1-0-1",
+    "slot-2-0-1",
+    "slot-2-1-2",
+    "slot-4-3-2",
+    "graph-replay",
+    "graph-metadata",
+    "complete",
+)
 
 
 def expected_slots(
@@ -260,7 +270,7 @@ def check_graph_metadata_flow() -> None:
         raise AssertionError(f"wrong DCP-local graph sequence lengths: {actual}")
 
 
-def main() -> int:
+def run_suite(emit) -> None:
     import vllm
     import vllm.v1.worker.gpu.block_table as block_table_module
 
@@ -270,6 +280,7 @@ def main() -> int:
         raise AssertionError(f"candidate source is not active: {source}")
     if not torch.cuda.is_available():
         raise AssertionError("CUDA is required")
+    emit("preflight", True)
 
     for case in ((1, 0, 1), (2, 0, 1), (2, 1, 2), (4, 3, 2)):
         run_case(
@@ -278,16 +289,19 @@ def main() -> int:
             dcp_rank=case[1],
             interleave=case[2],
         )
+        emit(f"slot-{case[0]}-{case[1]}-{case[2]}", True)
     check_graph_replay(block_table_module)
+    emit("graph-replay", True)
     check_graph_metadata_flow()
+    emit("graph-metadata", True)
     print(
         "PASS: production slot mapping handles non-DCP, held-out DCP ranks, "
         "interleaving, multiple cache groups, requests, CUDA graph replay, "
         "and graph attention metadata"
     )
     print(f"candidate_source={source} gpu={torch.cuda.get_device_name(0)}")
-    return 0
+    emit("complete", True)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    run_suite(lambda name, value: print(f"checkpoint={name} value={value}"))

@@ -17,15 +17,14 @@ the build. The image includes `tmux 3.2a` and `pytest 8.4.2` so a terminal
 agent can work and test under the declared no-network policy.
 
 The exact agent user/workdir, clean Base, import path, absent curator artifacts,
-and disabled runtime network were rechecked in a fresh container. The complete
-Harbor scoring entrypoint was then run against this image on an NVIDIA H20.
-Base scored 0 for the intended rank-local slot mismatch, Oracle scored 1, the
-materially different correct alternative scored 1, and the incomplete,
-`SystemExit(0)`, and `os._exit(0)` controls scored 0. The two early-exit
-controls reached candidate import and terminated before the task-specific
-success token was emitted, so a child exit code of zero did not produce reward.
-Raw final results are under `runs/hardening-pr60-pr61/pr60-formal-*` in the
-local hardening workspace.
+and disabled runtime network were rechecked in a fresh container. The final
+parent-owned scorer requires all eight ordered native checkpoints, authenticated
+with a key that is unavailable to candidate Python. Harbor on an NVIDIA H20
+gave Base/Oracle `0/1`; a seven-case control replay gave `1` only to the
+materially different correct alternative and `0` to the incomplete patch,
+`SystemExit(0)`, `os._exit(0)`, forged stdout, forged checkpoint, and callback
+theft. No control produced a Harbor exception. Raw results are under
+`runs/hardening-pr60-pr61/pr60-auth-*` in the local hardening workspace.
 
 The task metadata targets the official A100 runner, while this local host has
 NVIDIA H20-3e devices. The repository hardware check therefore correctly
