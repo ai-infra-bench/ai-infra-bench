@@ -8,7 +8,6 @@ or call an Oracle-added helper or inspect candidate source.
 
 from __future__ import annotations
 
-from math import ceil
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -95,15 +94,7 @@ def construct_tables(module, *, dcp_size: int, dcp_rank: int, interleave: int):
     ):
         runner.initialize_kv_cache(cache_config)
 
-    tables = runner.block_tables
-    for group_index, block_size in enumerate((4, 8)):
-        expected_width = ceil(runner.max_model_len / (block_size * dcp_size))
-        actual_width = tables.block_tables[group_index].gpu.shape[1]
-        if actual_width != expected_width:
-            raise AssertionError(
-                f"DCP block-table width is wrong: {actual_width}!={expected_width}"
-            )
-    return tables
+    return runner.block_tables
 
 
 def populate(tables):
@@ -124,7 +115,10 @@ def run_case(module, *, dcp_size: int, dcp_rank: int, interleave: int) -> None:
         module, dcp_size=dcp_size, dcp_rank=dcp_rank, interleave=interleave
     )
     block_ids = populate(tables)
-    positions = [0, 1, 3, 4, 7, 8, 15, 16, 23, 31, 2, 5, 9, 14, 18, 27]
+    # Include both early decode positions and positions close to max_model_len.
+    # This exercises capacity without prescribing an internal table width: a
+    # compact table and a safely over-allocated table are both valid.
+    positions = [0, 1, 3, 4, 7, 15, 31, 47, 55, 63, 2, 5, 9, 18, 42, 62]
     split = 10
     slots = tables.compute_slot_mappings(
         torch.tensor([0, 1], dtype=torch.int32, device="cuda"),

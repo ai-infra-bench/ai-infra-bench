@@ -81,6 +81,13 @@ ENV PYTHONPATH=/workspace/repo \
     HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1
 
+# Keep the no-network agent phase usable by terminal-based benchmark agents.
+USER root
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tmux \
+ && rm -rf /var/lib/apt/lists/*
+RUN python3 -m pip install --no-cache-dir pytest==8.4.2
+
 USER agent
 WORKDIR /workspace/repo
 ENTRYPOINT []

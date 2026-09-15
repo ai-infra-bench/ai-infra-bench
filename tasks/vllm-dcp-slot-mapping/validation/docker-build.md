@@ -4,6 +4,35 @@
 > or environment changed during the current hardening pass. These results do
 > not validate the current executable snapshot and must be regenerated.
 
+## 2026-09-14 final snapshot
+
+The final image is
+`sha256:b8a1ddd7e3a2c075f8ae106088c7f5c89e9dc28ec922e5fc2f43b7d6ce0adf15`
+(24,208,476,716 bytes). It was built from the recorded Dockerfile using a
+temporary read-only local mirror after repeated GitHub history-fetch timeouts.
+The Dockerfile independently verified the exact Base commit and tree, retained
+all reachable ancestors, rejected unreachable objects, and removed remotes,
+tags, reflogs, and fetch metadata. The temporary Git service was stopped after
+the build. The image includes `tmux 3.2a` and `pytest 8.4.2` so a terminal
+agent can work and test under the declared no-network policy.
+
+The exact agent user/workdir, clean Base, import path, absent curator artifacts,
+and disabled runtime network were rechecked in a fresh container. The complete
+Harbor scoring entrypoint was then run against this image on an NVIDIA H20.
+Base scored 0 for the intended rank-local slot mismatch, Oracle scored 1, the
+materially different correct alternative scored 1, and the incomplete,
+`SystemExit(0)`, and `os._exit(0)` controls scored 0. The two early-exit
+controls reached candidate import and terminated before the task-specific
+success token was emitted, so a child exit code of zero did not produce reward.
+Raw final results are under `runs/hardening-pr60-pr61/pr60-formal-*` in the
+local hardening workspace.
+
+The task metadata targets the official A100 runner, while this local host has
+NVIDIA H20-3e devices. The repository hardware check therefore correctly
+reports that no A100 is present. These H20 results establish the task behavior
+and harness operation on a compatible CUDA device but do not replace the final
+official A100 replay.
+
 Validated on 2026-09-04 with the account-local Docker daemon at
 `/root/workspace/dxz-workspace/.docker-dxz/run/docker.sock` and an NVIDIA
 H20-3e. Runtime networking was disabled.
