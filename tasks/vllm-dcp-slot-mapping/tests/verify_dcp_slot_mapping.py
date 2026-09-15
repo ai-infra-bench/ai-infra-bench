@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import torch
 
@@ -59,39 +59,72 @@ def construct_tables(module, *, dcp_size: int, dcp_rank: int, interleave: int):
     configure_group(module, dcp_size, dcp_rank)
     configure_group(model_runner_module, dcp_size, dcp_rank)
 
-    runner = model_runner_module.GPUModelRunner.__new__(
-        model_runner_module.GPUModelRunner
-    )
-    runner.max_num_reqs = 2
-    runner.max_num_tokens = 48
-    runner.max_model_len = 64
-    runner.device = torch.device("cuda")
-    runner.parallel_config = SimpleNamespace(
+    parallel_config = SimpleNamespace(
         prefill_context_parallel_size=1,
         decode_context_parallel_size=dcp_size,
         cp_kv_cache_interleave_size=interleave,
+        pipeline_parallel_size=1,
     )
-    runner.compilation_config = SimpleNamespace(static_forward_context={})
-    runner.vllm_config = SimpleNamespace(
-        parallel_config=runner.parallel_config,
-        compilation_config=runner.compilation_config,
+    model_config = SimpleNamespace(
+        dtype=torch.float16,
+        max_model_len=64,
+        uses_mrope=False,
+        logprobs_mode="raw_logprobs",
+        get_vocab_size=lambda: 256,
+        get_inputs_embeds_size=lambda: 32,
+    )
+    cache_runtime_config = SimpleNamespace(cache_dtype="auto")
+    scheduler_config = SimpleNamespace(
+        max_num_batched_tokens=48,
+        max_num_seqs=2,
+        async_scheduling=False,
+    )
+    compilation_config = SimpleNamespace(static_forward_context={})
+    vllm_config = SimpleNamespace(
+        model_config=model_config,
+        cache_config=cache_runtime_config,
+        compilation_config=compilation_config,
+        lora_config=None,
+        load_config=SimpleNamespace(),
+        parallel_config=parallel_config,
+        scheduler_config=scheduler_config,
         speculative_config=None,
+        observability_config=SimpleNamespace(),
     )
-    runner.do_spec_decode = False
     cache_groups = [
         SimpleNamespace(kv_cache_spec=SimpleNamespace(block_size=size))
         for size in (4, 8)
     ]
     cache_config = SimpleNamespace(kv_cache_groups=cache_groups)
 
-    # Exercise the production model-runner initialization boundary. The
-    # verifier stubs only unrelated backend/cache allocation work; it neither
-    # names nor calls a candidate-added helper or constructor parameter.
+    # Run the real constructor so candidate implementations may initialize
+    # whatever DCP state they need. Only heavyweight, unrelated workers are
+    # replaced; the model-runner and block-table boundaries remain real.
     with (
+        patch.object(
+            model_runner_module.MULTIMODAL_REGISTRY,
+            "supports_multimodal_inputs",
+            return_value=False,
+        ),
+        patch.object(model_runner_module, "RequestState", return_value=MagicMock()),
+        patch.object(model_runner_module, "InputBuffers", return_value=MagicMock()),
+        patch.object(model_runner_module, "Sampler", return_value=MagicMock()),
+        patch.object(
+            model_runner_module, "PromptLogprobsWorker", return_value=MagicMock()
+        ),
+        patch.object(model_runner_module, "CudaGraphManager", return_value=MagicMock()),
+        patch.object(
+            model_runner_module, "StructuredOutputsWorker", return_value=MagicMock()
+        ),
+        patch.object(model_runner_module, "LoraState", return_value=MagicMock()),
+        patch.object(model_runner_module, "DraftTokensHandler", return_value=MagicMock()),
         patch.object(model_runner_module, "init_attn_backend", return_value=([], [])),
         patch.object(model_runner_module, "init_kv_cache", return_value={}),
         patch.object(model_runner_module, "get_kv_connector", return_value=None),
     ):
+        runner = model_runner_module.GPUModelRunner(
+            vllm_config, torch.device("cuda")
+        )
         runner.initialize_kv_cache(cache_config)
 
     return runner.block_tables
