@@ -1,0 +1,359 @@
+--- a/packages/coding-agent/examples/extensions/subagent/README.md
++++ b/packages/coding-agent/examples/extensions/subagent/README.md
+@@ -175,3 +175,17 @@
+ - Parallel model-visible output is capped at 50 KB per task; full results remain in tool details
+ - Agents discovered fresh on each invocation (allows editing mid-session)
+ - Parallel mode limited to 8 tasks, 4 concurrent
++
++## Live team communication
++
++For a parallel dispatch, set `communication: true` and give every task a unique
++`id`, for example `{ communication: true, tasks: [{id: "research", agent:
++"worker", task: "Investigate"}, {id: "implement", agent: "worker", task: "Implement"}] }`.
++Workers use `team_members({})` to discover instance IDs, then
++`team_send({to: "implement", message: "The endpoint requires cursor pagination"})`
++or `team_send({broadcast: true, message: "The endpoint requires cursor pagination"})`.
++Incoming findings enter model context at the next turn boundary automatically.
++Sending reports accepted and failed recipients; it does not await a response.
++IDs are scoped to one dispatch. Pending and finished workers cannot receive new
++messages. Cancellation cleans up the team's temporary mailboxes after children stop.
++This implementation uses local temporary storage and does not recover from host crashes.
+--- a/packages/coding-agent/examples/extensions/subagent/index.ts
++++ b/packages/coding-agent/examples/extensions/subagent/index.ts
+@@ -29,6 +29,7 @@
+ import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
+ import { Type } from "typebox";
+ import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
++import { createTeam, type WorkerConfig } from "./team.ts";
+ 
+ const MAX_PARALLEL_TASKS = 8;
+ const MAX_CONCURRENCY = 4;
+@@ -232,7 +233,9 @@
+ 			results[current] = await fn(items[current], current);
+ 		}
+ 	});
+-	await Promise.all(workers);
++	const settled = await Promise.allSettled(workers);
++	const rejected = settled.find((result) => result.status === "rejected");
++	if (rejected?.status === "rejected") throw rejected.reason;
+ 	return results;
+ }
+ 
+@@ -280,6 +283,7 @@
+ 	signal: AbortSignal | undefined,
+ 	onUpdate: OnUpdateCallback | undefined,
+ 	makeDetails: (results: SingleResult[]) => SubagentDetails,
++	team?: WorkerConfig,
+ ): Promise<SingleResult> {
+ 	const agent = agents.find((a) => a.name === agentName);
+ 
+@@ -298,6 +302,7 @@
+ 	}
+ 
+ 	const args: string[] = ["--mode", "json", "-p", "--no-session"];
++	if (team) args.push("-e", team.extension);
+ 	const inheritsDispatchConfig = !agent.model;
+ 	const model = agent.model ?? dispatchDefaults.model;
+ 	if (model) args.push("--model", model);
+@@ -347,6 +352,7 @@
+ 				cwd: cwd ?? defaultCwd,
+ 				shell: false,
+ 				stdio: ["ignore", "pipe", "pipe"],
++				env: team ? { ...process.env, PI_TEAM_DIRECTORY: team.directory, PI_TEAM_MEMBER: team.id } : process.env,
+ 			});
+ 			let buffer = "";
+ 
+@@ -412,7 +418,7 @@
+ 					wasAborted = true;
+ 					proc.kill("SIGTERM");
+ 					setTimeout(() => {
+-						if (!proc.killed) proc.kill("SIGKILL");
++						if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL");
+ 					}, 5000);
+ 				};
+ 				if (signal.aborted) killProc();
+@@ -440,6 +446,7 @@
+ }
+ 
+ const TaskItem = Type.Object({
++	id: Type.Optional(Type.String({ description: "Unique worker instance ID when communication is enabled" })),
+ 	agent: Type.String({ description: "Name of the agent to invoke" }),
+ 	task: Type.String({ description: "Task to delegate to the agent" }),
+ 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
+@@ -457,6 +464,7 @@
+ });
+ 
+ const SubagentParams = Type.Object({
++	communication: Type.Optional(Type.Boolean({ description: "Enable communication in this parallel dispatch" })),
+ 	agent: Type.Optional(Type.String({ description: "Name of the agent to invoke (for single mode)" })),
+ 	task: Type.Optional(Type.String({ description: "Task to delegate (for single mode)" })),
+ 	tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
+@@ -494,6 +502,7 @@
+ 			const hasTasks = (params.tasks?.length ?? 0) > 0;
+ 			const hasSingle = Boolean(params.agent && params.task);
+ 			const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle);
++			if (params.communication && !hasTasks) throw new Error("Communication requires parallel tasks");
+ 
+ 			const makeDetails =
+ 				(mode: "single" | "parallel" | "chain") =>
+@@ -642,29 +651,41 @@
+ 					}
+ 				};
+ 
+-				const results = await mapWithConcurrencyLimit(params.tasks, MAX_CONCURRENCY, async (t, index) => {
+-					const result = await runSingleAgent(
+-						ctx.cwd,
+-						dispatchDefaults,
+-						agents,
+-						t.agent,
+-						t.task,
+-						t.cwd,
+-						undefined,
+-						signal,
+-						// Per-task update callback
+-						(partial) => {
+-							if (partial.details?.results[0]) {
+-								allResults[index] = partial.details.results[0];
+-								emitParallelUpdate();
+-							}
+-						},
+-						makeDetails("parallel"),
+-					);
+-					allResults[index] = result;
+-					emitParallelUpdate();
+-					return result;
+-				});
++				const team = params.communication ? createTeam(params.tasks) : undefined;
++				let results: SingleResult[];
++				try {
++					results = await mapWithConcurrencyLimit(params.tasks, MAX_CONCURRENCY, async (t, index) => {
++						const member = await team?.start(index);
++						try {
++							const result = await runSingleAgent(
++								ctx.cwd,
++								dispatchDefaults,
++								agents,
++								t.agent,
++								t.task,
++								t.cwd,
++								undefined,
++								signal,
++								// Per-task update callback
++								(partial) => {
++									if (partial.details?.results[0]) {
++										allResults[index] = partial.details.results[0];
++										emitParallelUpdate();
++									}
++								},
++								makeDetails("parallel"),
++								member,
++							);
++							allResults[index] = result;
++							emitParallelUpdate();
++							return result;
++						} finally {
++							await team?.finish(index);
++						}
++					});
++				} finally {
++					team?.dispose();
++				}
+ 
+ 				const successCount = results.filter((r) => !isFailedResult(r)).length;
+ 				const summaries = results.map((r) => {
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
+@@ -0,0 +1,93 @@
++import { randomUUID } from "node:crypto";
++import * as fs from "node:fs";
++import * as path from "node:path";
++import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
++import { Type } from "typebox";
++import { type Envelope, inbox, locked, readMembers, saveMembers } from "./team.ts";
++
++export default function teamWorker(pi: ExtensionAPI) {
++	const directory = process.env.PI_TEAM_DIRECTORY;
++	const self = process.env.PI_TEAM_MEMBER;
++	if (!directory || !self) throw new Error("Team membership is not configured");
++	let sequence = 0;
++	pi.registerTool({
++		name: "team_members",
++		label: "Team members",
++		description: "Discover the instances in this parallel dispatch.",
++		parameters: Type.Object({}),
++		async execute() {
++			const result = await locked(directory, () => ({ self, members: readMembers(directory) }));
++			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
++		},
++	});
++	pi.registerTool({
++		name: "team_send",
++		label: "Share a finding",
++		description: "Send a finding to an instance ID or broadcast to current live teammates.",
++		parameters: Type.Object({
++			to: Type.Optional(Type.String()),
++			broadcast: Type.Optional(Type.Boolean()),
++			message: Type.String(),
++		}),
++		async execute(_call, args) {
++			if (!args.message || Buffer.byteLength(args.message, "utf8") > 1024 * 1024) {
++				throw new Error("message must be nonempty and no larger than 1 MiB");
++			}
++			if ((args.broadcast === true) === (typeof args.to === "string" && args.to.length > 0)) {
++				throw new Error("Specify exactly one recipient or broadcast: true");
++			}
++			const result = await locked(directory, () => {
++				const members = readMembers(directory);
++				const targets = args.broadcast
++					? members.filter((member) => member.state === "running" && member.id !== self).map((member) => member.id)
++					: [args.to!];
++				const accepted: string[] = [];
++				const failed: { id: string; reason: string }[] = [];
++				const envelope: Envelope = { id: randomUUID(), from: self, text: args.message, sequence: ++sequence };
++				for (const id of targets) {
++					const member = members.find((entry) => entry.id === id);
++					if (!member || member.state !== "running" || id === self) {
++						failed.push({ id, reason: id === self ? "self recipient" : (member?.state ?? "unknown recipient") });
++						continue;
++					}
++					try {
++						fs.writeFileSync(path.join(inbox(directory, id), `${envelope.id}.json`), JSON.stringify(envelope));
++						accepted.push(id);
++					} catch (error) {
++						failed.push({ id, reason: String(error) });
++					}
++				}
++				return { accepted, failed };
++			});
++			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
++		},
++	});
++	pi.on("turn_end", async (event) => {
++		const messages = await locked(directory, () => {
++			const mailbox = inbox(directory, self);
++			const files = fs.readdirSync(mailbox).filter((file) => file.endsWith(".json"));
++			const queued = files.map((file) => JSON.parse(fs.readFileSync(path.join(mailbox, file), "utf8")) as Envelope);
++			queued.sort((a, b) => a.from.localeCompare(b.from) || a.sequence - b.sequence);
++			for (const file of files) fs.unlinkSync(path.join(mailbox, file));
++			const terminal = event.message.role === "assistant" && event.message.stopReason !== "toolUse";
++			if (queued.length === 0 && terminal) {
++				const members = readMembers(directory);
++				const member = members.find((entry) => entry.id === self);
++				if (member) member.state = "finished";
++				saveMembers(directory, members);
++			}
++			return queued;
++		});
++		if (messages.length > 0) {
++			pi.sendMessage(
++				{
++					customType: "team_findings",
++					content: messages.map((message) => `Message from ${message.from}:\n${message.text}`).join("\n\n"),
++					display: true,
++					details: { messages },
++				},
++				{ deliverAs: "steer", triggerTurn: true },
++			);
++		}
++	});
++}
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/subagent/team.ts
+@@ -0,0 +1,97 @@
++import { createHash, randomUUID } from "node:crypto";
++import * as fs from "node:fs";
++import * as os from "node:os";
++import * as path from "node:path";
++import { fileURLToPath } from "node:url";
++
++export interface Member {
++	id: string;
++	agent: string;
++	state: "pending" | "running" | "finished";
++}
++
++export interface Envelope {
++	id: string;
++	from: string;
++	text: string;
++	sequence: number;
++}
++
++export interface WorkerConfig {
++	directory: string;
++	id: string;
++	extension: string;
++}
++
++export function inbox(directory: string, id: string): string {
++	return path.join(directory, createHash("sha256").update(id).digest("hex"));
++}
++
++export async function locked<T>(directory: string, action: () => T): Promise<T> {
++	const lock = path.join(directory, "lock");
++	const deadline = Date.now() + 10000;
++	while (true) {
++		try {
++			fs.mkdirSync(lock);
++			break;
++		} catch (error) {
++			if ((error as NodeJS.ErrnoException).code !== "EEXIST" || Date.now() >= deadline) throw error;
++			await new Promise<void>((resolve) => setTimeout(resolve, 5));
++		}
++	}
++	try {
++		return action();
++	} finally {
++		fs.rmdirSync(lock);
++	}
++}
++
++export function readMembers(directory: string): Member[] {
++	return JSON.parse(fs.readFileSync(path.join(directory, "members.json"), "utf8")) as Member[];
++}
++
++export function saveMembers(directory: string, members: Member[]): void {
++	const target = path.join(directory, "members.json");
++	const temporary = `${target}.${randomUUID()}`;
++	fs.writeFileSync(temporary, JSON.stringify(members));
++	fs.renameSync(temporary, target);
++}
++
++export function createTeam(tasks: { id?: string; agent: string }[]) {
++	const ids = tasks.map((task) => task.id);
++	if (ids.some((id) => typeof id !== "string" || id.length === 0) || new Set(ids).size !== ids.length) {
++		throw new Error("Communication requires a distinct nonempty id for every parallel task");
++	}
++	const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-team-"));
++	const members: Member[] = tasks.map((task) => ({ id: task.id!, agent: task.agent, state: "pending" }));
++	for (const member of members) fs.mkdirSync(inbox(directory, member.id));
++	saveMembers(directory, members);
++	const dispose = () => {
++		// CONTROL: retain per-dispatch exit listener.
++		fs.rmSync(directory, { recursive: true, force: true });
++	};
++	// Print mode may exit immediately after its runtime has been cancelled.
++	process.once("exit", dispose);
++	return {
++		async start(index: number): Promise<WorkerConfig> {
++			return locked(directory, () => {
++				const current = readMembers(directory);
++				current[index].state = "running";
++				saveMembers(directory, current);
++				return {
++					directory,
++					id: current[index].id,
++					extension: fileURLToPath(new URL("./team-worker.ts", import.meta.url)),
++				};
++			});
++		},
++		async finish(index: number): Promise<void> {
++			await locked(directory, () => {
++				const current = readMembers(directory);
++				current[index].state = "finished";
++				saveMembers(directory, current);
++			});
++		},
++		dispose,
++	};
++}

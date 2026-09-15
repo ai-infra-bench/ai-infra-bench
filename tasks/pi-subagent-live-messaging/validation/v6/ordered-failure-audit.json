@@ -1,0 +1,748 @@
+[
+  {
+    "label": "g56-1",
+    "patch_sha256": "19220b33e22663cdd2fdf8f122171b12b61d00939dae64e03e43c647b844af1f",
+    "cause": "Both sends acknowledged before recipient work released; B next request contains only first message; second appears in subsequent request. Default one-at-a-time steering was not changed.",
+    "evidence": [
+      {
+        "role": "A",
+        "step": 3,
+        "messages_tail": [
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_c4d23c3142334b6a9ab4f3000b04b66e",
+                "type": "function",
+                "function": {
+                  "name": "test_work",
+                  "arguments": "{\"stage\":\"ready\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "接口使用 cursor；2e82c8616ec24fb990fceec374ad10e4",
+            "tool_call_id": "call_c4d23c3142334b6a9ab4f3000b04b66e"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_bb2a46f702984660ba5a56b50148f07b",
+                "type": "function",
+                "function": {
+                  "name": "team_send",
+                  "arguments": "{\"message\":\"接口使用 cursor；2e82c8616ec24fb990fceec374ad10e4\",\"recipient\":\"B\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "{\n  \"accepted\": true,\n  \"recipient\": \"B\"\n}",
+            "tool_call_id": "call_bb2a46f702984660ba5a56b50148f07b"
+          }
+        ]
+      },
+      {
+        "role": "A",
+        "step": 4,
+        "messages_tail": [
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_bb2a46f702984660ba5a56b50148f07b",
+                "type": "function",
+                "function": {
+                  "name": "team_send",
+                  "arguments": "{\"message\":\"接口使用 cursor；2e82c8616ec24fb990fceec374ad10e4\",\"recipient\":\"B\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "{\n  \"accepted\": true,\n  \"recipient\": \"B\"\n}",
+            "tool_call_id": "call_bb2a46f702984660ba5a56b50148f07b"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_aee87941cebf4fb59a25ec2f674f6311",
+                "type": "function",
+                "function": {
+                  "name": "team_send",
+                  "arguments": "{\"message\":\"更正：空 cursor 也有效；9d58ff301bd2497e8fea960f76881cf8\",\"recipient\":\"B\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "{\n  \"accepted\": true,\n  \"recipient\": \"B\"\n}",
+            "tool_call_id": "call_aee87941cebf4fb59a25ec2f674f6311"
+          }
+        ]
+      },
+      {
+        "role": "B",
+        "step": 2,
+        "messages_tail": [
+          {
+            "role": "tool",
+            "content": "{\n  \"self\": {\n    \"id\": \"B\",\n    \"agent\": \"worker\",\n    \"status\": \"running\"\n  },\n  \"teammates\": [\n    {\n      \"id\": \"A\",\n      \"agent\": \"worker\",\n      \"status\": \"running\"\n    }\n  ]\n}",
+            "tool_call_id": "call_0988320e06014433bd9e4ba5fa7b8f55"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_6a6a84aedeae4005a29716ebeac1b6bb",
+                "type": "function",
+                "function": {
+                  "name": "test_work",
+                  "arguments": "{\"stage\":\"slow_work\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "External work completed normally.",
+            "tool_call_id": "call_6a6a84aedeae4005a29716ebeac1b6bb"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Team message from \"A\" (agent \"worker\"):\n\n接口使用 cursor；2e82c8616ec24fb990fceec374ad10e4"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "role": "B",
+        "step": 3,
+        "messages_tail": [
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_6a6a84aedeae4005a29716ebeac1b6bb",
+                "type": "function",
+                "function": {
+                  "name": "test_work",
+                  "arguments": "{\"stage\":\"slow_work\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "External work completed normally.",
+            "tool_call_id": "call_6a6a84aedeae4005a29716ebeac1b6bb"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Team message from \"A\" (agent \"worker\"):\n\n接口使用 cursor；2e82c8616ec24fb990fceec374ad10e4"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Team message from \"A\" (agent \"worker\"):\n\n更正：空 cursor 也有效；9d58ff301bd2497e8fea960f76881cf8"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "events": [
+      {
+        "sequence": 0,
+        "group": "one",
+        "role": "ROOT",
+        "event": "identity_bound",
+        "pid": 665
+      },
+      {
+        "sequence": 1,
+        "group": "one",
+        "role": "ROOT",
+        "event": "model_request",
+        "step": 0
+      },
+      {
+        "sequence": 2,
+        "group": "one",
+        "role": "A",
+        "event": "session_start",
+        "pid": 722
+      },
+      {
+        "sequence": 3,
+        "group": "one",
+        "role": "B",
+        "event": "session_start",
+        "pid": 723
+      },
+      {
+        "sequence": 4,
+        "group": "one",
+        "role": "A",
+        "event": "model_request",
+        "step": 0
+      },
+      {
+        "sequence": 5,
+        "group": "one",
+        "role": "B",
+        "event": "model_request",
+        "step": 0
+      },
+      {
+        "sequence": 6,
+        "group": "one",
+        "role": "B",
+        "event": "model_request",
+        "step": 1
+      },
+      {
+        "sequence": 7,
+        "group": "one",
+        "role": "A",
+        "event": "model_request",
+        "step": 1
+      },
+      {
+        "sequence": 8,
+        "group": "one",
+        "role": "B",
+        "event": "tool_start:slow_work",
+        "pid": 723
+      },
+      {
+        "sequence": 9,
+        "group": "one",
+        "role": "A",
+        "event": "tool_start:ready",
+        "pid": 722
+      },
+      {
+        "sequence": 10,
+        "group": "one",
+        "role": "B",
+        "event": "work:slow_work"
+      },
+      {
+        "sequence": 11,
+        "group": "one",
+        "role": "A",
+        "event": "work:ready"
+      },
+      {
+        "sequence": 12,
+        "group": "one",
+        "role": "A",
+        "event": "tool_end:ready",
+        "pid": 722
+      },
+      {
+        "sequence": 13,
+        "group": "one",
+        "role": "A",
+        "event": "model_request",
+        "step": 2
+      },
+      {
+        "sequence": 14,
+        "group": "one",
+        "role": "A",
+        "event": "model_request",
+        "step": 3
+      },
+      {
+        "sequence": 15,
+        "group": "one",
+        "role": "A",
+        "event": "model_request",
+        "step": 4
+      },
+      {
+        "sequence": 16,
+        "group": "one",
+        "role": "A",
+        "event": "all_sends_returned"
+      },
+      {
+        "sequence": 17,
+        "group": "one",
+        "role": "B",
+        "event": "tool_end:slow_work",
+        "pid": 723
+      },
+      {
+        "sequence": 18,
+        "group": "one",
+        "role": "A",
+        "event": "tool_start:hold_sender",
+        "pid": 722
+      },
+      {
+        "sequence": 19,
+        "group": "one",
+        "role": "A",
+        "event": "work:hold_sender"
+      },
+      {
+        "sequence": 20,
+        "group": "one",
+        "role": "B",
+        "event": "model_request",
+        "step": 2
+      },
+      {
+        "sequence": 21,
+        "group": "one",
+        "role": "B",
+        "event": "model_request",
+        "step": 3
+      },
+      {
+        "sequence": 22,
+        "group": "one",
+        "role": "B",
+        "event": "session_shutdown",
+        "pid": 723
+      },
+      {
+        "sequence": 23,
+        "group": "one",
+        "role": "A",
+        "event": "tool_error",
+        "pid": 722,
+        "toolCallId": "call_606eb2e5e6d04275a7b0bdb202207c5e"
+      },
+      {
+        "sequence": 24,
+        "group": "one",
+        "role": "A",
+        "event": "model_request",
+        "step": 5
+      },
+      {
+        "sequence": 25,
+        "group": "one",
+        "role": "A",
+        "event": "session_shutdown",
+        "pid": 722
+      },
+      {
+        "sequence": 26,
+        "group": "one",
+        "role": "ROOT",
+        "event": "model_request",
+        "step": 1
+      },
+      {
+        "sequence": 27,
+        "group": "one",
+        "role": "ROOT",
+        "event": "session_shutdown",
+        "pid": 665
+      }
+    ],
+    "source": "/home/tiger/lidailin/ai-infra-bench/artifacts/pi-messaging-pass4-20260915/remote/grade-jobs/pi-p4-g56-1/task__DKchPdq/verifier/text-behavior/ordered"
+  },
+  {
+    "label": "g56-2",
+    "patch_sha256": "a37ce8108ae35de4a58358be1987aebc5d0aec350f13a4758e37ae960d5e161e",
+    "cause": "Both sends acknowledged before recipient work released; B next request contains only first message; second appears in subsequent request. Default one-at-a-time steering was not changed.",
+    "evidence": [
+      {
+        "role": "A",
+        "step": 3,
+        "messages_tail": [
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_70a2b88c7f9d4061b3b9e451b5d55168",
+                "type": "function",
+                "function": {
+                  "name": "test_work",
+                  "arguments": "{\"stage\":\"ready\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "接口使用 cursor；f82f0947281544c5bc7bb90ee7db1135",
+            "tool_call_id": "call_70a2b88c7f9d4061b3b9e451b5d55168"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_7261c7ca5944436f84fc3200273385c5",
+                "type": "function",
+                "function": {
+                  "name": "team_send",
+                  "arguments": "{\"message\":\"接口使用 cursor；f82f0947281544c5bc7bb90ee7db1135\",\"recipient\":\"B\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "Message accepted for delivery to: B.",
+            "tool_call_id": "call_7261c7ca5944436f84fc3200273385c5"
+          }
+        ]
+      },
+      {
+        "role": "A",
+        "step": 4,
+        "messages_tail": [
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_7261c7ca5944436f84fc3200273385c5",
+                "type": "function",
+                "function": {
+                  "name": "team_send",
+                  "arguments": "{\"message\":\"接口使用 cursor；f82f0947281544c5bc7bb90ee7db1135\",\"recipient\":\"B\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "Message accepted for delivery to: B.",
+            "tool_call_id": "call_7261c7ca5944436f84fc3200273385c5"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_b4cf704531bd432badef375220c10418",
+                "type": "function",
+                "function": {
+                  "name": "team_send",
+                  "arguments": "{\"message\":\"更正：空 cursor 也有效；2ef97d68b18b4c7baed89ba145e2b7c0\",\"recipient\":\"B\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "Message accepted for delivery to: B.",
+            "tool_call_id": "call_b4cf704531bd432badef375220c10418"
+          }
+        ]
+      },
+      {
+        "role": "B",
+        "step": 2,
+        "messages_tail": [
+          {
+            "role": "tool",
+            "content": "{\n  \"self\": {\n    \"id\": \"B\",\n    \"agent\": \"worker\"\n  },\n  \"teammates\": [\n    {\n      \"id\": \"A\",\n      \"agent\": \"worker\",\n      \"status\": \"running\"\n    }\n  ]\n}",
+            "tool_call_id": "call_934ba3a74ff04d2f9894d3f96ff59932"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_54d89d40085c4c3e9dee81abe08a0e83",
+                "type": "function",
+                "function": {
+                  "name": "test_work",
+                  "arguments": "{\"stage\":\"slow_work\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "External work completed normally.",
+            "tool_call_id": "call_54d89d40085c4c3e9dee81abe08a0e83"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Message from teammate A]\n接口使用 cursor；f82f0947281544c5bc7bb90ee7db1135"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "role": "B",
+        "step": 3,
+        "messages_tail": [
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_54d89d40085c4c3e9dee81abe08a0e83",
+                "type": "function",
+                "function": {
+                  "name": "test_work",
+                  "arguments": "{\"stage\":\"slow_work\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "External work completed normally.",
+            "tool_call_id": "call_54d89d40085c4c3e9dee81abe08a0e83"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Message from teammate A]\n接口使用 cursor；f82f0947281544c5bc7bb90ee7db1135"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Message from teammate A]\n更正：空 cursor 也有效；2ef97d68b18b4c7baed89ba145e2b7c0"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "events": [
+      {
+        "sequence": 0,
+        "group": "one",
+        "role": "ROOT",
+        "event": "identity_bound",
+        "pid": 648
+      },
+      {
+        "sequence": 1,
+        "group": "one",
+        "role": "ROOT",
+        "event": "model_request",
+        "step": 0
+      },
+      {
+        "sequence": 2,
+        "group": "one",
+        "role": "A",
+        "event": "identity_bound",
+        "pid": 699
+      },
+      {
+        "sequence": 3,
+        "group": "one",
+        "role": "B",
+        "event": "identity_bound",
+        "pid": 700
+      },
+      {
+        "sequence": 4,
+        "group": "one",
+        "role": "A",
+        "event": "model_request",
+        "step": 0
+      },
+      {
+        "sequence": 5,
+        "group": "one",
+        "role": "B",
+        "event": "model_request",
+        "step": 0
+      },
+      {
+        "sequence": 6,
+        "group": "one",
+        "role": "B",
+        "event": "model_request",
+        "step": 1
+      },
+      {
+        "sequence": 7,
+        "group": "one",
+        "role": "A",
+        "event": "model_request",
+        "step": 1
+      },
+      {
+        "sequence": 8,
+        "group": "one",
+        "role": "B",
+        "event": "tool_start:slow_work",
+        "pid": 700
+      },
+      {
+        "sequence": 9,
+        "group": "one",
+        "role": "A",
+        "event": "tool_start:ready",
+        "pid": 699
+      },
+      {
+        "sequence": 10,
+        "group": "one",
+        "role": "B",
+        "event": "work:slow_work"
+      },
+      {
+        "sequence": 11,
+        "group": "one",
+        "role": "A",
+        "event": "work:ready"
+      },
+      {
+        "sequence": 12,
+        "group": "one",
+        "role": "A",
+        "event": "tool_end:ready",
+        "pid": 699
+      },
+      {
+        "sequence": 13,
+        "group": "one",
+        "role": "A",
+        "event": "model_request",
+        "step": 2
+      },
+      {
+        "sequence": 14,
+        "group": "one",
+        "role": "A",
+        "event": "model_request",
+        "step": 3
+      },
+      {
+        "sequence": 15,
+        "group": "one",
+        "role": "A",
+        "event": "model_request",
+        "step": 4
+      },
+      {
+        "sequence": 16,
+        "group": "one",
+        "role": "A",
+        "event": "all_sends_returned"
+      },
+      {
+        "sequence": 17,
+        "group": "one",
+        "role": "B",
+        "event": "tool_end:slow_work",
+        "pid": 700
+      },
+      {
+        "sequence": 18,
+        "group": "one",
+        "role": "A",
+        "event": "tool_start:hold_sender",
+        "pid": 699
+      },
+      {
+        "sequence": 19,
+        "group": "one",
+        "role": "A",
+        "event": "work:hold_sender"
+      },
+      {
+        "sequence": 20,
+        "group": "one",
+        "role": "B",
+        "event": "model_request",
+        "step": 2
+      },
+      {
+        "sequence": 21,
+        "group": "one",
+        "role": "B",
+        "event": "model_request",
+        "step": 3
+      },
+      {
+        "sequence": 22,
+        "group": "one",
+        "role": "B",
+        "event": "session_shutdown",
+        "pid": 700
+      },
+      {
+        "sequence": 23,
+        "group": "one",
+        "role": "A",
+        "event": "tool_error",
+        "pid": 699,
+        "toolCallId": "call_2d3622a0758549e9ba916d8d40947411"
+      },
+      {
+        "sequence": 24,
+        "group": "one",
+        "role": "A",
+        "event": "model_request",
+        "step": 5
+      },
+      {
+        "sequence": 25,
+        "group": "one",
+        "role": "A",
+        "event": "session_shutdown",
+        "pid": 699
+      },
+      {
+        "sequence": 26,
+        "group": "one",
+        "role": "ROOT",
+        "event": "model_request",
+        "step": 1
+      },
+      {
+        "sequence": 27,
+        "group": "one",
+        "role": "ROOT",
+        "event": "session_shutdown",
+        "pid": 648
+      }
+    ],
+    "source": "/home/tiger/lidailin/ai-infra-bench/artifacts/pi-messaging-pass4-20260915/remote/grade-jobs/pi-p4-g56-2/task__SzfQp2s/verifier/text-behavior/ordered"
+  }
+]

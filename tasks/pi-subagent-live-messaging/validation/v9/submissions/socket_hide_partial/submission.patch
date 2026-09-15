@@ -1,0 +1,1371 @@
+diff --git a/packages/coding-agent/CHANGELOG.md b/packages/coding-agent/CHANGELOG.md
+index a1f0789b1..31c5527dd 100644
+--- a/packages/coding-agent/CHANGELOG.md
++++ b/packages/coding-agent/CHANGELOG.md
+@@ -4,6 +4,7 @@
+ 
+ ### Added
+ 
++- Added optional private messaging and teammate discovery for parallel workers in the subagent example extension.
+ - Added `ctx.modelRegistry.stream()` and `streamSimple()` for extension model calls through configured providers with resolved authentication ([#8964](https://github.com/earendil-works/pi/issues/8964)).
+ - Added per-model `reserveTokens` and `keepRecentTokens` settings through `compaction.modelOverrides`, with ordinary compaction settings as fallback ([#8133](https://github.com/earendil-works/pi-mono/issues/8133)).
+ 
+diff --git a/packages/coding-agent/examples/extensions/subagent/README.md b/packages/coding-agent/examples/extensions/subagent/README.md
+index da74f3266..6f1330db4 100644
+--- a/packages/coding-agent/examples/extensions/subagent/README.md
++++ b/packages/coding-agent/examples/extensions/subagent/README.md
+@@ -7,6 +7,7 @@ Delegate tasks to specialized subagents with isolated context windows.
+ - **Isolated context**: Each subagent runs in a separate `pi` process
+ - **Streaming output**: See tool calls and progress as they happen
+ - **Parallel streaming**: All parallel tasks stream updates simultaneously
++- **Optional team communication**: Parallel workers can discover and message running teammates
+ - **Markdown rendering**: Final output rendered with proper formatting (expanded view)
+ - **Usage tracking**: Shows turns, tokens, cost, and context usage per agent
+ - **Abort support**: Ctrl+C propagates to kill subagent processes
+@@ -18,6 +19,7 @@ subagent/
+ ├── README.md            # This file
+ ├── index.ts             # The extension (entry point)
+ ├── agents.ts            # Agent discovery logic
++├── team.ts              # Per-dispatch communication transport and worker tools
+ ├── agents/              # Sample agent definitions
+ │   ├── scout.md         # Fast recon, returns compressed context
+ │   ├── planner.md       # Creates implementation plans
+@@ -38,6 +40,7 @@ From the repository root, symlink the files:
+ mkdir -p ~/.pi/agent/extensions/subagent
+ ln -sf "$(pwd)/packages/coding-agent/examples/extensions/subagent/index.ts" ~/.pi/agent/extensions/subagent/index.ts
+ ln -sf "$(pwd)/packages/coding-agent/examples/extensions/subagent/agents.ts" ~/.pi/agent/extensions/subagent/agents.ts
++ln -sf "$(pwd)/packages/coding-agent/examples/extensions/subagent/team.ts" ~/.pi/agent/extensions/subagent/team.ts
+ 
+ # Symlink agents
+ mkdir -p ~/.pi/agent/agents
+@@ -76,6 +79,34 @@ Use scout to find all authentication code
+ Run 2 scouts in parallel: one to find models, one to find providers
+ ```
+ 
++### Team communication
++
++Communication is opt-in and available only in parallel mode. With it disabled, subprocess arguments, prompts, tools, and behavior are unchanged. Set `communication: true` and optionally assign stable worker IDs:
++
++```json
++{
++  "tasks": [
++    { "id": "api", "agent": "worker", "task": "Inspect and update the API" },
++    { "id": "tests", "agent": "worker", "task": "Inspect and update the tests" }
++  ],
++  "communication": true
++}
++```
++
++If `id` is omitted, workers are named `worker-1`, `worker-2`, and so on. IDs must be unique within the dispatch and contain 1-64 letters, numbers, underscores, or hyphens.
++
++Communication-enabled workers receive three additional tools:
++
++- `team_list`: Return the worker's own ID and all currently running teammates.
++- `team_send`: Send a private message to one running teammate by ID.
++- `team_broadcast`: Send a message to every other running teammate.
++
++A successful send means the recipient accepted the message for delivery; it does not wait for a reply. Incoming messages are added automatically to the recipient's model context as `Message from teammate "<id>":` followed by the complete message. Pi queues them after the current response and tool calls, so tools are not interrupted. A worker processes accepted messages before it exits.
++
++Messages are limited to 128 KiB of UTF-8 text. Unknown, finished, queued, or self recipients are reported as failures. Broadcast results report every successful and failed recipient. Because parallel execution is limited to four concurrent processes, queued tasks are not addressable until they start.
++
++Each dispatch uses a private authenticated local socket (a Unix-domain socket or Windows named pipe). The socket and credentials are unique to that dispatch and are removed when the dispatch finishes or is cancelled. Separate dispatches cannot exchange messages, even if they reuse worker IDs.
++
+ ### Chained workflow
+ ```
+ Use a chain: first have scout find the read tool, then have planner suggest improvements
+@@ -93,7 +124,7 @@ Use a chain: first have scout find the read tool, then have planner suggest impr
+ | Mode | Parameter | Description |
+ |------|-----------|-------------|
+ | Single | `{ agent, task }` | One agent, one task |
+-| Parallel | `{ tasks: [...] }` | Multiple agents run concurrently (max 8, 4 concurrent) |
++| Parallel | `{ tasks: [...], communication?: true }` | Multiple agents run concurrently (max 8, 4 concurrent); communication is opt-in |
+ | Chain | `{ chain: [...] }` | Sequential with `{previous}` placeholder |
+ 
+ ## Output Display
+diff --git a/packages/coding-agent/examples/extensions/subagent/index.ts b/packages/coding-agent/examples/extensions/subagent/index.ts
+index 71b1a33dc..ec4703b74 100644
+--- a/packages/coding-agent/examples/extensions/subagent/index.ts
++++ b/packages/coding-agent/examples/extensions/subagent/index.ts
+@@ -6,7 +6,7 @@
+  *
+  * Supports three modes:
+  *   - Single: { agent: "name", task: "..." }
+- *   - Parallel: { tasks: [{ agent: "name", task: "..." }, ...] }
++ *   - Parallel: { tasks: [{ agent: "name", task: "..." }, ...], communication?: true }
+  *   - Chain: { chain: [{ agent: "name", task: "... {previous} ..." }, ...] }
+  *
+  * Uses JSON mode to capture structured output from subagents.
+@@ -16,6 +16,7 @@ import { spawn } from "node:child_process";
+ import * as fs from "node:fs";
+ import * as os from "node:os";
+ import * as path from "node:path";
++import { fileURLToPath } from "node:url";
+ import type { AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
+ import type { Message } from "@earendil-works/pi-ai";
+ import { StringEnum } from "@earendil-works/pi-ai";
+@@ -29,11 +30,21 @@ import {
+ import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
+ import { Type } from "typebox";
+ import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
++import {
++	getTeamWorkerConfig,
++	getTeamWorkerEnvironment,
++	registerTeamWorker,
++	resolveTeamWorkers,
++	TeamBroker,
++	type TeamWorkerConfig,
++} from "./team.ts";
+ 
+ const MAX_PARALLEL_TASKS = 8;
+ const MAX_CONCURRENCY = 4;
+ const COLLAPSED_ITEM_COUNT = 10;
+ const PER_TASK_OUTPUT_CAP = 50 * 1024;
++const TEAM_TOOL_NAMES = ["team_list", "team_send", "team_broadcast"] as const;
++const SUBAGENT_EXTENSION_PATH = fileURLToPath(import.meta.url);
+ 
+ function formatTokens(count: number): string {
+ 	if (count < 1000) return count.toString();
+@@ -158,6 +169,7 @@ interface SingleResult {
+ 	stopReason?: string;
+ 	errorMessage?: string;
+ 	step?: number;
++	workerId?: string;
+ }
+ 
+ interface SubagentDetails {
+@@ -276,6 +288,7 @@ async function runSingleAgent(
+ 	agentName: string,
+ 	task: string,
+ 	cwd: string | undefined,
++	teamWorker: TeamWorkerConfig | undefined,
+ 	step: number | undefined,
+ 	signal: AbortSignal | undefined,
+ 	onUpdate: OnUpdateCallback | undefined,
+@@ -294,6 +307,7 @@ async function runSingleAgent(
+ 			stderr: `Unknown agent: "${agentName}". Available agents: ${available}.`,
+ 			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+ 			step,
++			workerId: teamWorker?.workerId,
+ 		};
+ 	}
+ 
+@@ -304,7 +318,11 @@ async function runSingleAgent(
+ 	if (inheritsDispatchConfig && dispatchDefaults.thinkingLevel) {
+ 		args.push("--thinking", dispatchDefaults.thinkingLevel);
+ 	}
+-	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
++	if (agent.tools && agent.tools.length > 0) {
++		const tools = teamWorker ? [...new Set([...agent.tools, ...TEAM_TOOL_NAMES])] : agent.tools;
++		args.push("--tools", tools.join(","));
++	}
++	if (teamWorker) args.push("--extension", SUBAGENT_EXTENSION_PATH);
+ 
+ 	let tmpPromptDir: string | null = null;
+ 	let tmpPromptPath: string | null = null;
+@@ -319,6 +337,7 @@ async function runSingleAgent(
+ 		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+ 		model,
+ 		step,
++		workerId: teamWorker?.workerId,
+ 	};
+ 
+ 	const emitUpdate = () => {
+@@ -331,8 +350,12 @@ async function runSingleAgent(
+ 	};
+ 
+ 	try {
+-		if (agent.systemPrompt.trim()) {
+-			const tmp = await writePromptToTempFile(agent.name, agent.systemPrompt);
++		const teamPrompt = teamWorker
++			? `You are team worker "${teamWorker.workerId}" in a parallel dispatch. Use team_list to discover currently running teammates, team_send for a private finding, and team_broadcast for a finding relevant to every running teammate. Team sends are asynchronous: acceptance does not imply a reply.`
++			: "";
++		const systemPrompt = [agent.systemPrompt.trim(), teamPrompt].filter(Boolean).join("\n\n");
++		if (systemPrompt) {
++			const tmp = await writePromptToTempFile(agent.name, systemPrompt);
+ 			tmpPromptDir = tmp.dir;
+ 			tmpPromptPath = tmp.filePath;
+ 			args.push("--append-system-prompt", tmpPromptPath);
+@@ -345,6 +368,7 @@ async function runSingleAgent(
+ 			const invocation = getPiInvocation(args);
+ 			const proc = spawn(invocation.command, invocation.args, {
+ 				cwd: cwd ?? defaultCwd,
++				env: teamWorker ? { ...process.env, ...getTeamWorkerEnvironment(teamWorker) } : process.env,
+ 				shell: false,
+ 				stdio: ["ignore", "pipe", "pipe"],
+ 			});
+@@ -442,6 +466,7 @@ async function runSingleAgent(
+ const TaskItem = Type.Object({
+ 	agent: Type.String({ description: "Name of the agent to invoke" }),
+ 	task: Type.String({ description: "Task to delegate to the agent" }),
++	id: Type.Optional(Type.String({ description: "Unique worker ID for communication-enabled parallel dispatches" })),
+ 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
+ });
+ 
+@@ -462,6 +487,12 @@ const SubagentParams = Type.Object({
+ 	tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
+ 	chain: Type.Optional(Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution" })),
+ 	agentScope: Type.Optional(AgentScopeSchema),
++	communication: Type.Optional(
++		Type.Boolean({
++			description: "Enable private team communication for parallel tasks. Default: false.",
++			default: false,
++		}),
++	),
+ 	confirmProjectAgents: Type.Optional(
+ 		Type.Boolean({ description: "Prompt before running project-local agents. Default: true.", default: true }),
+ 	),
+@@ -469,12 +500,19 @@ const SubagentParams = Type.Object({
+ });
+ 
+ export default function (pi: ExtensionAPI) {
++	const teamWorkerConfig = getTeamWorkerConfig();
++	if (teamWorkerConfig) {
++		registerTeamWorker(pi, teamWorkerConfig);
++		return;
++	}
++
+ 	pi.registerTool({
+ 		name: "subagent",
+ 		label: "Subagent",
+ 		description: [
+ 			"Delegate tasks to specialized subagents with isolated context.",
+ 			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
++			"Set communication: true in parallel mode to give each worker team_list, team_send, and team_broadcast tools.",
+ 			`Default agent scope is "user" (from ${path.join(getAgentDir(), "agents")}).`,
+ 			`To enable project-local agents in ${CONFIG_DIR_NAME}/agents, set agentScope: "both" (or "project").`,
+ 		].join(" "),
+@@ -494,6 +532,7 @@ export default function (pi: ExtensionAPI) {
+ 			const hasTasks = (params.tasks?.length ?? 0) > 0;
+ 			const hasSingle = Boolean(params.agent && params.task);
+ 			const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle);
++			const communicationEnabled = params.communication ?? false;
+ 
+ 			const makeDetails =
+ 				(mode: "single" | "parallel" | "chain") =>
+@@ -504,6 +543,14 @@ export default function (pi: ExtensionAPI) {
+ 					results,
+ 				});
+ 
++			if (communicationEnabled && !hasTasks) {
++				return {
++					content: [{ type: "text", text: "Communication is supported only for parallel tasks." }],
++					details: makeDetails(hasChain ? "chain" : hasTasks ? "parallel" : "single")([]),
++					isError: true,
++				};
++			}
++
+ 			if (modeCount !== 1) {
+ 				const available = agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
+ 				return {
+@@ -577,6 +624,7 @@ export default function (pi: ExtensionAPI) {
+ 						step.agent,
+ 						taskWithContext,
+ 						step.cwd,
++						undefined,
+ 						i + 1,
+ 						signal,
+ 						chainUpdate,
+@@ -613,6 +661,16 @@ export default function (pi: ExtensionAPI) {
+ 						details: makeDetails("parallel")([]),
+ 					};
+ 
++				const resolvedTeam = communicationEnabled ? resolveTeamWorkers(params.tasks) : undefined;
++				if (resolvedTeam?.error) {
++					return {
++						content: [{ type: "text", text: resolvedTeam.error }],
++						details: makeDetails("parallel")([]),
++						isError: true,
++					};
++				}
++				const teamWorkers = resolvedTeam?.workers;
++
+ 				// Track all results for streaming updates
+ 				const allResults: SingleResult[] = new Array(params.tasks.length);
+ 
+@@ -626,6 +684,7 @@ export default function (pi: ExtensionAPI) {
+ 						messages: [],
+ 						stderr: "",
+ 						usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
++						workerId: teamWorkers?.[i].id,
+ 					};
+ 				}
+ 
+@@ -642,29 +701,36 @@ export default function (pi: ExtensionAPI) {
+ 					}
+ 				};
+ 
+-				const results = await mapWithConcurrencyLimit(params.tasks, MAX_CONCURRENCY, async (t, index) => {
+-					const result = await runSingleAgent(
+-						ctx.cwd,
+-						dispatchDefaults,
+-						agents,
+-						t.agent,
+-						t.task,
+-						t.cwd,
+-						undefined,
+-						signal,
+-						// Per-task update callback
+-						(partial) => {
+-							if (partial.details?.results[0]) {
+-								allResults[index] = partial.details.results[0];
+-								emitParallelUpdate();
+-							}
+-						},
+-						makeDetails("parallel"),
+-					);
+-					allResults[index] = result;
+-					emitParallelUpdate();
+-					return result;
+-				});
++				const broker = teamWorkers ? await TeamBroker.create(teamWorkers) : undefined;
++				let results: SingleResult[];
++				try {
++					results = await mapWithConcurrencyLimit(params.tasks, MAX_CONCURRENCY, async (t, index) => {
++						const result = await runSingleAgent(
++							ctx.cwd,
++							dispatchDefaults,
++							agents,
++							t.agent,
++							t.task,
++							t.cwd,
++							broker?.getWorkerConfig(teamWorkers?.[index].id ?? ""),
++							undefined,
++							signal,
++							// Per-task update callback
++							(partial) => {
++								if (partial.details?.results[0]) {
++									allResults[index] = partial.details.results[0];
++									emitParallelUpdate();
++								}
++							},
++							makeDetails("parallel"),
++						);
++						allResults[index] = result;
++						emitParallelUpdate();
++						return result;
++					});
++				} finally {
++					await broker?.close();
++				}
+ 
+ 				const successCount = results.filter((r) => !isFailedResult(r)).length;
+ 				const summaries = results.map((r) => {
+@@ -672,7 +738,8 @@ export default function (pi: ExtensionAPI) {
+ 					const status = isFailedResult(r)
+ 						? `failed${r.stopReason && r.stopReason !== "end" ? ` (${r.stopReason})` : ""}`
+ 						: "completed";
+-					return `### [${r.agent}] ${status}\n\n${output}`;
++					const label = r.workerId ? `${r.workerId} (${r.agent})` : r.agent;
++					return `### [${label}] ${status}\n\n${output}`;
+ 				});
+ 				return {
+ 					content: [
+@@ -694,6 +761,7 @@ export default function (pi: ExtensionAPI) {
+ 					params.task,
+ 					params.cwd,
+ 					undefined,
++					undefined,
+ 					signal,
+ 					onUpdate,
+ 					makeDetails("single"),
+@@ -749,7 +817,8 @@ export default function (pi: ExtensionAPI) {
+ 					theme.fg("muted", ` [${scope}]`);
+ 				for (const t of args.tasks.slice(0, 3)) {
+ 					const preview = t.task.length > 40 ? `${t.task.slice(0, 40)}...` : t.task;
+-					text += `\n  ${theme.fg("accent", t.agent)}${theme.fg("dim", ` ${preview}`)}`;
++					const label = args.communication ? `${t.id ?? "automatic ID"} (${t.agent})` : t.agent;
++					text += `\n  ${theme.fg("accent", label)}${theme.fg("dim", ` ${preview}`)}`;
+ 				}
+ 				if (args.tasks.length > 3) text += `\n  ${theme.fg("muted", `... +${args.tasks.length - 3} more`)}`;
+ 				return new Text(text, 0, 0);
+@@ -970,10 +1039,11 @@ export default function (pi: ExtensionAPI) {
+ 						const rIcon = isFailedResult(r) ? theme.fg("error", "✗") : theme.fg("success", "✓");
+ 						const displayItems = getDisplayItems(r.messages);
+ 						const finalOutput = getFinalOutput(r.messages);
++						const label = r.workerId ? `${r.workerId} (${r.agent})` : r.agent;
+ 
+ 						container.addChild(new Spacer(1));
+ 						container.addChild(
+-							new Text(`${theme.fg("muted", "─── ") + theme.fg("accent", r.agent)} ${rIcon}`, 0, 0),
++							new Text(`${theme.fg("muted", "─── ") + theme.fg("accent", label)} ${rIcon}`, 0, 0),
+ 						);
+ 						container.addChild(new Text(theme.fg("muted", "Task: ") + theme.fg("dim", r.task), 0, 0));
+ 
+@@ -1018,7 +1088,8 @@ export default function (pi: ExtensionAPI) {
+ 								? theme.fg("error", "✗")
+ 								: theme.fg("success", "✓");
+ 					const displayItems = getDisplayItems(r.messages);
+-					text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)} ${rIcon}`;
++					const label = r.workerId ? `${r.workerId} (${r.agent})` : r.agent;
++					text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", label)} ${rIcon}`;
+ 					if (displayItems.length === 0)
+ 						text += `\n${theme.fg("muted", r.exitCode === -1 ? "(running...)" : "(no output)")}`;
+ 					else text += `\n${renderDisplayItems(displayItems, 5)}`;
+diff --git a/packages/coding-agent/examples/extensions/subagent/team.ts b/packages/coding-agent/examples/extensions/subagent/team.ts
+new file mode 100644
+index 000000000..4cfa626f7
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/subagent/team.ts
+@@ -0,0 +1,694 @@
++import { randomBytes, randomUUID } from "node:crypto";
++import * as fs from "node:fs";
++import * as net from "node:net";
++import * as os from "node:os";
++import * as path from "node:path";
++import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
++import { Type } from "typebox";
++
++export const TEAM_MESSAGE_MAX_BYTES = 128 * 1024;
++const PROTOCOL_FRAME_MAX_BYTES = 1024 * 1024;
++const DELIVERY_TIMEOUT_MS = 10_000;
++
++const TEAM_SOCKET_ENV = "PI_SUBAGENT_TEAM_SOCKET";
++const TEAM_TOKEN_ENV = "PI_SUBAGENT_TEAM_TOKEN";
++const TEAM_WORKER_ID_ENV = "PI_SUBAGENT_WORKER_ID";
++
++export interface TeamWorkerDefinition {
++	id: string;
++	agent: string;
++}
++
++export interface TeamWorkerConfig {
++	endpoint: string;
++	token: string;
++	workerId: string;
++}
++
++const WORKER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
++
++export function resolveTeamWorkers(
++	tasks: Array<{ agent: string; id?: string }>,
++): { workers: TeamWorkerDefinition[]; error?: undefined } | { workers?: undefined; error: string } {
++	const workers = tasks.map((task, index) => ({ id: task.id ?? `worker-${index + 1}`, agent: task.agent }));
++	for (const worker of workers) {
++		if (!WORKER_ID_PATTERN.test(worker.id)) {
++			return {
++				error: `Invalid worker ID "${worker.id}". Use 1-64 letters, numbers, underscores, or hyphens, starting with a letter or number.`,
++			};
++		}
++	}
++	const uniqueIds = new Set(workers.map((worker) => worker.id));
++	if (uniqueIds.size !== workers.length) return { error: "Worker IDs must be unique within a parallel dispatch." };
++	return { workers };
++}
++
++export interface TeamMember {
++	id: string;
++	agent: string;
++}
++
++export interface TeamDeliveryResult {
++	delivered: string[];
++	failed: Array<{ id: string; reason: string }>;
++}
++
++type RequestMethod = "list" | "send" | "broadcast" | "activate" | "quiesce" | "finish";
++
++type ClientFrame =
++	| { type: "hello"; token: string; workerId: string }
++	| { type: "request"; requestId: string; method: RequestMethod; recipient?: string; message?: string }
++	| { type: "delivery_ack"; deliveryId: string; accepted: boolean; error?: string };
++
++type ServerFrame =
++	| { type: "hello_result"; ok: boolean; error?: string }
++	| { type: "response"; requestId: string; ok: boolean; result?: unknown; error?: string }
++	| { type: "delivery"; deliveryId: string; sender: string; message: string };
++
++interface WorkerState extends TeamWorkerDefinition {
++	status: "pending" | "active" | "quiescing" | "finished";
++	socket?: net.Socket;
++	pendingDeliveries: Set<Promise<void>>;
++}
++
++interface PendingDelivery {
++	recipientId: string;
++	resolve: () => void;
++	reject: (error: Error) => void;
++	timer: NodeJS.Timeout;
++}
++
++interface PendingRequest {
++	resolve: (value: unknown) => void;
++	reject: (error: Error) => void;
++}
++
++function encodeFrame(frame: ClientFrame | ServerFrame): Buffer {
++	const encoded = Buffer.from(`${JSON.stringify(frame)}\n`, "utf8");
++	if (encoded.byteLength > PROTOCOL_FRAME_MAX_BYTES) {
++		throw new Error(`Team protocol frame exceeds ${PROTOCOL_FRAME_MAX_BYTES} bytes.`);
++	}
++	return encoded;
++}
++
++function createFrameReader(
++	onFrame: (frame: unknown) => void,
++	onError: (error: Error) => void,
++): (chunk: Buffer) => void {
++	let buffer = Buffer.alloc(0);
++	return (chunk) => {
++		buffer = Buffer.concat([buffer, chunk]);
++		if (buffer.byteLength > PROTOCOL_FRAME_MAX_BYTES) {
++			onError(new Error(`Team protocol frame exceeds ${PROTOCOL_FRAME_MAX_BYTES} bytes.`));
++			buffer = Buffer.alloc(0);
++			return;
++		}
++
++		let newline = buffer.indexOf(0x0a);
++		while (newline !== -1) {
++			const line = buffer.subarray(0, newline);
++			buffer = buffer.subarray(newline + 1);
++			if (line.byteLength > 0) {
++				try {
++					onFrame(JSON.parse(line.toString("utf8")));
++				} catch (error) {
++					onError(error instanceof Error ? error : new Error(String(error)));
++				}
++			}
++			newline = buffer.indexOf(0x0a);
++		}
++	};
++}
++
++function isRecord(value: unknown): value is Record<string, unknown> {
++	return typeof value === "object" && value !== null;
++}
++
++function errorMessage(error: unknown): string {
++	return error instanceof Error ? error.message : String(error);
++}
++
++function validateMessage(message: unknown): string | undefined {
++	if (typeof message !== "string" || message.length === 0) return "Message must be a non-empty string.";
++	const byteLength = Buffer.byteLength(message, "utf8");
++	if (byteLength > TEAM_MESSAGE_MAX_BYTES) {
++		return `Message is ${byteLength} bytes; maximum supported size is ${TEAM_MESSAGE_MAX_BYTES} bytes.`;
++	}
++	return undefined;
++}
++
++function writeFrame(socket: net.Socket, frame: ClientFrame | ServerFrame): void {
++	socket.write(encodeFrame(frame));
++}
++
++export class TeamBroker {
++	readonly endpoint: string;
++	readonly token: string;
++	readonly #server: net.Server;
++	readonly #workers: Map<string, WorkerState>;
++	readonly #tempDir: string | undefined;
++	readonly #pendingDeliveryAcks = new Map<string, PendingDelivery>();
++	#closed = false;
++
++	private constructor(
++		server: net.Server,
++		endpoint: string,
++		token: string,
++		workers: TeamWorkerDefinition[],
++		tempDir?: string,
++	) {
++		this.#server = server;
++		this.endpoint = endpoint;
++		this.token = token;
++		this.#tempDir = tempDir;
++		this.#workers = new Map(
++			workers.map((worker) => [worker.id, { ...worker, status: "pending", pendingDeliveries: new Set() }]),
++		);
++	}
++
++	static async create(workers: TeamWorkerDefinition[]): Promise<TeamBroker> {
++		const token = randomBytes(32).toString("hex");
++		let tempDir: string | undefined;
++		let endpoint: string;
++		if (process.platform === "win32") {
++			endpoint = `\\\\.\\pipe\\pi-subagent-${process.pid}-${randomUUID()}`;
++		} else {
++			tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pi-subagent-team-"));
++			endpoint = path.join(tempDir, "team.sock");
++		}
++		const server = net.createServer();
++		const broker = new TeamBroker(server, endpoint, token, workers, tempDir);
++		server.on("connection", (socket) => broker.#handleConnection(socket));
++		try {
++			await new Promise<void>((resolve, reject) => {
++				const onError = (error: Error) => reject(error);
++				server.once("error", onError);
++				server.listen(endpoint, () => {
++					server.off("error", onError);
++					resolve();
++				});
++			});
++			return broker;
++		} catch (error) {
++			if (tempDir) await fs.promises.rm(tempDir, { recursive: true, force: true });
++			throw error;
++		}
++	}
++
++	getWorkerConfig(workerId: string): TeamWorkerConfig {
++		if (!this.#workers.has(workerId)) throw new Error(`Unknown team worker: "${workerId}".`);
++		return { endpoint: this.endpoint, token: this.token, workerId };
++	}
++
++	#handleConnection(socket: net.Socket): void {
++		let worker: WorkerState | undefined;
++		let requestChain = Promise.resolve();
++		const closeWithError = (message: string) => {
++			if (!socket.destroyed) socket.destroy(new Error(message));
++		};
++		const readFrame = createFrameReader(
++			(frame) => {
++				if (isRecord(frame) && frame.type === "delivery_ack") {
++					if (typeof frame.deliveryId !== "string" || typeof frame.accepted !== "boolean") return;
++					const pending = this.#pendingDeliveryAcks.get(frame.deliveryId);
++					if (!pending) return;
++					clearTimeout(pending.timer);
++					this.#pendingDeliveryAcks.delete(frame.deliveryId);
++					if (frame.accepted) pending.resolve();
++					else
++						pending.reject(
++							new Error(typeof frame.error === "string" ? frame.error : "Recipient rejected message."),
++						);
++					return;
++				}
++				requestChain = requestChain.then(async () => {
++					if (!isRecord(frame) || typeof frame.type !== "string") {
++						closeWithError("Invalid team protocol frame.");
++						return;
++					}
++
++					if (!worker) {
++						if (frame.type !== "hello" || typeof frame.token !== "string" || typeof frame.workerId !== "string") {
++							closeWithError("Team connection must begin with hello.");
++							return;
++						}
++						const candidate = this.#workers.get(frame.workerId);
++						if (
++							frame.token !== this.token ||
++							!candidate ||
++							candidate.socket ||
++							candidate.status !== "pending" ||
++							this.#closed
++						) {
++							writeFrame(socket, { type: "hello_result", ok: false, error: "Team authentication failed." });
++							socket.end();
++							return;
++						}
++						worker = candidate;
++						worker.socket = socket;
++						writeFrame(socket, { type: "hello_result", ok: true });
++						return;
++					}
++
++					if (
++						frame.type !== "request" ||
++						typeof frame.requestId !== "string" ||
++						typeof frame.method !== "string"
++					) {
++						closeWithError("Invalid team request.");
++						return;
++					}
++
++					try {
++						const result = await this.#handleRequest(worker, frame);
++						writeFrame(socket, { type: "response", requestId: frame.requestId, ok: true, result });
++					} catch (error) {
++						writeFrame(socket, {
++							type: "response",
++							requestId: frame.requestId,
++							ok: false,
++							error: errorMessage(error),
++						});
++					}
++				});
++			},
++			(error) => closeWithError(error.message),
++		);
++		socket.on("data", readFrame);
++		socket.on("error", () => undefined);
++		socket.on("close", () => {
++			if (worker?.socket === socket) {
++				worker.socket = undefined;
++				worker.status = "finished";
++				for (const [deliveryId, pending] of this.#pendingDeliveryAcks) {
++					if (pending.recipientId !== worker.id) continue;
++					clearTimeout(pending.timer);
++					pending.reject(new Error("Worker stopped before accepting the message."));
++					this.#pendingDeliveryAcks.delete(deliveryId);
++				}
++			}
++		});
++	}
++
++	async #handleRequest(worker: WorkerState, frame: Record<string, unknown>): Promise<unknown> {
++		switch (frame.method) {
++			case "list":
++				return {
++					self: worker.id,
++					teammates: Array.from(this.#workers.values())
++						.filter((candidate) => candidate.id !== worker.id && candidate.status === "active")
++						.map(({ id, agent }) => ({ id, agent })),
++				};
++			case "send": {
++				if (typeof frame.recipient !== "string" || frame.recipient.length === 0) {
++					throw new Error("Recipient must be a non-empty worker ID.");
++				}
++				const validationError = validateMessage(frame.message);
++				if (validationError) throw new Error(validationError);
++				return this.#send(worker.id, [frame.recipient], frame.message as string);
++			}
++			case "broadcast": {
++				const validationError = validateMessage(frame.message);
++				if (validationError) throw new Error(validationError);
++				const recipients = Array.from(this.#workers.values())
++					.filter((candidate) => candidate.id !== worker.id && candidate.status === "active")
++					.map((candidate) => candidate.id);
++				return this.#send(worker.id, recipients, frame.message as string);
++			}
++			case "activate":
++				if (worker.status === "finished") throw new Error(`Worker "${worker.id}" has finished.`);
++				worker.status = "active";
++				return { status: "active" };
++			case "quiesce":
++				if (worker.status === "finished") return { status: "finished" };
++				worker.status = "quiescing";
++				await Promise.allSettled(Array.from(worker.pendingDeliveries));
++				return { status: "quiescing" };
++			case "finish":
++				worker.status = "finished";
++				return { status: "finished" };
++			default:
++				throw new Error(`Unsupported team request: "${String(frame.method)}".`);
++		}
++	}
++
++	async #send(sender: string, recipients: string[], message: string): Promise<TeamDeliveryResult> {
++		const outcomes = await Promise.all(
++			recipients.map(async (recipientId): Promise<{ id: string; error?: string }> => {
++				if (recipientId === sender) return { id: recipientId, error: "Cannot send a team message to yourself." };
++				const recipient = this.#workers.get(recipientId);
++				if (!recipient) return { id: recipientId, error: "Unknown worker." };
++				if (recipient.status !== "active" || !recipient.socket) {
++					return { id: recipientId, error: "Worker is not running." };
++				}
++				try {
++					await this.#deliver(recipient, sender, message);
++					return { id: recipientId };
++				} catch (error) {
++					return { id: recipientId, error: errorMessage(error) };
++				}
++			}),
++		);
++		return {
++			delivered: outcomes.filter((outcome) => !outcome.error).map((outcome) => outcome.id),
++			failed: outcomes
++				.filter((outcome): outcome is { id: string; error: string } => recipients.length <= 1 && Boolean(outcome.error))
++				.map((outcome) => ({ id: outcome.id, reason: outcome.error })),
++		};
++	}
++
++	async #deliver(recipient: WorkerState, sender: string, message: string): Promise<void> {
++		const socket = recipient.socket;
++		if (recipient.status !== "active" || !socket || socket.destroyed) throw new Error("Worker is not running.");
++		const deliveryId = randomUUID();
++		let deliveryPromise: Promise<void>;
++		deliveryPromise = new Promise<void>((resolve, reject) => {
++			const timer = setTimeout(() => {
++				this.#pendingDeliveryAcks.delete(deliveryId);
++				reject(new Error("Recipient did not accept the message in time."));
++			}, DELIVERY_TIMEOUT_MS);
++			this.#pendingDeliveryAcks.set(deliveryId, { recipientId: recipient.id, resolve, reject, timer });
++			try {
++				writeFrame(socket, { type: "delivery", deliveryId, sender, message });
++			} catch (error) {
++				clearTimeout(timer);
++				this.#pendingDeliveryAcks.delete(deliveryId);
++				reject(error instanceof Error ? error : new Error(String(error)));
++			}
++		});
++		recipient.pendingDeliveries.add(deliveryPromise);
++		try {
++			await deliveryPromise;
++		} finally {
++			recipient.pendingDeliveries.delete(deliveryPromise);
++		}
++	}
++
++	async close(): Promise<void> {
++		if (this.#closed) return;
++		this.#closed = true;
++		for (const worker of this.#workers.values()) {
++			worker.status = "finished";
++			worker.socket?.destroy();
++		}
++		for (const [deliveryId, pending] of this.#pendingDeliveryAcks) {
++			clearTimeout(pending.timer);
++			pending.reject(new Error("Team dispatch ended before delivery was accepted."));
++			this.#pendingDeliveryAcks.delete(deliveryId);
++		}
++		await new Promise<void>((resolve) => this.#server.close(() => resolve()));
++		if (this.#tempDir) await fs.promises.rm(this.#tempDir, { recursive: true, force: true });
++	}
++}
++
++export class TeamClient {
++	readonly workerId: string;
++	readonly #socket: net.Socket;
++	readonly #pendingRequests = new Map<string, PendingRequest>();
++	readonly #onDelivery: (sender: string, message: string) => void | Promise<void>;
++	#closed = false;
++
++	private constructor(
++		socket: net.Socket,
++		workerId: string,
++		onDelivery: (sender: string, message: string) => void | Promise<void>,
++	) {
++		this.#socket = socket;
++		this.workerId = workerId;
++		this.#onDelivery = onDelivery;
++		let frameChain = Promise.resolve();
++		const readFrame = createFrameReader(
++			(frame) => {
++				frameChain = frameChain.then(() => this.#handleFrame(frame));
++			},
++			(error) => this.#fail(error),
++		);
++		socket.on("data", readFrame);
++		socket.on("error", (error) => this.#fail(error));
++		socket.on("close", () => this.#fail(new Error("Team connection closed.")));
++	}
++
++	static async connect(
++		config: TeamWorkerConfig,
++		onDelivery: (sender: string, message: string) => void | Promise<void>,
++	): Promise<TeamClient> {
++		const socket = net.createConnection(config.endpoint);
++		await new Promise<void>((resolve, reject) => {
++			socket.once("connect", resolve);
++			socket.once("error", reject);
++		});
++		const client = new TeamClient(socket, config.workerId, onDelivery);
++		const hello = new Promise<void>((resolve, reject) => {
++			client.#pendingRequests.set("hello", { resolve: () => resolve(), reject });
++		});
++		writeFrame(socket, { type: "hello", token: config.token, workerId: config.workerId });
++		await hello;
++		return client;
++	}
++
++	async list(): Promise<{ self: string; teammates: TeamMember[] }> {
++		return (await this.#request("list")) as { self: string; teammates: TeamMember[] };
++	}
++
++	async send(recipient: string, message: string): Promise<TeamDeliveryResult> {
++		return (await this.#request("send", { recipient, message })) as TeamDeliveryResult;
++	}
++
++	async broadcast(message: string): Promise<TeamDeliveryResult> {
++		return (await this.#request("broadcast", { message })) as TeamDeliveryResult;
++	}
++
++	async activate(): Promise<void> {
++		await this.#request("activate");
++	}
++
++	async quiesce(): Promise<void> {
++		await this.#request("quiesce");
++	}
++
++	async finish(): Promise<void> {
++		if (this.#closed) return;
++		try {
++			await this.#request("finish");
++		} finally {
++			this.close();
++		}
++	}
++
++	close(): void {
++		if (this.#closed) return;
++		this.#closed = true;
++		this.#socket.end();
++		this.#fail(new Error("Team connection closed."));
++	}
++
++	async #request(method: RequestMethod, fields: { recipient?: string; message?: string } = {}): Promise<unknown> {
++		if (this.#closed) throw new Error("Team connection is closed.");
++		const requestId = randomUUID();
++		const response = new Promise<unknown>((resolve, reject) => {
++			this.#pendingRequests.set(requestId, { resolve, reject });
++		});
++		try {
++			writeFrame(this.#socket, { type: "request", requestId, method, ...fields });
++		} catch (error) {
++			this.#pendingRequests.delete(requestId);
++			throw error;
++		}
++		return response;
++	}
++
++	async #handleFrame(frame: unknown): Promise<void> {
++		if (!isRecord(frame) || typeof frame.type !== "string") throw new Error("Invalid team protocol frame.");
++		if (frame.type === "hello_result") {
++			const pending = this.#pendingRequests.get("hello");
++			if (!pending) return;
++			this.#pendingRequests.delete("hello");
++			if (frame.ok === true) pending.resolve(undefined);
++			else pending.reject(new Error(typeof frame.error === "string" ? frame.error : "Team authentication failed."));
++			return;
++		}
++		if (frame.type === "response") {
++			if (typeof frame.requestId !== "string") throw new Error("Invalid team response.");
++			const pending = this.#pendingRequests.get(frame.requestId);
++			if (!pending) return;
++			this.#pendingRequests.delete(frame.requestId);
++			if (frame.ok === true) pending.resolve(frame.result);
++			else pending.reject(new Error(typeof frame.error === "string" ? frame.error : "Team request failed."));
++			return;
++		}
++		if (
++			frame.type !== "delivery" ||
++			typeof frame.deliveryId !== "string" ||
++			typeof frame.sender !== "string" ||
++			typeof frame.message !== "string"
++		) {
++			throw new Error("Invalid team delivery.");
++		}
++		try {
++			await this.#onDelivery(frame.sender, frame.message);
++			writeFrame(this.#socket, { type: "delivery_ack", deliveryId: frame.deliveryId, accepted: true });
++		} catch (error) {
++			writeFrame(this.#socket, {
++				type: "delivery_ack",
++				deliveryId: frame.deliveryId,
++				accepted: false,
++				error: errorMessage(error),
++			});
++		}
++	}
++
++	#fail(error: Error): void {
++		if (!this.#closed) this.#closed = true;
++		for (const [requestId, pending] of this.#pendingRequests) {
++			pending.reject(error);
++			this.#pendingRequests.delete(requestId);
++		}
++	}
++}
++
++export function getTeamWorkerConfig(environment: NodeJS.ProcessEnv = process.env): TeamWorkerConfig | undefined {
++	const endpoint = environment[TEAM_SOCKET_ENV];
++	const token = environment[TEAM_TOKEN_ENV];
++	const workerId = environment[TEAM_WORKER_ID_ENV];
++	if (!endpoint || !token || !workerId) return undefined;
++	return { endpoint, token, workerId };
++}
++
++export function getTeamWorkerEnvironment(config: TeamWorkerConfig): NodeJS.ProcessEnv {
++	return {
++		[TEAM_SOCKET_ENV]: config.endpoint,
++		[TEAM_TOKEN_ENV]: config.token,
++		[TEAM_WORKER_ID_ENV]: config.workerId,
++	};
++}
++
++function formatDeliveryResult(result: TeamDeliveryResult): string {
++	const parts = [`Accepted for delivery: ${result.delivered.length > 0 ? result.delivered.join(", ") : "none"}.`];
++	if (result.failed.length > 0) {
++		parts.push(`Failed: ${result.failed.map(({ id, reason }) => `${id} (${reason})`).join(", ")}.`);
++	}
++	return parts.join(" ");
++}
++
++export function registerTeamWorker(pi: ExtensionAPI, config: TeamWorkerConfig): void {
++	let client: TeamClient | undefined;
++	let connectionError: string | undefined;
++	const pendingMessages: Array<{ sender: string; message: string }> = [];
++	const requireClient = (): TeamClient => {
++		if (client) return client;
++		throw new Error(connectionError ?? "Team connection is not ready.");
++	};
++	const flushMessages = (deliverAs: "steer" | "followUp") => {
++		if (pendingMessages.length === 0) return;
++		const messages = pendingMessages.splice(0);
++		pi.sendMessage(
++			{
++				customType: "subagent-team-message",
++				content: messages
++					.map(({ sender, message }) => `Message from teammate "${sender}":\n\n${message}`)
++					.join("\n\n---\n\n"),
++				display: true,
++				details: { messages },
++			},
++			{ triggerTurn: true, deliverAs },
++		);
++	};
++
++	pi.on("session_start", async () => {
++		try {
++			client = await TeamClient.connect(config, (sender, message) => {
++				pendingMessages.push({ sender, message });
++			});
++		} catch (error) {
++			connectionError = errorMessage(error);
++			throw error;
++		}
++	});
++
++	pi.on("agent_start", async () => {
++		await requireClient().activate();
++	});
++
++	pi.on("turn_end", () => {
++		flushMessages("steer");
++	});
++
++	pi.on("agent_end", async () => {
++		await requireClient().quiesce();
++		flushMessages("followUp");
++	});
++
++	pi.on("session_shutdown", async () => {
++		if (client) await client.finish();
++	});
++
++	pi.registerTool({
++		name: "team_list",
++		label: "List teammates",
++		description: "List this worker's ID and currently running teammates in the same parallel dispatch.",
++		parameters: Type.Object({}),
++		async execute() {
++			try {
++				const result = await requireClient().list();
++				const teammates = result.teammates.map(({ id, agent }) => `${id} (${agent})`).join(", ") || "none";
++				return {
++					content: [{ type: "text", text: `You are ${result.self}. Running teammates: ${teammates}.` }],
++					details: undefined,
++				};
++			} catch (error) {
++				return { content: [{ type: "text", text: errorMessage(error) }], details: undefined, isError: true };
++			}
++		},
++	});
++
++	pi.registerTool({
++		name: "team_send",
++		label: "Message teammate",
++		description:
++			"Send a private finding to one running teammate. Success means accepted for delivery, not that the teammate replied.",
++		parameters: Type.Object({
++			recipient: Type.String({ description: "Worker ID returned by team_list" }),
++			message: Type.String({ description: `Complete message, up to ${TEAM_MESSAGE_MAX_BYTES} UTF-8 bytes` }),
++		}),
++		async execute(_toolCallId, params) {
++			const validationError = validateMessage(params.message);
++			if (validationError)
++				return { content: [{ type: "text", text: validationError }], details: undefined, isError: true };
++			try {
++				const result = await requireClient().send(params.recipient, params.message);
++				return {
++					content: [{ type: "text", text: formatDeliveryResult(result) }],
++					details: undefined,
++					isError: result.failed.length > 0,
++				};
++			} catch (error) {
++				return { content: [{ type: "text", text: errorMessage(error) }], details: undefined, isError: true };
++			}
++		},
++	});
++
++	pi.registerTool({
++		name: "team_broadcast",
++		label: "Broadcast to teammates",
++		description:
++			"Send a finding to all other running teammates. Success means accepted for delivery, not that teammates replied.",
++		parameters: Type.Object({
++			message: Type.String({ description: `Complete message, up to ${TEAM_MESSAGE_MAX_BYTES} UTF-8 bytes` }),
++		}),
++		async execute(_toolCallId, params) {
++			const validationError = validateMessage(params.message);
++			if (validationError)
++				return { content: [{ type: "text", text: validationError }], details: undefined, isError: true };
++			try {
++				const result = await requireClient().broadcast(params.message);
++				return {
++					content: [{ type: "text", text: formatDeliveryResult(result) }],
++					details: undefined,
++					isError: result.failed.length > 0,
++				};
++			} catch (error) {
++				return { content: [{ type: "text", text: errorMessage(error) }], details: undefined, isError: true };
++			}
++		},
++	});
++}
+diff --git a/packages/coding-agent/test/subagent-team.test.ts b/packages/coding-agent/test/subagent-team.test.ts
+new file mode 100644
+index 000000000..853ed2125
+--- /dev/null
++++ b/packages/coding-agent/test/subagent-team.test.ts
+@@ -0,0 +1,262 @@
++import { existsSync } from "node:fs";
++import { dirname } from "node:path";
++import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
++import { afterEach, describe, expect, it } from "vitest";
++import {
++	registerTeamWorker,
++	resolveTeamWorkers,
++	TEAM_MESSAGE_MAX_BYTES,
++	TeamBroker,
++	TeamClient,
++} from "../examples/extensions/subagent/team.ts";
++
++const workers = [
++	{ id: "alpha", agent: "worker" },
++	{ id: "beta", agent: "worker" },
++	{ id: "gamma", agent: "scout" },
++];
++
++describe("subagent team communication", () => {
++	const brokers: TeamBroker[] = [];
++	const clients: TeamClient[] = [];
++
++	afterEach(async () => {
++		for (const client of clients) client.close();
++		await Promise.all(brokers.map((broker) => broker.close()));
++		clients.length = 0;
++		brokers.length = 0;
++	});
++
++	async function createBroker(): Promise<TeamBroker> {
++		const broker = await TeamBroker.create(workers);
++		brokers.push(broker);
++		return broker;
++	}
++
++	async function connect(
++		broker: TeamBroker,
++		workerId: string,
++		onDelivery: (sender: string, message: string) => void | Promise<void> = () => undefined,
++	): Promise<TeamClient> {
++		const client = await TeamClient.connect(broker.getWorkerConfig(workerId), onDelivery);
++		clients.push(client);
++		await client.activate();
++		return client;
++	}
++
++	it("assigns unique defaults and rejects invalid worker IDs", () => {
++		expect(resolveTeamWorkers([{ agent: "worker" }, { agent: "worker" }])).toEqual({
++			workers: [
++				{ id: "worker-1", agent: "worker" },
++				{ id: "worker-2", agent: "worker" },
++			],
++		});
++		expect(
++			resolveTeamWorkers([
++				{ id: "same", agent: "worker" },
++				{ id: "same", agent: "scout" },
++			]),
++		).toEqual({
++			error: "Worker IDs must be unique within a parallel dispatch.",
++		});
++		expect(resolveTeamWorkers([{ id: "not valid", agent: "worker" }]).error).toContain("Invalid worker ID");
++	});
++
++	it("discovers only running teammates with independent worker IDs", async () => {
++		const broker = await createBroker();
++		const alpha = await connect(broker, "alpha");
++		await connect(broker, "beta");
++
++		await expect(alpha.list()).resolves.toEqual({
++			self: "alpha",
++			teammates: [{ id: "beta", agent: "worker" }],
++		});
++	});
++
++	it("delivers complete Unicode messages once and in sender order", async () => {
++		const broker = await createBroker();
++		const received: Array<{ sender: string; message: string }> = [];
++		const alpha = await connect(broker, "alpha");
++		await connect(broker, "beta", (sender, message) => {
++			received.push({ sender, message });
++		});
++
++		const first = "接口约束: café 🚀\nsecond line";
++		const second = "approach ruled out: naïve path";
++		const results = await Promise.all([alpha.send("beta", first), alpha.send("beta", second)]);
++
++		expect(results).toEqual([
++			{ delivered: ["beta"], failed: [] },
++			{ delivered: ["beta"], failed: [] },
++		]);
++		expect(received).toEqual([
++			{ sender: "alpha", message: first },
++			{ sender: "alpha", message: second },
++		]);
++	});
++
++	it("quiesces behind accepted deliveries and rejects later sends", async () => {
++		const broker = await createBroker();
++		let releaseDelivery: (() => void) | undefined;
++		let markDeliveryStarted: (() => void) | undefined;
++		const deliveryStarted = new Promise<void>((resolve) => {
++			markDeliveryStarted = resolve;
++		});
++		const deliveryReleased = new Promise<void>((resolve) => {
++			releaseDelivery = resolve;
++		});
++		const alpha = await connect(broker, "alpha");
++		const beta = await connect(broker, "beta", async () => {
++			markDeliveryStarted?.();
++			await deliveryReleased;
++		});
++
++		const acceptedSend = alpha.send("beta", "first");
++		await deliveryStarted;
++		const quiesce = beta.quiesce();
++		await new Promise<void>((resolve) => setImmediate(resolve));
++		releaseDelivery?.();
++
++		await expect(acceptedSend).resolves.toEqual({ delivered: ["beta"], failed: [] });
++		await quiesce;
++		await expect(alpha.send("beta", "late")).resolves.toEqual({
++			delivered: [],
++			failed: [{ id: "beta", reason: "Worker is not running." }],
++		});
++	});
++
++	it("rejects self, unknown, and finished recipients", async () => {
++		const broker = await createBroker();
++		const alpha = await connect(broker, "alpha");
++		const beta = await connect(broker, "beta");
++
++		await expect(alpha.send("alpha", "self")).resolves.toEqual({
++			delivered: [],
++			failed: [{ id: "alpha", reason: "Cannot send a team message to yourself." }],
++		});
++		await expect(alpha.send("missing", "unknown")).resolves.toEqual({
++			delivered: [],
++			failed: [{ id: "missing", reason: "Unknown worker." }],
++		});
++		await beta.finish();
++		await expect(alpha.send("beta", "finished")).resolves.toEqual({
++			delivered: [],
++			failed: [{ id: "beta", reason: "Worker is not running." }],
++		});
++	});
++
++	it("reports partial broadcast failures", async () => {
++		const broker = await createBroker();
++		const received: string[] = [];
++		const alpha = await connect(broker, "alpha");
++		await connect(broker, "beta", (_sender, message) => {
++			received.push(message);
++		});
++		await connect(broker, "gamma", () => {
++			throw new Error("cannot accept");
++		});
++
++		const result = await alpha.broadcast("shared finding");
++
++		expect(result.delivered).toEqual(["beta"]);
++		expect(result.failed).toEqual([{ id: "gamma", reason: "cannot accept" }]);
++		expect(received).toEqual(["shared finding"]);
++	});
++
++	it("rejects unsupported message sizes explicitly", async () => {
++		const broker = await createBroker();
++		const alpha = await connect(broker, "alpha");
++		await connect(broker, "beta");
++		const oversized = "界".repeat(Math.floor(TEAM_MESSAGE_MAX_BYTES / 3) + 1);
++
++		await expect(alpha.send("beta", oversized)).rejects.toThrow(
++			`maximum supported size is ${TEAM_MESSAGE_MAX_BYTES} bytes`,
++		);
++	});
++
++	it("injects accepted messages as attributed follow-ups", async () => {
++		const broker = await createBroker();
++		type TestHandler = (event: unknown, context: unknown) => void | Promise<void>;
++		const handlers = new Map<string, TestHandler>();
++		const sent: Array<{ message: unknown; options: unknown }> = [];
++		const pi = {
++			on(event: string, handler: TestHandler) {
++				handlers.set(event, handler);
++			},
++			registerTool() {},
++			sendMessage(message: unknown, options: unknown) {
++				sent.push({ message, options });
++			},
++		} as unknown as ExtensionAPI;
++		registerTeamWorker(pi, broker.getWorkerConfig("beta"));
++		await handlers.get("session_start")?.({}, {});
++		await handlers.get("agent_start")?.({}, {});
++		const alpha = await connect(broker, "alpha");
++
++		await alpha.send("beta", "Use interface Ω exactly.");
++		await alpha.send("beta", "Second finding.");
++		expect(sent).toEqual([]);
++		await handlers.get("turn_end")?.({}, {});
++
++		expect(sent).toEqual([
++			{
++				message: {
++					customType: "subagent-team-message",
++					content:
++						'Message from teammate "alpha":\n\nUse interface Ω exactly.\n\n---\n\nMessage from teammate "alpha":\n\nSecond finding.',
++					display: true,
++					details: {
++						messages: [
++							{ sender: "alpha", message: "Use interface Ω exactly." },
++							{ sender: "alpha", message: "Second finding." },
++						],
++					},
++				},
++				options: { triggerTurn: true, deliverAs: "steer" },
++			},
++		]);
++		await alpha.send("beta", "Accepted before shutdown.");
++		await handlers.get("agent_end")?.({}, {});
++		expect(sent[1]).toEqual({
++			message: {
++				customType: "subagent-team-message",
++				content: 'Message from teammate "alpha":\n\nAccepted before shutdown.',
++				display: true,
++				details: { messages: [{ sender: "alpha", message: "Accepted before shutdown." }] },
++			},
++			options: { triggerTurn: true, deliverAs: "followUp" },
++		});
++		await handlers.get("session_shutdown")?.({}, {});
++	});
++
++	it.runIf(process.platform !== "win32")("removes its private socket directory on close", async () => {
++		const broker = await createBroker();
++		const socketDirectory = dirname(broker.endpoint);
++		expect(existsSync(socketDirectory)).toBe(true);
++
++		await broker.close();
++
++		expect(existsSync(socketDirectory)).toBe(false);
++	});
++
++	it("isolates dispatches even when worker IDs are reused", async () => {
++		const firstBroker = await createBroker();
++		const secondBroker = await createBroker();
++		const firstReceived: string[] = [];
++		const secondReceived: string[] = [];
++		const firstAlpha = await connect(firstBroker, "alpha");
++		await connect(firstBroker, "beta", (_sender, message) => {
++			firstReceived.push(message);
++		});
++		const secondAlpha = await connect(secondBroker, "alpha");
++		await connect(secondBroker, "beta", (_sender, message) => {
++			secondReceived.push(message);
++		});
++
++		await firstAlpha.send("beta", "first team only");
++		await secondAlpha.send("beta", "second team only");
++
++		expect(firstReceived).toEqual(["first team only"]);
++		expect(secondReceived).toEqual(["second team only"]);
++	});
++});
