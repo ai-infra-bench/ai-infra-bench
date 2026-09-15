@@ -3,9 +3,11 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync } from "n
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { stripVTControlCharacters } from "node:util";
 import { Type } from "typebox";
+import { Container, Text, TuiMainScreen } from "@earendil-works/pi-tui";
 import { fauxProvider, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, initTheme } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, CustomMessageComponent, DefaultResourceLoader, SessionManager, SettingsManager, initTheme } from "@earendil-works/pi-coding-agent";
 
 export const WORKSPACE = process.env.PI_WORKSPACE ?? "/workspace/pi";
 export const EXTENSION = join(WORKSPACE, "packages/coding-agent/examples/extensions/plan-mode/index.ts");
@@ -39,7 +41,8 @@ export async function start(options = {}) {
   const tag = options.tag ?? randomUUID();
   const faux = fauxProvider({ provider: "plan-verifier", api: "plan-verifier-api", models: [{ id: "plan-verifier-model", contextWindow: 200000, maxTokens: 8192 }] });
   const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
-  const requests = [], events = [], errors = [], dialogs = [], notices = [];
+  const requests = [], events = [], errors = [], dialogs = [], notices = [], uiOutput = [];
+  const showText = (text) => { if (typeof text === "string") uiOutput.push(stripVTControlCharacters(text)); };
   const gate = deferred(), started = deferred();
   let api;
   const resourceLoader = new DefaultResourceLoader({
@@ -68,9 +71,36 @@ export async function start(options = {}) {
   const { session } = await createAgentSession({ cwd: box.cwd, agentDir: box.agentDir, model: faux.getModel(), thinkingLevel: "off", resourceLoader, sessionManager, settingsManager });
   session.setActiveToolsByName(options.activeTools ?? DEFAULT_TOOLS);
   session.extensionRunner.setFlagValue("plan", Boolean(options.flag));
-  const ui = { ...session.extensionRunner.getUIContext(),
-    notify: (message, type) => notices.push({ message, type }),
+  const baseUI = session.extensionRunner.getUIContext();
+  // Only the physical terminal is substituted. Public widget factories receive
+  // the real TUI and Theme, and their own components determine rendered text.
+  const terminal = {
+    columns: 120, rows: 40, kittyProtocolActive: false,
+    start() {}, stop() {}, async drainInput() {}, write: showText,
+    moveBy() {}, hideCursor() {}, showCursor() {}, clearLine() {},
+    clearFromCursor() {}, clearScreen() {}, setTitle() {}, setProgress() {},
+  };
+  const widgetTui = new TuiMainScreen(terminal);
+  const widgets = new Map();
+  function setWidget(key, content) {
+    const old = widgets.get(key);
+    if (old) { old.dispose?.(); widgetTui.removeChild(old); widgets.delete(key); }
+    if (content !== undefined) {
+      let component;
+      if (Array.isArray(content)) {
+        component = new Container();
+        for (const line of content) component.addChild(new Text(line, 1, 0));
+      } else component = content(widgetTui, baseUI.theme);
+      widgets.set(key, component); widgetTui.addChild(component);
+    }
+    widgetTui.renderNow(true);
+  }
+  const ui = { ...baseUI,
+    notify: (message, type) => { notices.push({ message, type }); showText(message); },
+    setStatus: (_key, text) => showText(text),
+    setWidget,
     select: async (title, choices) => {
+      showText(title); choices.forEach(showText);
       const answer = deferred();
       const dialog = { title, choices, answer, choose: (kind) => {
         const choice = choices.find((value) => value.toLowerCase().includes(kind.toLowerCase()));
@@ -86,11 +116,20 @@ export async function start(options = {}) {
     },
     editor: async () => options.refinement ?? "Refine without executing",
   };
-  session.subscribe((event) => events.push(event));
+  session.subscribe((event) => {
+    events.push(event);
+    if (options.ui && event.type === "message_start" && event.message.role === "custom" && event.message.display) {
+      // Pi displays these transcript messages independently of ctx.ui methods.
+      // Run the real renderer, including a candidate's registered renderer;
+      // hidden messages and structured details are not display evidence.
+      const component = new CustomMessageComponent(event.message, session.extensionRunner.getMessageRenderer(event.message.customType));
+      component.render(terminal.columns).forEach(showText);
+    }
+  });
   const bind = { mode: options.ui ? "interactive" : "rpc", onError: (error) => errors.push(error) };
   if (options.ui) bind.uiContext = ui;
   await session.bindExtensions(bind);
-  const live = { box, session, sessionManager, faux, requests, events, errors, dialogs, notices, api,
+  const live = { box, session, sessionManager, faux, requests, events, errors, dialogs, notices, uiOutput, api,
     waitStarted: started.promise, release: gate.resolve,
     tools: () => session.getActiveToolNames(),
     responses(steps = []) {
@@ -128,6 +167,8 @@ export async function start(options = {}) {
       await session.abort();
       await session.agent.waitForIdle();
       session.dispose();
+      for (const widget of widgets.values()) widget.dispose?.();
+      widgets.clear(); widgetTui.clear(); widgetTui.stop();
       if (remove) rmSync(box.root, { recursive: true, force: true });
     }
   };

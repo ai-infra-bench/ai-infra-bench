@@ -1,8 +1,8 @@
 # pi-plan-mode
 
-**Status: development.** Validated through the Harbor entrypoint on a retained
-linux/amd64 image: Base 0, Oracle 1, one correct alternative 1, and eight negative
-controls 0. The image is not yet published. Recorded results are in
+**Status: locally validated; image publication pending.** Validated through the
+Harbor entrypoint on a retained linux/amd64 image: Base 0, Oracle 1, one correct
+alternative 1, and ten negative controls 0. Recorded results are in
 [`validation/e2e-evidence.json`](validation/e2e-evidence.json).
 
 ## What the agent does
@@ -56,14 +56,15 @@ layer passes; a successful candidate process exit alone is insufficient.
 | --- | --- | --- |
 | Scope | `tests/check_scope.py` | Only the allowed extension and test files changed; core, dependencies, configuration, and unrelated files match the frozen Base. |
 | PASS_TO_PASS | `tests/check_pass_to_pass.py`, `tests/baseline-pins.json` | The pinned Base inventory and the current original-test results match: 2,154 required cases, unchanged skips, and no unaccepted regressions. The four intentionally replaced legacy Plan Mode tests are excluded; Plan Mode utilities remain protected. |
-| Contract (18 cases) | `tests/plan.contract.test.ts` | Real extension loading, `AgentSession` input and tool dispatch, structured drafts, revision-bound approval, source restrictions, exact tool restoration, one execution request, busy-state rejection, and interactive review actions. Includes one grading-permission precondition. |
+| Contract (18 cases) | `tests/plan.contract.test.ts` | Real extension loading, `AgentSession` input and tool dispatch, structured drafts, revision-bound approval, source restrictions, exact tool restoration, one execution request, busy-state rejection, interactive review actions and their actual execution context, and read-only progress display. Includes one grading-permission precondition. |
 | Lifecycle (4 cases) | `tests/plan.lifecycle.test.ts`, `tests/fixtures/plan_child.mjs` | Separate pi processes and real file-backed sessions: planning resumes restricted; approved plans retain their snapshot and tools without replay; foreign state is ignored; persisted normal state takes precedence over `--plan`. |
 | Integrity | `tests/check_junit.py`, `tests/test_integrity.py` | Exact completed contract/lifecycle inventories with no failures, errors, or skips; malformed, missing, and early-exit reports cannot produce a passing reward. |
 
 Verifier scenarios are copied into `packages/coding-agent/test/__plan_verifier__/`
 only at verification time. Model responses and UI choices are scripted; the
 extension, dispatcher, input-source handling, persistence, and scheduling run
-through pi's real public APIs. The behavior-to-test mapping is in
+through pi's real public APIs. Displayed custom messages and component widgets
+use pi's actual renderers with an in-memory terminal. The behavior-to-test mapping is in
 [`validation/behavior-map.md`](validation/behavior-map.md).
 
 One unrelated AuthStorage assertion was reproduced on untouched Base. It remains
@@ -74,7 +75,7 @@ skips fail. See
 
 ## Validation (2026-09-15)
 
-All 11 cases completed through Harbor 0.23.0 with the retained linux/amd64 image,
+All 13 cases completed through Harbor 0.23.0 with the retained linux/amd64 image,
 with zero errored trials and the expected reward in every case.
 
 | Case | Agent / implementation | Expected reward | Result |
@@ -82,26 +83,28 @@ with zero errored trials and the expected reward in every case.
 | `base` | `nop`, unchanged Base | 0 | 0; scope and PASS_TO_PASS pass; 17 behavior checks and 4 lifecycle checks fail because the requested behavior is absent. |
 | `oracle` | `oracle`, reference patch | 1 | 1; all layers pass, including 18/18 contract and 4/4 lifecycle cases. |
 | `alternative-event-journal` | `oracle`, independent event-journal patch applied to Base | 1 | 1; all layers pass, including 18/18 contract and 4/4 lifecycle cases. |
-| `accept-stale-revision` | `oracle` + negative-control patch | 0 | 0; C06 and C15 detect acceptance of stale approvals. |
-| `accept-extension-control` | `oracle` + negative-control patch | 0 | 0; C07 detects acceptance of extension-origin controls. |
-| `replay-duplicate-approval` | `oracle` + negative-control patch | 0 | 0; C10 detects duplicate execution. |
-| `allow-custom-planning-tools` | `oracle` + negative-control patch | 0 | 0; C02, C09, and L01 detect tools incorrectly enabled during planning. |
-| `replay-approved-resume` | `oracle` + negative-control patch | 0 | 0; L02 detects execution replay after resume. |
-| `resume-original-toolset` | `oracle` + negative-control patch | 0 | 0; L01 detects unrestricted tools after resuming a planning session. |
-| `drop-approved-request-context` | `oracle` + negative-control patch | 0 | 0; C10 detects the approved snapshot missing from model-visible context. |
-| `early-exit-zero` | `oracle` + negative-control patch | 0 | 0; incomplete behavior/lifecycle results are rejected despite a zero process exit. |
+| `accept-stale-revision` | `oracle`, Base-applicable negative-control patch | 0 | 0; C06, C15 detect acceptance of stale approvals. |
+| `accept-extension-control` | `oracle`, Base-applicable negative-control patch | 0 | 0; C07 detects extension-origin controls. |
+| `replay-duplicate-approval` | `oracle`, Base-applicable negative-control patch | 0 | 0; C10, C16 detect duplicate execution. |
+| `allow-custom-planning-tools` | `oracle`, Base-applicable negative-control patch | 0 | 0; C02, C09, L01 detect incorrectly enabled tools. |
+| `replay-approved-resume` | `oracle`, Base-applicable negative-control patch | 0 | 0; L02 detects execution replay after resume. |
+| `resume-original-toolset` | `oracle`, Base-applicable negative-control patch | 0 | 0; L01 detects unrestricted tools after planning resume. |
+| `drop-approved-request-context` | `oracle`, Base-applicable negative-control patch | 0 | 0; C10, C16 detect the approved snapshot missing from actual model input. |
+| `early-exit-zero` | `oracle`, Base-applicable negative-control patch | 0 | 0; C01–C17 and L01–L04 reject incomplete checks despite a zero process exit. |
+| `drop-done-progress` | `oracle`, Base-applicable negative-control patch | 0 | 0; C12 detects a progress display that does not advance. |
+| `drop-ui-approved-request-context` | `oracle`, Base-applicable negative-control patch | 0 | 0; C16 detects omitted model context only on UI approval; RPC behavior remains correct. |
 
 Both correct implementations passed 2,104 regression cases and retained the 50
-original skips, without using the AuthStorage exception. The repeated-approval
-and early-exit controls encountered the exact known Base assertion; their
-intended behavior failures still determined reward 0.
+original skips, without using the AuthStorage exception.
 
-[`validation/ci-cases.json`](validation/ci-cases.json) pins the patches and their
-application order. Detailed results and negative-control rationale are in
+[`validation/ci-cases.json`](validation/ci-cases.json) pins complete patches that
+apply directly to Base; no preceding Oracle application is required for a control.
+Detailed results and negative-control rationale are in
 [`validation/author-results.md`](validation/author-results.md) and
 [`validation/wrong-controls.md`](validation/wrong-controls.md). These checks
 establish verifier acceptance and rejection behavior, not coding-agent success
-rates.
+rates. Four retained agent implementations were also regraded with the revised
+verifier; see [`validation/candidate-rechecks.json`](validation/candidate-rechecks.json).
 
 ## Layout
 
@@ -188,14 +191,11 @@ reload, and arbitrary shell read-only enforcement are outside the contract.
 The verifier protects its reports and toolchain from worker writes; it is not a
 universal defense against arbitrary assertion manipulation inside a test worker.
 
-Before publication:
+Public image delivery remains pending. The repository publication workflow must
+validate the image it actually publishes and retain a pullable immutable image
+reference. OS repositories and the Dockerfile frontend are not snapshot-pinned,
+so a later rebuild is not guaranteed to produce identical bytes.
 
-1. Provide a pullable immutable image. OS repositories and the Dockerfile
-   frontend are not snapshot-pinned, so rebuilding later is not guaranteed to
-   produce an identical image.
-2. Clarify the invalid-submission error signal in `instruction.md`: C04
-   currently requires a tool-error result (`isError=true`), while the instruction
-   explicitly specifies unchanged plan state without naming that signal.
-3. Use repeated independent coding-agent trials to measure difficulty and
-   discrimination; construction checks and individual rollouts do not establish
-   a reliable success rate.
+Repeated independent coding-agent trials can further calibrate difficulty and
+success rates. Construction checks and individual rollouts do not establish a
+reliable ranking; adding more trials is separate from task acceptance.

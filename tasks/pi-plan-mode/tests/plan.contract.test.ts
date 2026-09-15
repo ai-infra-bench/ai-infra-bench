@@ -149,7 +149,7 @@ describe("plan contract", () => {
     await live.submit(["new"]); expect((await live.control(approveArgs(draft))).errorCode).toBe("plan_mismatch");
   });
   it("C12 slash plan shortcut and todos never restore write access by toggling", async () => {
-    const live = await host({ ui: true });
+    const live = await host({ ui: true }); const original = live.tools();
     await live.session.prompt("/plan", { source: "interactive" }); const initial = await live.state();
     await live.session.prompt("/plan", { source: "interactive" }); expect(await live.state()).toEqual(initial);
     const shortcuts = live.session.extensionRunner.getShortcuts({});
@@ -157,6 +157,32 @@ describe("plan contract", () => {
     expect(shortcut).toBeDefined(); await shortcut![1].handler(live.session.extensionRunner.createContext());
     await live.session.prompt("/todos", { source: "interactive" }); expect(await live.state()).toEqual(initial);
     expect(live.tools()).not.toContain("write"); expect(live.tools()).not.toContain("bash");
+
+    const steps = ["Transaction boundary analysis", "Rollback result verification"];
+    await live.submit(steps); const draft = await live.state();
+    live.responses([say("Ready to execute the approved steps")]);
+    const approved = controlState(await live.control(approveArgs(draft)));
+    await waitFor(() => live.session.isIdle, "progress execution settled");
+    async function progressDisplay(expectedSteps: string[]) {
+      const start = live.uiOutput.length, calls = live.faux.state.callCount;
+      await live.session.prompt("/todos", { source: "interactive" });
+      const displayed = live.uiOutput.slice(start).join("\n");
+      expect(displayed.trim().length).toBeGreaterThan(0);
+      for (const step of expectedSteps) expect(displayed).toContain(step);
+      expect(await live.state()).toEqual(approved);
+      expect(sorted(live.tools())).toEqual(sorted(original));
+      expect(live.faux.state.callCount).toBe(calls);
+      return displayed;
+    }
+    const pending = await progressDisplay(steps);
+    await live.prompt([say("Finished inspecting the transaction boundary [DONE:1]")]);
+    const partial = await progressDisplay([steps[1]]);
+    // Observe the causal change in the public display without prescribing
+    // checkbox glyphs, status words, numbering, or a private progress schema.
+    expect(partial).not.toBe(pending);
+    await live.prompt([say("Finished verifying the rollback result [DONE:2]")]);
+    expect(await progressDisplay([])).not.toBe(partial);
+    expect(live.approved()).toHaveLength(1);
   });
   it("C13 entering during a real active tool batch is busy and keeps tools unchanged", async () => {
     const live = await host(); const original = live.tools(); live.responses([call("verifier_wait", {}), say("done")]);
@@ -190,16 +216,40 @@ describe("plan contract", () => {
     expect(await live.state()).toEqual(v2); expect(live.approved()).toHaveLength(0); expect(live.tools()).not.toContain("write");
   });
   it("C16 UI Execute approves exactly the displayed plan and starts execution", async () => {
-    const live = await host({ ui: true, deferUI: true }); await live.control("enter", "interactive");
-    const effect = join(live.box.cwd, "ui-execution.txt");
-    live.responses([call("plan_submit", { steps: ["reviewed UI step"] }), say("ready"), call("write", { path: effect, content: "approved" }), say("done")]);
+    const original = ["read", "write", "verifier_effect"];
+    const live = await host({ ui: true, deferUI: true, activeTools: original }); await live.control("enter", "interactive");
+    const steps = ["UI approval boundary analysis", "Reviewed snapshot verification"];
+    const effect = join(live.box.cwd, "ui-execution.txt"), displayStart = live.uiOutput.length;
+    live.responses([call("plan_submit", { steps }), say("ready"), call("verifier_effect", { path: effect, marker: "approved" }), say("done")]);
     const run = live.session.prompt("draft", { source: "interactive" });
     const dialog = await waitFor(() => live.dialogs[0], "Execute/Stay/Refine actions");
     expect(dialog.choices.some((value: string) => /stay/i.test(value))).toBe(true); expect(dialog.choices.some((value: string) => /refine/i.test(value))).toBe(true);
-    const draft = await live.state(); dialog.choose("execute"); await run;
+    const displayed = live.uiOutput.slice(displayStart).join("\n");
+    for (const step of steps) expect(displayed).toContain(step);
+    const draft = await live.state(), requestIndex = live.requests.length, initialCalls = live.faux.state.callCount;
+    dialog.choose("execute"); await run;
     await waitFor(() => existsSync(effect) && live.session.isIdle, "UI execution");
-    expect(readFileSync(effect, "utf8")).toBe("approved"); expect(await live.state()).toEqual({ ...draft, mode: "approved", approvedRevision: draft.revision });
+    const approved = { ...draft, mode: "approved", approvedRevision: draft.revision };
+    expect(readFileSync(effect, "utf8")).toBe("approved\n"); expect(await live.state()).toEqual(approved);
+    expect(live.faux.state.callCount - initialCalls).toBe(2);
+    expect(sorted(live.tools())).toEqual(sorted(original));
     expect(live.approved()).toHaveLength(1);
+    const snapshot = { sessionId: draft.sessionId, planId: draft.planId, revision: draft.revision, steps };
+    expect(live.approved()[0].details).toMatchObject(snapshot);
+    const messageText = textOf(live.approved()[0]);
+    // A plan_submit tool result is already in the transcript. It cannot stand
+    // in for the approved snapshot delivered to the actual execution request.
+    const request = live.requests[requestIndex];
+    const approvalContext = request.messages.filter((message: { role: string }) => message.role !== "toolResult").map(textOf).join("\n");
+    for (const value of [draft.sessionId, draft.planId, String(draft.revision), ...steps]) {
+      expect(messageText).toContain(value); expect(approvalContext).toContain(value);
+    }
+    expect(sorted(request.tools.map((tool: { name: string }) => tool.name))).toEqual(sorted(original));
+    const count = live.faux.state.callCount;
+    expect(controlState(await live.control(approveArgs(draft), "interactive"))).toEqual(approved);
+    await live.session.agent.waitForIdle();
+    expect(live.faux.state.callCount).toBe(count); expect(live.approved()).toHaveLength(1);
+    expect(readFileSync(effect, "utf8")).toBe("approved\n");
   });
   it("C17 UI Stay and Refine retain restrictions without changing authoritative steps", async () => {
     const live = await host({ ui: true, deferUI: true }); await live.control("enter", "interactive");

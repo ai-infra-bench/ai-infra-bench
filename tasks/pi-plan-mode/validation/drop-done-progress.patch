@@ -124,7 +124,7 @@ diff --git a/packages/coding-agent/examples/extensions/plan-mode/README.md b/pac
 diff --git a/packages/coding-agent/examples/extensions/plan-mode/index.ts b/packages/coding-agent/examples/extensions/plan-mode/index.ts
 --- a/packages/coding-agent/examples/extensions/plan-mode/index.ts
 +++ b/packages/coding-agent/examples/extensions/plan-mode/index.ts
-@@ -1,390 +1,353 @@
+@@ -1,390 +1,343 @@
 -/**
 - * Plan Mode Extension
 - *
@@ -817,17 +817,7 @@ diff --git a/packages/coding-agent/examples/extensions/plan-mode/index.ts b/pack
 +			),
 +		};
 +	});
-+	pi.on("turn_end", (event, ctx) => {
-+		if (state.mode !== "approved" || event.message.role !== "assistant") return;
-+		const text = event.message.content
-+			.filter((part) => part.type === "text")
-+			.map((part) => part.text)
-+			.join("\n");
-+		if (markCompletedSteps(text, todos) > 0) {
-+			persist();
-+			updateStatus(ctx);
-+		}
-+	});
++	// Completed-turn progress updates are omitted.
 +	pi.on("agent_settled", async (_event, ctx) => review(ctx));
 +
 +	pi.on("session_start", (_event, ctx) => {
@@ -853,7 +843,7 @@ diff --git a/packages/coding-agent/examples/extensions/plan-mode/index.ts b/pack
 +			const completed = restored.completed;
 +			todos = state.steps.map((text, i) => ({ step: i + 1, text, completed: completed.includes(i + 1) }));
 +			if (state.mode === "planning") {
-+				pi.setActiveTools([...toolsBeforePlanning, "plan_submit"]);
++				pi.setActiveTools([...toolsBeforePlanning.filter((name) => READ_TOOLS.has(name)), "plan_submit"]);
 +			} else if (state.mode === "approved") {
 +				pi.setActiveTools([...toolsBeforePlanning]);
 +			}

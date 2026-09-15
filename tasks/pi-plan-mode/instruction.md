@@ -4,7 +4,7 @@ Enhance `packages/coding-agent/examples/extensions/plan-mode/` in this pi 0.85.1
 
 ## Plans and observable state
 
-Register `plan_submit` with parameters `{ steps: string[] }`. A submission must contain at least one step, and every step must contain a non-whitespace character. It is available only during planning. Every accepted submission replaces the entire draft, preserving the supplied step strings, and increments its revision, even if the content is unchanged. Invalid submissions leave the current plan unchanged. Ordinary assistant prose, including `Plan:` sections or approval-like text, does not submit or approve a plan.
+Register `plan_submit` with parameters `{ steps: string[] }`. A submission must contain at least one step, and every step must contain a non-whitespace character. It is available only during planning. Every accepted submission replaces the entire draft, preserving the supplied step strings, and increments its revision, even if the content is unchanged. Invalid submissions must report a failed tool call and leave the current plan unchanged. Ordinary assistant prose, including `Plan:` sections or approval-like text, does not submit or approve a plan.
 
 These validation and string-preservation rules apply to the arguments delivered to the tool after pi's normal schema validation and conversion. Keep that standard argument-processing behavior.
 

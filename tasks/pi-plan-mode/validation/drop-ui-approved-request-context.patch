@@ -124,7 +124,7 @@ diff --git a/packages/coding-agent/examples/extensions/plan-mode/README.md b/pac
 diff --git a/packages/coding-agent/examples/extensions/plan-mode/index.ts b/packages/coding-agent/examples/extensions/plan-mode/index.ts
 --- a/packages/coding-agent/examples/extensions/plan-mode/index.ts
 +++ b/packages/coding-agent/examples/extensions/plan-mode/index.ts
-@@ -1,390 +1,353 @@
+@@ -1,390 +1,359 @@
 -/**
 - * Plan Mode Extension
 - *
@@ -596,6 +596,7 @@ diff --git a/packages/coding-agent/examples/extensions/plan-mode/index.ts b/pack
 +	let toolsBeforePlanning: string[] = [];
 +	let todos: TodoItem[] = [];
 +	let reviewOpen = false;
++	let suppressUIApprovalContext = false;
 +
 +	function snapshot(): PlanState {
 +		return { ...state, steps: [...state.steps] };
@@ -694,7 +695,9 @@ diff --git a/packages/coding-agent/examples/extensions/plan-mode/index.ts b/pack
 +				["Execute the plan (track progress)", "Stay in plan mode", "Refine the plan"],
 +			);
 +			if (choice === "Execute the plan (track progress)" && displayed.planId) {
++				suppressUIApprovalContext = true;
 +				const error = approve(ctx, displayed.sessionId, displayed.planId, displayed.revision);
++				if (error) suppressUIApprovalContext = false;
 +				result("approve", error);
 +				if (error) ctx.ui.notify(`Plan approval rejected: ${error}`, "warning");
 +			} else if (choice === "Refine the plan") {
@@ -754,7 +757,10 @@ diff --git a/packages/coding-agent/examples/extensions/plan-mode/index.ts b/pack
 +		else if (operation !== "status" && event.source !== "interactive" && event.source !== "rpc")
 +			error = "forbidden_source";
 +		else if (operation === "enter") error = enter(ctx);
-+		else if (operation === "approve") error = approve(ctx, parts[2], parts[3], revision);
++		else if (operation === "approve") {
++			suppressUIApprovalContext = false;
++			error = approve(ctx, parts[2], parts[3], revision);
++		}
 +		else error = null;
 +		result(operation, error);
 +		return { action: "handled" };
@@ -813,7 +819,7 @@ diff --git a/packages/coding-agent/examples/extensions/plan-mode/index.ts b/pack
 +		if (state.mode === "planning") return;
 +		return {
 +			messages: event.messages.filter(
-+				(message) => !(message.role === "custom" && message.customType === "plan-mode-context"),
++				(message) => !(message.role === "custom" && (message.customType === "plan-mode-context" || (suppressUIApprovalContext && message.customType === "plan-approved"))),
 +			),
 +		};
 +	});
@@ -853,7 +859,7 @@ diff --git a/packages/coding-agent/examples/extensions/plan-mode/index.ts b/pack
 +			const completed = restored.completed;
 +			todos = state.steps.map((text, i) => ({ step: i + 1, text, completed: completed.includes(i + 1) }));
 +			if (state.mode === "planning") {
-+				pi.setActiveTools([...toolsBeforePlanning, "plan_submit"]);
++				pi.setActiveTools([...toolsBeforePlanning.filter((name) => READ_TOOLS.has(name)), "plan_submit"]);
 +			} else if (state.mode === "approved") {
 +				pi.setActiveTools([...toolsBeforePlanning]);
 +			}

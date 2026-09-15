@@ -18,11 +18,11 @@ All candidate extension loading uses `DefaultResourceLoader` and the default exp
 | C09 | No writing in planning | Actual built-in write/edit/bash and custom side-effect tool attempts; filesystem unchanged; provider sees only allowed tools |
 | C10 | Exactly one approved execution request | Captured plan-approved identity/steps; real file side effect and provider call count; repeated approval idempotent |
 | C11 | New cycle and planning-only submit | Fresh plan ID and reset state; outside-mode tool submission rejected |
-| C12 | Existing /plan, shortcut, /todos compatibility | Normal slash-command/registered-shortcut host paths; repeated use never restores write access |
+| C12 | Existing /plan, shortcut, and progress display | Normal slash-command/shortcut paths never restore writing by toggling; real approved execution produces DONE markers, and /todos distinguishes pending, partial, and complete progress without changing plan state, tools, or provider count |
 | C13 | Busy entry cannot interrupt active tool batch | Real waiting tool with explicit release barrier; no state/tool mutation |
 | C14 | Busy approval and pending-input boundary | Real read dispatch paused by a verifier hook; real follow-up queue; no approval |
 | C15 | Stale interactive Execute cannot approve revision 2 | Real v1 review dialog held, v2 submitted by later RPC-driven model turn, old selection returned |
-| C16 | Interactive Execute matches control approval | Real UI selection; exact displayed revision becomes approved and performs real write |
+| C16 | Interactive Execute matches control approval | Submitted steps appear in the review UI; real Execute approves the captured snapshot, restores the original tools, and sends one actual provider request containing its identity and exact steps; message details and file side effect agree |
 | C17 | Stay/Refine retain planning restrictions | UI choices through host adapter; no authoritative steps/revision change without explicit submission |
 | L01 | Normal planning resume and tool restoration | Different Node PID, same real session file; state exact; original tools restored after later approval |
 | L02 | Approved resume does not replay; state beats --plan | Different Node PID; zero provider calls during open/status; side-effect file remains exactly one marker |
@@ -53,4 +53,19 @@ This prevents a worker from directly replacing the independent result artifacts 
 
 ## Qualification status
 
-The verifier owns 18 contract cases and 4 lifecycle cases. All 22 have passed in the protected-reporter / UID 65534 Oracle debug run, including the real-core stale UI trace and permission checks. Fresh Base P2P has also passed all 2,154 projected cases with 50 unchanged skips, and five original auth-storage file runs passed 26/26 each. A reused Oracle container separately showed a possible timestamp-sensitive upstream assertion; it has not reproduced in fresh Base and no exception was enabled. See `baseline-environment.md` for the complete evidence and limits. Final task acceptance depends on the root agent's fresh Harbor matrix, not on these component checks alone.
+The verifier owns 18 contract cases and 4 lifecycle cases. Formal Base, Oracle,
+correct-alternative, and negative-control results are recorded in
+`author-results.md` and `e2e-evidence.json`; these results come from the Harbor
+entrypoint, rather than component checks alone.
+
+An original AuthStorage assertion was reproduced on untouched Base. Its exact
+fingerprint is conditionally accepted while the complete 2,154-case inventory
+and original skips remain required. Raw failures stay visible; unrelated errors
+are not accepted. See `baseline-environment.md` for the evidence and policy.
+
+An independent lifecycle review derived the normal-session resume scenario
+before consulting the existing case inventory: a saved normal session resumed
+with `--plan` must remain normal. It exposed a reference-implementation defect;
+the corrected snapshot and event-journal implementations subsequently passed
+this cross-process challenge, now retained as L04. This records the independent
+challenge without prescribing either implementation's persistence schema.
