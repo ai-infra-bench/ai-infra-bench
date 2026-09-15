@@ -1,0 +1,16 @@
+diff --git a/vllm/model_executor/layers/batch_invariant.py b/vllm/model_executor/layers/batch_invariant.py
+--- a/vllm/model_executor/layers/batch_invariant.py
++++ b/vllm/model_executor/layers/batch_invariant.py
+@@ -659,6 +659,12 @@
+ 
+ def bmm_batch_invariant(a, b, *, out=None):
+     if a.ndim == b.ndim == 3 and a.shape[0] == 0:
++        result = torch.empty((0, a.shape[1], b.shape[2]), device=a.device, dtype=a.dtype)
++        if out is not None:
++            out.copy_(result)
++            return out
++        return result
++    if a.ndim == b.ndim == 3 and a.shape[0] == 0:
+         raise ValueError("BMM requires a nonempty left-hand batch")
+     # Batched matrix multiply: (B, M, K) x (B, K, N) -> (B, M, N)
+     if a.device != b.device:

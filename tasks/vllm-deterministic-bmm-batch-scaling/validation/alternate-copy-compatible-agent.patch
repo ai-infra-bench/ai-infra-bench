@@ -224,9 +224,9 @@ diff --git a/vllm/model_executor/layers/batch_invariant.py b/vllm/model_executor
 +    # raised for mismatched shapes/dtypes do not change.
 +    assert a.shape[2] == b.shape[1], "Incompatible dimensions"
 +    assert a.dtype == b.dtype, "Incompatible dtypes"
-+    if a.shape[0] != b.shape[0]:
++    if a.shape[0] > b.shape[0]:
 +        raise ValueError(
-+            f"bmm_batch_invariant expects matching batch sizes, "
++            f"bmm_batch_invariant requires enough right-hand batches, "
 +            f"got shapes {tuple(a.shape)} and {tuple(b.shape)}"
 +        )
 +
@@ -277,7 +277,7 @@ diff --git a/vllm/model_executor/layers/batch_invariant.py b/vllm/model_executor
      )
      return c
  
-@@ -524,16 +727,36 @@
+@@ -524,16 +727,38 @@
          )
  
  
@@ -298,6 +298,8 @@ diff --git a/vllm/model_executor/layers/batch_invariant.py b/vllm/model_executor
 +
 +
  def bmm_batch_invariant(a, b, *, out=None):
++    if a.ndim == b.ndim == 3 and a.shape[0] == 0:
++        raise ValueError("BMM requires a nonempty left-hand batch")
      # Batched matrix multiply: (B, M, K) x (B, K, N) -> (B, M, N)
 -    # Process each batch separately with our persistent kernel
 +    # A single batch-aware kernel launch handles the whole batch, so launch

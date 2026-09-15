@@ -36,7 +36,7 @@ def main():
     # input descriptions cannot substitute a different, self-consistent test.
     sys.path.extend([sysconfig.get_path("purelib"), sysconfig.get_path("platlib")])
     seed = secrets.randbits(63)
-    workload = make_workload(seed)
+    workload = make_workload(seed, log / "inputs")
     workload_path = log / "workload.json"
     workload_path.write_text(json.dumps(workload))
     os.chmod(workload_path, 0o444)
@@ -48,31 +48,38 @@ def main():
     env.update(AIB_OBSERVATIONS=str(obs), AIB_SEED=str(seed), AIB_WORKLOAD=str(workload_path), PYTHONDONTWRITEBYTECODE="1")
     # Paths are added explicitly; site .pth and sitecustomize are never run.
     bootstrap = "import runpy,sys; sys.path.extend(" + repr(["/workspace/repo","/tests",sysconfig.get_path("purelib"),sysconfig.get_path("platlib")]) + "); runpy.run_path(sys.argv[1],run_name='__main__')"
-    result = subprocess.run([sys.executable, "-I", "-S", "-c", bootstrap, sys.argv[1]],
-                            env=env, cwd="/workspace/repo", preexec_fn=unprivileged,
-                            timeout=1050)
+    result = None
     passed, failures = [], []
+    failure_phase = 'worker_execution'
+    exception_type = None
     try:
+        result = subprocess.run([sys.executable, "-I", "-S", "-c", bootstrap, sys.argv[1]],
+                                env=env, cwd="/workspace/repo", preexec_fn=unprivileged,
+                                timeout=1050)
         if result.returncode != 0:
             raise RuntimeError(f"candidate worker exit {result.returncode}")
+        failure_phase = 'observation_read'
         if obs.stat().st_size > 100_000_000:
             raise ValueError("observation size limit exceeded")
         raw = json.loads(obs.read_text())
         (log / "observations.json").write_text(json.dumps(raw))
         # Only installed, root-owned numerical dependencies are loaded here.
         sys.path.extend([sysconfig.get_path("purelib"), sysconfig.get_path("platlib")])
-        passed = check(raw, workload)
+        failure_phase = 'behavior_check'
+        passed = check(raw, workload, artifact_dir=obs_dir)
         assert set(passed) == set(EXPECTED_STAGES) and len(passed) == len(EXPECTED_STAGES)
-    except Exception:
+    except Exception as exc:
+        exception_type = type(exc).__name__
         failures.append(traceback.format_exc())
         print(failures[-1], flush=True)
     report = {"schema_version": "trusted_behavior_report.v1", "completed": not failures,
               "expected_stages": EXPECTED_STAGES, "stages_passed": passed,
-              "failures": failures, "worker_exit_code": result.returncode,
+              "failures": failures, "worker_exit_code": None if result is None else result.returncode,
+              "failure_phase": failure_phase if failures else None, "exception_type": exception_type,
               "worker_uid": account.pw_uid, "scorer_uid": os.getuid()}
     (log / "report.json").write_text(json.dumps(report, indent=2)+"\n")
     reward = int(not failures)
-    (log / "reward.json").write_text(json.dumps({"reward": reward, "verifier_exit_code": result.returncode})+"\n")
+    (log / "reward.json").write_text(json.dumps({"reward": reward, **({"verifier_exit_code": result.returncode} if result is not None else {})})+"\n")
     (log / "reward.txt").write_text(str(reward)+"\n")
     print(json.dumps(report), flush=True)
 

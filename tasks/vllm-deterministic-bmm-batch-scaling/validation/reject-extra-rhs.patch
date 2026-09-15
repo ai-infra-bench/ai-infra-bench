@@ -1,0 +1,12 @@
+diff --git a/vllm/model_executor/layers/batch_invariant.py b/vllm/model_executor/layers/batch_invariant.py
+--- a/vllm/model_executor/layers/batch_invariant.py
++++ b/vllm/model_executor/layers/batch_invariant.py
+@@ -658,6 +658,8 @@
+ 
+ 
+ def bmm_batch_invariant(a, b, *, out=None):
++    if a.ndim == b.ndim == 3 and b.shape[0] > a.shape[0]:
++        raise ValueError("extra RHS batches rejected")
+     if a.ndim == b.ndim == 3 and a.shape[0] == 0:
+         raise ValueError("BMM requires a nonempty left-hand batch")
+     # Batched matrix multiply: (B, M, K) x (B, K, N) -> (B, M, N)

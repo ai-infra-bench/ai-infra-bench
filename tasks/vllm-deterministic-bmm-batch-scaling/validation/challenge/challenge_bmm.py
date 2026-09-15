@@ -24,7 +24,14 @@ FRESH_CASES = [
     (torch.float32, 3, 50, 50, 50),
     (torch.float32, 2, 43, 59, 2048),
     (torch.float32, 3, 61, 35, 3072),
+    (torch.bfloat16, 3, 257, 193, 768),
+    (torch.float16, 5, 192, 320, 255),
 ]
+
+
+def same_bits(left, right):
+    return (left.shape == right.shape and left.dtype == right.dtype
+            and torch.equal(left.view({2: torch.int16, 4: torch.int32}[left.element_size()]), right.view({2: torch.int16, 4: torch.int32}[right.element_size()])))
 
 
 def run_case(dtype, batch, m, n, k, seed) -> dict:
@@ -37,20 +44,20 @@ def run_case(dtype, batch, m, n, k, seed) -> dict:
         [bmm_batch_invariant(a[i : i + 1], b[i : i + 1]) for i in range(batch)]
     )
     # Bitwise, not approximate: the whole point of batch invariance.
-    assert torch.equal(batched, looped), (
+    assert same_bits(batched, looped), (
         dtype, batch, m, n, k, (batched - looped).abs().max().item()
     )
 
     # A mid-batch single-row slice must equal the corresponding batched row.
     mid = batch // 2
     single = bmm_batch_invariant(a[mid : mid + 1], b[mid : mid + 1])
-    assert torch.equal(single[0], batched[mid])
+    assert same_bits(single[0], batched[mid])
 
     # Caller-owned destination identity and copy conversion on fresh shapes.
     out = torch.empty_like(batched)
     returned = bmm_batch_invariant(a, b, out=out)
     assert returned is out
-    assert torch.equal(out, batched)
+    assert same_bits(out, batched)
     torch.testing.assert_close(batched.cpu(), torch.bmm(a.cpu().double(), b.cpu().double()).to(dtype), rtol=0.02, atol=0.02)
     for device, target_dtype, shape in [
         ('cpu', dtype, batched.shape),
@@ -81,12 +88,41 @@ def edge_cases():
         try: bmm_batch_invariant(a,wrong)
         except (ValueError,RuntimeError,AssertionError,TypeError,IndexError): pass
         else: raise AssertionError('invalid operand silently accepted')
-    bmm_batch_invariant(a,b);torch.cuda.synchronize()
-    with profile(activities=[ProfilerActivity.CPU,ProfilerActivity.CUDA]) as prof:
-        bmm_batch_invariant(a,b);torch.cuda.synchronize()
-    kernels=[e.name for e in prof.events() if str(e.device_type).endswith('CUDA')]
-    assert 0<len(kernels)<5, kernels
-    return {"empty_and_strided":True,"kernel_count":len(kernels)}
+    counts = []
+    for batch in (1, 5, 17):
+        lhs = torch.randn(batch, 22, 38, device='cuda', dtype=a.dtype)[:, ::2, ::2]
+        rhs = torch.randn(batch, 26, 38, device='cuda', dtype=a.dtype)[:, ::2, ::2].transpose(1, 2)
+        bmm_batch_invariant(lhs, rhs)
+        torch.cuda.synchronize()
+        with profile(activities=[ProfilerActivity.CPU,ProfilerActivity.CUDA]) as prof:
+            bmm_batch_invariant(lhs, rhs)
+            torch.cuda.synchronize()
+        kernels=[e.name for e in prof.events() if str(e.device_type).endswith('CUDA')]
+        counts.append(len(kernels))
+    assert all(counts) and max(counts) <= min(counts) + 2, counts
+    for dtype in (torch.float16, torch.bfloat16, torch.float32):
+        lhs = torch.randn(2, 9, 15, device='cuda', dtype=dtype)
+        rhs = torch.randn(5, 15, 11, device='cuda', dtype=dtype)
+        result = bmm_batch_invariant(lhs, rhs)
+        expected = bmm_batch_invariant(lhs, rhs[:2])
+        assert same_bits(result, expected), 'extra RHS batches changed the result'
+        torch.testing.assert_close(result, torch.bmm(lhs, rhs[:2]), rtol=.02, atol=.02)
+        destination = torch.empty(1, 2, 9, 11, device='cpu', dtype=torch.float32)
+        assert bmm_batch_invariant(lhs, rhs, out=destination) is destination
+        assert torch.equal(destination, expected.float().cpu().unsqueeze(0))
+        for left, right in [(lhs[:0], rhs[:0]), (lhs[:0], rhs), (lhs, rhs[:1])]:
+            try:
+                bmm_batch_invariant(left, right)
+            except (ValueError, RuntimeError, AssertionError, TypeError, IndexError):
+                pass
+            else:
+                raise AssertionError('batch-count error was silently accepted')
+        lhs = torch.zeros(3, 6, 10, device='cuda', dtype=dtype)
+        rhs = torch.randn(3, 10, 8, device='cuda', dtype=dtype)
+        batched = bmm_batch_invariant(lhs, rhs)
+        singles = torch.cat([bmm_batch_invariant(lhs[i:i+1], rhs[i:i+1]) for i in range(3)])
+        assert same_bits(batched, singles), 'zero results differ by batch size'
+    return {"empty_and_strided":True,"kernel_counts":counts, "zero_bits":True}
 
 
 def main() -> None:

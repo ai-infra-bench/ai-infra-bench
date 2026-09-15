@@ -5,13 +5,20 @@ import os
 import statistics
 import sys
 import traceback
+from pathlib import Path
 
 import torch
 
-from workload import load_workload
+from workload import load_workload, LAUNCH_GROUPS
 
 import legacy_bmm as batch_module
 from vllm.model_executor.layers.batch_invariant import bmm_batch_invariant
+
+
+def bitwise_equal(left, right):
+    return (left.dtype == right.dtype and left.shape == right.shape
+            and torch.equal(left.view({2: torch.int16, 4: torch.int32}[left.element_size()]),
+                            right.view({2: torch.int16, 4: torch.int32}[right.element_size()])))
 
 
 def correctness():
@@ -19,26 +26,33 @@ def correctness():
     for case in load_workload()['correctness']:
         dtype = getattr(torch, case['dtype'].split('.')[-1])
         batch, m, n, k = case['shape']
-        a = torch.tensor(case['a'], device="cuda", dtype=dtype)
-        b = torch.tensor(case['b'], device="cuda", dtype=dtype)
+        a = torch.tensor(case['a'], device="cuda", dtype=dtype).reshape(batch, m, k)
+        b = torch.tensor(case['b'], device="cuda", dtype=dtype).reshape(case.get('rhs_batch', batch), k, n)
+        if case.get('layout') == 'strided':
+            backing = torch.empty(batch, m, 2 * k, device='cuda', dtype=dtype)
+            backing[..., ::2].copy_(a)
+            a = backing[..., ::2]
+            b = b.transpose(1, 2).contiguous().transpose(1, 2)
+            assert not a.is_contiguous() and not b.is_contiguous()
         batched = bmm_batch_invariant(a, b)
         loop = torch.cat(
             [bmm_batch_invariant(a[i : i + 1], b[i : i + 1]) for i in range(batch)]
         )
-        assert torch.equal(batched, loop), (
+        assert bitwise_equal(batched, loop), (
             dtype,
             batch,
             m,
             n,
             k,
-            (batched - loop).abs().max().item(),
+            "batch/single bit patterns differ",
         )
 
-        out = torch.empty_like(batched)
+        assert batched.shape == (batch, m, n) and batched.dtype == dtype
+        out = torch.empty(batch, n, m, device='cuda', dtype=dtype).transpose(1, 2)
         returned = bmm_batch_invariant(a, b, out=out)
         assert returned is out, "out= must return the caller's tensor object"
         assert returned.data_ptr() == out.data_ptr()
-        assert torch.equal(out, batched)
+        assert bitwise_equal(out, batched)
 
         copies = []
         destinations = [("cuda", target, False) for target in
@@ -50,17 +64,15 @@ def correctness():
             result = bmm_batch_invariant(a, b, out=destination)
             expected = torch.empty_like(destination).copy_(batched)
             assert result is destination
-            assert torch.equal(destination, expected)
+            assert bitwise_equal(destination, expected)
             copies.append({"device": destination.device.type,
                            "dtype": str(destination.dtype),
                            "shape": list(destination.shape),
                            "identity": result is destination,
                            "values": destination.float().cpu().tolist()})
 
-        reference = torch.bmm(a, b)
-        # This deterministic Triton kernel uses a fixed reduction order that
-        # differs from cuBLAS/TF32. Numerical closeness is a secondary sanity
-        # check; bitwise batch-vs-single equality above remains the hard gate.
+        reference = torch.bmm(a, b[:batch])
+        # Numerical accuracy and bitwise batch invariance are both required.
         tol = 2e-2
         torch.testing.assert_close(batched, reference, rtol=tol, atol=tol)
         results.append(
@@ -72,6 +84,7 @@ def correctness():
                 "single": loop.float().cpu().tolist(), "out": out.float().cpu().tolist(),
                 "out_ptr": out.data_ptr(), "returned_ptr": returned.data_ptr(),
                 "out_identity": returned is out,
+                "output_shape": list(batched.shape), "output_dtype": str(batched.dtype),
                 "out_copies": copies,
                 "device": batched.device.type,
             }
@@ -125,6 +138,8 @@ def error_contracts():
             "rhs_rank_mismatch",
             lambda: bmm_batch_invariant(a, b[0]),
         ),
+        assert_raises("empty_batch", lambda: bmm_batch_invariant(a[:0], b[:0])),
+        assert_raises("empty_lhs_batch", lambda: bmm_batch_invariant(a[:0], b)),
     ]
 
 
@@ -149,11 +164,12 @@ def timed_case(shape, warmup=5, iters=20, rounds=5):
     return {"shape": list(shape), "median_ms": statistics.median(samples), "samples_ms": samples}
 
 
-def paired_speedup(shape=(8, 512, 512, 2560), warmup=5, iters=20, rounds=5):
+def paired_speedup(index, case, warmup=5, iters=20, rounds=5):
+    import numpy as np
+    shape = case['shape']
     batch, m, n, k = shape
-    torch.manual_seed(29345)
-    a = torch.randn(batch, m, k, device="cuda", dtype=torch.bfloat16)
-    b = torch.randn(batch, k, n, device="cuda", dtype=torch.bfloat16)
+    a, b = [torch.from_numpy(np.load(case[key + '_path'], allow_pickle=False))
+            .to(device='cuda', dtype=torch.bfloat16) for key in ('a', 'b')]
 
     def candidate():
         return bmm_batch_invariant(a, b)
@@ -162,6 +178,16 @@ def paired_speedup(shape=(8, 512, 512, 2560), warmup=5, iters=20, rounds=5):
         return torch.stack(
             [batch_module.matmul_persistent(a[i], b[i]) for i in range(batch)]
         )
+
+    # Validate the same operands and shape that are timed. All snapshots and
+    # batch/single comparisons are outside the CUDA-event measurement interval.
+    before = candidate().clone()
+    single = torch.cat([bmm_batch_invariant(a[i:i+1], b[i:i+1]) for i in range(batch)])
+    output_dir = Path(os.environ['AIB_OBSERVATIONS']).parent
+    for name, value in [('before', before), ('single', single)]:
+        assert value.shape == (batch, m, n) and value.device == a.device
+        assert value.dtype == a.dtype
+        np.save(output_dir / f'large-{index}-{name}.npy', value.float().cpu().numpy(), allow_pickle=False)
 
     for fn in (candidate, legacy):
         for _ in range(warmup):
@@ -183,6 +209,9 @@ def paired_speedup(shape=(8, 512, 512, 2560), warmup=5, iters=20, rounds=5):
 
     candidate_samples = measure(candidate)
     legacy_samples = measure(legacy)
+    after = candidate()
+    assert after.shape == (batch, m, n) and after.device == a.device and after.dtype == a.dtype
+    np.save(output_dir / f'large-{index}-after.npy', after.float().cpu().numpy(), allow_pickle=False)
     candidate_ms = statistics.median(candidate_samples)
     legacy_ms = statistics.median(legacy_samples)
     return {
@@ -197,16 +226,19 @@ def paired_speedup(shape=(8, 512, 512, 2560), warmup=5, iters=20, rounds=5):
 def launch_scaling():
     from torch.profiler import profile, ProfilerActivity
     result = []
-    for batch in (1, 7, 29):
-        a = torch.randn(batch, 32, 64, device="cuda", dtype=torch.float16)
-        b = torch.randn(batch, 64, 32, device="cuda", dtype=torch.float16)
-        bmm_batch_invariant(a, b)
-        torch.cuda.synchronize()
-        with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+    for dtype_name, shape in LAUNCH_GROUPS:
+        m, n, k = shape
+        dtype = getattr(torch, dtype_name.split('.')[-1])
+        for batch in (1, 7, 29):
+            a = torch.randn(batch, m, k, device="cuda", dtype=dtype)
+            b = torch.randn(batch, k, n, device="cuda", dtype=dtype)
             bmm_batch_invariant(a, b)
             torch.cuda.synchronize()
-        kernels = [e.name for e in prof.events() if str(e.device_type).endswith("CUDA")]
-        result.append({"batch": batch, "kernels": kernels})
+            with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+                bmm_batch_invariant(a, b)
+                torch.cuda.synchronize()
+            kernels = [e.name for e in prof.events() if str(e.device_type).endswith("CUDA")]
+            result.append({"dtype": dtype_name, "shape": shape, "batch": batch, "kernels": kernels})
     return result
 
 
@@ -215,8 +247,8 @@ def main():
     stages, failures = {}, {}
     for name, fn in [("correctness", correctness), ("error_contracts", error_contracts),
                      ("launch_scaling", launch_scaling),
-                     ("performance", lambda: [paired_speedup(shape) for shape in
-                      [(8,512,512,2560),(32,512,512,2560),(8,1280,1280,2560)]])]:
+                     ("performance", lambda: [paired_speedup(index, case) for index, case in
+                      enumerate(load_workload()['performance'])])]:
         try:
             stages[name] = fn()
         except Exception:

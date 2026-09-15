@@ -1,25 +1,13 @@
-# Review contract
+# Behavioral boundary
 
-3-D CUDA operands and optional output -> actual batch-aware Triton execution -> bitwise batch/single equality, numeric result, errors, launch count and paired latency.
+Valid 3-D operands and optional destination -> real `bmm_batch_invariant` and CUDA/Triton execution -> numerical output, batch/single bit patterns, destination identity and conversion, input rejection, launch scaling and elapsed CUDA time. No model server or distributed transport is required for this kernel boundary.
 
-A100 execution, tensor dtype/shape/strides, reduction order, launch scaling and timings are semantic. Input values may vary. The comparison kernel is the exact Base matrix implementation retained in tests/legacy_bmm.py, rather than a candidate-editable baseline. No CUDA component is simulated.
+The grading parent generates and retains the operands before candidate imports. Formal correctness covers FP16/BF16/FP32, long K, exact zeros and cancellation, empty M/N/K, noncontiguous inputs and a transposed caller-owned destination. JSON arrays are reconstructed with the prescribed shapes, including empty dimensions. Bit comparisons reinterpret elements as same-width integers, preserving signed zero without imposing contiguous strides. The worker also checks CUDA `torch.bmm` at the public tolerances; the parent uses an independent FP64 reference at the same coefficients. The three timed BF16 shapes have full output checks before and after timing and batch/single comparison.
 
-Eight dtype/shape cases; seven invalid-input cases and 32 output-copy cases (dtype conversion, CPU destination, and broadcast-compatible destination); launches at batches 1/7/29; three prescribed shapes with five warmups, twenty iterations and five timing rounds. Independent challenge adds empty and singleton dimensions, noncontiguous inputs/output and new geometry. Base is already batch-invariant: its target failure is launch scaling/performance, not loss of determinism.
+Launch counts are compared across B=1,7,29 for FP16 and BF16 geometries. The independent challenge compares B=1,5,17 on strided inputs; neither imposes an absolute kernel-count cap. The split-reduction alternative uses multiple real partial products and an FP32 reduction for short K, with the direct path for longer reductions. It checks implementation freedom beyond single-kernel alternatives. Signed-zero and strided-buffer rejection controls distinguish the added contracts through behavior.
 
-## Scoring integrity
+The public timing protocol is unchanged: five warmups, 20 direct calls per round, CUDA events without graph replay, and separate medians over five rounds. Speedup thresholds remain 2.0/1.05/1.05 on the documented A100 shapes. Measuring all candidate rounds before legacy rounds remains a known order-sensitivity limit near the thresholds; no stability claim beyond recorded trials is made.
 
-The separate grading parent owns the current workload and keeps it in memory before candidate imports. Its read-only workload file provides actual matrix operands or continuation records to the unprivileged worker. Numerical references and expected state come from the parent's inputs, not input descriptions returned by the worker. The child still executes the real production paths described above. BMM launch and latency gates are unchanged.
+The parent decides reward and computes numerical references outside the candidate process. Launch and event observations still share the candidate process; applicable report and early-exit controls define the demonstrated trust boundary. Supervisor reports distinguish worker execution, observation collection and behavioral-check failures without converting environment errors into agent attribution. Historical evidence is retained separately; the current e2e record binds actual runs to this revision.
 
-The preserved observation-replay negative control executes no target checks and previously received reward 1. It is retained byte-for-byte in `validation/replay-observations.patch`. Current validation must reject it with reward 0, together with both Python early-success exits and attempted direct report writes. Additional scorer regressions replace input descriptions while retaining stale outputs, to distinguish behavioral checking from a freshness marker alone. Those are unit regressions and are reported separately from full Harbor trials.
-
-Process isolation alone is not treated as evidence that target behavior ran; the recorded controls and behavioral assertions define the validated coverage.
-
-## Evidence discipline
-
-Old snapshots and direct Docker diagnostics are not final Harbor results. `e2e-evidence.json` records the actual image identity, executable hashes, raw run locations and final full-path outcomes.
-
-The `out=` contract checks tensor object identity as well as storage and values. The `out-view-return` control keeps correct values and storage but returns a distinct view; it must receive reward 0.
-
-Output-copy compatibility follows the frozen baseline. The old strict Oracle is retained as the incorrect strict-out-rejection control. The archived solver implementation is a correct alternative, evaluated afresh under this contract. Performance thresholds are unchanged.
-
-Long FP32 reductions at K=1536 and K=2560 use parent-owned operands and a CPU float64 reference cast to FP32. Determinism never replaces the numerical tolerance. The performance cases still use BF16 with the original three speedup gates. The independent challenge adds K=2048/3072. Batch=0 is not asserted as supported: the frozen Base rejects torch.stack([]). The prior TF32 Oracle is retained as the long-k-tf32-loss negative control.
+Batch cardinality follows the existing wrapper: extra RHS batches are ignored; a shorter RHS and any empty LHS batch are rejected without fixing an exception class. Nineteen numerical cases include three extra-RHS cases, one per supported dtype, with the same batch/single, output-copy and independent numerical checks. Nine error cases include both empty-batch combinations. The independent challenge uses fresh extra-RHS geometry, converted CPU out, and all three dtypes. The original loop establishes only this compatibility behavior; it is not the numerical reference or an exemption from launch/performance requirements.

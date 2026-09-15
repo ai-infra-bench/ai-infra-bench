@@ -141,12 +141,9 @@ diff --git a/vllm/model_executor/layers/batch_invariant.py b/vllm/model_executor
  def _log_softmax_kernel(
      input_ptr,
      output_ptr,
-@@ -525,23 +658,93 @@
- 
+@@ -526,22 +659,90 @@
  
  def bmm_batch_invariant(a, b, *, out=None):
-+    if a.ndim == b.ndim == 3 and a.shape[0] == 0:
-+        raise ValueError("BMM requires a nonempty left-hand batch")
      # Batched matrix multiply: (B, M, K) x (B, K, N) -> (B, M, N)
 -    # Process each batch separately with our persistent kernel
 -    if a.ndim == 3 and b.ndim == 3:
@@ -168,9 +165,9 @@ diff --git a/vllm/model_executor/layers/batch_invariant.py b/vllm/model_executor
              f"got shapes {a.shape} and {b.shape}"
          )
 +
-+    if a.shape[0] > b.shape[0]:
++    if a.shape[0] != b.shape[0]:
 +        raise ValueError(
-+            f"Right operand must contain every left-hand batch, "
++            f"Batch dimensions of tensors must match, "
 +            f"but got {a.shape[0]} and {b.shape[0]}."
 +        )
 +    if a.shape[2] != b.shape[1]:

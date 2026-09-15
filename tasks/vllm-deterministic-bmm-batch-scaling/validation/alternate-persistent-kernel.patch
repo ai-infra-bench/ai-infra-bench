@@ -236,7 +236,7 @@ diff --git a/vllm/model_executor/layers/batch_invariant.py b/vllm/model_executor
 +    per-tile reduction order (and hence the exact output bits) is independent of
 +    the batch size.
 +    """
-+    assert a.shape[0] == b.shape[0], "Incompatible batch sizes"
++    assert a.shape[0] <= b.shape[0], "Right operand has too few batches"
 +    assert a.shape[2] == b.shape[1], "Incompatible dimensions"
 +    assert a.dtype == b.dtype, "Incompatible dtypes"
 +
@@ -289,9 +289,12 @@ diff --git a/vllm/model_executor/layers/batch_invariant.py b/vllm/model_executor
      )
      return c
  
-@@ -526,22 +722,23 @@
+@@ -525,23 +721,26 @@
+ 
  
  def bmm_batch_invariant(a, b, *, out=None):
++    if a.ndim == b.ndim == 3 and a.shape[0] == 0:
++        raise ValueError("BMM requires a nonempty left-hand batch")
      # Batched matrix multiply: (B, M, K) x (B, K, N) -> (B, M, N)
 -    # Process each batch separately with our persistent kernel
 -    if a.ndim == 3 and b.ndim == 3:
