@@ -1,0 +1,31 @@
+diff --git a/vllm/model_executor/layers/fused_moe/modular_kernel.py b/vllm/model_executor/layers/fused_moe/modular_kernel.py
+--- a/vllm/model_executor/layers/fused_moe/modular_kernel.py
++++ b/vllm/model_executor/layers/fused_moe/modular_kernel.py
+@@ -832,15 +832,18 @@
+                     expert_tokens_meta,
+                 )
+             )
+-            buffers.workspace13.get(
+-                max_workspace_13, device=device, dtype=workspace_dtype
+-            )
+-            buffers.workspace2.get(
+-                max_workspace_2, device=device, dtype=workspace_dtype
+-            )
+-            buffers.fused_out.get(
+-                max_fused_out_shape, device=device, dtype=workspace_dtype
+-            )
++            sizes = [prod(shape) for shape in
++                     (max_workspace_13, max_workspace_2, max_fused_out_shape)]
++            existing = getattr(buffers, '_packed_arena', None)
++            if (existing is None or existing.numel() < sum(sizes)
++                    or existing.dtype != workspace_dtype or existing.device != device):
++                arena = torch.empty(sum(sizes), device=device, dtype=workspace_dtype)
++                buffers._packed_arena = arena
++                cursor = 0
++                for target, size in zip((buffers.workspace13, buffers.workspace2, buffers.fused_out), sizes):
++                    target.buffer = arena[cursor:cursor+size]
++                    cursor += size
++
+ 
+         # Get intermediate workspace shapes based off the chunked M size.
+         workspace13_shape, workspace2_shape, _ = self.fused_experts.workspace_shapes(

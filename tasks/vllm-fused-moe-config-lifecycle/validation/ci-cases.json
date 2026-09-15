@@ -1,0 +1,159 @@
+{
+  "cases": [
+    {
+      "expected_reward": 0,
+      "name": "alternate-config-wrapper",
+      "patch": "alternate-config-wrapper.patch",
+      "patch_sha256": "cf5ac5c090dee87373a5791cb360550c1da511f36efa6c56e3716551e1489742",
+      "note": "Retains engine config instead of constructor-resolved layer sizes; explicit layer override is an independent failing case."
+    },
+    {
+      "expected_reward": 0,
+      "name": "constructor-global-cache",
+      "patch": "constructor-global-cache.patch",
+      "patch_sha256": "949a540fd4f19ca4f7c61ebf55b12d5bcdf43ac90b4a9b07657dcc3a67bf4d63"
+    },
+    {
+      "apply_after": "base",
+      "expected_reward": 0,
+      "name": "early-exit-os-exit",
+      "patch": "early-exit-os-exit.patch",
+      "patch_sha256": "c34a59bcee96cc2e599e1dbfda9a2e849e507191a1c5ab748d52078427e69033"
+    },
+    {
+      "apply_after": "base",
+      "expected_reward": 0,
+      "name": "early-exit-system-exit",
+      "patch": "early-exit-system-exit.patch",
+      "patch_sha256": "a953b6d100d29bc5a85b4794337a9291ce829c2ba75d3e1cc57804a89f7d7100"
+    },
+    {
+      "name": "forged-report-exit",
+      "patch": "forged-report-exit.patch",
+      "expected_reward": 0,
+      "apply_after": "base",
+      "patch_sha256": "5d9e304321097bcb6ed7dc89d74fdb462a2c45b59b62b4668fc212a28750a529"
+    },
+    {
+      "name": "constant-numerical-output",
+      "patch": "constant-numerical-output.patch",
+      "expected_reward": 0,
+      "apply_after": "base",
+      "patch_sha256": "34f68ab1f53e0e7970bcbbbaf58199e20ad67938735f17684da7c0f97f66b14a"
+    },
+    {
+      "name": "replay-observations",
+      "patch": "replay-observations.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "patch_sha256": "374c67b646658a5c22aa04cf8852ddd9b87fc77d468ad95ca37d4c35321a4326"
+    },
+    {
+      "name": "alternate-production-quant-owner",
+      "patch": "alternate-production-quant-owner.patch",
+      "apply_after": "base",
+      "expected_reward": 1,
+      "patch_sha256": "3dfe6ec956237f6bc1950c20e10946bf3196822b5dc3b9daf7d6a9b861d32563",
+      "note": "Production quant-method owner with a normal torch.nn.Module wrapper; original archived bytes are retained as legacy-custom-op-wrapper."
+    },
+    {
+      "name": "alternate-workspace-diagnostic",
+      "patch": "alternate-workspace-diagnostic.patch",
+      "apply_after": "base",
+      "expected_reward": 1,
+      "patch_sha256": "cd91a7f5906f22264a9d15b907d7e88e6b5f6eda23ac1842632910779a9681eb",
+      "note": "Correct config/allocation/numerics with an additional ordinary-path workspace shape query for debug logging. Query count is not the task contract."
+    },
+    {
+      "name": "undersized-profile-workspace",
+      "patch": "undersized-profile-workspace.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "patch_sha256": "077c2bd8507ba671db853b42e43bdd8cd7d6d03d1dd57f12ef2c01c24e70cee3",
+      "note": "Correct config and small-input numerics, but reserves only 64 routing rows instead of the frozen backend worst-case 16384 rows."
+    },
+    {
+      "name": "legacy-custom-op-wrapper",
+      "patch": "legacy-custom-op-wrapper.patch",
+      "expected_reward": 0,
+      "apply_after": "base",
+      "note": "Unmodified archived production-quant-owner candidate; real wrapper construction warns without ambient config.",
+      "patch_sha256": "e8deda2420b8ec831eb0af524bd44eea3f2363fa4d889d226c5bea8c140cbb83"
+    },
+    {
+      "name": "alternate-wrapper-storage",
+      "patch": "alternate-wrapper-storage.patch",
+      "expected_reward": 1,
+      "apply_after": "base",
+      "patch_sha256": "da3dada3df21ed5d198e1824b6a9c04f5a2cb0789a485d09c91e07b9b978122a",
+      "note": "Preserves factory/apply behavior while storing the expert kernel under another internal attribute."
+    },
+    {
+      "name": "nonprofile-global-read",
+      "patch": "nonprofile-global-read.patch",
+      "patch_sha256": "0337f0d608047a80bb09062a5bf11d30e1d500fc54ce9ba3ddff8c73ffbb70b3",
+      "apply_after": "oracle",
+      "expected_reward": 0
+    },
+    {
+      "name": "observations-without-execution",
+      "patch": "observations-without-execution.patch",
+      "patch_sha256": "f878bfb9301b8ef6493d94b9faef452ff768350a90876a88432a64213eee97fc",
+      "apply_after": "base",
+      "expected_reward": 0
+    },
+    {
+      "name": "alternate-reuse-reserved-workspace",
+      "patch": "alternate-reuse-reserved-workspace.patch",
+      "patch_sha256": "2c77c2096af6f9e1af1fb40e637442ac81a81d346406c39aa7d030403bba05eb",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Keeps enough existing backing storage and avoids redundant profiling get/view operations; reservation/query counts are not prescribed."
+    },
+    {
+      "name": "ambient-dp-profile",
+      "patch": "ambient-dp-profile.patch",
+      "patch_sha256": "1cd8f17ca1e1dc01d5013b31c940d9b16b824fa7117b1b9f942da57206124958",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "note": "Configured DP layer follows an unrelated ambient ordinary context without emitting a warning; cold conflicting profiling must expose the missing reservation."
+    },
+    {
+      "name": "missing-one-reservation",
+      "patch": "missing-one-reservation.patch",
+      "patch_sha256": "9235a193d48276e6b23c767180d30ee85e87cf5ccc90f195ba6bd68e0b8f18f7",
+      "apply_after": "oracle",
+      "expected_reward": 0
+    },
+    {
+      "name": "alternate-packed-workspace",
+      "patch": "alternate-packed-workspace.patch",
+      "patch_sha256": "fe40124eb81e3f44307975ef4e39e815d33b07020d100c400eedb6b29533539c",
+      "apply_after": "oracle",
+      "expected_reward": 1
+    },
+    {
+      "name": "alternate-per-call-workspace",
+      "patch": "alternate-per-call-workspace.patch",
+      "patch_sha256": "f9fc957f20f5a16b5183cf5f8161f1fbfaa32098460a63cdc13abebdc29ef910",
+      "apply_after": "oracle",
+      "expected_reward": 1
+    },
+    {
+      "name": "ordinary-forced-dp-reservation",
+      "patch": "ordinary-forced-dp-reservation.patch",
+      "patch_sha256": "d054b48fce39edb9ac3da11aeb21eba44b37a439dad8564ca58f6062c17aca78",
+      "apply_after": "oracle",
+      "expected_reward": 0
+    },
+    {
+      "name": "engine-config-overrides-layer",
+      "patch": "engine-config-overrides-layer.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "note": "Previous reference implementation; retained unchanged to exercise the newly covered contract.",
+      "patch_sha256": "562727a70382717cab289ffc4b5e77607d0fe15d7e3a752bcd5516516f9d36c1"
+    }
+  ],
+  "schema_version": "ai_infra_bench_validation_cases.v1"
+}

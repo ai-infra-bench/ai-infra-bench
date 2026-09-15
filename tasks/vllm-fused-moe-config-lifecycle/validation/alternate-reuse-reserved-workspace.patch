@@ -1,0 +1,29 @@
+diff --git a/vllm/model_executor/layers/fused_moe/modular_kernel.py b/vllm/model_executor/layers/fused_moe/modular_kernel.py
+--- a/vllm/model_executor/layers/fused_moe/modular_kernel.py
++++ b/vllm/model_executor/layers/fused_moe/modular_kernel.py
+@@ -832,15 +832,16 @@
+                     expert_tokens_meta,
+                 )
+             )
+-            buffers.workspace13.get(
+-                max_workspace_13, device=device, dtype=workspace_dtype
+-            )
+-            buffers.workspace2.get(
+-                max_workspace_2, device=device, dtype=workspace_dtype
+-            )
+-            buffers.fused_out.get(
+-                max_fused_out_shape, device=device, dtype=workspace_dtype
+-            )
++            for buffer, shape in (
++                (buffers.workspace13, max_workspace_13),
++                (buffers.workspace2, max_workspace_2),
++                (buffers.fused_out, max_fused_out_shape),
++            ):
++                existing = buffer.buffer
++                if (existing is None or existing.numel() < prod(shape)
++                        or existing.device != device
++                        or existing.dtype != workspace_dtype):
++                    buffer.get(shape, device=device, dtype=workspace_dtype)
+ 
+         # Get intermediate workspace shapes based off the chunked M size.
+         workspace13_shape, workspace2_shape, _ = self.fused_experts.workspace_shapes(
