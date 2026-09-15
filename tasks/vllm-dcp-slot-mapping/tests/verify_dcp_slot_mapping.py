@@ -8,6 +8,7 @@ or call an Oracle-added helper or inspect candidate source.
 
 from __future__ import annotations
 
+from inspect import signature
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -225,9 +226,16 @@ def check_graph_replay(module) -> None:
 
 
 def check_graph_metadata_flow() -> None:
-    """Ensure DCP-local lengths reach the attention backend on graph warm-up."""
+    """Ensure DCP-local lengths reach the attention backend on graph warm-up.
+
+    Candidate implementations may derive DCP state inside the capture helper,
+    as the Oracle does, or pass persistent buffers and DCP coordinates from the
+    model runner.  Exercise either production-compatible API instead of
+    silently invoking an extended helper with its non-DCP defaults.
+    """
     import vllm.v1.worker.gpu.block_table as block_table_module
     import vllm.v1.worker.gpu.cudagraph_utils as graph_module
+    from vllm.v1.utils import CpuGpuBuffer
     from vllm.v1.worker.gpu.input_batch import InputBuffers
 
     dcp_size, dcp_rank, interleave = 2, 1, 2
@@ -239,7 +247,20 @@ def check_graph_metadata_flow() -> None:
         interleave=interleave,
     )
     populate(tables)
-    buffers = InputBuffers(max_num_reqs=2, max_num_tokens=48, device=torch.device("cuda"))
+    buffer_kwargs = dict(
+        max_num_reqs=2,
+        max_num_tokens=48,
+        device=torch.device("cuda"),
+    )
+    buffer_parameters = signature(InputBuffers).parameters
+    for parameter, value in (
+        ("dcp_world_size", dcp_size),
+        ("dcp_rank", dcp_rank),
+        ("cp_kv_cache_interleave_size", interleave),
+    ):
+        if parameter in buffer_parameters:
+            buffer_kwargs[parameter] = value
+    buffers = InputBuffers(**buffer_kwargs)
     captured = []
 
     class CaptureBuilder:
@@ -250,7 +271,7 @@ def check_graph_metadata_flow() -> None:
 
     cache_group = SimpleNamespace(layer_names=["layer"], kv_cache_spec=object())
     cache_config = SimpleNamespace(kv_cache_groups=[cache_group])
-    metadata, slots_by_layer = graph_module.prepare_inputs_to_capture(
+    capture_kwargs = dict(
         num_reqs=2,
         num_tokens=16,
         input_buffers=buffers,
@@ -258,6 +279,32 @@ def check_graph_metadata_flow() -> None:
         attn_metadata_builders=[CaptureBuilder()],
         max_model_len=64,
         kv_cache_config=cache_config,
+    )
+    capture_parameters = signature(graph_module.prepare_inputs_to_capture).parameters
+    if "seq_lens_cpu" in capture_parameters:
+        capture_kwargs["seq_lens_cpu"] = CpuGpuBuffer(
+            2,
+            dtype=torch.int32,
+            device=torch.device("cuda"),
+            pin_memory=False,
+        )
+    if "dcp_local_seq_lens" in capture_parameters:
+        capture_kwargs["dcp_local_seq_lens"] = CpuGpuBuffer(
+            2,
+            dtype=torch.int32,
+            device=torch.device("cuda"),
+            pin_memory=False,
+        )
+    for parameter, value in (
+        ("dcp_world_size", dcp_size),
+        ("dcp_rank", dcp_rank),
+        ("cp_kv_cache_interleave_size", interleave),
+    ):
+        if parameter in capture_parameters:
+            capture_kwargs[parameter] = value
+
+    metadata, slots_by_layer = graph_module.prepare_inputs_to_capture(
+        **capture_kwargs
     )
     assert "layer" in metadata and "layer" in slots_by_layer
     assert len(captured) == 1
