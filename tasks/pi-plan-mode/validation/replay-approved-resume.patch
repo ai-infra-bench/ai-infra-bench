@@ -1,0 +1,24 @@
+--- a/packages/coding-agent/examples/extensions/plan-mode/index.ts
++++ b/packages/coding-agent/examples/extensions/plan-mode/index.ts
+@@ -339,6 +339,21 @@
+ 				pi.setActiveTools([...toolsBeforePlanning.filter((name) => READ_TOOLS.has(name)), "plan_submit"]);
+ 			} else if (state.mode === "approved") {
+ 				pi.setActiveTools([...toolsBeforePlanning]);
++				const approved = {
++					sessionId: state.sessionId,
++					planId: state.planId,
++					revision: state.revision,
++					steps: [...state.steps],
++				};
++				pi.sendMessage(
++					{
++						customType: "plan-approved",
++						details: approved,
++						content: `Execute the approved plan.\nSession: ${approved.sessionId}\nPlan: ${approved.planId}\nRevision: ${approved.revision}\n\n${approved.steps.map((step, i) => `${i + 1}. ${step}`).join("\n")}\n\nReport completed steps with [DONE:n].`,
++						display: true,
++					},
++					{ triggerTurn: true, deliverAs: "followUp" },
++				);
+ 			}
+ 		} else {
+ 			pi.setActiveTools(pi.getActiveTools().filter((name) => name !== "plan_submit"));
