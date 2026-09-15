@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,11 +14,27 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def portable_run_record(item: dict, matrix_dir: Path) -> dict:
+    """Record run locations relative to the output directory, not the host."""
+    record = dict(item)
+    record["result"] = Path(item["result"]).resolve().relative_to(matrix_dir).as_posix()
+    command = list(item["command"])
+    command[0] = "<harbor-launcher>"
+    for flag in ("--path", "--jobs-dir"):
+        index = command.index(flag) + 1
+        command[index] = Path(command[index]).resolve().relative_to(matrix_dir).as_posix()
+    record["command"] = command
+    return record
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("matrix", type=Path)
+    parser.add_argument("--output", type=Path, help="Evidence destination; defaults to validation/e2e-evidence.json")
     args = parser.parse_args()
     task = Path(__file__).resolve().parent.parent
+    metadata = tomllib.loads((task / "task.toml").read_text())
+    matrix_dir = args.matrix.resolve()
     matrix = json.loads((args.matrix / "summary.json").read_text())
     image = json.loads((task / "environment/image-manifest.json").read_text())
     expected = {"base": 0, "oracle": 1}
@@ -53,7 +70,7 @@ def main() -> None:
         if behavior_passed != bool(item["expected_reward"]):
             raise ValueError(f"Behavioral result does not explain reward: {item['case']}")
         raw_hashes = {str(p.relative_to(result_path.parent)): digest(p) for p in result_path.parent.rglob("*") if p.is_file() and (p.suffix in {".xml", ".json"} or p.name in {"pass-to-pass.log", "contract.log", "lifecycle.log"})}
-        runs.append({**item, "observed": check, "result_sha256": digest(result_path), "verifier": summaries, "raw_artifact_sha256": raw_hashes})
+        runs.append({**portable_run_record(item, matrix_dir), "observed": check, "result_sha256": digest(result_path), "verifier": summaries, "raw_artifact_sha256": raw_hashes})
 
     files = {}
     for path in sorted(task.rglob("*")):
@@ -67,29 +84,26 @@ def main() -> None:
         "dependency_cutoff": image["dependency_cutoff"],
         "image": {key: image[key] for key in ("canonical_tag", "image_id", "platform", "build_context")},
         "harbor_version": matrix["harbor"],
-        "hardware": "Developer machine, native Linux amd64, each final Harbor trial uses 4 CPUs and 8192 MiB; network disabled",
+        "hardware": {"platform": image["platform"], "cpus": metadata["environment"]["cpus"],
+                     "memory_mb": metadata["environment"]["memory_mb"], "network": "none"},
+        "path_representation": "Run paths are relative to the validation output directory; the launcher is a placeholder. Raw hashes refer to original unmodified artifacts.",
         "semantic_boundary": "user input / scripted model tool call -> real loader, AgentSession, dispatch, approval and persistence -> visible requests, tool effects, control entries and independent-process resume",
         "substitutions": ["first-party faux provider for model output", "UI choice adapter for a human selecting an action"],
         "artifacts": {"files": files},
         "harbor_runs": runs,
         "other_checks": {
-            "oracle": "Final retained image, actual pi-agent user: npm run check and 43 extension/utils tests pass; remote oracle-code-check-final.log",
-            "alternative": "Independently written event journal/reducer; npm run check, 42 own/utils tests and 21 business/lifecycle checks pass before formal same-verifier run",
-            "agent_environment": "Final retained image, pi-agent UID 1001 offline: 60 path/settings smoke tests pass; prior permissions-equivalent image also passed full npm run check",
             "initial_image_baseline": image["pass_to_pass_baseline"],
         },
         "limitations": [
-            "Author validation only; no real coding-agent rollout or empirical difficulty/success-rate claim.",
+            "This record covers construction validation, not coding-agent difficulty or success rates.",
             "One original AuthStorage failure was reproduced on untouched Base and is accepted only under its exact pinned assertion fingerprint; all 2154 cases remain required, with raw failures exposed.",
             "Existing public Plan Mode implementations may inform solvers; no contamination-free claim.",
             "Root reporter and protected toolchain prevent worker writes to grading artifacts; not a universal defense against arbitrary assertion manipulation within a worker.",
             "The retained local image is immutable by ID; floating OS repositories/frontend mean later Dockerfile builds need not be byte-identical. Image not published.",
             "Crash recovery, in-flight shutdown, fork/tree/reload and arbitrary shell read-only enforcement are outside this task.",
         ],
-        "delivery": {"branch": "agent/pi-plan-mode", "committed": False, "pushed": False,
-                     "developer_worktree": "/data00/home/xingjunqian/ai-infra-bench-plan-mode"},
     }
-    target = task / "validation/e2e-evidence.json"
+    target = args.output or task / "validation/e2e-evidence.json"
     target.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n")
     print(target)
 

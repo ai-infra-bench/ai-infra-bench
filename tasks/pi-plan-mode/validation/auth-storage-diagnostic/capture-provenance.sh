@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-container=pi-authstorage-fs-diagnostic-20260915
+container=${1:?Usage: capture-provenance.sh CONTAINER}
 printf 'captured_at=%s\n' "$(date -u +%FT%TZ)"
 printf 'base_commit=d981de1229ef899957bbe968bc8dcda02a21f477\n'
 printf 'container_state='

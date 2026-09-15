@@ -16,7 +16,11 @@ Relevant SHA-256 values match the frozen Base manifest:
 
 Five independent executions of the original auth-storage test file used `vitest run --pool=forks --retry=2 --maxWorkers=4` between 2026-09-15 04:23:56 and 04:24:03 UTC. All five reports contain all 26 cases and zero failures/errors. A subsequent complete original-suite invocation with the same flags contains 2,154 cases, zero failures/errors and 50 skips. The three permission-sensitive failures recorded in the original root baseline improve to passing under UID 65534, which the unchanged comparison policy permits.
 
-The raw evidence is included in [`base-environment-evidence/`](base-environment-evidence/), with original copies retained at `/tmp/pi-plan-base-auth-evidence-20260915/` locally and `/data00/home/xingjunqian/harbor-workspace/pi-plan-mode/base-auth-evidence/` on the development host. It includes five JUnit reports and logs, the full-suite report/log, UTC run records, exact commands, Git/file provenance, container constraints and the timestamp probe source/result.
+The original JUnit reports, source provenance and run records are included in
+[`base-environment-evidence/`](base-environment-evidence/). Console output is
+consolidated in `run-output.json`; container IDs and setup-only scripts are not
+part of the task. These preliminary runs are distinct from the fixed experiment
+below.
 
 ## Initial observation and decision
 
@@ -41,7 +45,7 @@ An independent fixed experiment then ran the **unchanged original**
 produced two failures of this assertion; five tmpfs executions produced one.
 Every other case in the file passed. The failure was always the same
 `AssertionError`, old versus new API-key data, at
-`test/auth-storage.test.ts:137:22`. Full original JUnit, commands, source hashes
+`test/auth-storage.test.ts:137:22`. All original JUnit reports, a portable reproduction script, source hashes
 and provenance are in [`auth-storage-diagnostic/`](auth-storage-diagnostic/).
 A separate Base API trace and timestamp probe support the mechanism: equal-size
 writes can share the same file revision in this kernel, leaving the cached old
@@ -60,7 +64,7 @@ to expose it. Source integrity independently keeps AuthStorage and its original
 test unchanged. This separates a proven unrelated baseline failure from the
 Plan Mode modification without asking solvers to edit code outside scope.
 
-After freezing this policy, all 11 author cases must run again through Harbor.
+After freezing this policy, all 11 validation cases were rerun through Harbor.
 `e2e-evidence.json` identifies that final matrix; the prior failed matrix is not
 retroactively relabeled successful. The three permission-sensitive image
 baseline failures and the 50 original skips retain their original rules.

@@ -1,6 +1,6 @@
 # Pi Plan Mode: upstream history and construction scope
 
-Research date: 2026-09-15. This is curator-only research and must not be placed
+Research date: 2026-09-15. This is validation-only research and must not be placed
 inside the agent image or workspace. It records source inspection, not an
 executed Base reproducer, accepted Oracle, or completed benchmark review.
 
@@ -22,14 +22,14 @@ executed Base reproducer, accepted Oracle, or completed benchmark review.
   approval rejection, exact tool restoration, and normal file-backed resume.
   Historical reports motivate realistic failure classes; they do not define
   the new task or its correct implementation.
-- The Oracle is to be authored against this contract. No community package or
+- The Oracle implements this contract. No community package or
   upstream patch has been accepted as the Oracle in this research record.
 
 ## Findings and disposition
 
 | Finding and source | Applicability to Base and this task | Disposition / required verification |
 | --- | --- | --- |
-| [#3109](https://github.com/earendil-works/pi/issues/3109), reported 2026-04-13, and [#3138](https://github.com/earendil-works/pi/issues/3138), reported 2026-04-14: leaving planning overwrote the prior custom tool selection. Both are shown closed. | Base already captures `toolsBeforePlanMode` and restores it; this historical bug must not be claimed to remain unfixed. The new approval workflow must preserve that capability under repeated entry, approval, and normal resume. | Retain exact-tool restoration as a regression contract. Include disabled-read/custom-tool selections; avoid a hardcoded default. Oracle execution evidence remains pending. |
+| [#3109](https://github.com/earendil-works/pi/issues/3109), reported 2026-04-13, and [#3138](https://github.com/earendil-works/pi/issues/3138), reported 2026-04-14: leaving planning overwrote the prior custom tool selection. Both are shown closed. | Base already captures `toolsBeforePlanMode` and restores it; this historical bug must not be claimed to remain unfixed. The new approval workflow must preserve that capability under repeated entry, approval, and normal resume. | Retain exact-tool restoration as a regression contract. Include disabled-read/custom-tool selections; avoid a hardcoded default. Recorded Oracle results are in `e2e-evidence.json`. |
 | [#5062](https://github.com/earendil-works/pi/issues/5062), reported 2026-05-27 against 0.75.5, shown closed: action prompts without a plan and execution requiring another message. | This is an older report. Its proposed explanation that custom messages cannot trigger turns must not be imported as a fact about v0.85.1. Base uses queued custom follow-ups, and the task explicitly requires a model-visible custom approved snapshot. | Verify automatic scheduling through the real session path, rather than asserting a chosen send API. Empty/unsubmitted plans must not become approved. |
 | [#5428](https://github.com/earendil-works/pi/issues/5428) and [#5327](https://github.com/earendil-works/pi/issues/5327), linked from [#5940](https://github.com/earendil-works/pi/issues/5940): refinement errors and disappearing custom tools. #5327 is shown closed. #5940 was reported 2026-06-21 and is closed. | The upstream fix [542683b29ab2865976dddb006b4d70cffe315e25](https://github.com/earendil-works/pi/commit/542683b29ab2865976dddb006b4d70cffe315e25) explicitly closes #5940 and is an ancestor of Base. It preserves active custom tools, avoids empty-plan prompts and queues refinement/execution follow-ups. | Preserve compatible refinement, execution scheduling, and normal-mode tool selection. Deliberately change planning to the task's restrictive allowlist; do not mistake an old test asserting broad custom-tool access for an immutable requirement. |
 | Base Plan Mode source uses a mutable todo list, a boolean planning toggle, prose extraction, and UI choice handling; it does not expose the new `PlanState`/`plan_submit`/`plan-control` contract. | The task is a feature enhancement of an existing extension. Old `/plan` toggle and prose parsing behavior intentionally changes, while helpers and unrelated behavior remain compatible. | Base-versus-Oracle distinction must be demonstrated with supported inputs. In particular, test a displayed revision superseded before UI approval resolves, and current-session/revision validation through the actual input path. |
@@ -68,10 +68,7 @@ be a separate measurement design, not a property established here.
 
 Inspected local Pi history with `git show`, `git log --all -- <plan-mode path>`,
 and `git merge-base --is-ancestor 542683b29ab2865976dddb006b4d70cffe315e25
-d981de1229ef899957bbe968bc8dcda02a21f477` (success). The local Pi checkout's HEAD
-at inspection was `71dca871bc80b6bc97be37f0ca3189399d651fff`; all Base behavior
-claims above refer to explicit `git show d981de122...:<path>` reads, not that
-checkout's HEAD.
+d981de1229ef899957bbe968bc8dcda02a21f477` (success). All Base behavior claims above refer to explicit reads at the pinned commit.
 
 Public searches included `site:github.com/earendil-works/pi/pull "plan" "mode"`,
 `site:github.com/earendil-works/pi/issues "plan-mode" "approval"`, and

@@ -1,113 +1,137 @@
 # pi-plan-mode
 
-Development task for review. The native amd64 image and both implementations
-have been built and checked; final Harbor results are recorded separately in
-`validation/e2e-evidence.json`. The branch and image have not been published.
+**Status: development.** Validated through the Harbor entrypoint on a retained
+linux/amd64 image: Base 0, Oracle 1, one correct alternative 1, and eight negative
+controls 0. The image is not yet published. Recorded results are in
+[`validation/e2e-evidence.json`](validation/e2e-evidence.json).
 
 ## What the agent does
 
-Enhance pi's existing Plan Mode example extension so approval identifies the
-exact session, plan, and revision that the user reviewed. The change includes
-explicit plan submission, interactive and RPC controls, stale-approval
-rejection, exact restoration of the prior tool selection, and normal idle
-session resume without repeating execution. The coding agent produces a patch
-to pi; pi itself is the target repository, not the agent being ranked. See
-[`instruction.md`](instruction.md) for the authoritative contract.
+Enhances the existing Plan Mode example extension in
+[pi](https://github.com/earendil-works/pi) at a pinned commit. Approval must identify
+the exact session, plan, and revision the user reviewed. The task covers explicit
+plan submission, interactive and RPC controls, stale-approval rejection, exact
+restoration of the prior tool selection, and normal session resume without
+repeating execution. The benchmark evaluates the coding agent's patch to pi.
+See [`instruction.md`](instruction.md) for the authoritative contract.
 
-The task allows changes inside the existing Plan Mode extension, its README,
-the existing `plan-mode-extension.test.ts`, and new coding-agent tests. Core,
-dependencies, build configuration, unrelated extensions, and unrelated tests
-remain unchanged. Planning semantics intentionally differ from the old example:
-repeating `/plan` no longer restores writing, and arbitrary custom tools are
-not enabled during planning.
+Changes are limited to the Plan Mode extension and its README, the existing
+`plan-mode-extension.test.ts`, and new coding-agent tests. Core, dependencies,
+build configuration, unrelated extensions, and unrelated tests remain unchanged.
+Repeating `/plan` no longer restores writing, and arbitrary custom tools are not
+enabled during planning.
 
 ## Environment
 
-- Pi Base: `earendil-works/pi` at
-  `d981de1229ef899957bbe968bc8dcda02a21f477` (v0.85.1).
-- Dependency cutoff: `2026-09-05T11:54:46Z`; install the Base's original npm
-  lock verbatim with `npm ci`.
-- Generated from the task-local `environment/build/Dockerfile.template`, derived
-  from `pi-harbor-node`: pinned Node 22.19.0 bookworm-slim,
-  prebuilt pi workspace, fd 10.2.0, ripgrep, and Python for verifier helpers.
-- CPU only: 4 CPUs, 8 GiB RAM, 20 GiB storage; agent budget 10 hours, verifier
-  budget 1 hour; agent user `pi-agent`, workdir `/workspace/pi`; verifier
-  coordinator runs as root and candidate test workers run as UID 65534.
-- Runtime is offline. The verifier uses pi's first-party faux provider and
-  installed development tools, with no real model requests. Building the image
-  still requires access to the pinned source, registries, and package mirrors.
-- The empty build context excludes task tests, reference solutions, and
-  validation documents from the agent image. The template records the upstream
-  coding-agent test baseline under `/opt/pi-baseline/`.
+- Base: `earendil-works/pi` at `d981de1229ef899957bbe968bc8dcda02a21f477`
+  (v0.85.1); dependency cutoff `2026-09-05T11:54:46Z`.
+- Pinned Node 22.19.0 bookworm-slim, `npm ci` with the Base's original lockfile,
+  and a prebuilt pi workspace. `fd` 10.2.0, ripgrep, and Python are installed
+  so runtime tools and verifier helpers work offline.
+- The Dockerfile is generated from `environment/build/Dockerfile.template`.
+  The builder uses an empty context and records the image identity in
+  `environment/image-manifest.json`; `task.toml` pins that identity.
+- CPU only: 4 CPUs, 8 GiB RAM, 20 GiB storage; agent timeout 10 hours and
+  verifier timeout 1 hour. The agent runs as `pi-agent` in `/workspace/pi`.
+- The environment has no network by default. Verification uses pi's first-party
+  faux provider, with provider credentials unset and `PI_OFFLINE=1`; it makes no
+  real model requests. Building the image requires access to the pinned source
+  and packages.
+- Task tests, reference solutions, and validation artifacts are excluded from
+  the image. The image records the original coding-agent test baseline under
+  `/opt/pi-baseline/`.
 
-The actual image ID is recorded in `environment/image-manifest.json` and
-`task.toml`. The image grants editing access to the allowed extension and tests,
-and provides writable scratch/cache locations for normal upstream test commands.
-Dependencies, Git metadata and core configuration remain protected. The verifier
-freezes submitted sources, discards candidate caches, and keeps its coordinator,
-scripts and final reports outside the worker's write permissions. This does not
-claim complete protection against arbitrary code manipulating assertions inside
-the same test worker.
+The image permits editing only the allowed extension and tests, with writable
+scratch and cache directories for normal test commands. Dependencies, Git
+metadata, and core configuration are protected. During verification, submitted
+sources are frozen, candidate caches are discarded, and candidate test workers
+run as UID 65534, separate from the root coordinator and its reports.
 
-## Verification contract
+## Verifier
 
-The intended boundary is:
+`tests/test.sh` runs the following layers. Reward is 1 only if every required
+layer passes; a successful candidate process exit alone is insufficient.
 
-```text
-supported user input or a model tool call
-  -> real extension loading, AgentSession input/tool dispatch and plan state
-  -> observable control entries, tool results, approved execution message
-  -> normal close and resume through real file-backed session storage
-```
+| Layer | File | What it observes |
+| --- | --- | --- |
+| Scope | `tests/check_scope.py` | Only the allowed extension and test files changed; core, dependencies, configuration, and unrelated files match the frozen Base. |
+| PASS_TO_PASS | `tests/check_pass_to_pass.py`, `tests/baseline-pins.json` | The pinned Base inventory and the current original-test results match: 2,154 required cases, unchanged skips, and no unaccepted regressions. The four intentionally replaced legacy Plan Mode tests are excluded; Plan Mode utilities remain protected. |
+| Contract (18 cases) | `tests/plan.contract.test.ts` | Real extension loading, `AgentSession` input and tool dispatch, structured drafts, revision-bound approval, source restrictions, exact tool restoration, one execution request, busy-state rejection, and interactive review actions. Includes one grading-permission precondition. |
+| Lifecycle (4 cases) | `tests/plan.lifecycle.test.ts`, `tests/fixtures/plan_child.mjs` | Separate pi processes and real file-backed sessions: planning resumes restricted; approved plans retain their snapshot and tools without replay; foreign state is ignored; persisted normal state takes precedence over `--plan`. |
+| Integrity | `tests/check_junit.py`, `tests/test_integrity.py` | Exact completed contract/lifecycle inventories with no failures, errors, or skips; malformed, missing, and early-exit reports cannot produce a passing reward. |
 
-Only model responses and user UI choices may be scripted. The extension,
-dispatcher, input-source handling, persistence, and execution scheduling must
-run for real. Reward is binary: all required behavior, unaffected regressions,
-and completion checks must pass. A successful candidate process exit alone is
-insufficient.
+Verifier scenarios are copied into `packages/coding-agent/test/__plan_verifier__/`
+only at verification time. Model responses and UI choices are scripted; the
+extension, dispatcher, input-source handling, persistence, and scheduling run
+through pi's real public APIs. The behavior-to-test mapping is in
+[`validation/behavior-map.md`](validation/behavior-map.md).
 
-PASS_TO_PASS must account for the task's explicit permission to update
-`packages/coding-agent/test/plan-mode-extension.test.ts`: do not treat its old
-toggle/custom-tool expectations as immutable regressions. Keep the Plan Mode
-utilities and every unrelated Base regression protected. A trusted verifier
-outside the candidate-running child checks completed case inventories and
-final reward; early-success-exit controls must run through Harbor.
+One unrelated AuthStorage assertion was reproduced on untouched Base. It remains
+in the required inventory and raw reports, and is accepted only when every
+reported attempt matches its exact pinned error. Other regressions or changed
+skips fail. See
+[`validation/baseline-environment.md`](validation/baseline-environment.md).
 
-There are 18 contract checks (including one grading-permission precondition)
-and four genuine cross-process lifecycle checks. The regression inventory is
-2,154 Base cases after projecting out the four deliberately replaced legacy
-Plan Mode tests. Skips, environmental failures, controls and actual run results
-are recorded in the validation evidence rather than described as all passing.
-One unrelated original AuthStorage assertion was independently reproduced on
-untouched Base. It remains in the inventory and raw reports, and qualifies as a
-known Base failure only when every reported attempt matches its exact pinned
-error. Other failures, skips, missing cases and malformed reports still fail;
-see [`validation/baseline-environment.md`](validation/baseline-environment.md).
+## Validation (2026-09-15)
+
+All 11 cases completed through Harbor 0.23.0 with the retained linux/amd64 image,
+with zero errored trials and the expected reward in every case.
+
+| Case | Agent / implementation | Expected reward | Result |
+| --- | --- | --- | --- |
+| `base` | `nop`, unchanged Base | 0 | 0; scope and PASS_TO_PASS pass; 17 behavior checks and 4 lifecycle checks fail because the requested behavior is absent. |
+| `oracle` | `oracle`, reference patch | 1 | 1; all layers pass, including 18/18 contract and 4/4 lifecycle cases. |
+| `alternative-event-journal` | `oracle`, independent event-journal patch applied to Base | 1 | 1; all layers pass, including 18/18 contract and 4/4 lifecycle cases. |
+| `accept-stale-revision` | `oracle` + negative-control patch | 0 | 0; C06 and C15 detect acceptance of stale approvals. |
+| `accept-extension-control` | `oracle` + negative-control patch | 0 | 0; C07 detects acceptance of extension-origin controls. |
+| `replay-duplicate-approval` | `oracle` + negative-control patch | 0 | 0; C10 detects duplicate execution. |
+| `allow-custom-planning-tools` | `oracle` + negative-control patch | 0 | 0; C02, C09, and L01 detect tools incorrectly enabled during planning. |
+| `replay-approved-resume` | `oracle` + negative-control patch | 0 | 0; L02 detects execution replay after resume. |
+| `resume-original-toolset` | `oracle` + negative-control patch | 0 | 0; L01 detects unrestricted tools after resuming a planning session. |
+| `drop-approved-request-context` | `oracle` + negative-control patch | 0 | 0; C10 detects the approved snapshot missing from model-visible context. |
+| `early-exit-zero` | `oracle` + negative-control patch | 0 | 0; incomplete behavior/lifecycle results are rejected despite a zero process exit. |
+
+Both correct implementations passed 2,104 regression cases and retained the 50
+original skips, without using the AuthStorage exception. The repeated-approval
+and early-exit controls encountered the exact known Base assertion; their
+intended behavior failures still determined reward 0.
+
+[`validation/ci-cases.json`](validation/ci-cases.json) pins the patches and their
+application order. Detailed results and negative-control rationale are in
+[`validation/author-results.md`](validation/author-results.md) and
+[`validation/wrong-controls.md`](validation/wrong-controls.md). These checks
+establish verifier acceptance and rejection behavior, not coding-agent success
+rates.
 
 ## Layout
 
 ```text
 pi-plan-mode/
 ├── instruction.md                       # Agent-facing behavior contract
-├── task.toml                            # Frozen target, resources and budgets
+├── task.toml                            # Frozen target, resources, and budgets
 ├── environment/
-│   ├── Dockerfile                       # Generated pinned Pi/Node environment
-│   ├── image-manifest.json              # Written by the actual image build
-│   ├── build/                          # This task's frozen recipe and helpers
-│   │   ├── Dockerfile.template         # Pi baseline plus task permissions
-│   │   ├── generate.py                 # Render or check environment/Dockerfile
-│   │   └── build.py                    # Empty-context build and provenance
+│   ├── Dockerfile                       # Generated Pi/Node environment
+│   ├── image-manifest.json              # Image identity and build metadata
+│   ├── build/
+│   │   ├── Dockerfile.template          # Baseline and task permissions
+│   │   ├── generate.py                  # Render or check the Dockerfile
+│   │   └── build.py                     # Empty-context image build
 │   └── lock/{package-lock.json,manifest.json}
-├── tests/                               # Verifier-only scenarios and scoring
+├── tests/                               # Verifier scenarios and scoring
 ├── solution/                            # Reference patch and solve.sh
-└── validation/                          # Controls and actual construction evidence
-    └── upstream-history.md              # Public history, applicability and leakage risk
+└── validation/                          # Correct alternative, controls, evidence
+    ├── ci-cases.json
+    ├── alternative-event-journal.patch
+    ├── behavior-map.md
+    ├── author-results.md
+    ├── e2e-evidence.json
+    └── run_author_matrix.py
 ```
 
 ## Building and running
 
-Use Python 3.11 or newer for the build helpers. The task-local builder invokes
-the generator with the same Python interpreter. Run from the benchmark repository root:
+Use Python 3.11 or newer, Docker with Buildx, and Harbor. Run these commands from
+the benchmark repository root:
 
 ```bash
 python3 templates/pi-harbor-node/lock.py tasks/pi-plan-mode
@@ -116,28 +140,12 @@ python3 tasks/pi-plan-mode/environment/build/generate.py --check
 python3 tasks/pi-plan-mode/environment/build/build.py --platform linux/amd64
 ```
 
-The lock helper is unchanged shared infrastructure. Generation and building are
-task-local: use the commands above instead of the shared `generate.py --check`
-for this task. The frozen template retains the `pi-agent` account, the exact
-editable extension/test directories, writable Vite caches, and optional
-`APT_MIRROR`. Edit this task's template when changing its environment; do not
-regenerate it from the generic shared template, which lacks these permissions.
+Use the task's own generator and builder to preserve its editing permissions
+and cache setup. The builder accepts `--builder`, `--network`, repeatable
+`--allow`, and repeatable `--build-arg`. The manifest records option names with
+host-specific values omitted; build options do not enable verifier networking.
 
-The builder accepts `--builder`, `--network`, repeatable `--allow`, and repeatable
-`--build-arg` for local build infrastructure. These arguments are recorded in the
-image manifest, so supply only non-secret values. They do not enable network
-access during agent execution or verification.
-
-Moving the recipe did not change any byte of `environment/Dockerfile` or the
-retained image. Its historical header and `pi-harbor-node` image label identify
-the original template lineage. The existing image manifest and build-provenance
-record retain the command actually used for that build; future builds record the
-new task-local command and template path. The frozen template has the same hash
-as the original build's `template_sha256`.
-
-After recording the built image identity and completing the solution/verifier
-artifacts, use the repository's existing CI helpers. `prepare-case` injects the retained
-image into a temporary task copy, avoiding an unintentional rebuild:
+To check the task and run Oracle against an existing image:
 
 ```bash
 python3 .github/scripts/task_ci.py validate pi-plan-mode
@@ -145,89 +153,49 @@ python3 .github/scripts/task_ci.py image-check --task pi-plan-mode \
   --image ai-infra-bench/pi-plan-mode:base-d981de1229ef
 python3 .github/scripts/task_ci.py prepare-case --task pi-plan-mode \
   --image ai-infra-bench/pi-plan-mode:base-d981de1229ef \
-  --case oracle --output /tmp/pi-plan-mode-oracle
-harbor run --path /tmp/pi-plan-mode-oracle --agent oracle --env docker \
+  --case oracle --output ./harbor-cases/pi-plan-mode-oracle
+harbor run --path ./harbor-cases/pi-plan-mode-oracle --agent oracle --env docker \
   --jobs-dir ./harbor-jobs --job-name pi-plan-mode-oracle --n-concurrent 1
 python3 .github/scripts/task_ci.py check-result \
   --result ./harbor-jobs/pi-plan-mode-oracle/result.json --expected-reward 1
 ```
 
-Prepare `--case base` separately and use agent `nop`; it must receive 0 for a
-missing target behavior, not an infrastructure failure. Run every declared
-alternative and negative control the same way. Record the exact Harbor version
-used; the development machine currently has Harbor 0.23.0, whereas the
-background-task evidence used 0.22.0. The development host requires an
-author-only launcher for a mirrored kernel-probe image; see
-[`validation/harbor-environment.md`](validation/harbor-environment.md).
+`prepare-case` injects the selected image into a separate task copy, avoiding an
+unintentional rebuild. Use `--case base` with agent `nop` to verify the expected
+reward 0. A coding-agent trial must also start from a fresh `--case base` copy;
+keep reference solutions and validation artifacts hidden during solving, and
+configure any required model endpoint access only for the agent phase.
 
-On the development host, a complete author matrix can be started from
-`/data00/home/xingjunqian/ai-infra-bench-plan-mode` with a new output directory:
+The full validation matrix can be run with:
 
 ```bash
-PATH=/data00/home/xingjunqian/harbor-workspace/author-tools/bin:$PATH \
 python3 tasks/pi-plan-mode/validation/run_author_matrix.py \
-  --image sha256:a68c346850d3b3ec045dd52aaf751e229e888ca365de99ab06a99fe88eeb0cda \
-  --output /data00/home/xingjunqian/harbor-workspace/pi-plan-mode/my-review-run \
-  --workers 3 \
-  --harbor /data00/home/xingjunqian/harbor-workspace/pi-plan-mode/harbor-mirrored
+  --image ai-infra-bench/pi-plan-mode:base-d981de1229ef \
+  --output ./harbor-validation/pi-plan-mode \
+  --workers 3
 ```
 
-Add `--cases base oracle` for only the two primary author checks. The matrix
-script refuses to reuse an existing output directory, preserving earlier logs.
+Use a new output directory for each run. Add `--cases base oracle` to run only
+the two primary checks. `--harbor` can select a Harbor executable or launcher.
 
-A real-agent trial uses the same prepared environment with an available solver
-and its model endpoint configured for the agent phase. For example, after
-preinstalling the solver and supplying credentials through Harbor's supported
-configuration:
+## Evaluation limits and remaining work
 
-```bash
-harbor run --path /tmp/pi-plan-mode-oracle --agent codex --model <model-id> \
-  --env docker --jobs-dir ./harbor-jobs --job-name pi-plan-mode-codex \
-  --n-concurrent 1 --allow-agent-host api.openai.com
-```
+Existing Plan Mode code is public; this task tests a stronger approval contract
+and does not claim contamination-free evaluation. See
+[`validation/upstream-history.md`](validation/upstream-history.md). Crash
+recovery, shutdown during active execution, fork/tree navigation, extension
+reload, and arbitrary shell read-only enforcement are outside the contract.
+The verifier protects its reports and toolchain from worker writes; it is not a
+universal defense against arbitrary assertion manipulation inside a test worker.
 
-The endpoint and solver settings must match the actual provider; this example
-does not assert that a solver login or rollout has been completed. Keep the
-verifier offline and leave solution/validation artifacts hidden during solving.
+Before publication:
 
-## Completed author checks
-
-The final 11-case Harbor matrix completed without environment errors: Base
-received 0; Oracle and an independently written event-journal implementation
-received 1; all eight incorrect implementations received 0 for their intended
-behavior defects. Both correct implementations passed all 18 contract and four
-lifecycle checks, with 2,154 regression cases collected and 50 original skips.
-Neither correct implementation triggered the documented original AuthStorage
-assertion in this final run. See
-[`validation/author-results.md`](validation/author-results.md) for the per-case
-results, known Base observations and raw evidence references.
-
-The development worktree is `/data00/home/xingjunqian/ai-infra-bench-plan-mode`,
-branch `agent/pi-plan-mode`. Changes are uncommitted and unpushed, awaiting user
-review. Real solver trial results are kept separately from author-validation evidence.
-
-## Provenance and remaining acceptance
-
-The benchmark branch is based on `agent/base` at
-`781120385bff838a5ff50abf6de50f3d4e2965a3`. Initial task construction used main
-`9a5d7fee81b151a362b13a67587a12fc8cc00296` and the Pi helpers from
-`agent/pi-background-processes` at
-`f7689fecbca0725aa06fab1a8dd238a25eae0652`.
-The shared `templates/pi-harbor-node/` files now match `agent/base` exactly.
-This task keeps its permission configuration and build-network options under
-`environment/build/`, so they do not change other Pi tasks' generated environments.
-The separate artifact-audit change still honors each control's declared
-`apply_after` value when checking patches in fresh containers.
-See `validation/template-migration.json` for the relocation checks and preserved
-runtime artifact identities.
-
-Plan Mode code and related fixes are already public. The task is an explicit
-enhancement with a stronger approval contract, not a claim of an unseen feature
-or contamination-free evaluation. See
-[`validation/upstream-history.md`](validation/upstream-history.md). This task
-uses a retained local image for author validation. OS repositories and the
-Dockerfile frontend are not snapshot-pinned, so rebuilding later is not guaranteed
-byte-identical; see `validation/build-provenance.json`. Before publication,
-provide a pullable immutable image or fix the remaining build inputs, and run
-real coding-agent trials to measure difficulty and discrimination. Author checks
-alone do not establish solver success rates.
+1. Provide a pullable immutable image. OS repositories and the Dockerfile
+   frontend are not snapshot-pinned, so rebuilding later is not guaranteed to
+   produce an identical image.
+2. Clarify the invalid-submission error signal in `instruction.md`: C04
+   currently requires a tool-error result (`isError=true`), while the instruction
+   explicitly specifies unchanged plan state without naming that signal.
+3. Use repeated independent coding-agent trials to measure difficulty and
+   discrimination; construction checks and individual rollouts do not establish
+   a reliable success rate.

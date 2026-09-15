@@ -32,8 +32,8 @@ yield a successful task result.
 
 The earlier strict matrix is retained unchanged in `initial-matrix-evidence.json`.
 The Base reproduction and narrowly scoped regression policy are documented in
-`baseline-environment.md` and `auth-storage-diagnostic/`. Final raw result/JUnit/log
-paths and hashes, prepared-verifier snapshot checks, and all task artifact hashes
+`baseline-environment.md` and `auth-storage-diagnostic/`. Final result/JUnit/log
+hashes, prepared-verifier snapshot checks, and task artifact hashes
 are in `e2e-evidence.json`.
 
 Additional author checks: the final image as the actual pi-agent user passed
@@ -43,9 +43,8 @@ The final agent-user environment passed 60 existing path/settings smoke tests.
 The regression comparator/completeness checks passed six self-tests. The final
 strict artifact/image audit reported zero errors and zero warnings, including
 all ten patch applicability checks against their declared Base or Oracle state.
-Its log is retained at `harbor-workspace/pi-plan-mode/final-audit.log` on the
-development host.
+
 
 These are author construction and quality checks, not real coding-agent rollouts.
 No model success rate, task difficulty or contamination-free status is claimed.
-No commit, push, PR or image publication was performed.
+The image has not been published.

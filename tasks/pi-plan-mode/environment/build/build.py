@@ -2,7 +2,7 @@
 """Build the pi-plan-mode image from its task-local recipe and record provenance.
 
 The generated Dockerfile is checked against the template, built from an empty
-context (so tests, the Oracle, and curator files cannot enter the image), and
+context (so tests, the Oracle, and validation files cannot enter the image), and
 described in environment/image-manifest.json, including the PASS_TO_PASS
 baseline the image recorded at build time. No shared template is modified.
 """
@@ -44,6 +44,17 @@ def load_task(task_dir: Path) -> tuple[dict, str]:
 
 def run(*args: str, capture: bool = False) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, check=True, text=True, stdout=subprocess.PIPE if capture else None)
+
+
+def recorded_build_options(options: list[str]) -> list[str]:
+    """Keep option names without publishing build-host settings or addresses."""
+    recorded = []
+    for flag, value in zip(options[::2], options[1::2], strict=True):
+        recorded.extend([
+            flag,
+            value.split("=", 1)[0] + "=<configured>" if flag == "--build-arg" else "<configured>",
+        ])
+    return recorded
 
 
 def build(task_dir: Path, platform: str | None, build_options: list[str]) -> None:
@@ -132,7 +143,8 @@ def build(task_dir: Path, platform: str | None, build_options: list[str]) -> Non
         "build_context": "empty",
         "build_command": "python3 " + shlex.quote(Path(__file__).resolve().relative_to(REPO_ROOT).as_posix())
         + (f" --platform {platform}" if platform else "")
-        + (" " + shlex.join(build_options) if build_options else ""),
+        + (" " + shlex.join(recorded_build_options(build_options)) if build_options else ""),
+        "build_command_note": "Build-host option values are omitted; immutable image and input hashes identify the build.",
         "cache_policy": {
             "shared": ["source-independent OCI layers"],
             "base_and_lock_scoped": ["npm ci from the pinned package-lock.json"],

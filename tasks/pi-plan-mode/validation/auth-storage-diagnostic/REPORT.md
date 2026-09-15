@@ -20,9 +20,9 @@ The old and new synthetic auth JSON strings are both 44 bytes. Base revision ide
 | overlayfs | 1,000 | 735 (73.5%) | 146, 153, 134, 149, 153 | 241,455 ns | 1,000,014–1,000,015 ns |
 | tmpfs | 1,000 | 990 (99.0%) | 197, 197, 198, 199, 199 | 7,146.5 ns | 1,000,014–1,000,015 ns |
 
-Every revision collision also had unchanged mtime and ctime. The nanosecond fields expose approximately 1 ms timestamp steps on this host; nanosecond representation does not imply that consecutive writes receive distinct timestamps. Tmpfs writes were faster while the observed timestamp step stayed the same. In this minimal sequence, it increased the chance of an indistinguishable overwrite.
+Every revision collision also had unchanged mtime and ctime. The nanosecond fields expose approximately 1 ms timestamp steps in this experiment; nanosecond representation does not imply that consecutive writes receive distinct timestamps. Tmpfs writes were faster while the observed timestamp step stayed the same. In this minimal sequence, it increased the chance of an indistinguishable overwrite.
 
-These measurements are from this host and kernel/filesystem configuration, not a universal claim about all tmpfs systems.
+These measurements are from the recorded kernel/filesystem conditions, not a universal claim about all tmpfs systems.
 
 ## Original test: all fixed runs
 
@@ -48,18 +48,27 @@ The unchanged Base caches parsed auth data against the file revision and returns
 
 Changing `TMPDIR` to tmpfs would not repair that assumption. Do not use the four successful tmpfs trials to select a passing environment or discard the fifth. Any future environment or upstream-test stabilization needs a separate, predefined validation procedure and must retain these failed results.
 
-## Evidence
+## Evidence and reproduction
 
-- `summary.json`: machine-readable aggregate, every trial and failure message.
-- `results/revision-probe.jsonl`: design metadata, all 2,000 raw samples, and 10 round summaries.
-- `results/auth-storage-{overlay,tmpfs}-{1..5}.{xml,log,exit}`: all original runs.
-- `results/container-inspect.json`: image and container resource/network configuration.
-- `run-diagnostic.sh`, `revision-probe.mjs`, `summarize.py`: complete diagnostic procedure.
+- `summary.json` retains every trial, failure message and probe aggregate.
+- `results/revision-probe.jsonl.gz` contains all 2,000 raw samples and 10 round
+  summaries. Only host mount paths were removed from its design metadata.
+- The three failing original JUnit reports remain in
+  `../auth-storage-base-evidence/`, where the verifier pins their hashes. The
+  other seven reports are in `results/`; all ten are unchanged. `results/run-output.json` consolidates their original
+  exit codes and console output, including the worker UID confirmation.
+- `provenance.txt` records the image, Base commit, resource limits and source
+  hashes. `SHA256SUMS` covers the retained evidence files.
 
-Local and remote evidence directory: `/tmp/pi-authstorage-fs-diagnostic-20260915-infra/`.
+The following command runs the same fixed experiment into a new directory;
+it does not overwrite the recorded evidence:
 
-`provenance.txt` was captured from the stopped diagnostic container. It records
-the exact image, Base commit, CPU/memory/network limits, and SHA-256 hashes of the
-original auth test, auth storage implementation, revision helper source and
-compiled helper, and trusted preload. The original test/source/helper hashes
-match the earlier frozen Base provenance. `SHA256SUMS` covers this evidence archive.
+```bash
+bash tasks/pi-plan-mode/validation/auth-storage-diagnostic/run-diagnostic.sh \
+  ./harbor-validation/auth-storage
+```
+
+Use `summarize.py <output-directory>` to reproduce the aggregate from a run.
+The summary reader supports both the original uncompressed output and the
+compressed, consolidated files retained here. Setup-only container metadata
+and duplicate evidence copies are excluded from the task.
