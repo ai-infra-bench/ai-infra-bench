@@ -1,7 +1,7 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-09-14T22:23:00+08:00",
-  "status": "direct-replay-passed-harbor-replay-pending",
+  "recorded_at": "2026-09-15T19:34:08+08:00",
+  "status": "validated-final-image",
   "source": {
     "repository": "vllm-project/vllm",
     "base_commit": "d88f28da05b12bc7d63ebe3dcedf445ecb274343"
@@ -27,9 +27,9 @@
       "validation/ci-cases.json": "57861e053eecf3e60b4e08a50b2871881aeb3fbe0ff55fb6753f429584d1efeb",
       "validation/docker-build.md": "f852ce6084718ecdebb885745c9985e602035726f3b4f913a340563ad7dfefd6",
       "validation/incomplete-agent-implementation.patch": "df2aa5d8c37baa7e23bcfae3c2a034027b2fe67c24fb535accef5e92325e0fe8",
-      "validation/remediation-matrix.md": "0a4ab0a921d4e3e7454675020cc4973993420d68674d7a1880dced342c4cda53",
+      "validation/remediation-matrix.md": "861cc2b8fa77df7b2591c54193e96feb99ef9bd08cca0d5796c5070ab2d688fa",
       "validation/deepseek-v4-flash-rollouts.md": "6c7d72c6221e32687f1643b77197ae9f7638d06832e9a7e103c36758f200f3e0",
-      "validation/task-review-2026-09-14.md": "532e1ff147abcb51cf01ef9fccdc1e27b55e7f8b1e100b315fd8cb467492857d",
+      "validation/task-review-2026-09-14.md": "26e002dab9866c85a3db7eeb67609edc418543bd7a401f7499e4fbf2ac24dbb9",
       "tests/supervise_verifier.py": "b15d870405138335725a1bbc44809095593d5b12ead0f60a820fbfa07e2ff405",
       "validation/early-exit-systemexit.patch": "80f7fd0dce410eb62373fa96daeb380acaf16d0de85b03872956c1a0e142a2fe",
       "validation/early-exit-os-exit.patch": "7e8264005f8d1cbc83bbe2fe6d9195e6ff06c117600fa08b5d41c620294c4d46",
@@ -42,16 +42,16 @@
     "preserved_semantics": "A verifier-owned contract-valid KV connector and local model config replace an external KV service and model download; production scheduler state transitions remain real."
   },
   "validation": {
-    "executable_snapshot_frozen": false,
+    "executable_snapshot_frozen": true,
     "static_review": "passed ai-infra-bench-task-review strict evidence audit, official task_ci.py validate, and git diff --check on the PR hardening worktree",
     "base": {
       "reward": 0,
-      "execution_status": "passed-direct-final-image-harbor-replay-pending",
+      "execution_status": "passed-harbor-final-image-after-repair",
       "image_id": "sha256:714c9051899f5f88efaa7efeca4e42f6497d6daf076271f9bbd1ba3924d43883"
     },
     "oracle": {
       "reward": 1,
-      "execution_status": "passed-direct-final-image-harbor-replay-pending",
+      "execution_status": "passed-harbor-final-image-after-repair",
       "image_id": "sha256:714c9051899f5f88efaa7efeca4e42f6497d6daf076271f9bbd1ba3924d43883"
     },
     "controls": [
@@ -100,24 +100,43 @@
     ],
     "harbor": {
       "version": "0.22.0",
-      "job_id": "b92221d1-9d5c-4d03-b156-6ca5f3f45ae0",
-      "trial_id": "8fbb410b-77b8-4d15-81f3-8bfb21c276f1",
-      "trial_name": "vllm-remote-kv-idle-overhead__93UYYNk",
-      "job_directory": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/hardening-pr60-pr61/pr61-formal-oracle",
-      "input_task_checksum": "d7c4d1419e91a32b1f442130c5d7319f23ba29b24f3114d3721307af6f73476b",
+      "job_id": "3ab0f025-faec-42be-b80f-6f5a3b05871a",
+      "trial_id": "429eff73-29b1-4dfd-8709-936fb5cb23bc",
+      "trial_name": "vllm-remote-kv-idle-overhead__MpQNwxi",
+      "job_directory": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/hardening-pr60-pr61/pr61-verifier-fix-oracle-20260915",
+      "input_task_checksum": "678486263a5d1fe54dec8043bfa34d22bc24473eba2df5f3ca94f80a61ee2693",
       "agent": "oracle",
       "environment": "docker",
       "n_completed_trials": 1,
       "n_errored_trials": 0,
       "reward": 1.0,
       "command_exit_code": 0,
-      "started_at": "2026-09-14T22:19:34.918022+08:00",
-      "finished_at": "2026-09-14T22:20:23.782785+08:00",
+      "started_at": "2026-09-15T19:31:52.342493+08:00",
+      "finished_at": "2026-09-15T19:32:44.549700+08:00",
       "canonical_image_tag": "ai-infra-bench/vllm-remote-kv-idle-overhead:base-d88f28da05b1",
       "canonical_image_id_at_run": "sha256:714c9051899f5f88efaa7efeca4e42f6497d6daf076271f9bbd1ba3924d43883",
-      "execution_status": "superseded-by-2026-09-15-verifier-fairness-repair"
+      "execution_status": "passed-final-image-after-repair"
     },
-    "note": "After routing mixed-waiter completion through update_from_output, direct final-image test-entrypoint replay produced expected rewards 0/1/1/0/0/0 for Base, Oracle, a materially different correct alternative, an incomplete implementation, SystemExit, and os._exit. Two saved 1000-turn DeepSeek candidates now pass, proving their previous mixed-waiter failures were caused by the verifier bypassing their event hook. A fresh frozen Harbor matrix remains pending for this verifier revision."
+    "harbor_base": {
+      "version": "0.22.0",
+      "job_id": "c861431b-24f9-4a10-9670-8dec1d52ba81",
+      "trial_id": "3c6fc37c-0ebf-4885-8e62-478cd972397a",
+      "trial_name": "vllm-remote-kv-idle-overhead__nAiGjim",
+      "job_directory": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/hardening-pr60-pr61/pr61-verifier-fix-base-20260915",
+      "input_task_checksum": "678486263a5d1fe54dec8043bfa34d22bc24473eba2df5f3ca94f80a61ee2693",
+      "agent": "nop",
+      "environment": "docker",
+      "n_completed_trials": 1,
+      "n_errored_trials": 0,
+      "reward": 0.0,
+      "command_exit_code": 1,
+      "started_at": "2026-09-15T19:33:19.415387+08:00",
+      "finished_at": "2026-09-15T19:34:07.715512+08:00",
+      "canonical_image_tag": "ai-infra-bench/vllm-remote-kv-idle-overhead:base-d88f28da05b1",
+      "canonical_image_id_at_run": "sha256:714c9051899f5f88efaa7efeca4e42f6497d6daf076271f9bbd1ba3924d43883",
+      "execution_status": "rejected-final-image-after-repair"
+    },
+    "note": "After routing mixed-waiter completion through update_from_output, Harbor Base/Oracle replay produced 0/1 and direct final-image replay produced expected rewards 0/1/1/0/0/0 for Base, Oracle, a materially different correct alternative, an incomplete implementation, SystemExit, and os._exit. Two saved 1000-turn DeepSeek candidates now pass, proving their previous mixed-waiter failures were caused by the verifier bypassing their event hook."
   },
   "image": {
     "canonical_tag": "ai-infra-bench/vllm-remote-kv-idle-overhead:base-d88f28da05b1",
