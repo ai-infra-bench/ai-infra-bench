@@ -1,0 +1,118 @@
+--- a/packages/llm/llm-pi-ai/src/adapter.ts
++++ b/packages/llm/llm-pi-ai/src/adapter.ts
+@@ -61,6 +61,7 @@
+ import type { ResolvedPiAiProviderProfile } from './config.ts'
+ import { toPiContext } from './context.ts'
+ import { projectResponsesReasoning } from './responses-reasoning.ts'
++import { projectChatReasoning } from './chat-reasoning.ts'
+ import { toStreamChunks } from './stream.ts'
+ 
+ /** One resolution's frozen view: the profiles and the collection built from them. */
+@@ -374,7 +375,8 @@
+           },
+         }, onReplayDegrade)
+       const events = snapshot.models.streamSimple(model, profile.responsesReasoningText
+-        ? projectResponsesReasoning(context, model) : context, {
++        ? projectResponsesReasoning(context, model)
++        : profile.chatReasoningText ? projectChatReasoning(context, model) : context, {
+         ...profileOptions(profile, reasoning, apiKey),
+         ...options.temperature === undefined ? {} : { temperature: options.temperature },
+         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
+--- a/packages/llm/llm-pi-ai/src/config.ts
++++ b/packages/llm/llm-pi-ai/src/config.ts
+@@ -123,6 +123,8 @@
+   compat?: PiAiCompatProfile
+   /** Send available foreign plaintext reasoning as Responses reasoning_text items. */
+   responsesReasoningText?: boolean
++  /** Preserve foreign plaintext reasoning in Chat reasoning_content fields. */
++  chatReasoningText?: boolean
+   /**
+    * Context capacity for a model this route lists that neither the entry nor
+    * the installed catalog sizes (default 262,144). A guess by construction, so
+@@ -322,6 +324,7 @@
+   modelOverrides: z.dict(modelOverride),
+   compat: compatProfile,
+   responsesReasoningText: z.boolean().default(false),
++  chatReasoningText: z.boolean().default(false),
+   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
+   defaultMaxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
+   defaultInput: z.array(z.union(MODALITIES)).default([...DEFAULT_INPUT]),
+@@ -412,6 +415,9 @@
+     rejectRemovedFields(provider, source)
+     if (source.responsesReasoningText !== undefined && typeof source.responsesReasoningText !== 'boolean') {
+       throw new Error('llm-pi-ai: responsesReasoningText must be boolean')
++    }
++    if (source.chatReasoningText !== undefined && typeof source.chatReasoningText !== 'boolean') {
++      throw new Error('llm-pi-ai: chatReasoningText must be boolean')
+     }
+     if (provider.length === 0) throw new Error('llm-pi-ai: provider names must be non-empty')
+     if (source.baseURL !== undefined && source.baseURL.length === 0) {
+@@ -467,6 +473,9 @@
+     })
+     if (source.responsesReasoningText === true && catalog.models.some(model => model.api !== 'openai-responses')) {
+       throw new Error('llm-pi-ai: responsesReasoningText requires every resolved model to use openai-responses')
++    }
++    if (source.chatReasoningText === true && catalog.models.some(model => model.api !== 'openai-completions')) {
++      throw new Error('llm-pi-ai: chatReasoningText requires every resolved model to use openai-completions')
+     }
+     const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, ...rest } = source
+     resolved.set(provider, {
+--- /dev/null
++++ b/packages/llm/llm-pi-ai/src/chat-reasoning.ts
+@@ -0,0 +1,56 @@
++/** Portable plaintext reasoning for explicitly configured Chat routes. */
++import { createHash } from 'node:crypto'
++import type { Api, Context, Model } from '@earendil-works/pi-ai'
++
++/**
++ * Build detached request messages for Chat endpoints accepting reasoning_content.
++ * pi-ai uses thinkingSignature as a field-name selector in this protocol; the
++ * literal below is new serialization metadata, never a copied opaque signature.
++ * Persisted messages and same-route native replay are left unchanged.
++ */
++export function projectChatReasoning(context: Context, model: Model<Api>): Context {
++  const used = new Set(context.messages.flatMap(message => message.role === 'assistant'
++    ? message.content.flatMap(block => block.type === 'toolCall' ? [block.id] : []) : []))
++  const calls = new Map<string, string>()
++  const allocate = (original: string): string => {
++    const stem = `call_${createHash('sha256').update(original).digest('hex').slice(0, 48)}`
++    let id = stem
++    for (let suffix = 1; used.has(id); suffix++) id = `${stem}_${suffix}`
++    used.add(id)
++    return id
++  }
++  const messages = context.messages.map(message => {
++    if (message.role === 'toolResult') {
++      const id = calls.get(message.toolCallId)
++      return id === undefined || id === message.toolCallId
++        ? message : { ...message, toolCallId: id }
++    }
++    if (message.role !== 'assistant') return message
++    if (message.api === model.api && message.provider === model.provider && message.model === model.id) {
++      for (const block of message.content) {
++        if (block.type === 'toolCall') calls.set(block.id, block.id)
++      }
++      return message
++    }
++    return {
++      role: message.role,
++      api: model.api,
++      provider: model.provider,
++      model: model.id,
++      timestamp: message.timestamp,
++      usage: message.usage,
++      stopReason: message.stopReason,
++      content: message.content.flatMap((block): typeof message.content => {
++        if (block.type === 'thinking') {
++          if (block.redacted || block.thinking.trim() === '') return []
++          return [{ type: 'thinking', thinking: block.thinking, thinkingSignature: 'reasoning_content' }]
++        }
++        if (block.type === 'text') return [{ type: 'text', text: block.text }]
++        const id = allocate(block.id)
++        calls.set(block.id, id)
++        return [{ type: 'toolCall', id, name: block.name, arguments: block.arguments }]
++      }),
++    }
++  })
++  return { ...context, messages }
++}

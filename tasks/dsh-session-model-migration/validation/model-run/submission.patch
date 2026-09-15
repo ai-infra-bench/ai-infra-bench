@@ -1,0 +1,1792 @@
+diff --git a/.agents/notes/implemented/architecture/2026-09-10-checked-session-model-migration.i18n.yaml b/.agents/notes/implemented/architecture/2026-09-10-checked-session-model-migration.i18n.yaml
+new file mode 100644
+index 0000000000..ed826dc400
+--- /dev/null
++++ b/.agents/notes/implemented/architecture/2026-09-10-checked-session-model-migration.i18n.yaml
+@@ -0,0 +1,6 @@
++# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
++# side as of the last confirmed-consistent state. Both languages carry equal authority;
++# after editing either side, bring the other along and re-record with:
++#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-10-checked-session-model-migration.md
++2026-09-10-checked-session-model-migration.md: 3fef0e27ee545a686b51dea5dfb15062d023f4e2
++2026-09-10-checked-session-model-migration.zh.md: f5be0d9c8ec752915292dfa12ff5a3b7b92af0e8
+diff --git a/.agents/notes/implemented/architecture/2026-09-10-checked-session-model-migration.md b/.agents/notes/implemented/architecture/2026-09-10-checked-session-model-migration.md
+new file mode 100644
+index 0000000000..3fef0e27ee
+--- /dev/null
++++ b/.agents/notes/implemented/architecture/2026-09-10-checked-session-model-migration.md
+@@ -0,0 +1,45 @@
++# Agent Note: Checked Session Model Migration
++
++Status: implemented
++
++English | [中文](2026-09-10-checked-session-model-migration.zh.md)
++
++## Problem
++
++A model selection can change more than the next request's route. A destination may have a smaller context window than the retained conversation requires, and an OpenAI Responses-compatible reasoning gateway may require plaintext reasoning items beside historical tool calls. Applying the selection before checking those facts can leave an established Session unable to continue, while starting a replacement Session discards the work the user intended to retain.
++
++The check must observe one stable Session state. A capacity result computed while a turn or queued input changes the retained surface is stale before it can be committed. It also cannot use the source route's token accounting or an adapter-supplied output default as if either were a user choice.
++
++## Decision
++
++`session.selectModel` accepts the opt-in `migration: "checked"` mode. The controller admits it only while the Agent is idle and its inbox is empty, then owns the Agent's maintenance phase until the destination check either rejects or appends `model/selection`. Input arriving during that phase remains queued; a changed log revision, pending input, or cancellation rejects the operation before the selection event. The caller can retry after the Agent settles.
++
++The controller resolves a prepared destination call without dispatching it. It reconstructs the latest request proposal, removes adapter-defaulted `maxTokens` and reasoning effort, applies the requested route and optional effort, and lets the destination adapter supply its defaults. An explicit output allowance remains explicit. The token meter prices the retained surface plus the latest system prompt and tool schemas under the destination route. The check accepts `inputTokens + maxTokens === contextWindow` and rejects a larger sum, an unknown context window, or an unknown output allowance. It never compacts, truncates, or summarizes history.
++
++A successful checked migration appends the ordinary durable `model/selection` event and changes only that Session. It does not save the deployment default. Projection replay restores the pending selection after reopening, and the next matching request header consumes it through the existing model-selection mechanism. An unsuccessful check appends nothing and performs no generation request, so the source route remains selected and usable.
++
++For a pi-ai route that sets `responsesReasoningText: true`, every model must use `openai-responses`. When historical assistant content came from another API, provider, or model and contains tool calls, the adapter emits each available plaintext reasoning block as an ordered Responses `reasoning` item. It removes source response ids, item ids, signatures, and other opaque replay state, while retaining the call id needed to pair each function call with its result. Exact same-route replay keeps the validated native metadata. Disabled routes keep the existing serialization behavior. Durable messages are never rewritten.
++
++## Existing decisions and supersession
++
++This decision narrows [the default model follows the picker](../feature/2026-08-07-default-model-follows-the-picker.md): ordinary selections still update the deployment default, while checked migrations are deliberately Session-local. It extends [provider-routed LLM adapters](2026-07-14-provider-routed-llm-adapters.md) and [max-token replay-state alignment](../bug-fix/2026-08-15-max-token-replay-state-alignment.md) with an explicit destination-owned conversion that discards source-native metadata. Their replay ownership and degradation rules remain authoritative.
++
++The [replay token meter service](2026-07-15-replay-token-meter-service.md) and [route-priced image request pressure](../feature/2026-08-24-route-priced-image-request-pressure.md) remain active without supersession: checked migration is another consumer of their existing candidate-header repricing behavior. No related active note is fully superseded or eligible for archival.
++
++## Verification
++
++A real-loop test performs a source-provider tool turn, checks a destination, reconstructs the Session from its saved events, continues on the destination, executes another tool call, and continues after its result. Focused cases cover active and queued Sessions, input arriving during asynchronous destination resolution, missing capacity facts, overflow, equality at the capacity limit, source-route usability after rejection, destination default replacement, explicit output allowance preservation, Session locality, and the absence of provider generation during checks. pi-ai conversion and raw-wire tests cover ordered reasoning/text/parallel-call output, result pairing, foreign metadata removal, same-route fidelity, disabled behavior, and profile validation.
++
++## Alternatives considered
++
++**Switch first and rely on the next request's overflow handling.** Rejected because selection succeeds even when the Session cannot continue, and recovery may compact or fail only after mutating durable state.
++
++**Estimate from the previous request unchanged.** Rejected because context capacity, image pricing, reasoning defaults, and output allowance belong to the destination route. An adapter default is not an explicit caller choice.
++
++**Serialize every historical reasoning block as Responses reasoning.** Rejected because reasoning items matter for tool-call continuity and labeling ordinary reasoning-only messages as destination-native changes established serialization without a compatibility need.
++
++**Reuse source replay metadata on the destination.** Rejected because response ids, item ids, signatures, and encrypted reasoning are scoped to the source API route and can be invalid or unsafe on another route.
++
++## Consequences
++
++Checked selection performs destination capability resolution and O(surface) token estimation before it can commit. It proves only that the retained work fits at that moment; later prompts can exceed capacity, and external provider availability can still change. Deployments must opt compatible Responses routes into plaintext reasoning replay, and they cannot enable that option on mixed or non-Responses routes.
+diff --git a/.agents/notes/implemented/architecture/2026-09-10-checked-session-model-migration.zh.md b/.agents/notes/implemented/architecture/2026-09-10-checked-session-model-migration.zh.md
+new file mode 100644
+index 0000000000..f5be0d9c8e
+--- /dev/null
++++ b/.agents/notes/implemented/architecture/2026-09-10-checked-session-model-migration.zh.md
+@@ -0,0 +1,45 @@
++# Agent Note: 经检查的会话模型迁移
++
++Status: implemented
++
++[English](2026-09-10-checked-session-model-migration.md) | 中文
++
++## 问题
++
++模型选择改变的不只是下一次请求的路由。目标模型的上下文窗口可能小于保留对话所需容量，而 OpenAI Responses 兼容推理网关可能要求历史工具调用旁携带明文推理项。在检查这些事实之前应用选择，可能让已有会话无法继续；新建替代会话又会丢弃用户希望保留的工作。
++
++检查必须观察同一个稳定会话状态。如果在检查期间有轮次或排队输入改变保留表面，容量结果在提交前就已过期。检查也不能沿用来源路由的 token 计价方式，或把适配器提供的输出默认值当作用户选择。
++
++## 决定
++
++`session.selectModel` 接受可选的 `migration: "checked"` 模式。控制器只在 Agent 空闲且 inbox 为空时接纳它，然后占有 Agent 的 maintenance 阶段，直到目标检查拒绝或追加 `model/selection`。该阶段到达的输入保持排队；日志版本变化、出现待处理输入或取消都会使操作在选择事件写入前被拒绝。调用方可以在 Agent 稳定后重试。
++
++控制器解析一次目标 prepared call，但不分发请求。它重建最近一次请求 proposal，移除适配器默认提供的 `maxTokens` 与推理强度，应用请求的路由和可选强度，再由目标适配器提供其默认值。显式输出额度仍保持显式。token meter 按目标路由计价保留表面、最近一次系统提示词与工具 schema。`inputTokens + maxTokens === contextWindow` 时检查通过；总和更大、上下文窗口未知或输出额度未知时拒绝。检查绝不压缩、截断或总结历史。
++
++成功的经检查迁移追加普通的持久 `model/selection` 事件，并且只改变该会话；它不会保存部署默认值。重新打开时，projection 回放会恢复待使用的选择，下一个匹配的请求头通过既有模型选择机制消费它。失败的检查不追加任何内容，也不发起生成请求，因此来源路由仍被选择且可继续使用。
++
++对于设置 `responsesReasoningText: true` 的 pi-ai 路由，每个模型都必须使用 `openai-responses`。当历史 assistant 内容来自另一个 API、提供方或模型并包含工具调用时，适配器把每个可用明文推理块按原顺序发送为 Responses `reasoning` 项。它移除来源响应 id、条目 id、签名及其他不透明回放状态，同时保留将每个函数调用与结果配对所需的 call id。完全相同路由的回放保留已校验的原生元数据。未启用的路由保持既有序列化行为。持久消息永不改写。
++
++## 既有决定与取代关系
++
++本决定收窄了[默认模型跟随选择器](../feature/2026-08-07-default-model-follows-the-picker.zh.md)：普通选择仍更新部署默认值，经检查的迁移则刻意只作用于所在会话。它扩展了[按提供方路由的 LLM 适配器](2026-07-14-provider-routed-llm-adapters.zh.md)与[max-token 回放状态对齐](../bug-fix/2026-08-15-max-token-replay-state-alignment.zh.md)，增加一种会丢弃来源原生元数据的、由目标路由拥有的显式转换。它们关于回放所有权与降级的规则仍是当前权威。
++
++[回放式 token meter 服务](2026-07-15-replay-token-meter-service.zh.md)与[按路由计价的图片请求压力](../feature/2026-08-24-route-priced-image-request-pressure.zh.md)继续生效且未被取代：经检查的迁移只是其既有候选请求头重计价行为的另一个消费者。没有相关的活跃 note 被完全取代或适合归档。
++
++## 验证
++
++真实循环测试先执行来源提供方的工具轮次，再检查目标模型，从已保存事件重建会话，随后在目标上继续、执行另一次工具调用并在其结果后继续。聚焦用例覆盖运行中与已排队会话、异步解析目标期间到达的输入、缺失容量信息、容量溢出、恰好达到容量上限、拒绝后来源路由仍可用、替换目标默认输出额度、保留显式输出额度、会话局部性，以及检查期间不发起提供方生成。pi-ai 转换与原始协议测试覆盖推理、文本和并行调用的顺序、结果配对、外来元数据移除、同路由保真、未启用行为及 profile 校验。
++
++## 考虑过的替代方案
++
++**先切换，再依赖下一次请求的溢出处理。** 拒绝，因为即使会话无法继续，选择仍会成功，而且恢复过程只会在改变持久状态后才压缩或失败。
++
++**原样使用上一次请求的估算。** 拒绝，因为上下文容量、图片计价、推理默认值与输出额度属于目标路由。适配器默认值不是调用方的显式选择。
++
++**把每个历史推理块都序列化为 Responses 推理项。** 拒绝，因为推理项用于维持工具调用连续性；把普通的仅推理消息标为目标原生内容会在没有兼容需求时改变既有序列化。
++
++**在目标上复用来源回放元数据。** 拒绝，因为响应 id、条目 id、签名与加密推理只属于来源 API 路由，在其他路由上可能无效或不安全。
++
++## 影响
++
++经检查的选择必须先完成目标能力解析与 O(surface) token 估算，才能提交。它只证明保留工作在选择时可以容纳；后续提示仍可能超出容量，外部提供方的可用性也仍可能变化。部署必须为兼容的 Responses 路由显式启用明文推理回放，并且不能在混合协议或非 Responses 路由上启用该选项。
+diff --git a/.agents/notes/implemented/bug-fix/2026-08-15-max-token-replay-state-alignment.i18n.yaml b/.agents/notes/implemented/bug-fix/2026-08-15-max-token-replay-state-alignment.i18n.yaml
+index 887950ad94..434646afe0 100644
+--- a/.agents/notes/implemented/bug-fix/2026-08-15-max-token-replay-state-alignment.i18n.yaml
++++ b/.agents/notes/implemented/bug-fix/2026-08-15-max-token-replay-state-alignment.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-15-max-token-replay-state-alignment.md
+-2026-08-15-max-token-replay-state-alignment.md: 0d8c9f2e55d826769325ea489d797a8561ac0e8e
+-2026-08-15-max-token-replay-state-alignment.zh.md: 30f11b990abbe1ddfb36241b2f80c188de75ed22
++2026-08-15-max-token-replay-state-alignment.md: 6c50b972b28d50323ba8cae959e8659d857f6c28
++2026-08-15-max-token-replay-state-alignment.zh.md: e27c36a93601c4de1f9aedcdc14b7e9527d79b74
+diff --git a/.agents/notes/implemented/bug-fix/2026-08-15-max-token-replay-state-alignment.md b/.agents/notes/implemented/bug-fix/2026-08-15-max-token-replay-state-alignment.md
+index 0d8c9f2e55..6c50b972b2 100644
+--- a/.agents/notes/implemented/bug-fix/2026-08-15-max-token-replay-state-alignment.md
++++ b/.agents/notes/implemented/bug-fix/2026-08-15-max-token-replay-state-alignment.md
+@@ -14,7 +14,7 @@ Two changes, one per side of the durable boundary.
+ 
+ **Write side — one keep/drop decision.** The finish chunk's `replayState` becomes a typed `ReplayEnvelope`: an opaque `response` half plus optional opaque per-block entries aligned with the emitted block sequence. `BlockAssembler` computes its keep/drop decision once and applies it to blocks and envelope entries together, so any transformation assembly performs — the max-token tool-call drop or a future one — prunes the matching metadata by construction. Retained blocks keep their entries, so a truncated response keeps signatures for the reasoning and text it kept. An envelope whose entries do not match the emitted block count is discarded whole (a misemitting adapter must not publish misattributed metadata). pi-ai splits its former flat state into a version-2 response half and per-block signature entries.
+ 
+-**Read side — durable content is authoritative.** `toPiAssistant` treats replay state as fidelity metadata, not as a load-bearing input: any state the reading build cannot use — another adapter's kind, another version (including the flat version-1 form already on disk), malformed metadata, or a block shape that no longer matches the content — degrades that one message to the existing foreign provider-neutral conversion and reports the `INVALID_REPLAY_STATE` diagnostic through the plugin's `onReplayDegrade` hook (a logger warning). The request proceeds. This is what lets sessions poisoned before this change continue instead of erroring forever, and it bounds every future divergence source to a fidelity loss on one message.
++**Read side — durable content is authoritative.** `toPiAssistant` treats replay state as fidelity metadata, not as a load-bearing input: any state the reading build cannot use — another adapter's kind, another version (including the flat version-1 form already on disk), malformed metadata, or a block shape that no longer matches the content — degrades that one message to the existing foreign provider-neutral conversion and reports the `INVALID_REPLAY_STATE` diagnostic through the plugin's `onReplayDegrade` hook (a logger warning). The request proceeds. A destination with the explicit Responses plaintext-reasoning option uses the same durable-content fallback to build destination-native reasoning items for tool-call continuity, without reusing the invalid opaque metadata ([checked Session model migration](../architecture/2026-09-10-checked-session-model-migration.md)). This keeps unusable replay metadata bounded to a fidelity loss on one message.
+ 
+ ## Verification
+ 
+diff --git a/.agents/notes/implemented/bug-fix/2026-08-15-max-token-replay-state-alignment.zh.md b/.agents/notes/implemented/bug-fix/2026-08-15-max-token-replay-state-alignment.zh.md
+index 30f11b990a..e27c36a936 100644
+--- a/.agents/notes/implemented/bug-fix/2026-08-15-max-token-replay-state-alignment.zh.md
++++ b/.agents/notes/implemented/bug-fix/2026-08-15-max-token-replay-state-alignment.zh.md
+@@ -14,7 +14,7 @@ pi-ai 为每个响应记录一个从提供方原生消息投影而来的不透
+ 
+ **写侧——一次保留/丢弃决定。** finish 分片的 `replayState` 变为有类型的 `ReplayEnvelope`：一个不透明的 `response` 半区，加上与发射块序列对齐的可选不透明逐块条目。`BlockAssembler` 只计算一次保留/丢弃决定，并把它同时应用于块和逐块条目，因此组装执行的任何变换——max-token 工具调用丢弃或未来的其他变换——都按构造裁剪掉对应元数据。保留的块保留其条目，所以被截断的响应仍为其保留的推理（reasoning）与文本保有签名。条目数与发射块数不一致的数据整体丢弃（发射不当的适配器不得发布归属错误的元数据）。pi-ai 把原先的平铺状态拆为版本 2 的 response 半区和逐块签名条目。
+ 
+-**读侧——持久化内容是权威记录。** `toPiAssistant` 把回放状态当作保真度元数据，而非承重输入：读取方无法使用的任何状态——其他适配器的 kind、其他版本（包括已落盘的平铺版本 1 形式）、格式错误的元数据、或与内容不再匹配的块结构——都把这一条消息降级为既有的外来提供方无关转换，并通过插件的 `onReplayDegrade` 钩子（logger 警告）上报 `INVALID_REPLAY_STATE` 诊断。请求继续执行。正是这一点让本次改动之前已被毒化的会话得以继续而不是永远报错，也把未来一切分叉源约束为单条消息的保真度损失。
++**读侧——持久化内容是权威记录。** `toPiAssistant` 把回放状态当作保真度元数据，而非承重输入：读取方无法使用的任何状态——其他适配器的 kind、其他版本（包括已落盘的平铺版本 1 形式）、格式错误的元数据、或与内容不再匹配的块结构——都把这一条消息降级为既有的外来提供方无关转换，并通过插件的 `onReplayDegrade` 钩子（logger 警告）上报 `INVALID_REPLAY_STATE` 诊断。请求继续执行。显式启用 Responses 明文推理选项的目标会使用同一份持久内容回退，为工具调用连续性构造目标原生推理项，但不会复用无效的不透明元数据（参见[经检查的会话模型迁移](../architecture/2026-09-10-checked-session-model-migration.zh.md)）。这会把无法使用的回放元数据约束为单条消息的保真度损失。
+ 
+ ## 验证
+ 
+diff --git a/.agents/notes/implemented/feature/2026-08-07-default-model-follows-the-picker.i18n.yaml b/.agents/notes/implemented/feature/2026-08-07-default-model-follows-the-picker.i18n.yaml
+index c8be4143b4..f9e4480256 100644
+--- a/.agents/notes/implemented/feature/2026-08-07-default-model-follows-the-picker.i18n.yaml
++++ b/.agents/notes/implemented/feature/2026-08-07-default-model-follows-the-picker.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-07-default-model-follows-the-picker.md
+-2026-08-07-default-model-follows-the-picker.md: b2d9c0fe58d9219fb33f749563d3d1fb10a20a8a
+-2026-08-07-default-model-follows-the-picker.zh.md: 7d3e5bc924f20e47b4d6a5e609c0e3c984ed6921
++2026-08-07-default-model-follows-the-picker.md: 83fb9c295e6ccc48b4fcba3c755cb1c7530e6604
++2026-08-07-default-model-follows-the-picker.zh.md: 5bd768d2b4d070942cf2b1a3efe584f03e997977
+diff --git a/.agents/notes/implemented/feature/2026-08-07-default-model-follows-the-picker.md b/.agents/notes/implemented/feature/2026-08-07-default-model-follows-the-picker.md
+index b2d9c0fe58..83fb9c295e 100644
+--- a/.agents/notes/implemented/feature/2026-08-07-default-model-follows-the-picker.md
++++ b/.agents/notes/implemented/feature/2026-08-07-default-model-follows-the-picker.md
+@@ -16,7 +16,7 @@ Reasoning effort makes the persistence shape significant: a model selection with
+ 
+ `reasoningEffort` belongs to the Settings section but not to the plugin config. Settings layers merge by field, so a configured effort would survive a user selection that omits it. `saveSelection()` instead writes the complete user section; absence therefore clears a stored effort. A deployment-wide effort default belongs to the adapter profile, which resolves it per model.
+ 
+-`session.selectModel` applies an accepted `ModelSelection` to its session and calls `saveDefaultModelSelection()` for the shared Agent default. A storage failure is logged without undoing the session selection. A deployment with no settings provider retains the composition entry and keeps the accepted selection only in that session.
++`session.selectModel` normally applies an accepted `ModelSelection` to its session and calls `saveDefaultModelSelection()` for the shared Agent default. A storage failure is logged without undoing the session selection. A deployment with no settings provider retains the composition entry and keeps the accepted selection only in that session. The explicit checked-migration mode is session-local and never updates this default, as defined by [checked Session model migration](../architecture/2026-09-10-checked-session-model-migration.md).
+ 
+ `ApiProxyDefaults` carries `defaultModelSelection()` and `saveDefaultModelSelection()` closures, so `createApiProxy` has no dependency on the Settings seam. `ApiProxyService` wires them to `ctx.agentDefaultModel.currentSelection()` and `ctx.agentDefaultModel.saveSelection()`.
+ 
+@@ -26,7 +26,7 @@ The stored selection does not require catalog membership. A provider route may s
+ 
+ ## Consequences
+ 
+-`session/modelCatalog` reports the live Agent default. A successful model switch stores an `agent-default-model:` section in `settings.yaml`. The Settings page does not expose that namespace; the model picker is its editor.
++`session/modelCatalog` reports the live Agent default. A successful ordinary model switch stores an `agent-default-model:` section in `settings.yaml`; a checked migration does not. The Settings page does not expose that namespace; the model picker is its editor.
+ 
+ ## A session that cannot send
+ 
+diff --git a/.agents/notes/implemented/feature/2026-08-07-default-model-follows-the-picker.zh.md b/.agents/notes/implemented/feature/2026-08-07-default-model-follows-the-picker.zh.md
+index 7d3e5bc924..5bd768d2b4 100644
+--- a/.agents/notes/implemented/feature/2026-08-07-default-model-follows-the-picker.zh.md
++++ b/.agents/notes/implemented/feature/2026-08-07-default-model-follows-the-picker.zh.md
+@@ -16,7 +16,7 @@ Status: implemented
+ 
+ `reasoningEffort` 属于 Settings 分节，但不属于插件配置。Settings 层按字段合并，因此已配置的强度会在用户选择省略它时继续存在。`saveSelection()` 写入完整的用户分节；因此，缺少该字段会清除已存强度。部署级强度默认值属于适配器 profile，并由它按模型解析。
+ 
+-`session.selectModel` 把被接受的 `ModelSelection` 应用于所在会话，并调用 `saveDefaultModelSelection()` 保存共享的 Agent 默认值。存储失败只记日志，不撤销会话选择。没有 Settings 提供方的部署保留组合条目，被接受的选择只停留在该会话中。
++`session.selectModel` 通常把被接受的 `ModelSelection` 应用于所在会话，并调用 `saveDefaultModelSelection()` 保存共享的 Agent 默认值。存储失败只记日志，不撤销会话选择。没有 Settings 提供方的部署保留组合条目，被接受的选择只停留在该会话中。[经检查的会话模型迁移](../architecture/2026-09-10-checked-session-model-migration.zh.md)定义的显式 checked-migration 模式只作用于所在会话，并且永不更新该默认值。
+ 
+ `ApiProxyDefaults` 携带 `defaultModelSelection()` 与 `saveDefaultModelSelection()` 闭包，因此 `createApiProxy` 不依赖 Settings seam。`ApiProxyService` 将它们分别接到 `ctx.agentDefaultModel.currentSelection()` 与 `ctx.agentDefaultModel.saveSelection()`。
+ 
+@@ -26,7 +26,7 @@ Status: implemented
+ 
+ ## 影响
+ 
+-`session/modelCatalog` 报告当前 Agent 默认值。模型切换成功后，`settings.yaml` 中会存有一个 `agent-default-model:` 分节。Settings 页面不暴露该 namespace；模型选择器是它的编辑器。
++`session/modelCatalog` 报告当前 Agent 默认值。普通模型切换成功后，`settings.yaml` 中会存有一个 `agent-default-model:` 分节；经检查的迁移不会写入它。Settings 页面不暴露该 namespace；模型选择器是它的编辑器。
+ 
+ ## 无法发送消息的会话
+ 
+diff --git a/docs/config-catalog.i18n.yaml b/docs/config-catalog.i18n.yaml
+index 19563b4b27..e79085e04e 100644
+--- a/docs/config-catalog.i18n.yaml
++++ b/docs/config-catalog.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write docs/config-catalog.md
+-config-catalog.md: ec62912c76ad336a7bd7e966be7921c9938a211c
+-config-catalog.zh.md: e785cacb15652e4162066cbdae478870cf61bc4e
++config-catalog.md: feaf8001cf1fbe6a0459ec57a935bb71038f7fa8
++config-catalog.zh.md: 321e72dfb32c6f86a4b8e0909b2b4fbbac89b5e0
+diff --git a/docs/config-catalog.md b/docs/config-catalog.md
+index ec62912c76..feaf8001cf 100644
+--- a/docs/config-catalog.md
++++ b/docs/config-catalog.md
+@@ -203,7 +203,7 @@ Source: [`packages/api/gateway/src/index.ts:119`](../packages/api/gateway/src/in
+ 
+ ## `@deepseek-ai/dsh-api-session-controller`
+ 
+-Requires: `agentDefaultModel` · `agents` · `attachments` · `llm` · `sessions` · `sessionProjections` · `sessionQuery` · `typert` · `workspaceRegistry`
++Requires: `agentDefaultModel` · `agents` · `attachments` · `llm` · `sessions` · `sessionProjections` · `sessionQuery` · `tokenMeter` · `typert` · `workspaceRegistry`
+ 
+ ```ts config-catalog
+ /** Session Controller deployment policy. */
+@@ -1091,6 +1091,11 @@ export interface PiAiProviderProfile {
+    * to answer instead.
+    */
+   defaultInput?: PiAiModality[]
++  /**
++   * Send retained plaintext reasoning as OpenAI Responses reasoning items after
++   * a provider or model change. Valid only when every model uses `openai-responses`.
++   */
++  responsesReasoningText?: boolean
+   /** Provider request headers, validated against Fetch when the profile resolves; Harness attribution wins reserved names. */
+   headers?: Record<string, string>
+   /** Provider-neutral pi-ai reasoning level. */
+@@ -1278,7 +1283,7 @@ export type PiAiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFo
+ 
+ Depends on: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-works/pi-ai`) · `Model` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `OpenAICompletionsCompat` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
+ 
+-Source: [`packages/llm/llm-pi-ai/src/config.ts:216`](../packages/llm/llm-pi-ai/src/config.ts)
++Source: [`packages/llm/llm-pi-ai/src/config.ts:221`](../packages/llm/llm-pi-ai/src/config.ts)
+ 
+ <a id="deepseek-aidsh-llm-replay"></a>
+ 
+diff --git a/docs/config-catalog.zh.md b/docs/config-catalog.zh.md
+index e785cacb15..321e72dfb3 100644
+--- a/docs/config-catalog.zh.md
++++ b/docs/config-catalog.zh.md
+@@ -205,7 +205,7 @@ export interface Config {
+ 
+ ## `@deepseek-ai/dsh-api-session-controller`
+ 
+-需要：`agentDefaultModel` · `agents` · `attachments` · `llm` · `sessions` · `sessionProjections` · `sessionQuery` · `typert` · `workspaceRegistry`
++需要：`agentDefaultModel` · `agents` · `attachments` · `llm` · `sessions` · `sessionProjections` · `sessionQuery` · `tokenMeter` · `typert` · `workspaceRegistry`
+ 
+ ```ts config-catalog
+ /** Session Controller deployment policy. */
+@@ -1093,6 +1093,11 @@ export interface PiAiProviderProfile {
+    * to answer instead.
+    */
+   defaultInput?: PiAiModality[]
++  /**
++   * Send retained plaintext reasoning as OpenAI Responses reasoning items after
++   * a provider or model change. Valid only when every model uses `openai-responses`.
++   */
++  responsesReasoningText?: boolean
+   /** Provider request headers, validated against Fetch when the profile resolves; Harness attribution wins reserved names. */
+   headers?: Record<string, string>
+   /** Provider-neutral pi-ai reasoning level. */
+@@ -1278,9 +1283,9 @@ export type PiAiReasoningEfforts = Partial<Record<ModelThinkingLevel, string | n
+ export type PiAiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFormat']>
+ ```
+ 
+-依赖：`Api`（`@earendil-works/pi-ai`）· `CacheRetention`（`@earendil-works/pi-ai`）· `Model`（`@earendil-works/pi-ai`）· `ModelThinkingLevel`（`@earendil-works/pi-ai`）· `OpenAICompletionsCompat`（`@earendil-works/pi-ai`）· [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets`（`@earendil-works/pi-ai`）· `Transport`（`@earendil-works/pi-ai`)
++依赖：`Api`（`@earendil-works/pi-ai`）· `CacheRetention`（`@earendil-works/pi-ai`）· `Model`（`@earendil-works/pi-ai`）· `ModelThinkingLevel`（`@earendil-works/pi-ai`）· `OpenAICompletionsCompat`（`@earendil-works/pi-ai`）· [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets`（`@earendil-works/pi-ai`）· `Transport`（`@earendil-works/pi-ai`）
+ 
+-来源：[`packages/llm/llm-pi-ai/src/config.ts:213`](../packages/llm/llm-pi-ai/src/config.ts)
++来源：[`packages/llm/llm-pi-ai/src/config.ts:221`](../packages/llm/llm-pi-ai/src/config.ts)
+ 
+ <a id="deepseek-aidsh-llm-replay"></a>
+ 
+diff --git a/docs/event-producer-consumer.i18n.yaml b/docs/event-producer-consumer.i18n.yaml
+index 28dc25a1c8..4d73330514 100644
+--- a/docs/event-producer-consumer.i18n.yaml
++++ b/docs/event-producer-consumer.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write docs/event-producer-consumer.md
+-event-producer-consumer.md: bdfb3f23e817dadebb090df154af8e1ebf018ee8
+-event-producer-consumer.zh.md: 3fe1fe737cb7e99bb8e3a8641dc7bbd7b11b74a4
++event-producer-consumer.md: d6520708e27428dd8a19d4e244dfad77aaf98d7e
++event-producer-consumer.zh.md: 601ebfda2d6fafab95f719cdb870640cc6afea4a
+diff --git a/docs/event-producer-consumer.md b/docs/event-producer-consumer.md
+index bdfb3f23e8..d6520708e2 100644
+--- a/docs/event-producer-consumer.md
++++ b/docs/event-producer-consumer.md
+@@ -21,11 +21,11 @@ This matrix shows which packages dispatch each harness-owned event and which pac
+ | `agent/session-start` | `emit` | [`packages/core/agent/src/runtime-types.ts:224`](../packages/core/agent/src/runtime-types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emitAgentEvent`) | `agent-team`, [`goal`](../packages/goal/goal), [`goal-round-driver`](../packages/goal/goal-round-driver), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex) |
+ | `agent/status` | `emit` | [`packages/core/agent/src/runtime-types.ts:185`](../packages/core/agent/src/runtime-types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`agent`](../packages/core/agent), `agent-team`, [`compaction-basic`](../packages/compaction/compaction-basic), [`goal-round-driver`](../packages/goal/goal-round-driver), [`schedule`](../packages/schedule/schedule), `server`, `session-controller` |
+ | `agent/turn-stopping` | `serial` | [`packages/core/agent/src/runtime-types.ts:285`](../packages/core/agent/src/runtime-types.ts) | [`agent-loop`](../packages/core/agent-loop) (`serial`) | [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex) |
+-| `api-session/activity` | `emit` | [`packages/api/session-controller/src/types.ts:542`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
+-| `api-session/added` | `emit` | [`packages/api/session-controller/src/types.ts:522`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
+-| `api-session/error` | `emit` | [`packages/api/session-controller/src/types.ts:549`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
+-| `api-session/removed` | `emit` | [`packages/api/session-controller/src/types.ts:528`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
+-| `api-session/status` | `emit` | [`packages/api/session-controller/src/types.ts:535`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
++| `api-session/activity` | `emit` | [`packages/api/session-controller/src/types.ts:550`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
++| `api-session/added` | `emit` | [`packages/api/session-controller/src/types.ts:530`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
++| `api-session/error` | `emit` | [`packages/api/session-controller/src/types.ts:557`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
++| `api-session/removed` | `emit` | [`packages/api/session-controller/src/types.ts:536`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
++| `api-session/status` | `emit` | [`packages/api/session-controller/src/types.ts:543`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
+ | `approval/request` | `waterfall` | [`packages/interaction/user-approval/src/types.ts:85`](../packages/interaction/user-approval/src/types.ts) | [`user-approval`](../packages/interaction/user-approval) (`waterfall`) | [`acp`](../packages/acp/acp), `remotes` |
+ | `authorization/settled` | `emit` | [`packages/credentials/authorization/src/index.ts:57`](../packages/credentials/authorization/src/index.ts) | [`authorization`](../packages/credentials/authorization) (`events.dispatch`) | [`authorization`](../packages/credentials/authorization) |
+ | `commands/change` | `emit` | [`packages/interaction/commands/src/types.ts:81`](../packages/interaction/commands/src/types.ts) | [`commands`](../packages/interaction/commands) (`events.dispatch`) | `remotes` |
+diff --git a/docs/event-producer-consumer.zh.md b/docs/event-producer-consumer.zh.md
+index 3fe1fe737c..601ebfda2d 100644
+--- a/docs/event-producer-consumer.zh.md
++++ b/docs/event-producer-consumer.zh.md
+@@ -23,11 +23,11 @@
+ | `agent/session-start` | `emit` | [`packages/core/agent/src/runtime-types.ts:224`](../packages/core/agent/src/runtime-types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emitAgentEvent`) | `agent-team`, [`goal`](../packages/goal/goal), [`goal-round-driver`](../packages/goal/goal-round-driver), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex) |
+ | `agent/status` | `emit` | [`packages/core/agent/src/runtime-types.ts:185`](../packages/core/agent/src/runtime-types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`agent`](../packages/core/agent), `agent-team`, [`compaction-basic`](../packages/compaction/compaction-basic), [`goal-round-driver`](../packages/goal/goal-round-driver), [`schedule`](../packages/schedule/schedule), `server`, `session-controller` |
+ | `agent/turn-stopping` | `serial` | [`packages/core/agent/src/runtime-types.ts:285`](../packages/core/agent/src/runtime-types.ts) | [`agent-loop`](../packages/core/agent-loop) (`serial`) | [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex) |
+-| `api-session/activity` | `emit` | [`packages/api/session-controller/src/types.ts:542`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
+-| `api-session/added` | `emit` | [`packages/api/session-controller/src/types.ts:522`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
+-| `api-session/error` | `emit` | [`packages/api/session-controller/src/types.ts:549`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
+-| `api-session/removed` | `emit` | [`packages/api/session-controller/src/types.ts:528`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
+-| `api-session/status` | `emit` | [`packages/api/session-controller/src/types.ts:535`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
++| `api-session/activity` | `emit` | [`packages/api/session-controller/src/types.ts:550`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
++| `api-session/added` | `emit` | [`packages/api/session-controller/src/types.ts:530`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
++| `api-session/error` | `emit` | [`packages/api/session-controller/src/types.ts:557`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
++| `api-session/removed` | `emit` | [`packages/api/session-controller/src/types.ts:536`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
++| `api-session/status` | `emit` | [`packages/api/session-controller/src/types.ts:543`](../packages/api/session-controller/src/types.ts) | `session-controller` (`emit`) | `remotes` |
+ | `approval/request` | `waterfall` | [`packages/interaction/user-approval/src/types.ts:85`](../packages/interaction/user-approval/src/types.ts) | [`user-approval`](../packages/interaction/user-approval) (`waterfall`) | [`acp`](../packages/acp/acp), `remotes` |
+ | `authorization/settled` | `emit` | [`packages/credentials/authorization/src/index.ts:57`](../packages/credentials/authorization/src/index.ts) | [`authorization`](../packages/credentials/authorization) (`events.dispatch`) | [`authorization`](../packages/credentials/authorization) |
+ | `commands/change` | `emit` | [`packages/interaction/commands/src/types.ts:81`](../packages/interaction/commands/src/types.ts) | [`commands`](../packages/interaction/commands) (`events.dispatch`) | `remotes` |
+diff --git a/docs/subsystems/session.i18n.yaml b/docs/subsystems/session.i18n.yaml
+index 51e2da2af5..bbafba0b85 100644
+--- a/docs/subsystems/session.i18n.yaml
++++ b/docs/subsystems/session.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write docs/subsystems/session.md
+-session.md: 40012d1fc7b5be602dd3783f1df24f8f61f8a969
+-session.zh.md: 9d4f6c3ce90913e5236b011e025d8299b3192a57
++session.md: 6d0f59dcd4e5ee57918bd735dbc9497a66150f3f
++session.zh.md: ee802f25a6160a18c3ec0c71507b34691fae063e
+diff --git a/docs/subsystems/session.md b/docs/subsystems/session.md
+index 40012d1fc7..6d0f59dcd4 100644
+--- a/docs/subsystems/session.md
++++ b/docs/subsystems/session.md
+@@ -646,6 +646,12 @@ What a persistence backend relies on: the durable log persists every event lossl
+ 
+ The backends that consume this contract are on [persistence.md](persistence.md).
+ 
++## Checked model migration
++
++Clients opt into a retained-work check with `session.selectModel({ sessionId, provider, model, migration: "checked" })`. The Session must be idle with no pending input. The Host resolves the destination's context window and effective output allowance, reprices the retained conversation plus the latest system prompt and tool schemas through `ctx.tokenMeter`, and accepts the selection only when the sum fits. An explicit prior `maxTokens` remains in force; an adapter-defaulted value is replaced by the destination default. Missing capacity information and concurrent Session changes are rejections, and no check dispatches a provider generation.
++
++A successful checked migration appends the ordinary `model/selection` event, so reopening the Session preserves the route. It does not change the deployment default or any other Session. A rejected migration appends nothing and leaves the current route usable. The check is a statement about retained work at selection time, not a reservation for later prompts or provider availability. See [the checked-migration decision](../../.agents/notes/implemented/architecture/2026-09-10-checked-session-model-migration.md).
++
+ ## Remote catalog and workspace opening
+ 
+ `ModelCatalog` is the Host-generation model directory returned by `session/modelCatalog`: it carries the deployment default, routable provider ids, successful provider groups, and isolated provider failures. It is not derived from one Session and remains separate from Session projections.
+diff --git a/docs/subsystems/session.zh.md b/docs/subsystems/session.zh.md
+index 9d4f6c3ce9..ee802f25a6 100644
+--- a/docs/subsystems/session.zh.md
++++ b/docs/subsystems/session.zh.md
+@@ -650,6 +650,12 @@ interface TurnEndReasonMap {
+ 
+ 消费此约定的后端见 [persistence.md](persistence.zh.md)。
+ 
++## 经检查的模型迁移
++
++客户端通过 `session.selectModel({ sessionId, provider, model, migration: "checked" })` 显式请求保留工作检查。会话必须空闲且没有待处理输入。Host 解析目标的上下文窗口与有效输出额度，通过 `ctx.tokenMeter` 按目标路由重新计价保留对话、最近一次系统提示词和工具 schema，并且只在总和可以容纳时接受选择。此前显式指定的 `maxTokens` 保持不变；适配器默认提供的值改用目标默认值。容量信息缺失与并发会话变化都会导致拒绝，检查绝不发起提供方生成。
++
++成功的经检查迁移追加普通的 `model/selection` 事件，因此重新打开会话后仍保留该路由。它不会改变部署默认值或其他会话。失败的迁移不追加任何内容，并让当前路由保持可用。检查只说明选择时的保留工作可以容纳，不为后续提示或提供方可用性作预留。参见[经检查的迁移决定](../../.agents/notes/implemented/architecture/2026-09-10-checked-session-model-migration.zh.md)。
++
+ ## Remote 目录与 workspace 打开
+ 
+ `ModelCatalog` 是 `session/modelCatalog` 返回的 Host generation 模型目录：它携带部署默认值、可路由 provider id、成功的 provider 分组与相互隔离的 provider 失败。它不由某个 Session 派生，因此与 Session projection 分开保存。
+diff --git a/packages/api/session-controller/README.i18n.yaml b/packages/api/session-controller/README.i18n.yaml
+index 9e96e16e09..c5d03428ea 100644
+--- a/packages/api/session-controller/README.i18n.yaml
++++ b/packages/api/session-controller/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/api/session-controller/README.md
+-README.md: b3d22a340fff6a49270de520a043a1c8dfdbf096
+-README.zh.md: 45590a53db17b32cc59f6107957c284b53ee8302
++README.md: 5c675e7ebb08c06e967c01c8c5059bebf1ff5bd6
++README.zh.md: 8774c8c3daf25f31069cbda1896feeac42d94ac7
+diff --git a/packages/api/session-controller/README.md b/packages/api/session-controller/README.md
+index b3d22a340f..5c675e7ebb 100644
+--- a/packages/api/session-controller/README.md
++++ b/packages/api/session-controller/README.md
+@@ -27,6 +27,8 @@ History pages and follow opening snapshots carry a discriminated `SessionHistory
+ 
+ Each endpoint states its activation policy. List, search, attachment, history pages, log following, skill discovery, and workspace-path opening can inspect persistence without activating an Agent; `canOpenWorkspacePath()` reports native-opening availability without addressing a Session. Queue mutation and cancellation require live state; model, rename, prompt, and file-reference operations may resolve or resume an ordinary Session. Create and fork are the only operations that create a new Agent directly. The skill catalog instead uses a live Agent when present or the recorded preset's standing scope when cold, so listing never starts an Agent.
+ 
++`session.selectModel` retains its ordinary immediate-selection behavior unless the request sets `migration: "checked"`. Checked migration requires an idle Session with an empty input queue, resolves the destination context window and output allowance, and uses `ctx.tokenMeter` to reprice the retained conversation with the latest system prompt and tool schemas. It preserves a caller-selected `maxTokens`, replaces an adapter default with the destination default, and accepts equality at the context limit. Success appends a durable Session-local selection without changing the deployment default; missing capacity, overflow, or concurrent Session activity rejects without appending or generating.
++
+ The Client adapter exposes `SessionEventStream`, a Gateway `RemoteJournalStream` bound to one ordinary or direct-subagent address. It opens follow before the initial page, publishes only contiguous `replace`, `prepend`, and `append` changes, and repairs reconnect or sequence gaps through a tail page. Backwards paging has two verbs: `loadOlder()` pulls one 50-message page, and `loadThrough(seq)` — the turn-jump loader — loops 200-message pages until the window covers the target seq, lowering a shared target on repeated calls, stopping on a page that makes no progress, and reporting busy through the same `loadingOlder` snapshot bit. Ordinary records cover `[event.seq, event.seq]`; packed rows cover `[event.seq, event.seq + memberCount - 1]`. A business, persistence, or unresolved continuity failure terminates the stream, while only physical carrier loss selects automatic resumption. `SessionControlStream` is a Gateway `RemoteSnapshotStream`; every generation opens with a complete process-local baseline, so reconnect replaces queue, jobs, and projection state instead of treating transient values as durable events.
+ 
+ The Session object also carries local submission echoes: `session.beginSubmission` inserts one into `SessionSnapshot.pendingSubmissions` synchronously, before the caller serializes and prompts, so a conversation UI can show the message on the submit click's own frame. Session derives each echo's `transcript`, `queued`, or `steering` placement from its current running state and the requested delivery mode, then retains that placement while serialization is in flight. The prompt's `requestId` is the correlation identity: the Host echoes it as the durable user source's `rpcId`, and queue occurrences project it as `SessionQueuedItem.rpcId`. An echo retires one animation frame after its durable event or queue occurrence is observed (the delay keeps it renderable until the replacement is ready), immediately when its identified prompt fails or is abandoned, and as failed on disposal; each retirement fires the registered `onRetire` callback exactly once. Echoes are Client memory only; reload and reconnect rebuild the conversation from durable events alone.
+diff --git a/packages/api/session-controller/README.zh.md b/packages/api/session-controller/README.zh.md
+index 45590a53db..8774c8c3da 100644
+--- a/packages/api/session-controller/README.zh.md
++++ b/packages/api/session-controller/README.zh.md
+@@ -27,6 +27,8 @@ kind: "package-reference"
+ 
+ 每个 endpoint 都声明自己的激活策略。列表、搜索、附件、历史页、日志跟随、skill 发现和工作区路径打开可以在不激活 Agent 的情况下检查 persistence；`canOpenWorkspacePath()` 无需指定 Session 即可报告原生打开能力。queue 变更与取消要求 live 状态；模型、重命名、prompt 和文件引用操作可以解析或恢复普通 Session。只有 create 与 fork 会直接创建新 Agent。skill 目录则优先使用已有 live Agent，否则使用所记录 preset 的常驻 scope，因此列表查询绝不会启动 Agent。
+ 
++除非请求设置 `migration: "checked"`，否则 `session.selectModel` 保持原有的即时选择行为。受检迁移要求 Session 空闲且输入队列为空，解析目标的上下文窗口与输出额度，并通过 `ctx.tokenMeter` 按最近一次系统提示词和工具 schema 重新计价保留对话。调用方显式选择的 `maxTokens` 会保留，适配器默认值则替换为目标默认值；总和等于上下文限制时允许迁移。成功时追加持久且仅属于该 Session 的选择，不改变部署默认值；容量信息缺失、超出容量或并发 Session 活动都会拒绝迁移，不追加事件也不发起生成。
++
+ Client adapter 提供 `SessionEventStream`，即绑定到一个普通 Session 或 direct subagent address 的 Gateway `RemoteJournalStream`。它在读取首个 page 前打开 follow，只发布连续的 `replace`、`prepend` 和 `append` 变更，并通过 tail page 修复重连或 seq 缺口。向后分页有两个动词：`loadOlder()` 拉一页 50 条 message，而 `loadThrough(seq)`——轮次跳转加载器——按 200 条 message 一页循环拉取直到窗口覆盖目标 seq，重复调用会下调共享目标，遇到无进展的页即停止，忙碌状态复用同一个 `loadingOlder` 快照位。普通 record 覆盖 `[event.seq, event.seq]`，packed row 覆盖 `[event.seq, event.seq + memberCount - 1]`。业务、persistence 或无法恢复的连续性错误会终止 stream，只有物理载体断开才触发自动恢复。`SessionControlStream` 是 Gateway `RemoteSnapshotStream`；每代都以完整的进程本地 baseline 开始，因此重连会替换 queue、jobs 和 projection 状态，而不会把瞬态值当作 durable event。
+ 
+ Session 对象还承载本地提交回显：`session.beginSubmission` 在调用方序列化与 prompt 之前，同步把一条回显写入 `SessionSnapshot.pendingSubmissions`，会话 UI 因此能在点击提交的当帧显示消息。Session 根据当前运行状态与请求的投递模式推导每条回显的 `transcript`、`queued` 或 `steering` 位置，并在序列化期间保留该位置。prompt 的 `requestId` 是关联标识：Host 把它回显为 durable user source 的 `rpcId`，queue occurrence 也把它投影为 `SessionQueuedItem.rpcId`。回显在观察到其 durable event 或 queue occurrence 后延迟一个动画帧退休，该延迟保证替代内容就绪前回显仍可渲染；带标识的 prompt 失败或被放弃时立即退休，销毁时按 failed 退休；每次退休恰好触发一次注册的 `onRetire` 回调。回显只存在于 Client 内存；刷新与重连只从 durable event 重建会话。
+diff --git a/packages/api/session-controller/package.json b/packages/api/session-controller/package.json
+index b1fe281a9e..5575b4b2e9 100644
+--- a/packages/api/session-controller/package.json
++++ b/packages/api/session-controller/package.json
+@@ -94,6 +94,7 @@
+     "@deepseek-ai/dsh-session-title": "workspace:^",
+     "@deepseek-ai/dsh-skill": "workspace:^",
+     "@deepseek-ai/dsh-subagent": "workspace:^",
++    "@deepseek-ai/dsh-token-meter": "workspace:^",
+     "@deepseek-ai/dsh-typert-protocol": "workspace:^",
+     "@deepseek-ai/dsh-typert-registry": "workspace:^",
+     "@deepseek-ai/dsh-util-time": "workspace:^",
+@@ -115,6 +116,7 @@
+     "@deepseek-ai/cordis": "workspace:^",
+     "@deepseek-ai/dsh-agent": "workspace:^",
+     "@deepseek-ai/dsh-agent-default-model": "workspace:^",
++    "@deepseek-ai/dsh-agent-loop": "workspace:^",
+     "@deepseek-ai/dsh-agent-presets": "workspace:^",
+     "@deepseek-ai/dsh-api-gateway": "workspace:^",
+     "@deepseek-ai/dsh-attachment": "workspace:^",
+@@ -137,6 +139,8 @@
+     "@deepseek-ai/dsh-storage-domain": "workspace:^",
+     "@deepseek-ai/dsh-storage-json": "workspace:^",
+     "@deepseek-ai/dsh-subagent": "workspace:^",
++    "@deepseek-ai/dsh-token-meter": "workspace:^",
++    "@deepseek-ai/dsh-tools": "workspace:^",
+     "@deepseek-ai/dsh-typert-protocol": "workspace:^",
+     "@deepseek-ai/dsh-typert-registry": "workspace:^",
+     "@deepseek-ai/dsh-util-crypto": "workspace:^",
+diff --git a/packages/api/session-controller/src/commands.ts b/packages/api/session-controller/src/commands.ts
+index 0e8015f79c..29515ef9c0 100644
+--- a/packages/api/session-controller/src/commands.ts
++++ b/packages/api/session-controller/src/commands.ts
+@@ -9,13 +9,14 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+ import {
+   ReasoningEffortId, createUserMessage, freezeMessage,
+ } from '@deepseek-ai/dsh-llm'
+-import type { MessageSource } from '@deepseek-ai/dsh-llm'
+-import { SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
++import type { LlmCallConfig, MessageSource } from '@deepseek-ai/dsh-llm'
++import { canonicalHeader, requestProposal, SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
+ import type { SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
+ import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
+ import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
+ import { canonicalClientTimeZone } from '@deepseek-ai/dsh-util-time'
+ import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
++import type {} from '@deepseek-ai/dsh-token-meter'
+ import type { Workspace } from '@deepseek-ai/dsh-workspace'
+ import {
+   ApiSessionAgentController,
+@@ -112,14 +113,15 @@ export class SessionCommandController {
+   }
+ 
+   /**
+-   * Validate and install one Session-local model selection.
+-   * @param request - Session identity and requested model selection.
++   * Validate and install one model selection, optionally checking retained work first.
++   * @param request - Session identity, requested route, and optional checked-migration mode.
+    * @returns the normalized selection installed for the Session.
+    */
+   async selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
+     const agent = await this.resolveAgent(request.sessionId)
+     return this.agents.serializeImageAdmission(agent, async () => {
+       try {
++        if (request.migration === 'checked') return await this.checkedModelMigration(agent, request)
+         const resolved = await this.ctx.llm.resolveCallConfig({
+           provider: request.provider,
+           model: request.model,
+@@ -154,6 +156,90 @@ export class SessionCommandController {
+     })
+   }
+ 
++  /** Check and atomically commit one retained-context model migration. */
++  private checkedModelMigration(
++    agent: Agent,
++    request: SessionSelectModelRequest,
++  ): Promise<SessionSelectModelValue> {
++    if (agent.status !== 'idle') return Promise.reject(this.migrationError('not-idle', 'session is running'))
++    if (agent.inbox.hasPending) return Promise.reject(this.migrationError('pending-input', 'session has pending input'))
++    try {
++      return agent.runMaintenance(async (signal) => {
++        const revision = agent.session.seq
++        const previousHeader = agent.session.requestHeader()
++        const previous = previousHeader === undefined
++          ? this.initialCallConfig(agent)
++          : requestProposal(previousHeader)
++        const { reasoningEffort: _previousEffort, ...rest } = previous
++        const prepared = await this.ctx.llm.prepareCall({
++          ...rest,
++          provider: request.provider,
++          model: request.model,
++          ...(request.reasoningEffort === undefined
++            ? {}
++            : { reasoningEffort: ReasoningEffortId(request.reasoningEffort) }),
++        }, signal)
++        const contextWindow = prepared.context?.contextWindow
++        if (contextWindow === undefined) {
++          throw this.migrationError('context-window-unavailable', 'destination context window is unavailable')
++        }
++        const outputTokens = prepared.config.maxTokens
++        if (outputTokens === undefined) {
++          throw this.migrationError('output-allowance-unavailable', 'destination output allowance is unavailable', {
++            contextWindow,
++          })
++        }
++        const header = canonicalHeader({
++          config: prepared.config,
++          adapterDefaults: prepared.adapterDefaults,
++          ...previousHeader?.system === undefined ? {} : { system: previousHeader.system },
++          ...previousHeader?.tools === undefined ? {} : { tools: previousHeader.tools },
++        })
++        const inputTokens = this.ctx.tokenMeter.measure(agent.session, header).totalTokens
++        if (signal.aborted || agent.session.seq !== revision || agent.inbox.hasPending) {
++          throw this.migrationError('session-changed', 'session changed while the destination was checked')
++        }
++        if (inputTokens + outputTokens > contextWindow) {
++          throw this.migrationError(
++            'context-window-exceeded',
++            `destination context window ${contextWindow} cannot fit ${inputTokens} input tokens and ${outputTokens} output tokens`,
++            { contextWindow, inputTokens, outputTokens },
++          )
++        }
++        const selected: AgentModelSelection = {
++          provider: prepared.config.provider,
++          model: prepared.config.model,
++          ...(prepared.config.reasoningEffort === undefined
++            ? {}
++            : { reasoningEffort: prepared.config.reasoningEffort }),
++        }
++        this.agents.selectForNextRequest(agent, selected)
++        return { selected: { ...selected } }
++      })
++    } catch (error: unknown) {
++      return Promise.reject(remoteErrorOf(error) ?? this.migrationError('not-idle', 'session is running'))
++    }
++  }
++
++  /** Recover caller-owned request controls before applying a destination route. */
++  private initialCallConfig(agent: Agent): LlmCallConfig {
++    const selection = this.agents.selectionFor(agent).current
++    return {
++      provider: selection.provider,
++      model: selection.model,
++      ...agent.options.maxTokens === undefined ? {} : { maxTokens: agent.options.maxTokens },
++    }
++  }
++
++  /** Build a stable checked-migration rejection. */
++  private migrationError(
++    reason: 'not-idle' | 'pending-input' | 'session-changed' | 'context-window-unavailable' | 'output-allowance-unavailable' | 'context-window-exceeded',
++    message: string,
++    capacity: { contextWindow?: number; inputTokens?: number; outputTokens?: number } = {},
++  ): RemoteError<'session/model-migration-rejected'> {
++    return new RemoteError('session/model-migration-rejected', message, { reason, ...capacity })
++  }
++
+   /**
+    * Normalize and append a user-owned Session title.
+    * @param request - Session identity and proposed title.
+diff --git a/packages/api/session-controller/src/index.ts b/packages/api/session-controller/src/index.ts
+index 759c6b7f89..a7cf27a107 100644
+--- a/packages/api/session-controller/src/index.ts
++++ b/packages/api/session-controller/src/index.ts
+@@ -90,6 +90,7 @@ export class SessionController extends TypertRemoteService {
+     'sessions',
+     'sessionProjections',
+     'sessionQuery',
++    'tokenMeter',
+     'typert',
+     'workspaceRegistry',
+   ]
+diff --git a/packages/api/session-controller/src/types.ts b/packages/api/session-controller/src/types.ts
+index 2e2a0d7c46..8ff07eef06 100644
+--- a/packages/api/session-controller/src/types.ts
++++ b/packages/api/session-controller/src/types.ts
+@@ -178,6 +178,12 @@ export const SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS = 240
+ declare module '@deepseek-ai/dsh-typert-protocol' {
+   interface RemoteErrorDetailsMap {
+     'session/model-unavailable': { readonly provider: string; readonly model: string }
++    'session/model-migration-rejected': {
++      readonly reason: 'not-idle' | 'pending-input' | 'session-changed' | 'context-window-unavailable' | 'output-allowance-unavailable' | 'context-window-exceeded'
++      readonly contextWindow?: number
++      readonly inputTokens?: number
++      readonly outputTokens?: number
++    }
+     'session/conflict': {
+       readonly sessionId: SessionId
+       readonly requestedCwd: string
+@@ -268,6 +274,8 @@ export interface SessionCreateValue {
+ /** Session model-selection request. */
+ export interface SessionSelectModelRequest extends ModelSelection {
+   readonly sessionId: SessionId
++  /** Require an atomic retained-context capacity check before changing this Session. */
++  readonly migration?: 'checked'
+ }
+ 
+ /** Accepted model selection after Host resolution. */
+diff --git a/packages/api/session-controller/tests/checked-migration.host.spec.ts b/packages/api/session-controller/tests/checked-migration.host.spec.ts
+new file mode 100644
+index 0000000000..04337eef7b
+--- /dev/null
++++ b/packages/api/session-controller/tests/checked-migration.host.spec.ts
+@@ -0,0 +1,393 @@
++/** Checked Session model migration through the real agent loop and durable log. */
++
++import { Context } from '@deepseek-ai/cordis'
++import AgentRegistry from '@deepseek-ai/dsh-agent'
++import type { Agent, AgentHandle, ModelSelection } from '@deepseek-ai/dsh-agent'
++import type {} from '@deepseek-ai/dsh-agent-default-model'
++import AgentLoop from '@deepseek-ai/dsh-agent-loop'
++import LlmRuntime, { createUserMessage, LlmAdapter, ToolCallId } from '@deepseek-ai/dsh-llm'
++import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
++import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
++import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
++import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
++import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
++import TokenMeter from '@deepseek-ai/dsh-token-meter'
++import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { ApiSessionAgentController } from '../src/agent.ts'
++import { SessionCommandController } from '../src/commands.ts'
++import { installModelSelectionProjection } from '../src/model-selection-projection.ts'
++
++function textResponse(text: string): StreamChunk[] {
++  return [
++    { type: 'block-start', index: 0, blockType: 'text' },
++    { type: 'text-delta', index: 0, text },
++    { type: 'block-end', index: 0, block: { type: 'text', text } },
++    { type: 'usage', usage: { inputTokens: 10, outputTokens: 2 } },
++    { type: 'finish', reason: { kind: 'stop' } },
++  ]
++}
++
++function toolResponse(callId: string, reasoning: string): StreamChunk[] {
++  return [
++    { type: 'block-start', index: 0, blockType: 'reasoning' },
++    { type: 'reasoning-delta', index: 0, text: reasoning },
++    { type: 'block-end', index: 0, block: { type: 'reasoning', text: reasoning } },
++    { type: 'block-start', index: 1, blockType: 'tool-call' },
++    { type: 'tool-call-delta', index: 1, id: ToolCallId(callId), name: 'echo', argumentsDelta: '{"text":"ok"}' },
++    {
++      type: 'block-end',
++      index: 1,
++      block: { type: 'tool-call', id: ToolCallId(callId), name: 'echo', arguments: '{"text":"ok"}' },
++    },
++    { type: 'usage', usage: { inputTokens: 10, outputTokens: 4 } },
++    { type: 'finish', reason: { kind: 'tool-calls' } },
++  ]
++}
++
++type ResolveGate = (signal: AbortSignal | undefined) => Promise<void>
++
++class MigrationAdapter extends LlmAdapter {
++  readonly requests: GenerateOptions[] = []
++  override readonly resolveModel = vi.fn(async (
++    provider: string,
++    model: string,
++    signal?: AbortSignal,
++  ): Promise<LlmResolvedModelInfo> => {
++    await this.resolveGate?.(signal)
++    return {
++      provider,
++      id: model,
++      name: model,
++      ...this.contextWindow === undefined ? {} : { context: { contextWindow: this.contextWindow } },
++      ...this.defaultMaxTokens === undefined ? {} : { defaultMaxTokens: this.defaultMaxTokens },
++    }
++  })
++
++  constructor(
++    private readonly script: StreamChunk[][],
++    private readonly contextWindow?: number,
++    private readonly defaultMaxTokens?: number,
++    private readonly resolveGate?: ResolveGate,
++  ) {
++    super()
++  }
++
++  override async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
++    this.requests.push(options)
++    const response = this.script.shift()
++    if (response === undefined) throw new Error('migration adapter script exhausted')
++    for (const chunk of response) yield chunk
++  }
++}
++
++interface MigrationHarness {
++  readonly ctx: Context
++  readonly controller: SessionCommandController
++  readonly agents: ApiSessionAgentController
++  readonly saveSelection: ReturnType<typeof vi.fn>
++}
++
++async function migrationHarness(
++  adapters: Readonly<Record<string, MigrationAdapter>>,
++  defaultSelection: ModelSelection = { provider: 'source', model: 'large' },
++): Promise<MigrationHarness> {
++  const ctx = new Context()
++  await ctx.plugin(LlmRuntime)
++  await ctx.plugin(SessionStore)
++  await ctx.plugin(SessionProjectionRegistry)
++  await ctx.plugin(SystemPrompt, { persona: 'Keep the retained work.' })
++  await ctx.plugin(ToolRuntime)
++  await ctx.plugin(AgentRegistry)
++  await ctx.plugin(AgentLoop, { agents: [] })
++  await ctx.plugin(TokenMeter)
++  installModelSelectionProjection(ctx)
++  for (const [provider, adapter] of Object.entries(adapters)) {
++    ctx.llm.registerAdapter([provider], adapter)
++  }
++  const saveSelection = vi.fn(() => Promise.resolve())
++  ctx.provide('agentDefaultModel', {
++    currentSelection: () => defaultSelection,
++    saveSelection,
++  } as never)
++  const dispose = (): void => {}
++  ctx.provide('typert', {
++    lookups: { configure: () => dispose },
++    contexts: { configureHost: () => dispose },
++  } as never)
++  const agents = new ApiSessionAgentController(ctx)
++  ctx.tools.register(defineContentToolFixture({
++    name: 'echo',
++    description: 'Echo a value.',
++    parameters: { text: { type: 'string' } },
++    async execute(args) {
++      return [{ type: 'text', text: `echo:${args.text}` }]
++    },
++  }))
++  return { ctx, controller: new SessionCommandController(ctx, agents, '/tmp'), agents, saveSelection }
++}
++
++async function createAgent(
++  harness: MigrationHarness,
++  sessionId: SessionId,
++  options: ModelSelection & { maxTokens?: number },
++  persisted?: { events: readonly SessionEvent[]; header: SessionHeader },
++): Promise<AgentHandle> {
++  const composition = await harness.agents.composeAgent(undefined)
++  return harness.ctx.agents.create({
++    sessionId,
++    agentOptions: options,
++    ...persisted === undefined ? { meta: { cwd: '/tmp' } } : {
++      seed: persisted.events,
++      meta: { ...persisted.header.cwd === undefined ? {} : { cwd: persisted.header.cwd } },
++    },
++    setup: composition.setup,
++  })
++}
++
++function send(agent: Agent, text: string): Promise<void> {
++  const idle = new Promise<void>((resolve) => {
++    const dispose = agent.ctx.on('agent/status', ({ agent: subject, status }) => {
++      if (subject === agent && status === 'idle') {
++        dispose()
++        resolve()
++      }
++    })
++  })
++  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
++  return idle
++}
++
++const contexts: Context[] = []
++afterEach(async () => {
++  await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
++})
++
++describe('checked Session model migration', () => {
++  it('reopens on the durable destination and continues retained tool history', async () => {
++    const source = new MigrationAdapter([
++      toolResponse('source-call', 'inspect the original work'),
++      textResponse('source complete'),
++    ], 8_192, 64)
++    const destinationCheck = new MigrationAdapter([], 8_192, 128)
++    const first = await migrationHarness({ source, destination: destinationCheck })
++    contexts.push(first.ctx)
++    const sessionId = SessionId('checked-reopen')
++    const firstHandle = await createAgent(first, sessionId, { provider: 'source', model: 'large' })
++
++    await send(firstHandle.agent, 'start with a tool')
++    expect(source.requests[0]?.maxTokens).toBe(64)
++    const retained = firstHandle.agent.session.deriveMessages()
++    const measure = vi.spyOn(first.ctx.tokenMeter, 'measure')
++    const selected = await first.controller.selectModel({
++      sessionId, provider: 'destination', model: 'small', migration: 'checked',
++    })
++
++    expect(selected.selected).toEqual({ provider: 'destination', model: 'small' })
++    expect(measure).toHaveBeenCalledTimes(1)
++    const measuredHeader = measure.mock.calls[0]?.[1]
++    expect(measuredHeader?.config).toMatchObject({ provider: 'destination', model: 'small', maxTokens: 128 })
++    expect(measuredHeader?.system).toContain('Keep the retained work.')
++    expect(measuredHeader?.tools?.some(tool => tool.name === 'echo')).toBe(true)
++    const other = await createAgent(first, SessionId('checked-other-session'), {
++      provider: 'source', model: 'large',
++    })
++    expect(first.agents.selectionFor(other.agent).current).toEqual({ provider: 'source', model: 'large' })
++    await other.dispose()
++    expect(destinationCheck.requests).toHaveLength(0)
++    expect(first.saveSelection).not.toHaveBeenCalled()
++    const persisted = {
++      events: structuredClone(firstHandle.agent.session.snapshotEvents()),
++      header: structuredClone(firstHandle.agent.session.header),
++    }
++    await firstHandle.dispose()
++    await first.ctx.fiber.dispose()
++    contexts.splice(contexts.indexOf(first.ctx), 1)
++
++    const destination = new MigrationAdapter([
++      toolResponse('destination-call', 'continue from the retained result'),
++      textResponse('destination complete'),
++    ], 8_192, 128)
++    const reopened = await migrationHarness({
++      source: new MigrationAdapter([], 8_192, 64),
++      destination,
++    })
++    contexts.push(reopened.ctx)
++    const reopenedHandle = await createAgent(
++      reopened,
++      sessionId,
++      { provider: 'source', model: 'large' },
++      persisted,
++    )
++
++    await send(reopenedHandle.agent, 'continue after reopening')
++
++    expect(destination.requests).toHaveLength(2)
++    expect(destination.requests[0]).toMatchObject({
++      provider: 'destination', model: 'small', maxTokens: 128,
++    })
++    expect(destination.requests[0]?.messages.slice(0, retained.length)).toEqual(retained)
++    const continuedMessages = destination.requests[1]?.messages ?? []
++    const continuedAssistant = continuedMessages.find(message => message.role === 'assistant'
++      && message.content.some(block => block.type === 'tool-call' && block.id === 'destination-call'))
++    expect(continuedAssistant?.source).toMatchObject({ provider: 'destination', model: 'small' })
++    expect(continuedAssistant?.content.some(
++      block => block.type === 'tool-call' && block.id === 'destination-call',
++    )).toBe(true)
++    expect(continuedMessages.some(message => message.content.some(
++      block => block.type === 'tool-result' && block.toolCallId === 'destination-call',
++    ))).toBe(true)
++    expect(reopened.saveSelection).not.toHaveBeenCalled()
++    await reopenedHandle.dispose()
++  })
++
++  it('preserves an explicit output allowance and allows equality at the limit', async () => {
++    const destination = new MigrationAdapter([textResponse('fits exactly')], 40, 7)
++    const harness = await migrationHarness({
++      source: new MigrationAdapter([], 8_192, 64),
++      destination,
++    })
++    contexts.push(harness.ctx)
++    const sessionId = SessionId('checked-explicit-output')
++    const handle = await createAgent(harness, sessionId, {
++      provider: 'source', model: 'large', maxTokens: 40,
++    })
++
++    await expect(harness.controller.selectModel({
++      sessionId, provider: 'destination', model: 'small', migration: 'checked',
++    })).resolves.toMatchObject({ selected: { provider: 'destination', model: 'small' } })
++    await send(handle.agent, 'next')
++
++    expect(destination.requests[0]?.maxTokens).toBe(40)
++    await handle.dispose()
++  })
++
++  it.each([
++    {
++      name: 'unknown context window',
++      adapter: () => new MigrationAdapter([], undefined, 32),
++      expected: 'context-window-unavailable',
++    },
++    {
++      name: 'unknown output allowance',
++      adapter: () => new MigrationAdapter([], 1_024),
++      expected: 'output-allowance-unavailable',
++    },
++    {
++      name: 'insufficient combined capacity',
++      adapter: () => new MigrationAdapter([], 31, 32),
++      expected: 'context-window-exceeded',
++    },
++  ])('rejects $name without selecting or dispatching', async ({ adapter, expected }) => {
++    const destination = adapter()
++    const source = new MigrationAdapter([textResponse('still usable')], 8_192, 64)
++    const harness = await migrationHarness({ source, destination })
++    contexts.push(harness.ctx)
++    const sessionId = SessionId(`checked-${expected}`)
++    const handle = await createAgent(harness, sessionId, { provider: 'source', model: 'large' })
++    const before = handle.agent.session.seq
++
++    await expect(harness.controller.selectModel({
++      sessionId, provider: 'destination', model: 'small', migration: 'checked',
++    })).rejects.toMatchObject({
++      code: 'session/model-migration-rejected', details: { reason: expected },
++    })
++
++    expect(handle.agent.session.seq).toBe(before)
++    expect(destination.requests).toHaveLength(0)
++    expect(harness.saveSelection).not.toHaveBeenCalled()
++    await send(handle.agent, 'continue on source')
++    expect(source.requests).toHaveLength(1)
++    await handle.dispose()
++  })
++
++  it('checks an already-selected route instead of treating it as a no-op', async () => {
++    const source = new MigrationAdapter([], 31, 32)
++    const harness = await migrationHarness({ source })
++    contexts.push(harness.ctx)
++    const sessionId = SessionId('checked-same-route')
++    const handle = await createAgent(harness, sessionId, { provider: 'source', model: 'large' })
++
++    await expect(harness.controller.selectModel({
++      sessionId, provider: 'source', model: 'large', migration: 'checked',
++    })).rejects.toMatchObject({
++      code: 'session/model-migration-rejected', details: { reason: 'context-window-exceeded' },
++    })
++    expect(source.requests).toHaveLength(0)
++    await handle.dispose()
++  })
++
++  it('rejects running and already-queued Sessions before resolving the destination', async () => {
++    const started = Promise.withResolvers<undefined>()
++    const source = new class extends MigrationAdapter {
++      override async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
++        this.requests.push(options)
++        started.resolve(undefined)
++        await new Promise<void>((_resolve, reject) => {
++          options.signal?.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
++        })
++      }
++    }([], 8_192, 64)
++    const destination = new MigrationAdapter([], 8_192, 128)
++    const harness = await migrationHarness({ source, destination })
++    contexts.push(harness.ctx)
++    const runningId = SessionId('checked-running')
++    const running = await createAgent(harness, runningId, { provider: 'source', model: 'large' })
++    const idle = send(running.agent, 'keep running')
++    await started.promise
++
++    await expect(harness.controller.selectModel({
++      sessionId: runningId, provider: 'destination', model: 'small', migration: 'checked',
++    })).rejects.toMatchObject({
++      code: 'session/model-migration-rejected', details: { reason: 'not-idle' },
++    })
++    running.agent.cancel({ kind: 'user' })
++    await idle
++    await running.dispose()
++
++    const queuedId = SessionId('checked-pending')
++    const queued = await createAgent(harness, queuedId, { provider: 'source', model: 'large' })
++    queued.agent.inject(createUserMessage({
++      content: [{ type: 'text', text: 'not ready to run' }], source: { kind: 'user' },
++    }))
++    await expect(harness.controller.selectModel({
++      sessionId: queuedId, provider: 'destination', model: 'small', migration: 'checked',
++    })).rejects.toMatchObject({
++      code: 'session/model-migration-rejected', details: { reason: 'pending-input' },
++    })
++    expect(destination.resolveModel).not.toHaveBeenCalled()
++    queued.agent.cancel({ kind: 'user' })
++    await queued.dispose()
++  })
++
++  it('rejects queued input added during destination resolution without changing selection', async () => {
++    const entered = Promise.withResolvers<undefined>()
++    const release = Promise.withResolvers<undefined>()
++    const destination = new MigrationAdapter([], 8_192, 128, async (signal) => {
++      entered.resolve(undefined)
++      await release.promise
++      signal?.throwIfAborted()
++    })
++    const source = new MigrationAdapter([textResponse('queued work completed')], 8_192, 64)
++    const harness = await migrationHarness({ source, destination })
++    contexts.push(harness.ctx)
++    const sessionId = SessionId('checked-race')
++    const handle = await createAgent(harness, sessionId, { provider: 'source', model: 'large' })
++
++    const migration = harness.controller.selectModel({
++      sessionId, provider: 'destination', model: 'small', migration: 'checked',
++    })
++    await entered.promise
++    const idle = send(handle.agent, 'arrived during the check')
++    release.resolve(undefined)
++
++    await expect(migration).rejects.toMatchObject({
++      code: 'session/model-migration-rejected', details: { reason: 'session-changed' },
++    })
++    await idle
++    expect(handle.agent.session.snapshotEvents().filter(event => event.type === 'model/selection')).toHaveLength(0)
++    expect(destination.requests).toHaveLength(0)
++    expect(source.requests).toHaveLength(1)
++    await handle.dispose()
++  })
++})
+diff --git a/packages/api/session-controller/tsconfig.host.json b/packages/api/session-controller/tsconfig.host.json
+index 854579f157..b7d883fd73 100644
+--- a/packages/api/session-controller/tsconfig.host.json
++++ b/packages/api/session-controller/tsconfig.host.json
+@@ -31,6 +31,7 @@
+     { "path": "../../interaction/permission-presets" },
+     { "path": "../../jobs/jobs" },
+     { "path": "../../llm/llm" },
++    { "path": "../../llm/token-meter" },
+     { "path": "../../util/deque" },
+     { "path": "../../util/native-command" },
+     { "path": "../../preset/agent-presets" },
+diff --git a/packages/core/agent-loop/src/agent.ts b/packages/core/agent-loop/src/agent.ts
+index 1b8448e693..324bead28e 100644
+--- a/packages/core/agent-loop/src/agent.ts
++++ b/packages/core/agent-loop/src/agent.ts
+@@ -27,8 +27,8 @@ import {
+ import { deepFreeze } from '@deepseek-ai/dsh-util-values'
+ import type { Scope } from '@deepseek-ai/dsh-scope'
+ import { createScope } from '@deepseek-ai/dsh-scope'
+-import type { EpochHeader, RequestContext, Session, SessionId, SessionSeq, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
+-import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
++import type { RequestContext, Session, SessionId, SessionSeq, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
++import { canonicalHeader, headerEquals, requestProposal } from '@deepseek-ai/dsh-session'
+ import { joinContextSections, renderContextSections, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+ import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
+ import type {} from '@deepseek-ai/dsh-session-projection'
+@@ -57,15 +57,6 @@ type PreparedStep =
+     assembly: PromptAssembly
+   }
+ 
+-/** Remove adapter-derived values before plugins propose the next request config. */
+-function requestProposal(header: EpochHeader): LlmCallConfig {
+-  if (header.adapterDefaults === undefined) return header.config
+-  const proposal = { ...header.config }
+-  if (header.adapterDefaults.reasoningEffort === true) delete proposal.reasoningEffort
+-  if (header.adapterDefaults.maxTokens === true) delete proposal.maxTokens
+-  return proposal
+-}
+-
+ /** Drives one session through turn and step boundaries. */
+ export class ReactLoopAgent implements Agent {
+   readonly inbox: Inbox
+diff --git a/packages/core/session/src/index.ts b/packages/core/session/src/index.ts
+index c55cc5fb6a..30a0f19ea9 100644
+--- a/packages/core/session/src/index.ts
++++ b/packages/core/session/src/index.ts
+@@ -29,7 +29,7 @@ export { decodeStorageRecord, packChunkRuns } from './chunk-rows.ts'
+ export type { ChunkRow, StorageRecord } from './chunk-rows.ts'
+ export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from './surface.ts'
+ export { deriveEventMessage, foldSurface, isAppendSurfaceEvent, isReplacementSurfaceEvent, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
+-export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
++export { canonicalHeader, foldRequestHeader, headerEquals, requestProposal } from './request-header.ts'
+ export { KNOWN_SESSION_EVENT_TYPES } from './known-event-types.ts'
+ 
+ declare module '@deepseek-ai/cordis' {
+diff --git a/packages/core/session/src/request-header.ts b/packages/core/session/src/request-header.ts
+index ef67569139..fcb721df64 100644
+--- a/packages/core/session/src/request-header.ts
++++ b/packages/core/session/src/request-header.ts
+@@ -8,9 +8,23 @@
+  */
+ 
+ import { callConfigEquals } from '@deepseek-ai/dsh-llm'
+-import type { ToolSchema } from '@deepseek-ai/dsh-llm'
++import type { LlmCallConfig, ToolSchema } from '@deepseek-ai/dsh-llm'
+ import type { EpochHeader, SessionEvent } from './types.ts'
+ 
++/**
++ * Recover the caller-owned config for the next request from a logged header.
++ * Adapter defaults are removed so the next route resolves its own defaults.
++ * @param header - latest canonical request header.
++ * @returns a detached request proposal.
++ */
++export function requestProposal(header: EpochHeader): LlmCallConfig {
++  if (header.adapterDefaults === undefined) return { ...header.config }
++  const proposal = { ...header.config }
++  if (header.adapterDefaults.reasoningEffort === true) delete proposal.reasoningEffort
++  if (header.adapterDefaults.maxTokens === true) delete proposal.maxTokens
++  return proposal
++}
++
+ /**
+  * Normalize a header to canonical form: an empty system prompt and empty tool
+  * list become absent fields, matching how requests are built. Logging, folding,
+diff --git a/packages/extensions/tool-cordis/src/api-catalog.ts b/packages/extensions/tool-cordis/src/api-catalog.ts
+index 55761bf933..c0e28c58d5 100644
+--- a/packages/extensions/tool-cordis/src/api-catalog.ts
++++ b/packages/extensions/tool-cordis/src/api-catalog.ts
+@@ -5128,7 +5128,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+   },
+   {
+     name: 'SessionSelectModelRequest',
+-    declaration: 'export interface SessionSelectModelRequest extends ModelSelection {\n    readonly sessionId: SessionId;\n}',
++    declaration: 'export interface SessionSelectModelRequest extends ModelSelection {\n    readonly sessionId: SessionId;\n    readonly migration?: \'checked\';\n}',
+   },
+   {
+     name: 'SessionSelectModelValue',
+diff --git a/packages/llm/llm-pi-ai/README.i18n.yaml b/packages/llm/llm-pi-ai/README.i18n.yaml
+index 803c42af07..f4ff39b742 100644
+--- a/packages/llm/llm-pi-ai/README.i18n.yaml
++++ b/packages/llm/llm-pi-ai/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/llm/llm-pi-ai/README.md
+-README.md: 5994a72f28b0a52890cb7bf7a5bc2ee33eedf418
+-README.zh.md: 5f1c893128714caf24941943c57eaf3ab43314e0
++README.md: 7003b4c6cd58deb2fdcdeed1611768ef997a4ff1
++README.zh.md: 4eab79866e9d2d29211407b9cec65dcff7e4a5fe
+diff --git a/packages/llm/llm-pi-ai/README.md b/packages/llm/llm-pi-ai/README.md
+index 5994a72f28..7003b4c6cd 100644
+--- a/packages/llm/llm-pi-ai/README.md
++++ b/packages/llm/llm-pi-ai/README.md
+@@ -81,6 +81,7 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
+ | `compat` | catalog detection | Wire-compatibility switches for unrecognized endpoints |
+ | `defaultContextWindow` | `262,144` | Capacity fallback for undescribed models |
+ | `defaultMaxTokens` | `32,768` | Output-cap fallback for undescribed models |
++| `responsesReasoningText` | `false` | Send retained plaintext reasoning with cross-route tool calls to an `openai-responses` destination |
+ | `requestImagePixelBudget` | `4,194,304` | Total-pixel budget for each deterministic request image |
+ | `requestImageMaxBytes` | `1 MiB` | Encoded-byte target for each request image before base64 expansion |
+ | `maxRequestImageBytes` | `20 MiB` | Aggregate base64 image-payload bound with oldest-first offload |
+@@ -98,7 +99,7 @@ A profile's `models` list replaces the route's installed catalog rather than ext
+ 
+ ### Run with reasoning and wire compatibility
+ 
+-`reasoningEfforts` declares a model's selectable thinking levels: each key is a level selectors offer, its value the spelling dispatch sends on the wire, so `max: ultra` renames a level for a gateway with its own vocabulary. Omitting the field keeps the installed catalog entry's capability; `false` declares a non-reasoning model. `compat` switches reshape the request for endpoints pi-ai cannot recognize — which role carries the system prompt, which field caps output, how a thinking level travels — configurable per route and per model. A model neither the entry nor the installed catalog sizes takes the route's `defaultContextWindow` and `defaultMaxTokens` fallbacks.
++`reasoningEfforts` declares a model's selectable thinking levels: each key is a level selectors offer, its value the spelling dispatch sends on the wire, so `max: ultra` renames a level for a gateway with its own vocabulary. Omitting the field keeps the installed catalog entry's capability; `false` declares a non-reasoning model. `compat` switches reshape the request for endpoints pi-ai cannot recognize — which role carries the system prompt, which field caps output, how a thinking level travels — configurable per route and per model. A model neither the entry nor the installed catalog sizes takes the route's `defaultContextWindow` and `defaultMaxTokens` fallbacks. An `openai-responses` route may set `responsesReasoningText: true` when its gateway requires retained plaintext reasoning beside historical tool calls after a provider or model change. The adapter sends that text as ordered Responses reasoning items, strips source-native response/item ids and signatures, and preserves function-call/result pairing; other protocols reject the setting.
+ 
+ ### Change configuration at runtime
+ 
+@@ -147,7 +148,7 @@ The plugin declares every installed catalog provider it can authenticate in the
+ 
+ ### Replay and vocabulary
+ 
+-Successful assistant responses store a versioned, lossless-JSON replay state beside the provider and model that produced them — response-level facts plus one per-block entry per streamed block. At request time, `LlmRuntime` passes replay state only when the same adapter instance owns both routes; the adapter validates it and restores native response ids and provider signatures, degrading an unusable state to provider-neutral content instead of failing the request. pi-ai tool-call arguments are parsed objects, so the adapter parses input and re-stringifies output to the harness raw-JSON convention; pi-ai in-stream error events map to terminal `finish` chunks.
++Successful assistant responses store a versioned, lossless-JSON replay state beside the provider and model that produced them — response-level facts plus one per-block entry per streamed block. At request time, `LlmRuntime` passes replay state only when the same adapter instance owns both routes. The adapter validates exact-route state and restores native response ids and provider signatures. An enabled `responsesReasoningText` destination instead converts available plaintext reasoning around historical tool calls and discards source-native metadata; invalid state otherwise degrades to provider-neutral content instead of failing the request. pi-ai tool-call arguments are parsed objects, so the adapter parses input and re-stringifies output to the harness raw-JSON convention; pi-ai in-stream error events map to terminal `finish` chunks.
+ 
+ </details>
+ 
+@@ -174,7 +175,7 @@ Read these pages when the package-level contract is not enough. They move from t
+ 
+ #### What the model sees
+ 
+-The selected catalog model receives `GenerateOptions.system`, history, tools, and sampling fields supported by pi-ai's common streaming API. Each retained image is preceded by text naming its complete attachment id and actual request dimensions. When the current execution filesystem maps the attachment provider's host object, the text also carries a read-only normalized-object path and warns that normalization or request projection may have resized or re-encoded the upload. When accumulated base64 image payload exceeds the route's `maxRequestImageBytes`, each offloaded image keeps its own identity and currently resolved access in replacement text. Offloaded normalized attachments are not read or transformed. Provider-native replay metadata is restored only when the adapter validates it for the historical content.
++The selected catalog model receives `GenerateOptions.system`, history, tools, and sampling fields supported by pi-ai's common streaming API. Each retained image is preceded by text naming its complete attachment id and actual request dimensions. When the current execution filesystem maps the attachment provider's host object, the text also carries a read-only normalized-object path and warns that normalization or request projection may have resized or re-encoded the upload. When accumulated base64 image payload exceeds the route's `maxRequestImageBytes`, each offloaded image keeps its own identity and currently resolved access in replacement text. Offloaded normalized attachments are not read or transformed. Provider-native replay metadata is restored only when the adapter validates it for the historical content. An enabled `responsesReasoningText` route instead reconstructs cross-route tool-call reasoning from durable plaintext without forwarding source-native opaque metadata.
+ 
+ #### Token effect
+ 
+diff --git a/packages/llm/llm-pi-ai/README.zh.md b/packages/llm/llm-pi-ai/README.zh.md
+index 5f1c893128..4eab79866e 100644
+--- a/packages/llm/llm-pi-ai/README.zh.md
++++ b/packages/llm/llm-pi-ai/README.zh.md
+@@ -81,6 +81,7 @@ kind: "package-reference"
+ | `compat` | 目录检测 | 无法识别端点的协议兼容开关 |
+ | `defaultContextWindow` | `262,144` | 未描述模型的容量回退 |
+ | `defaultMaxTokens` | `32,768` | 未描述模型的输出上限回退 |
++| `responsesReasoningText` | `false` | 向 `openai-responses` 目标发送跨路由工具调用历史中的明文推理 |
+ | `requestImagePixelBudget` | `4,194,304` | 每张确定性请求图片的总像素预算 |
+ | `requestImageMaxBytes` | `1 MiB` | 每张请求图片在 base64 扩展前的编码字节目标 |
+ | `maxRequestImageBytes` | `20 MiB` | 带最旧优先卸载的 base64 图片载荷总上限 |
+@@ -98,7 +99,7 @@ profile 的 `models` 列表会替换而非扩展路由的已安装目录；每
+ 
+ ### 带推理与协议兼容运行
+ 
+-`reasoningEfforts` 声明模型可选择的 thinking 等级：每个键都是选择器提供的等级，其值是该等级过线的拼写，因此 `max: ultra` 可以为拥有自有词汇的网关重命名等级。省略该字段时保留已安装目录条目的能力；`false` 声明非推理模型。对于 pi-ai 无法识别的端点，`compat` 开关重塑请求——哪个角色携带系统提示词、哪个字段限制输出、thinking 等级如何传递——可逐路由、逐模型配置。条目与已安装目录都没有尺寸的模型，会采用路由的 `defaultContextWindow` 与 `defaultMaxTokens` 回退值。
++`reasoningEfforts` 声明模型可选择的 thinking 等级：每个键都是选择器提供的等级，其值是该等级过线的拼写，因此 `max: ultra` 可以为拥有自有词汇的网关重命名等级。省略该字段时保留已安装目录条目的能力；`false` 声明非推理模型。对于 pi-ai 无法识别的端点，`compat` 开关重塑请求——哪个角色携带系统提示词、哪个字段限制输出、thinking 等级如何传递——可逐路由、逐模型配置。条目与已安装目录都没有尺寸的模型，会采用路由的 `defaultContextWindow` 与 `defaultMaxTokens` 回退值。若 OpenAI Responses 路由的网关要求在更换提供方或模型后，把保留的明文推理与历史工具调用一同发送，该路由可以设置 `responsesReasoningText: true`。适配器会按顺序发送 Responses 推理项，移除来源原生响应 id、条目 id 与签名，并保持函数调用和结果配对；其他协议会拒绝该设置。
+ 
+ ### 运行时更改配置
+ 
+@@ -147,7 +148,7 @@ pi-ai 不提供的路由需要 `api`、`baseURL` 与非空 `models` 列表；无
+ 
+ ### 回放与词汇
+ 
+-成功 assistant 响应会存储带版本的、无损 JSON 回放状态，与产生它们的提供方和模型放在一起——响应级事实加每个流式块一条逐块条目。请求时，`LlmRuntime` 仅当同一适配器实例拥有两条路由时才传递回放状态；适配器校验它并恢复原生响应 id 与提供方签名，无法使用的状态会降级为提供方无关内容而不是让请求失败。pi-ai 工具调用参数是解析后的对象，因此适配器解析输入并重新字符串化输出，以符合 harness 原始 JSON 约定；pi-ai 流内错误事件映射为终止 `finish` 分片。
++成功 assistant 响应会存储带版本的、无损 JSON 回放状态，与产生它们的提供方和模型放在一起——响应级事实加每个流式块一条逐块条目。请求时，`LlmRuntime` 仅当同一适配器实例拥有两条路由时才传递回放状态。适配器校验完全相同路由的状态，并恢复原生响应 id 与提供方签名。启用 `responsesReasoningText` 的目标则会转换历史工具调用旁的可用明文推理，并丢弃来源原生元数据；其他无效状态会降级为提供方无关内容，而不是让请求失败。pi-ai 工具调用参数是解析后的对象，因此适配器解析输入并重新字符串化输出，以符合 harness 原始 JSON 约定；pi-ai 流内错误事件映射为终止 `finish` 分片。
+ 
+ </details>
+ 
+@@ -174,7 +175,7 @@ pi-ai 不提供的路由需要 `api`、`baseURL` 与非空 `models` 列表；无
+ 
+ #### 模型看到什么
+ 
+-所选目录模型会收到 `GenerateOptions.system`、历史、工具与 pi-ai 通用流式 API 支持的采样字段。每张保留图片前都会有文本，注明其完整附件 id 与实际请求尺寸。当前执行文件系统可以映射附件提供方的宿主对象时，该文本还会携带只读规范化对象路径，并警告规范化或请求投影可能缩放或重新编码上传内容。当累计 base64 图片载荷超过路由的 `maxRequestImageBytes` 时，每张卸载图片都会在替换文本中保留自己的身份与当前已解析访问方式。卸载的规范化附件不会读取或变换。提供方原生回放元数据只在适配器针对历史内容校验通过后恢复。
++所选目录模型会收到 `GenerateOptions.system`、历史、工具与 pi-ai 通用流式 API 支持的采样字段。每张保留图片前都会有文本，注明其完整附件 id 与实际请求尺寸。当前执行文件系统可以映射附件提供方的宿主对象时，该文本还会携带只读规范化对象路径，并警告规范化或请求投影可能缩放或重新编码上传内容。当累计 base64 图片载荷超过路由的 `maxRequestImageBytes` 时，每张卸载图片都会在替换文本中保留自己的身份与当前已解析访问方式。卸载的规范化附件不会读取或变换。提供方原生回放元数据只在适配器针对历史内容校验通过后恢复。启用 `responsesReasoningText` 的路由则会从持久明文重建跨路由工具调用推理，而不转发来源原生的不透明元数据。
+ 
+ #### Token 影响
+ 
+diff --git a/packages/llm/llm-pi-ai/src/adapter.ts b/packages/llm/llm-pi-ai/src/adapter.ts
+index e20b8e0072..6f9fe96a27 100644
+--- a/packages/llm/llm-pi-ai/src/adapter.ts
++++ b/packages/llm/llm-pi-ai/src/adapter.ts
+@@ -361,8 +361,14 @@ export class PiAiAdapter extends LlmAdapter {
+       const onReplayDegrade = (reason: string): void => {
+         this.config.onReplayDegrade?.({ provider: options.provider, model: options.model, reason })
+       }
++      const replayTarget = {
++        api: model.api,
++        provider: options.provider,
++        model: options.model,
++        responsesReasoningText: profile.responsesReasoningText ?? false,
++      }
+       const context = attachments === undefined
+-        ? toPiContext(options, undefined, onReplayDegrade)
++        ? toPiContext(options, undefined, onReplayDegrade, replayTarget)
+         : await toPiContext({ ...options, signal: watchdog.signal }, {
+           attachments,
+           resolveImageAccess: ref => this.config.resolveImageAccess?.(attachments, ref),
+@@ -371,7 +377,7 @@ export class PiAiAdapter extends LlmAdapter {
+             maxPixels: profile.requestImagePixelBudget,
+             maxBytes: profile.requestImageMaxBytes,
+           },
+-        }, onReplayDegrade)
++        }, onReplayDegrade, replayTarget)
+       const events = snapshot.models.streamSimple(model, context, {
+         ...profileOptions(profile, reasoning, apiKey),
+         ...options.temperature === undefined ? {} : { temperature: options.temperature },
+diff --git a/packages/llm/llm-pi-ai/src/config.ts b/packages/llm/llm-pi-ai/src/config.ts
+index 8da589cc39..24c2f7c645 100644
+--- a/packages/llm/llm-pi-ai/src/config.ts
++++ b/packages/llm/llm-pi-ai/src/config.ts
+@@ -144,6 +144,11 @@ export interface PiAiProviderProfile {
+    * to answer instead.
+    */
+   defaultInput?: PiAiModality[]
++  /**
++   * Send retained plaintext reasoning as OpenAI Responses reasoning items after
++   * a provider or model change. Valid only when every model uses `openai-responses`.
++   */
++  responsesReasoningText?: boolean
+   /** Provider request headers, validated against Fetch when the profile resolves; Harness attribution wins reserved names. */
+   headers?: Record<string, string>
+   /** Provider-neutral pi-ai reasoning level. */
+@@ -322,6 +327,7 @@ const profile = z.object({
+   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
+   defaultMaxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
+   defaultInput: z.array(z.union(MODALITIES)).default([...DEFAULT_INPUT]),
++  responsesReasoningText: z.boolean().default(false),
+   headers: z.dict(z.string()),
+   reasoning: z.union(THINKING_LEVELS),
+   thinkingBudgets,
+@@ -459,6 +465,13 @@ export function resolveProfiles(
+       defaultContextWindow: source.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW,
+       defaultMaxTokens: source.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,
+     })
++    if (source.responsesReasoningText === true
++      && ((source.api !== undefined && source.api !== 'openai-responses')
++        || catalog.models.some(model => model.api !== 'openai-responses'))) {
++      throw new Error(
++        `llm-pi-ai: provider "${provider}" enables responsesReasoningText, but every model on the route must use "openai-responses"`,
++      )
++    }
+     const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, ...rest } = source
+     resolved.set(provider, {
+       ...rest,
+diff --git a/packages/llm/llm-pi-ai/src/context.ts b/packages/llm/llm-pi-ai/src/context.ts
+index 338e71a6ad..40dfa244d4 100644
+--- a/packages/llm/llm-pi-ai/src/context.ts
++++ b/packages/llm/llm-pi-ai/src/context.ts
+@@ -4,7 +4,6 @@
+  * @module dsh-llm-pi-ai/context
+  */
+ 
+-import { brandString } from '@deepseek-ai/dsh-brand'
+ import { contentHasImage, LlmError, offloadedImageText, offloadRequestImagesWithPolicy, requestImageHandleText } from '@deepseek-ai/dsh-llm'
+ import type { ContentBlock, GenerateOptions, ImageAttachmentAccessResolver, Message, ToolCallId } from '@deepseek-ai/dsh-llm'
+ import type {
+@@ -16,6 +15,7 @@ import type {
+ } from '@deepseek-ai/dsh-attachment'
+ import type { Context as PiContext, ImageContent, Message as PiMessage, TextContent, Tool as PiTool } from '@earendil-works/pi-ai'
+ import { toPiAssistant } from './replay.ts'
++import type { PiAiReplayTarget } from './replay.ts'
+ import { DEFAULT_REQUEST_IMAGE_MAX_BYTES, DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET } from './config.ts'
+ 
+ /** Join the text blocks of a harness message. */
+@@ -142,17 +142,29 @@ function appendAssistant(
+   message: Message,
+   messages: PiMessage[],
+   toolNames: Map<ToolCallId, string>,
++  toolCallIds: Map<ToolCallId, string>,
+   onReplayDegrade?: (reason: string) => void,
++  replayTarget?: PiAiReplayTarget,
+ ): void {
+-  const assistant = toPiAssistant(message, onReplayDegrade)
+-  for (const block of assistant.content) {
+-    if (block.type === 'toolCall') toolNames.set(brandString<ToolCallId>(block.id), block.name)
++  const assistant = toPiAssistant(message, onReplayDegrade, replayTarget)
++  const translatedCalls = assistant.content.filter(block => block.type === 'toolCall')
++  let callIndex = 0
++  for (const block of message.content) {
++    if (block.type !== 'tool-call') continue
++    toolNames.set(block.id, block.name)
++    const translated = translatedCalls[callIndex++]
++    if (translated !== undefined) toolCallIds.set(block.id, translated.id)
+   }
+   messages.push(assistant)
+ }
+ 
+-function textOnlyContext(options: GenerateOptions, onReplayDegrade?: (reason: string) => void): PiContext {
++function textOnlyContext(
++  options: GenerateOptions,
++  onReplayDegrade?: (reason: string) => void,
++  replayTarget?: PiAiReplayTarget,
++): PiContext {
+   const toolNames = new Map<ToolCallId, string>()
++  const toolCallIds = new Map<ToolCallId, string>()
+   const messages: PiMessage[] = []
+   for (const message of options.messages) {
+     if (contentHasImage(message.content)) {
+@@ -163,7 +175,7 @@ function textOnlyContext(options: GenerateOptions, onReplayDegrade?: (reason: st
+       continue
+     }
+     if (message.role === 'assistant') {
+-      appendAssistant(message, messages, toolNames, onReplayDegrade)
++      appendAssistant(message, messages, toolNames, toolCallIds, onReplayDegrade, replayTarget)
+       continue
+     }
+     const text = flattenText(message)
+@@ -172,7 +184,7 @@ function textOnlyContext(options: GenerateOptions, onReplayDegrade?: (reason: st
+     for (const result of results) {
+       messages.push({
+         role: 'toolResult',
+-        toolCallId: result.toolCallId,
++        toolCallId: toolCallIds.get(result.toolCallId) ?? result.toolCallId,
+         toolName: toolNames.get(result.toolCallId) ?? 'unknown',
+         content: [{
+           type: 'text',
+@@ -204,12 +216,14 @@ export interface PiImageRequestContext {
+  * @param options - the harness request; `options.system` maps to pi-ai's single `systemPrompt` slot.
+  * @param images - absent; selects the synchronous conversion.
+  * @param onReplayDegrade - forwarded to {@link toPiAssistant} for each assistant message.
++ * @param replayTarget - destination facts used for optional cross-route reasoning conversion.
+  * @returns the pi-ai context; `tools` is omitted when the request declares none.
+  */
+ export function toPiContext(
+   options: GenerateOptions,
+   images?: undefined,
+   onReplayDegrade?: (reason: string) => void,
++  replayTarget?: PiAiReplayTarget,
+ ): PiContext
+ /**
+  * Convert harness history to a pi-ai Context while resolving durable images.
+@@ -220,27 +234,31 @@ export function toPiContext(
+  * @param options - the harness request; `options.system` maps to pi-ai's single `systemPrompt` slot.
+  * @param images - attachment provider, current path resolver, and request limits.
+  * @param onReplayDegrade - forwarded to {@link toPiAssistant} for each assistant message.
++ * @param replayTarget - destination facts used for optional cross-route reasoning conversion.
+  * @returns the asynchronously resolved pi-ai context.
+  */
+ export function toPiContext(
+   options: GenerateOptions,
+   images: PiImageRequestContext,
+   onReplayDegrade?: (reason: string) => void,
++  replayTarget?: PiAiReplayTarget,
+ ): Promise<PiContext>
+ export function toPiContext(
+   options: GenerateOptions,
+   images?: PiImageRequestContext,
+   onReplayDegrade?: (reason: string) => void,
++  replayTarget?: PiAiReplayTarget,
+ ): PiContext | Promise<PiContext> {
+   return images === undefined
+-    ? textOnlyContext(options, onReplayDegrade)
+-    : toPiContextWithImages(options, images, onReplayDegrade)
++    ? textOnlyContext(options, onReplayDegrade, replayTarget)
++    : toPiContextWithImages(options, images, onReplayDegrade, replayTarget)
+ }
+ 
+ async function toPiContextWithImages(
+   options: GenerateOptions,
+   images: PiImageRequestContext,
+   onReplayDegrade?: (reason: string) => void,
++  replayTarget?: PiAiReplayTarget,
+ ): Promise<PiContext> {
+   const { attachments, resolveImageAccess, maxRequestImageBytes } = images
+   const requestImagePolicy = images.requestImagePolicy ?? {
+@@ -264,6 +282,7 @@ async function toPiContextWithImages(
+     placeholder: ref => offloadedImageText(ref, resolveImageAccess(ref)),
+   })
+   const toolNames = new Map<ToolCallId, string>()
++  const toolCallIds = new Map<ToolCallId, string>()
+   const messages: PiMessage[] = []
+ 
+   for (const message of exactMessages) {
+@@ -275,7 +294,7 @@ async function toPiContextWithImages(
+       continue
+     }
+     if (message.role === 'assistant') {
+-      appendAssistant(message, messages, toolNames, onReplayDegrade)
++      appendAssistant(message, messages, toolNames, toolCallIds, onReplayDegrade, replayTarget)
+       continue
+     }
+     // user role: text + tool results (each result becomes its own message).
+@@ -291,7 +310,7 @@ async function toPiContextWithImages(
+       const resultContent = await userContent(result.content, requestImages, resolveImageAccess)
+       messages.push({
+         role: 'toolResult',
+-        toolCallId: result.toolCallId,
++        toolCallId: toolCallIds.get(result.toolCallId) ?? result.toolCallId,
+         toolName: toolNames.get(result.toolCallId) ?? 'unknown',
+         content: typeof resultContent === 'string'
+           ? [{ type: 'text', text: resultContent || '(no output)' }]
+diff --git a/packages/llm/llm-pi-ai/src/replay.ts b/packages/llm/llm-pi-ai/src/replay.ts
+index bae4cfc40d..af56b61e9c 100644
+--- a/packages/llm/llm-pi-ai/src/replay.ts
++++ b/packages/llm/llm-pi-ai/src/replay.ts
+@@ -30,7 +30,14 @@ export interface PiAiReplayResponse {
+   stopReason: AssistantMessage['stopReason']
+ }
+ 
+-/** The validated halves of one pi-ai replay envelope. */
++/** Destination facts needed to distinguish native replay from cross-route conversion. */
++export interface PiAiReplayTarget {
++  readonly api: Api
++  readonly provider: string
++  readonly model: string
++  readonly responsesReasoningText: boolean
++}
++
+ interface PiAiReplayState {
+   response: PiAiReplayResponse
+   blocks: PiAiReplayBlock[]
+@@ -141,16 +148,29 @@ function readReplayState(value: unknown): PiAiReplayState {
+ }
+ 
+ /** Convert provider-neutral blocks without trusting them as same-model replay. */
+-function foreignAssistant(message: Message): AssistantMessage {
++function foreignAssistant(message: Message, target?: PiAiReplayTarget): AssistantMessage {
+   const source = message.source.kind === 'model' ? message.source : undefined
++  const responsesReasoningText = target?.responsesReasoningText === true
+   const content: AssistantMessage['content'] = []
++  const hasToolCall = message.content.some(block => block.type === 'tool-call')
+   for (const block of message.content) {
+     switch (block.type) {
+       case 'text': content.push({ type: 'text', text: block.text }); break
+-      case 'reasoning': content.push({ type: 'thinking', thinking: block.text }); break
++      case 'reasoning': content.push({
++        type: 'thinking',
++        thinking: block.text,
++        ...responsesReasoningText && hasToolCall && block.text.length > 0
++          ? { thinkingSignature: JSON.stringify({
++            type: 'reasoning',
++            content: [{ type: 'reasoning_text', text: block.text }],
++          }) }
++          : {},
++      }); break
+       case 'tool-call': content.push({
+         type: 'toolCall',
+-        id: block.id,
++        id: responsesReasoningText && block.id.includes('|')
++          ? block.id.slice(0, block.id.indexOf('|'))
++          : block.id,
+         name: block.name,
+         arguments: parseArguments(block.arguments),
+       }); break
+@@ -164,11 +184,11 @@ function foreignAssistant(message: Message): AssistantMessage {
+   return {
+     role: 'assistant',
+     content,
+-    // Deliberately never equals a catalog API: absent replay state is foreign
+-    // even if source names the same provider/model as this request.
+-    api: 'dsh-foreign',
+-    provider: source?.provider ?? 'dsh-foreign',
+-    model: source?.model ?? 'dsh-foreign',
++    // Compatibility conversion is destination-native only after opaque
++    // source metadata and item ids have been discarded.
++    api: target?.api ?? 'dsh-foreign',
++    provider: target?.provider ?? source?.provider ?? 'dsh-foreign',
++    model: target?.model ?? source?.model ?? 'dsh-foreign',
+     usage: emptyPiUsage(),
+     stopReason: content.some(piece => piece.type === 'toolCall') ? 'toolUse' : 'stop',
+     timestamp: 0,
+@@ -232,10 +252,32 @@ function replayedAssistant(message: Message, source: ModelMessageSource, rawStat
+  * @param message - assistant content with required source and optional adapter-owned replay metadata.
+  * @param onDegrade - called with the diagnostic reason when an unusable replay
+  *   state falls back to provider-neutral conversion.
++ * @param target - destination route and its opt-in Responses reasoning behavior.
+  * @returns a native pi-ai assistant message reconstructed from durable content.
+  */
+-export function toPiAssistant(message: Message, onDegrade?: (reason: string) => void): AssistantMessage {
++export function toPiAssistant(
++  message: Message,
++  onDegrade?: (reason: string) => void,
++  target?: PiAiReplayTarget,
++): AssistantMessage {
+   const source = message.source
++  if (target?.responsesReasoningText === true) {
++    const sameNamedModel = source.kind === 'model'
++      && source.provider === target.provider
++      && source.model === target.model
++    if (!sameNamedModel) return foreignAssistant(message, target)
++    if (source.replayState === undefined) return foreignAssistant(message)
++    try {
++      const replayed = replayedAssistant(message, source, source.replayState)
++      return replayed.api === target.api ? replayed : foreignAssistant(message, target)
++    } catch (error: unknown) {
++      /* v8 ignore next -- replayedAssistant throws only INVALID_REPLAY_STATE LlmErrors; the
++         guard keeps a future non-replay failure loud instead of silently degrading it */
++      if (!(error instanceof LlmError) || error.code !== 'INVALID_REPLAY_STATE') throw error
++      onDegrade?.(error.message)
++      return foreignAssistant(message, target)
++    }
++  }
+   if (source.kind !== 'model' || source.replayState === undefined) return foreignAssistant(message)
+   try {
+     return replayedAssistant(message, source, source.replayState)
+diff --git a/packages/llm/llm-pi-ai/tests/adapter.spec.ts b/packages/llm/llm-pi-ai/tests/adapter.spec.ts
+index a54ec17697..26a49e07dc 100644
+--- a/packages/llm/llm-pi-ai/tests/adapter.spec.ts
++++ b/packages/llm/llm-pi-ai/tests/adapter.spec.ts
+@@ -9,7 +9,7 @@ import type {
+   SaveImageAttachment,
+   StoredImageAttachment,
+ } from '@deepseek-ai/dsh-attachment'
+-import LlmRuntime, { createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
++import LlmRuntime, { createMessage, createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, ToolCallId, userAgent } from '@deepseek-ai/dsh-llm'
+ import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
+ import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
+ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+@@ -240,6 +240,73 @@ describe('PiAiAdapter provider routing', () => {
+     expect(server.paths).toEqual(['/v1/responses'])
+   })
+ 
++  it('sends cross-route plaintext reasoning with paired Responses tool calls', async () => {
++    const server = await mockServer([{
++      status: 401,
++      body: JSON.stringify({ error: { message: 'expected mock failure' } }),
++    }])
++    const ctx = new Context()
++    await ctx.plugin(LlmRuntime)
++    await ctx.plugin(LlmPiAi, {
++      providers: {
++        gateway: {
++          apiKeyEnv: 'PI_TEST_KEY',
++          api: 'openai-responses',
++          baseURL: `${server.url}/v1`,
++          models: [{ id: 'small', contextWindow: 8_192, maxTokens: 128 }],
++          responsesReasoningText: true,
++        },
++      },
++    })
++    const result = await assemble(ctx, {
++      provider: 'gateway',
++      model: 'small',
++      messages: [
++        createMessage({
++          role: 'assistant',
++          content: [
++            { type: 'reasoning', text: 'inspect both values' },
++            { type: 'text', text: 'Calling both.' },
++            { type: 'tool-call', id: ToolCallId('call_a|fc_foreign_a'), name: 'first', arguments: '{}' },
++            { type: 'tool-call', id: ToolCallId('call_b|fc_foreign_b'), name: 'second', arguments: '{}' },
++          ],
++          source: {
++            kind: 'model', provider: 'source', model: 'large',
++            replayState: { response: { opaque: 'foreign' }, blocks: [{ signature: 'foreign' }] },
++          },
++        }),
++        createUserMessage({
++          content: [
++            { type: 'tool-result', toolCallId: ToolCallId('call_a|fc_foreign_a'), content: [{ type: 'text', text: 'A' }] },
++            { type: 'tool-result', toolCallId: ToolCallId('call_b|fc_foreign_b'), content: [{ type: 'text', text: 'B' }] },
++          ],
++          source: { kind: 'plugin', plugin: 'test' },
++        }),
++      ],
++    })
++
++    expect(result.finish.kind).toBe('error')
++    expect(server.paths).toEqual(['/v1/responses'])
++    expect(server.requests[0]).toMatchObject({
++      input: [
++        {
++          type: 'reasoning',
++          content: [{ type: 'reasoning_text', text: 'inspect both values' }],
++        },
++        {
++          type: 'message', role: 'assistant', status: 'completed',
++          content: [{ type: 'output_text', text: 'Calling both.', annotations: [] }],
++        },
++        { type: 'function_call', call_id: 'call_a', name: 'first', arguments: '{}' },
++        { type: 'function_call', call_id: 'call_b', name: 'second', arguments: '{}' },
++        { type: 'function_call_output', call_id: 'call_a', output: 'A' },
++        { type: 'function_call_output', call_id: 'call_b', output: 'B' },
++      ],
++    })
++    const body = server.requests[0] as { input: unknown[] }
++    expect(JSON.stringify(body.input)).not.toMatch(/foreign_a|foreign_b|opaque/)
++  })
++
+   it('resolves attachment and filesystem services mounted after the adapter when dispatching an image', async () => {
+     const server = await mockServer([{ status: 401, body: JSON.stringify({ error: { message: 'expected mock failure' } }) }])
+     const attachmentId = AttachmentId(`sha256:${'a'.repeat(64)}`)
+diff --git a/packages/llm/llm-pi-ai/tests/config.spec.ts b/packages/llm/llm-pi-ai/tests/config.spec.ts
+index ae96b0df7d..9878388f50 100644
+--- a/packages/llm/llm-pi-ai/tests/config.spec.ts
++++ b/packages/llm/llm-pi-ai/tests/config.spec.ts
+@@ -76,6 +76,23 @@ describe('modality schema boundary', () => {
+   })
+ })
+ 
++describe('Responses plaintext reasoning compatibility', () => {
++  it('defaults the route switch to false', () => {
++    type Materialized = { providers: Record<string, { responsesReasoningText?: boolean }> }
++    const value = routeWith({ api: 'openai-responses' })() as Materialized
++    expect(value.providers['acme-gateway']?.responsesReasoningText).toBe(false)
++  })
++
++  it('accepts the switch only for an all-Responses route', () => {
++    const enabled = routeWith({ api: 'openai-responses', responsesReasoningText: true })() as Config
++    expect(() => { assertServiceable(enabled) }).not.toThrow()
++
++    const incompatible = routeWith({ responsesReasoningText: true })() as Config
++    expect(() => { assertServiceable(incompatible) })
++      .toThrow(/responsesReasoningText.*openai-responses/)
++  })
++})
++
+ describe('request image policy bounds', () => {
+   it.each([
+     ['requestImagePixelBudget', 0, /requestImagePixelBudget must be a positive safe integer/],
+diff --git a/packages/llm/llm-pi-ai/tests/convert.spec.ts b/packages/llm/llm-pi-ai/tests/convert.spec.ts
+index c80df43df1..aba0aae5cb 100644
+--- a/packages/llm/llm-pi-ai/tests/convert.spec.ts
++++ b/packages/llm/llm-pi-ai/tests/convert.spec.ts
+@@ -415,6 +415,114 @@ describe('toPiContext', () => {
+     })
+   })
+ 
++  it('converts cross-route plaintext reasoning for Responses tool-call replay', () => {
++    const state = toPiReplayState(assistant({
++      api: 'openai-responses',
++      provider: 'source',
++      model: 'large',
++      responseId: 'resp_source',
++      stopReason: 'toolUse',
++      content: [
++        { type: 'thinking', thinking: 'inspect both inputs', thinkingSignature: 'opaque-reasoning' },
++        { type: 'text', text: 'Calling tools.', textSignature: 'opaque-text' },
++        { type: 'toolCall', id: 'call_a|item_a', name: 'first', arguments: {}, thoughtSignature: 'opaque-a' },
++        { type: 'toolCall', id: 'call_b|item_b', name: 'second', arguments: {}, thoughtSignature: 'opaque-b' },
++      ],
++    }))
++    const assistantMessage = createMessage({
++      role: 'assistant',
++      content: [
++        { type: 'reasoning', text: 'inspect both inputs' },
++        { type: 'text', text: 'Calling tools.' },
++        { type: 'tool-call', id: ToolCallId('call_a|item_a'), name: 'first', arguments: '{}' },
++        { type: 'tool-call', id: ToolCallId('call_b|item_b'), name: 'second', arguments: '{}' },
++      ],
++      source: { kind: 'model', provider: 'source', model: 'large', replayState: state },
++    })
++    const context = toPiContext({
++      provider: 'gateway',
++      model: 'small',
++      messages: [
++        assistantMessage,
++        createUserMessage({
++          content: [
++            { type: 'tool-result', toolCallId: ToolCallId('call_a|item_a'), content: [{ type: 'text', text: 'A' }] },
++            { type: 'tool-result', toolCallId: ToolCallId('call_b|item_b'), content: [{ type: 'text', text: 'B' }] },
++          ],
++          source: { kind: 'plugin', plugin: 'test' },
++        }),
++      ],
++    }, undefined, undefined, {
++      api: 'openai-responses',
++      provider: 'gateway',
++      model: 'small',
++      responsesReasoningText: true,
++    })
++
++    expect(context.messages[0]).toEqual(expect.objectContaining({
++      role: 'assistant',
++      api: 'openai-responses',
++      provider: 'gateway',
++      model: 'small',
++      content: [
++        {
++          type: 'thinking',
++          thinking: 'inspect both inputs',
++          thinkingSignature: JSON.stringify({
++            type: 'reasoning',
++            content: [{ type: 'reasoning_text', text: 'inspect both inputs' }],
++          }),
++        },
++        { type: 'text', text: 'Calling tools.' },
++        { type: 'toolCall', id: 'call_a', name: 'first', arguments: {} },
++        { type: 'toolCall', id: 'call_b', name: 'second', arguments: {} },
++      ],
++    }))
++    expect(context.messages[0]).not.toHaveProperty('responseId')
++    expect(context.messages.slice(1)).toEqual([
++      {
++        role: 'toolResult', toolCallId: 'call_a', toolName: 'first',
++        content: [{ type: 'text', text: 'A' }], isError: false, timestamp: 0,
++      },
++      {
++        role: 'toolResult', toolCallId: 'call_b', toolName: 'second',
++        content: [{ type: 'text', text: 'B' }], isError: false, timestamp: 0,
++      },
++    ])
++  })
++
++  it('keeps same-route Responses replay metadata when compatibility is enabled', () => {
++    const state = toPiReplayState(assistant({
++      api: 'openai-responses',
++      provider: 'gateway',
++      model: 'small',
++      responseId: 'resp_native',
++      content: [{ type: 'thinking', thinking: 'native', thinkingSignature: 'native-signature' }],
++    }))
++    const context = toPiContext({
++      provider: 'gateway',
++      model: 'small',
++      messages: [createMessage({
++        role: 'assistant',
++        content: [{ type: 'reasoning', text: 'native' }],
++        source: { kind: 'model', provider: 'gateway', model: 'small', replayState: state },
++      })],
++    }, undefined, undefined, {
++      api: 'openai-responses',
++      provider: 'gateway',
++      model: 'small',
++      responsesReasoningText: true,
++    })
++
++    expect(context.messages[0]).toMatchObject({
++      api: 'openai-responses',
++      provider: 'gateway',
++      model: 'small',
++      responseId: 'resp_native',
++      content: [{ type: 'thinking', thinking: 'native', thinkingSignature: 'native-signature' }],
++    })
++  })
++
+   it('replays all native block kinds when optional metadata is absent', () => {
+     const state = toPiReplayState(assistant({
+       content: [
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 4521b1bbf4..854e31aceb 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -765,6 +765,9 @@ importers:
+       '@deepseek-ai/dsh-agent':
+         specifier: workspace:^
+         version: link:../../core/agent
++      '@deepseek-ai/dsh-agent-loop':
++        specifier: workspace:^
++        version: link:../../core/agent-loop
+       '@deepseek-ai/dsh-agent-default-model':
+         specifier: workspace:^
+         version: link:../../core/agent-default-model
+@@ -834,6 +837,12 @@ importers:
+       '@deepseek-ai/dsh-subagent':
+         specifier: workspace:^
+         version: link:../../subagent/subagent
++      '@deepseek-ai/dsh-token-meter':
++        specifier: workspace:^
++        version: link:../../llm/token-meter
++      '@deepseek-ai/dsh-tools':
++        specifier: workspace:^
++        version: link:../../core/tools
+       '@deepseek-ai/dsh-typert-protocol':
+         specifier: workspace:^
+         version: link:../../typert/protocol
