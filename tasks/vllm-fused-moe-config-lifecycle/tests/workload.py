@@ -2,6 +2,8 @@
 import json
 import os
 
+PHASES = ("profile_matching", "profile_gap", "forward_gap", "profile_conflict", "forward_conflict", "forward_matching")
+
 def load_workload():
     with open(os.environ["AIB_WORKLOAD"]) as stream:
         return json.load(stream)
@@ -14,7 +16,7 @@ def make_workload(seed):
     tokens, hidden, intermediate, experts, topk = (4, 64, 128, 4, 2)
     dtype = torch.float16
     cases = []
-    for _ in range(4):
+    for _ in PHASES:
         x = values((tokens,hidden),dtype)
         w1 = values((experts,2*intermediate,hidden),dtype)
         w2 = values((experts,hidden,intermediate),dtype)
@@ -24,3 +26,8 @@ def make_workload(seed):
         cases.append({"x":x,"w1":w1,"w2":w2,"weights":weights.float().tolist(),
                       "ids":ids.tolist(),"dtype":str(dtype)})
     return {"numerics":cases}
+
+
+def phase_order(construction):
+    first = 'profile_' + construction
+    return (first,) + tuple(phase for phase in PHASES if phase != first)

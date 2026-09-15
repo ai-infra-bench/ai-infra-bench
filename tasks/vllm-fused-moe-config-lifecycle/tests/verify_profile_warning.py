@@ -5,13 +5,17 @@ import io
 import json
 import logging
 import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 
 import torch
-from workload import load_workload
+from workload import load_workload, PHASES, phase_order
 
 import vllm.config.vllm as vllm_config_module
-from vllm.config import ParallelConfig, VllmConfig, set_current_vllm_config
+from vllm.config import ParallelConfig, SchedulerConfig, VllmConfig, set_current_vllm_config
 from vllm.forward_context import set_forward_context
 from vllm.model_executor.layers.fused_moe.config import FusedMoEQuantConfig
 from vllm.model_executor.layers.fused_moe.fused_moe import TritonExperts
@@ -24,6 +28,12 @@ from vllm.model_executor.layers.fused_moe.prepare_finalize import (
 )
 
 WARNING = "Current vLLM config is not set."
+
+
+def make_config(*, parallel_config):
+    # A normal supported engine budget can produce the full routing window.
+    return VllmConfig(parallel_config=parallel_config, scheduler_config=SchedulerConfig(
+        max_model_len=16384, is_encoder_decoder=False, max_num_batched_tokens=16384))
 
 
 class Capture(logging.Handler):
@@ -44,7 +54,7 @@ def clear_current_config():
     vllm_config_module.get_cached_compilation_config.cache_clear()
 
 
-def make_kernel_through_factory(config, ambient=None):
+def make_kernel_through_factory(config, ambient=None, *, experts=4, topk=2, hidden=64):
     """Build through the production layer factory, not a private constructor API."""
 
     original_method = method_module.FusedMoEModularMethod
@@ -60,15 +70,23 @@ def make_kernel_through_factory(config, ambient=None):
     )
     parallel = config.parallel_config
     dp = parallel.data_parallel_size
+    rank = parallel.data_parallel_rank
     ep = parallel.enable_expert_parallel and dp > 1
     owner = FusedMoEParallelConfig(
         tp_size=1 if ep else dp, tp_rank=0, pcp_size=1, pcp_rank=0,
-        dp_size=dp, dp_rank=0, ep_size=dp if ep else 1, ep_rank=0,
+        dp_size=dp, dp_rank=rank, ep_size=dp if ep else 1, ep_rank=rank if ep else 0,
         use_ep=ep, all2all_backend=parallel.all2all_backend,
     )
+    from vllm.model_executor.layers.fused_moe.layer import determine_expert_map
+    local_count, expert_map, _ = determine_expert_map(owner.ep_size, owner.ep_rank, experts)
+    owned = torch.arange(experts) if expert_map is None else torch.where(expert_map >= 0)[0]
+    # This is the same local weight ownership and global-to-local map that the
+    # production FusedMoE constructor derives. No replicated EP weight fixture.
+    owned_cuda = owned.to(device='cuda')
+    map_cuda = expert_map.to(device='cuda') if expert_map is not None else None
     moe = FusedMoEConfig(
-        num_experts=4, experts_per_token=2,
-        hidden_dim=64, num_local_experts=4,
+        num_experts=experts, experts_per_token=topk,
+        hidden_dim=hidden, num_local_experts=local_count,
         moe_parallel_config=owner, in_dtype=torch.float16,
     )
     # CustomOp dispatch initialization requires the normal model-init context.
@@ -92,90 +110,68 @@ def make_kernel_through_factory(config, ambient=None):
     def forward(x, w1, w2, weights, ids, *, activation, global_num_experts):
         # We supply deterministic router outputs and loaded weights; the real
         # modular method owns dispatch and all access to its internal storage.
-        layer.w13_weight, layer.w2_weight = w1, w2
+        layer.w13_weight = w1.index_select(0, owned_cuda).contiguous()
+        layer.w2_weight = w2.index_select(0, owned_cuda).contiguous()
         layer.zero_expert_num, layer.zero_expert_type = 0, None
         layer.select_experts = lambda *args, **kwargs: (weights, ids, None)
         router_logits = torch.zeros((len(x), global_num_experts), device=x.device, dtype=x.dtype)
         return method.apply(
             layer, x, router_logits, top_k=ids.shape[1], renormalize=False,
-            activation=activation, global_num_experts=global_num_experts,
+            activation=activation, global_num_experts=global_num_experts, expert_map=map_cuda,
         )
+    forward.owned_experts = owned.tolist()
+    forward.expert_map = None if expert_map is None else expert_map.tolist()
     return forward
 
 
-@contextlib.contextmanager
-def observe_workspace_bytes(observed, inputs):
-    # Observe actual CUDA temporaries and views through PyTorch, independently
-    # of the candidate's cache classes and allocation helper names.
-    if observed is None:
-        yield
-        return
-    from torch.utils._python_dispatch import TorchDispatchMode
-    excluded = {t.untyped_storage().data_ptr() for t in inputs}
-    class WorkspaceScope(TorchDispatchMode):
-        def __torch_dispatch__(self, func, types, args=(), kwargs=None):
-            result = func(*args, **(kwargs or {}))
-            def record(value):
-                if isinstance(value, torch.Tensor):
-                    if value.is_cuda and value.untyped_storage().data_ptr() not in excluded:
-                        observed.append(value.numel() * value.element_size())
-                elif isinstance(value, (tuple, list)):
-                    for item in value:
-                        record(item)
-                elif isinstance(value, dict):
-                    for item in value.values():
-                        record(item)
-            record(result)
-            return result
-    with WorkspaceScope():
-        yield
+class WorkspaceObservation:
+    """Observe storage use without retaining tensors or extending allocation life."""
+    def __init__(self):
+        self.storages = {}
+        self.snapshots = []
 
+    def live(self):
+        return {key: entry for key, entry in self.storages.items()
+                if not entry['weak'].expired()}
 
+    def peak_workspace_bytes(self, output_bytes, *, used=False):
+        # Count distinct storage only while simultaneously alive. Matching the
+        # two execution envelopes permits arenas, aliases and per-call storage.
+        return max((sum(size for size, extent in sample
+                        if size > output_bytes and (not used or extent > output_bytes))
+                    for sample in self.snapshots), default=0)
 
+    @contextlib.contextmanager
+    def record(self, inputs):
+        from torch.utils._python_dispatch import TorchDispatchMode
+        from torch.multiprocessing.reductions import StorageWeakRef
+        excluded = {t.untyped_storage()._cdata for t in inputs}
+        entries = self.storages
+        observation = self
+        class Scope(TorchDispatchMode):
+            def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+                result = func(*args, **(kwargs or {}))
+                def record(value):
+                    if isinstance(value, torch.Tensor) and value.is_cuda:
+                        storage = value.untyped_storage()
+                        key = storage._cdata
+                        if key not in excluded:
+                            if key not in entries:
+                                entries[key] = {'weak': StorageWeakRef(storage),
+                                                'bytes': storage.nbytes(), 'used_bytes': 0}
+                            entries[key]['used_bytes'] = max(entries[key]['used_bytes'],
+                                                            value.numel() * value.element_size())
+                    elif isinstance(value, (tuple, list)):
+                        for item in value: record(item)
+                    elif isinstance(value, dict):
+                        for item in value.values(): record(item)
+                record(result)
+                observation.snapshots.append([(entry['bytes'], entry['used_bytes'])
+                                              for entry in observation.live().values()])
+                return result
+        with Scope():
+            yield
 
-def run_profile_and_measure_workspace(kernel, config):
-    observed = []
-    norm = run_real_cuda_forward(kernel, config, workspace=observed)
-    assert observed, "CUDA workspace operations were not reached"
-    return norm, max(observed)
-
-
-
-
-
-
-def run_real_cuda_forward(kernel, config, workspace=None):
-    case = load_workload()['numerics'][len(numerical_observations)]
-    dtype = torch.float16
-    x, w1, w2, topk_weights = [torch.tensor(case[k],device='cuda',dtype=dtype)
-                              for k in ('x','w1','w2','weights')]
-    topk_ids = torch.tensor(case['ids'],device='cuda',dtype=torch.long)
-    experts = len(w1)
-    # Production apply may legitimately reuse x for its output. Keep an input
-    # snapshot for the trusted parent's numerical comparison.
-    recorded_x = x.clone()
-
-    # attn_metadata=None is the real profile marker used by
-    # FusedMoEModularKernel._allocate_buffers. The context contains a valid
-    # vLLM config but deliberately does not install the process-global config,
-    # matching the worker lifecycle reported in the PR.
-    with set_forward_context(None, config), observe_workspace_bytes(workspace, (x, w1, w2, topk_weights, topk_ids)):
-        out = kernel(
-            x,
-            w1,
-            w2,
-            topk_weights,
-            topk_ids,
-            activation="silu",
-            global_num_experts=experts,
-        )
-    torch.cuda.synchronize()
-    assert out.is_cuda and out.shape == x.shape and torch.isfinite(out).all()
-    numerical_observations.append(serialize_moe((recorded_x, w1, w2, topk_weights, topk_ids), out))
-    return float(out.float().norm().item())
-
-
-numerical_observations = []
 
 
 def serialize_moe(inputs, output):
@@ -186,101 +182,187 @@ def serialize_moe(inputs, output):
             "dtype": str(x.dtype), "device": output.device.type}
 
 
-def write_report(stages, observations):
-    path = os.environ.get("AIB_OBSERVATIONS")
-    if path:
-        with open(path, "w") as handle:
-            json.dump(observations, handle)
+def execute_phase(kernel, config, case, *, profile, observation=None, repeat=1):
+    dtype = torch.float16
+    x, w1, w2, weights = [torch.tensor(case[k], device='cuda', dtype=dtype)
+                          for k in ('x', 'w1', 'w2', 'weights')]
+    ids = torch.tensor(case['ids'], device='cuda', dtype=torch.long)
+    if repeat != 1:
+        x = x.repeat(repeat, 1)
+        weights = weights.repeat(repeat, 1)
+        ids = ids.repeat(repeat, 1)
+    recorded_x = x.clone()
+    dp = config.parallel_config.data_parallel_size
+    # At this boundary x is the rank-ordered activation buffer after allgather.
+    # Split/cat derives valid per-engine token counts without simulating the
+    # behavior under test: configuration binding and real local expert execution.
+    engine_inputs = torch.tensor_split(x, dp)
+    token_counts = torch.tensor([len(part) for part in engine_inputs], dtype=torch.int32)
+    assert torch.equal(torch.cat(engine_inputs), x)
+    local_tokens = int(token_counts[config.parallel_config.data_parallel_rank])
+    assert local_tokens <= config.scheduler_config.max_num_batched_tokens
+    context_args = {} if profile else {'num_tokens': local_tokens, 'num_tokens_across_dp': token_counts}
+    observation = observation or WorkspaceObservation()
+    with set_forward_context(None if profile else {}, config, **context_args), observation.record((x,w1,w2,weights,ids)):
+        out = kernel(x, w1, w2, weights, ids, activation='silu', global_num_experts=len(w1))
+    torch.cuda.synchronize()
+    assert out.is_cuda and out.shape == x.shape and torch.isfinite(out).all()
+    assert observation.storages, 'real CUDA path was not reached'
+    if repeat == 1:
+        result = serialize_moe((recorded_x,w1,w2,weights,ids), out)
+    else:
+        # All repeated rows are checked: retain min and max over each equal-input
+        # row class, rather than serializing a large repeated JSON tensor.
+        grouped = out.reshape(repeat, len(case['x']), out.shape[-1]).float()
+        result = {'output_min': grouped.amin(dim=0).cpu().tolist(),
+                  'output_max': grouped.amax(dim=0).cpu().tolist(),
+                  'rows': len(out), 'dtype': str(out.dtype), 'device': out.device.type}
+    result.update(workspace_bytes=max(entry['bytes'] for entry in observation.storages.values()),
+                  live_workspace_bytes=sum(entry['bytes'] for entry in observation.live().values()),
+                  owned_experts=kernel.owned_experts, expert_map=kernel.expert_map,
+                  token_counts=token_counts.tolist())
+    return result
 
 
-def main():
+def capacity_probe(kernel, config, case, reserved, phase):
+    demand = WorkspaceObservation()
+    rows = 16384
+    assert rows % len(case['x']) == 0
+    large = execute_phase(kernel, config, case, profile=False,
+                          observation=demand, repeat=rows // len(case['x']))
+    # The caller-owned result is allocated per call, not a reusable workspace.
+    # For this backend/geometry, both major routing intermediates are larger
+    # than that result. Ignore output-sized and small routing/weight temporaries;
+    # match actual workspace storage use without naming candidate buffers.
+    boundary = rows * len(case['x'][0]) * 2
+    profile_peak = reserved.peak_workspace_bytes(boundary)
+    required_peak = demand.peak_workspace_bytes(boundary, used=True)
+    large.update(profile_workspace_capacity_bytes=profile_peak,
+                 required_workspace_peak_bytes=required_peak,
+                 phase=phase, x=case['x'], w1=case['w1'], w2=case['w2'],
+                 weights=case['weights'], ids=case['ids'])
+    return large
+
+
+def execute_owner(selected):
     assert torch.cuda.is_available()
-    stages = []
-    config = VllmConfig(
-        parallel_config=ParallelConfig(
-            data_parallel_size=2,
-            enable_expert_parallel=True,
-        )
-    )
-
-    logger = logging.getLogger("vllm.config.vllm")
+    workload = load_workload()
+    logger = logging.getLogger('vllm.config.vllm')
     capture = Capture()
     logger.addHandler(capture)
     logger.setLevel(logging.WARNING)
-
-    # Control 1: valid config explicitly installed: real CUDA profile forward
-    # must not warn.
+    results, constructors, capacities = [], [], []
+    for kind, dp, ep, ranks in [('dp_ep',2,True,(0,1)), ('ordinary',1,False,(0,))]:
+        for rank in ranks:
+            config = make_config(parallel_config=ParallelConfig(
+                data_parallel_size=dp, data_parallel_rank=rank, enable_expert_parallel=ep))
+            other = make_config(parallel_config=ParallelConfig(
+                data_parallel_size=1 if ep else 2, enable_expert_parallel=not ep))
+            for construction in ('gap', 'conflict'):
+                if (kind,rank,construction) != selected:
+                    continue
+                clear_current_config()
+                capture.buffer = io.StringIO()
+                kernel = make_kernel_through_factory(config, ambient=other if construction == 'conflict' else None)
+                constructors.append({'kind':kind, 'rank':rank, 'construction':construction, 'warned':WARNING in capture.text})
+                # Reuse this exact production factory result through all transitions.
+                for phase in phase_order(construction):
+                    index = PHASES.index(phase)
+                    clear_current_config()
+                    capture.buffer = io.StringIO()
+                    ambient = config if phase.endswith('matching') else other if phase.endswith('conflict') else None
+                    context = set_current_vllm_config(ambient) if ambient is not None else contextlib.nullcontext()
+                    with context:
+                        observation = WorkspaceObservation()
+                        result = execute_phase(kernel, config, workload['numerics'][index],
+                                               profile=phase.startswith('profile'), observation=observation)
+                        if kind == 'dp_ep' and phase == 'profile_' + construction:
+                            # Check the very first cold profile before a later
+                            # matching context can populate a missed reservation.
+                            capacity = capacity_probe(kernel, config, workload['numerics'][index], observation, phase)
+                            capacity.update(kind=kind, rank=rank, construction=construction, warned=WARNING in capture.text)
+                            capacities.append(capacity)
+                    result.update(kind=kind, rank=rank, construction=construction, phase=phase, warned=WARNING in capture.text)
+                    results.append(result)
+                    print(json.dumps({'kind':kind,'rank':rank,'construction':construction,'phase':phase,'warned':result['warned'],
+                                      'workspace_bytes':result['workspace_bytes'],'owned_experts':result['owned_experts']}), flush=True)
     clear_current_config()
-    kernel = make_kernel_through_factory(config)
-    with set_current_vllm_config(config):
-        valid_norm = run_real_cuda_forward(kernel, config)
-    valid_warned = WARNING in capture.text
-    assert not valid_warned, capture.text
-    stages.append("valid_profile_no_warning")
-
-    # Reproduction: valid config is reachable through ForwardContext but the
-    # global config has ended before profile allocation. Base emits the
-    # spurious warning; a correct patch accepts/caches parallel_config at
-    # construction and does not emit it.
     capture.buffer = io.StringIO()
+    vllm_config_module.get_current_vllm_config()
+    raw = {'constructors':constructors, 'numerics':results, 'missing_warnings':WARNING in capture.text, 'capacities':capacities}
+    with open(os.environ['AIB_OBSERVATIONS'], 'w') as stream:
+        json.dump(raw, stream)
+    print('PROFILE_WARNING_OBSERVATIONS_COMPLETE')
+
+
+def execute_interleaved():
+    case = load_workload()['numerics'][0]
+    ordinary = make_config(parallel_config=ParallelConfig(data_parallel_size=1))
+    dp = make_config(parallel_config=ParallelConfig(data_parallel_size=2, enable_expert_parallel=True))
+    capture = Capture()
+    logger = logging.getLogger('vllm.config.vllm')
+    logger.addHandler(capture)
+    logger.setLevel(logging.WARNING)
     clear_current_config()
-    kernel = make_kernel_through_factory(config)
-    profile_norm = run_real_cuda_forward(kernel, config)
-    profile_warned = WARNING in capture.text
-
-    # Control 2: direct access with genuinely no installed config must keep
-    # warning, preventing a solution that globally suppresses the log.
-    capture.buffer = io.StringIO()
-    clear_current_config()
-    assert vllm_config_module.get_current_vllm_config() is not None
-    missing_warned = WARNING in capture.text
-    assert missing_warned, capture.text
-    stages.append("genuine_missing_config_warns")
-
-    # The active layer and ambient process config deliberately disagree. The
-    # DP+EP layer must take the extra profile-workspace branch, while the
-    # non-DP layer must not. This observes downstream production behavior and
-    # permits any equivalent internal config representation.
-    non_dp = VllmConfig(
-        parallel_config=ParallelConfig(
-            data_parallel_size=1,
-            enable_expert_parallel=False,
-        )
-    )
-    clear_current_config()
-    dp_kernel = make_kernel_through_factory(config, ambient=non_dp)
-    dp_norm, dp_workspace_bytes = run_profile_and_measure_workspace(
-        dp_kernel, config
-    )
-    clear_current_config()
-    non_dp_kernel = make_kernel_through_factory(non_dp, ambient=config)
-    non_dp_norm, non_dp_workspace_bytes = run_profile_and_measure_workspace(
-        non_dp_kernel, non_dp
-    )
-    assert dp_workspace_bytes > non_dp_workspace_bytes, (
-        "profile allocation followed ambient config instead of active layer",
-        dp_workspace_bytes,
-        non_dp_workspace_bytes,
-    )
-    stages.append("active_layer_owner_wins")
-    assert not profile_warned, capture.text
-    stages.append("lifecycle_gap_no_warning")
-    assert missing_warned, "genuine missing-config warning was suppressed"
-
-    print(f"cuda_device={torch.cuda.get_device_name(0)}")
-    print("private_constructor_parameter_names_scored=false")
-    print("factory_config_provenance=production_workspace_behavior")
-    print(
-        "conflicting_config_workspace_bytes="
-        f"dp_ep:{dp_workspace_bytes},non_dp:{non_dp_workspace_bytes} "
-        f"norms:{dp_norm:.6f},{non_dp_norm:.6f}"
-    )
-    print(f"valid_profile_warned={valid_warned} norm={valid_norm:.6f}")
-    print(f"lifecycle_gap_profile_warned={profile_warned} norm={profile_norm:.6f}")
-    print(f"genuine_missing_config_warned={missing_warned}")
-    write_report(stages, {"valid_warnings": valid_warned, "gap_warnings": profile_warned, "missing_warnings": missing_warned, "dp_workspace_bytes": dp_workspace_bytes, "ordinary_workspace_bytes": non_dp_workspace_bytes, "numerics": numerical_observations})
-    print("PROFILE_WARNING_OBSERVATIONS_COMPLETE")
+    a = make_kernel_through_factory(ordinary, ambient=dp)
+    b = make_kernel_through_factory(dp, ambient=ordinary)
+    assert WARNING not in capture.text, 'interleaved layer construction warned'
+    results = []
+    for label, kernel, config, ambient, profile, kind in [
+        ('a_profile', a, ordinary, dp, True, 'ordinary'),
+        ('b_profile', b, dp, ordinary, True, 'dp_ep'),
+        ('a_forward', a, ordinary, dp, False, 'ordinary'),
+        ('b_forward', b, dp, ordinary, False, 'dp_ep'),
+        ('a_profile_again', a, ordinary, dp, True, 'ordinary'),
+    ]:
+        clear_current_config()
+        capture.buffer = io.StringIO()
+        with set_current_vllm_config(ambient):
+            result = execute_phase(kernel, config, case, profile=profile)
+        result.update(label=label, kind=kind, rank=0, phase='profile_matching', warned=WARNING in capture.text)
+        results.append(result)
+    logger.removeHandler(capture)
+    return results
 
 
-if __name__ == "__main__":
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == '--layer-override':
+        from verify_layer_overrides import execute
+        execute(int(sys.argv[2]))
+        return
+    if len(sys.argv) > 1 and sys.argv[1] == '--owner':
+        execute_owner((sys.argv[2], int(sys.argv[3]), sys.argv[4]))
+        return
+    # Every layer starts in a fresh process: another layer's global workspace
+    # must not hide a missed cold reservation. Each child retains one factory
+    # result across all profile/forward transitions, including warm reuse.
+    combined = {'constructors': [], 'numerics': [], 'missing_warnings': True, 'capacities': []}
+    bootstrap = "import runpy,sys; sys.path[:]=" + repr(sys.path) + "; script=sys.argv.pop(1); runpy.run_path(script,run_name='__main__')"
+    with tempfile.TemporaryDirectory(prefix='moe-lifecycle-') as directory:
+        combined['layer_overrides'] = []
+        for engine_dp in (1, 2):
+            output = Path(directory) / f'layer-override-{engine_dp}.json'
+            env = dict(os.environ, AIB_OBSERVATIONS=str(output))
+            subprocess.run([sys.executable, '-I', '-S', '-c', bootstrap,
+                            __file__, '--layer-override', str(engine_dp)],
+                           env=env, check=True, timeout=180)
+            combined['layer_overrides'].append(json.loads(output.read_text()))
+        for kind, rank in [('dp_ep',0), ('dp_ep',1), ('ordinary',0)]:
+            for construction in ('gap','conflict'):
+                output = Path(directory) / f'{kind}-{rank}-{construction}.json'
+                env = dict(os.environ, AIB_OBSERVATIONS=str(output))
+                subprocess.run([sys.executable, '-I', '-S', '-c', bootstrap,
+                                __file__, '--owner', kind, str(rank), construction],
+                               env=env, check=True, timeout=180)
+                observed = json.loads(output.read_text())
+                combined['constructors'].extend(observed['constructors'])
+                combined['numerics'].extend(observed['numerics'])
+                combined['capacities'].extend(observed['capacities'])
+                combined['missing_warnings'] &= observed['missing_warnings']
+    combined['interleaved'] = execute_interleaved()
+    Path(os.environ['AIB_OBSERVATIONS']).write_text(json.dumps(combined))
+    print('ALL_OWNER_LIFECYCLES_OBSERVED', flush=True)
+
+
+if __name__ == '__main__':
     main()
