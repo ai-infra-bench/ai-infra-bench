@@ -10,7 +10,9 @@ A digest-pinned vLLM CUDA image with the exact Base source, one A100-class GPU, 
 
 ## Verifier
 
-The separate hidden verifier exercises production Model Runner initialization, paged-KV slot mapping, multiple DCP layouts, eager execution, changing request layouts across CUDA graph replay, and successive graph metadata preparation. Full credit is binary and is written to `/logs/verifier/reward.txt`.
+The separate hidden verifier exercises production Model Runner initialization, paged-KV slot mapping, multiple DCP layouts, and CUDA graph replay. It also drives eight successive scheduler messages through the real runner and sampler: prefill, reordered decode, block growth, finishing requests, adding a prompt, reusing request capacity, and an empty final tick. Per-request generated token IDs are checked against an independent deterministic consumer model, in eager, graph, and non-DCP graph modes. Full credit requires eleven authenticated checkpoints and is written to `/logs/verifier/reward.txt`.
+
+This is a subsystem end-to-end test, not an HTTP or multi-GPU model-accuracy benchmark. The model arithmetic, attention backend consumer, KV storage allocation, and distributed group metadata are substituted; request state, input preparation, block-table kernels, CUDA graphs, forward context, and sampling remain real. No candidate-added argument or helper name is inspected or supplied. Validation used an H20; the declared A100 environment remains unverified. See [the current review](validation/instruction-e2e-review-2026-09-16.md).
 
 ## Layout
 

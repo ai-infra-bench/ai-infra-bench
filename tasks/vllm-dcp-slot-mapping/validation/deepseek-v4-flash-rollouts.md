@@ -1,5 +1,7 @@
 # DeepSeek V4 Flash hardening rollouts
 
+Version clarification: the original rollout records below remain unchanged. Regrading the latest enhanced batch on verifier 1.4.0 gives ReK9erk/jQwFCvS/sL3ZB4M = 1/0/0, not its original 0/0/0. The first failure was a synthetic graph-buffer fixture mismatch. See [the new review](instruction-e2e-review-2026-09-16.md); this regrade is not a new model rollout and must not be conflated with earlier three-trial batches.
+
 On 2026-09-14, three Terminus-2 rollouts ran concurrently through Harbor against final image `sha256:b8a1ddd7e3a2c075f8ae106088c7f5c89e9dc28ec922e5fc2f43b7d6ce0adf15` with a 100-turn agent limit. All three trials completed without infrastructure errors or retries and scored 0. The job used 10,831,553 input tokens, 10,488,064 cached-input tokens, and 282,971 output tokens; the endpoint reported a total cost of `$0.146832896`.
 
 | Trial suffix | Reward | Agent behavior | Verifier diagnosis |

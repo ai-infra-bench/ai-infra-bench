@@ -8,11 +8,13 @@ or call an Oracle-added helper or inspect candidate source.
 
 from __future__ import annotations
 
-from inspect import signature
+from contextlib import contextmanager
+import json
 from pathlib import Path
 import sys
+import tempfile
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import torch
 
@@ -28,7 +30,9 @@ EXPECTED_CHECKPOINTS = (
     "slot-4-3-2",
     "graph-replay",
     "graph-block-update",
-    "graph-metadata-successive",
+    "runner-eager-lifecycle",
+    "runner-graph-lifecycle",
+    "runner-non-dcp-lifecycle",
     "complete",
 )
 
@@ -59,88 +63,93 @@ def expected_slots(
 
 def configure_group(module, dcp_size: int, dcp_rank: int) -> None:
     import vllm.distributed as distributed
+    import vllm.distributed.parallel_state as parallel_state
 
     group = SimpleNamespace(world_size=dcp_size, rank_in_group=dcp_rank)
     distributed.get_dcp_group = lambda: group
+    parallel_state.get_dcp_group = lambda: group
     module.get_dcp_group = lambda: group
 
 
-def construct_tables(module, *, dcp_size: int, dcp_rank: int, interleave: int):
+def construct_runner(*, dcp_size: int, dcp_rank: int, interleave: int, graph=False):
+    from vllm.config import (
+        CacheConfig, CompilationConfig, ModelConfig, ParallelConfig,
+        SchedulerConfig, VllmConfig,
+    )
+    from vllm.config.compilation import CUDAGraphMode
+    from vllm.v1.kv_cache_interface import (
+        FullAttentionSpec, KVCacheConfig, KVCacheGroupSpec,
+    )
+    import vllm.v1.worker.gpu.block_table as block_table_module
+    import vllm.v1.worker.gpu.cudagraph_utils as graph_module
     import vllm.v1.worker.gpu.model_runner as model_runner_module
 
-    configure_group(module, dcp_size, dcp_rank)
+    configure_group(block_table_module, dcp_size, dcp_rank)
+    configure_group(graph_module, dcp_size, dcp_rank)
     configure_group(model_runner_module, dcp_size, dcp_rank)
+    with tempfile.TemporaryDirectory(prefix="runner-model-") as model_dir:
+        Path(model_dir, "config.json").write_text(json.dumps({
+            "model_type": "qwen3", "architectures": ["Qwen3ForCausalLM"],
+            "hidden_size": 128, "intermediate_size": 256,
+            "num_hidden_layers": 2, "num_attention_heads": 4,
+            "num_key_value_heads": 1, "head_dim": 32,
+            "vocab_size": 256, "max_position_embeddings": 128,
+        }))
+        vllm_config = VllmConfig(
+            model_config=ModelConfig(
+                model=model_dir, dtype="float16", max_model_len=128,
+                skip_tokenizer_init=True, enforce_eager=not graph,
+            ),
+            cache_config=CacheConfig(block_size=16, cache_dtype="auto"),
+            parallel_config=ParallelConfig(
+                tensor_parallel_size=dcp_size,
+                distributed_executor_backend="mp",
+                decode_context_parallel_size=dcp_size,
+                cp_kv_cache_interleave_size=interleave,
+            ),
+            scheduler_config=SchedulerConfig(
+                max_num_batched_tokens=64, max_num_seqs=2,
+                max_model_len=128, async_scheduling=False, is_encoder_decoder=False,
+            ),
+            compilation_config=CompilationConfig(
+                mode=0,
+                cudagraph_mode=CUDAGraphMode.FULL if graph else CUDAGraphMode.NONE,
+                cudagraph_capture_sizes=[1, 2, 4, 8, 16],
+            ),
+        )
+    cache_config = KVCacheConfig(
+        num_blocks=256, kv_cache_tensors=[],
+        kv_cache_groups=[KVCacheGroupSpec(
+            [f"layer{index}"], FullAttentionSpec(
+                block_size=size, num_kv_heads=1, head_size=32,
+                dtype=torch.float16,
+            ),
+        ) for index, size in enumerate((16, 32))],
+    )
 
-    parallel_config = SimpleNamespace(
-        prefill_context_parallel_size=1,
-        decode_context_parallel_size=dcp_size,
-        cp_kv_cache_interleave_size=interleave,
-        pipeline_parallel_size=1,
-    )
-    model_config = SimpleNamespace(
-        dtype=torch.float16,
-        max_model_len=64,
-        uses_mrope=False,
-        use_mla=False,
-        logprobs_mode="raw_logprobs",
-        get_vocab_size=lambda: 256,
-        get_inputs_embeds_size=lambda: 32,
-    )
-    cache_runtime_config = SimpleNamespace(cache_dtype="auto")
-    scheduler_config = SimpleNamespace(
-        max_num_batched_tokens=48,
-        max_num_seqs=2,
-        async_scheduling=False,
-    )
-    compilation_config = SimpleNamespace(static_forward_context={})
-    vllm_config = SimpleNamespace(
-        model_config=model_config,
-        cache_config=cache_runtime_config,
-        compilation_config=compilation_config,
-        lora_config=None,
-        load_config=SimpleNamespace(),
-        parallel_config=parallel_config,
-        scheduler_config=scheduler_config,
-        speculative_config=None,
-        observability_config=SimpleNamespace(),
-    )
-    cache_groups = [
-        SimpleNamespace(kv_cache_spec=SimpleNamespace(block_size=size))
-        for size in (4, 8)
-    ]
-    cache_config = SimpleNamespace(kv_cache_groups=cache_groups)
+    class ConsumerBuilder:
+        def build(self, *, common_prefix_len, common_attn_metadata):
+            return common_attn_metadata
 
-    # Run the real constructor so candidate implementations may initialize
-    # whatever DCP state they need. Only heavyweight, unrelated workers are
-    # replaced; the model-runner and block-table boundaries remain real.
+    # Model weights and an attention consumer are deterministic substitutes.
+    # Real request state, input buffers, runner and graph manager own all DCP
+    # wiring. No candidate-added names/signatures are inspected or supplied.
     with (
-        patch.object(
-            model_runner_module.MULTIMODAL_REGISTRY,
-            "supports_multimodal_inputs",
-            return_value=False,
-        ),
-        patch.object(model_runner_module, "RequestState", return_value=MagicMock()),
-        patch.object(model_runner_module, "InputBuffers", return_value=MagicMock()),
-        patch.object(model_runner_module, "Sampler", return_value=MagicMock()),
-        patch.object(
-            model_runner_module, "PromptLogprobsWorker", return_value=MagicMock()
-        ),
-        patch.object(model_runner_module, "CudaGraphManager", return_value=MagicMock()),
-        patch.object(
-            model_runner_module, "StructuredOutputsWorker", return_value=MagicMock()
-        ),
-        patch.object(model_runner_module, "LoraState", return_value=MagicMock()),
-        patch.object(model_runner_module, "DraftTokensHandler", return_value=MagicMock()),
-        patch.object(model_runner_module, "init_attn_backend", return_value=([], [])),
+        patch.object(model_runner_module, "init_attn_backend",
+                     return_value=({}, [ConsumerBuilder(), ConsumerBuilder()])),
         patch.object(model_runner_module, "init_kv_cache", return_value={}),
-        patch.object(model_runner_module, "get_kv_connector", return_value=None),
     ):
         runner = model_runner_module.GPUModelRunner(
             vllm_config, torch.device("cuda")
         )
         runner.initialize_kv_cache(cache_config)
+    return runner
 
-    return runner.block_tables
+
+def construct_tables(module, *, dcp_size: int, dcp_rank: int, interleave: int):
+    return construct_runner(
+        dcp_size=dcp_size, dcp_rank=dcp_rank, interleave=interleave
+    ).block_tables
 
 
 def populate(tables):
@@ -164,7 +173,7 @@ def run_case(module, *, dcp_size: int, dcp_rank: int, interleave: int) -> None:
     # Include both early decode positions and positions close to max_model_len.
     # This exercises capacity without prescribing an internal table width: a
     # compact table and a safely over-allocated table are both valid.
-    positions = [0, 1, 3, 4, 7, 15, 31, 47, 55, 63, 2, 5, 9, 18, 42, 62]
+    positions = list(range(54, 64)) + list(range(122, 128))
     split = 10
     slots = tables.compute_slot_mappings(
         torch.tensor([0, 1], dtype=torch.int32, device="cuda"),
@@ -172,7 +181,7 @@ def run_case(module, *, dcp_size: int, dcp_rank: int, interleave: int) -> None:
         torch.tensor(positions, dtype=torch.int64, device="cuda"),
     )
     torch.cuda.synchronize()
-    for group_index, block_size in enumerate((4, 8)):
+    for group_index, block_size in enumerate((16, 32)):
         expected = expected_slots(
             positions[:split],
             block_ids[0][group_index],
@@ -205,7 +214,10 @@ def check_graph_replay(module) -> None:
     block_ids = populate(tables)
     idx = torch.tensor([0, 1], dtype=torch.int32, device="cuda")
     starts = torch.tensor([0, 8, 16], dtype=torch.int32, device="cuda")
-    positions = torch.arange(16, dtype=torch.int64, device="cuda")
+    positions = torch.tensor(
+        list(range(24, 32)) + list(range(56, 64)),
+        dtype=torch.int64, device="cuda",
+    )
     tables.compute_slot_mappings(idx, starts, positions)
     torch.cuda.synchronize()
 
@@ -216,13 +228,13 @@ def check_graph_replay(module) -> None:
     # A later decode step can compact/reorder requests and change their token
     # counts while replaying the same captured graph.  Mutate all three graph
     # inputs in place so a candidate cannot pass by capturing only positions.
-    heldout = [15, 0, 14, 1, 13, 2, 12, 3, 11, 4, 10, 5, 9, 6, 8, 7]
+    heldout = list(range(31, 36)) + list(range(61, 72))
     idx.copy_(torch.tensor([1, 0], dtype=torch.int32, device="cuda"))
     starts.copy_(torch.tensor([0, 5, 16], dtype=torch.int32, device="cuda"))
     positions.copy_(torch.tensor(heldout, dtype=torch.int64, device="cuda"))
     graph.replay()
     torch.cuda.synchronize()
-    for group_index, block_size in enumerate((4, 8)):
+    for group_index, block_size in enumerate((16, 32)):
         expected = expected_slots(
             heldout[:5],
             block_ids[1][group_index],
@@ -258,7 +270,7 @@ def check_graph_replay(module) -> None:
     tables.apply_staged_writes()
     graph.replay()
     torch.cuda.synchronize()
-    for group_index, block_size in enumerate((4, 8)):
+    for group_index, block_size in enumerate((16, 32)):
         expected = expected_slots(
             heldout[:5], block_ids[1][group_index], block_size,
             dcp_size, dcp_rank, interleave,
@@ -274,110 +286,165 @@ def check_graph_replay(module) -> None:
             )
 
 
-def check_graph_metadata_flow() -> None:
-    """Ensure DCP-local lengths reach the attention backend on graph warm-up.
+def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool) -> None:
+    """Scheduler messages -> real runner/graphs/sampler -> per-request tokens.
 
-    Candidate implementations may derive DCP state inside the capture helper,
-    as the Oracle does, or pass persistent buffers and DCP coordinates from the
-    model runner.  Exercise either production-compatible API instead of
-    silently invoking an extended helper with its non-DCP defaults.
+    A deterministic model consumes the same CommonAttentionMetadata and slot
+    mapping boundary as attention backends. Its output makes stale positions,
+    rank ownership, block IDs or local sequence lengths externally observable.
+    We substitute model arithmetic, not runner preparation or graph wiring.
     """
-    import vllm.v1.worker.gpu.block_table as block_table_module
+    from vllm.forward_context import get_forward_context
+    from vllm.sampling_params import SamplingParams
+    from vllm.v1.core.sched.output import NewRequestData, SchedulerOutput
     import vllm.v1.worker.gpu.cudagraph_utils as graph_module
-    from vllm.v1.utils import CpuGpuBuffer
-    from vllm.v1.worker.gpu.input_batch import InputBuffers
 
-    dcp_size, dcp_rank, interleave = 2, 1, 2
-    configure_group(graph_module, dcp_size, dcp_rank)
-    tables = construct_tables(
-        block_table_module,
-        dcp_size=dcp_size,
-        dcp_rank=dcp_rank,
-        interleave=interleave,
+    interleave = 2
+    runner = construct_runner(
+        dcp_size=dcp_size, dcp_rank=dcp_rank, interleave=interleave, graph=graph
     )
-    populate(tables)
-    buffer_kwargs = dict(
-        max_num_reqs=2,
-        max_num_tokens=48,
-        device=torch.device("cuda"),
-    )
-    buffer_parameters = signature(InputBuffers).parameters
-    for parameter, value in (
-        ("dcp_world_size", dcp_size),
-        ("dcp_rank", dcp_rank),
-        ("cp_kv_cache_interleave_size", interleave),
-    ):
-        if parameter in buffer_parameters:
-            buffer_kwargs[parameter] = value
-    buffers = InputBuffers(**buffer_kwargs)
-    captured = []
 
-    class CaptureBuilder:
-        def build(self, *, common_prefix_len, common_attn_metadata):
-            assert common_prefix_len == 0
-            captured.append(common_attn_metadata)
-            return common_attn_metadata
+    class MetadataConsumer(torch.nn.Module):
+        def forward(self, input_ids, positions, **kwargs):
+            context = get_forward_context()
+            common = context.attn_metadata["layer0"]
+            lengths = (
+                common.dcp_local_seq_lens
+                if dcp_size > 1 and common.dcp_local_seq_lens is not None
+                else common.seq_lens
+            )
+            rows = torch.bucketize(
+                torch.arange(input_ids.shape[0], device=input_ids.device),
+                common.query_start_loc[1:], right=True,
+            ).clamp(max=lengths.shape[0] - 1)
+            fingerprint = (
+                input_ids.to(torch.int64) + 3 * positions
+                + 5 * context.slot_mapping["layer0"]
+                + 11 * context.slot_mapping["layer1"]
+                + 7 * lengths[rows]
+            )
+            return fingerprint.remainder(256).unsqueeze(1).float()
 
-    cache_group = SimpleNamespace(layer_names=["layer"], kv_cache_spec=object())
-    cache_config = SimpleNamespace(kv_cache_groups=[cache_group])
-    capture_kwargs = dict(
-        num_reqs=2,
-        num_tokens=16,
-        input_buffers=buffers,
-        block_tables=tables,
-        attn_metadata_builders=[CaptureBuilder()],
-        max_model_len=64,
-        kv_cache_config=cache_config,
-    )
-    capture_parameters = signature(graph_module.prepare_inputs_to_capture).parameters
-    if "seq_lens_cpu" in capture_parameters:
-        capture_kwargs["seq_lens_cpu"] = CpuGpuBuffer(
-            2,
-            dtype=torch.int32,
-            device=torch.device("cuda"),
-            pin_memory=False,
-        )
-    if "dcp_local_seq_lens" in capture_parameters:
-        capture_kwargs["dcp_local_seq_lens"] = CpuGpuBuffer(
-            2,
-            dtype=torch.int32,
-            device=torch.device("cuda"),
-            pin_memory=False,
-        )
-    for parameter, value in (
-        ("dcp_world_size", dcp_size),
-        ("dcp_rank", dcp_rank),
-        ("cp_kv_cache_interleave_size", interleave),
-    ):
-        if parameter in capture_parameters:
-            capture_kwargs[parameter] = value
+        def compute_logits(self, hidden_states):
+            logits = torch.full(
+                (hidden_states.shape[0], 256), -100.0,
+                device=hidden_states.device,
+            )
+            return logits.scatter_(1, hidden_states.long(), 100.0)
 
-    metadata, slots_by_layer = graph_module.prepare_inputs_to_capture(**capture_kwargs)
-    assert "layer" in metadata and "layer" in slots_by_layer
-    assert len(captured) == 1
-    local_lens = captured[0].dcp_local_seq_lens
-    if local_lens is None:
-        raise AssertionError("CUDA-graph attention metadata omitted DCP-local lengths")
-    torch.cuda.synchronize()
-    actual = local_lens.cpu().tolist()
-    if actual != [8, 8]:
-        raise AssertionError(f"wrong DCP-local graph sequence lengths: {actual}")
+    runner.model = MetadataConsumer().cuda()
 
-    # Reuse the same production buffers for a later, differently sized decode
-    # step.  The consumer must see current lengths and no stale second request.
-    capture_kwargs["num_reqs"] = 1
-    capture_kwargs["num_tokens"] = 7
-    graph_module.prepare_inputs_to_capture(**capture_kwargs)
-    assert len(captured) == 2
-    later_lens = captured[1].dcp_local_seq_lens
-    if later_lens is None:
-        raise AssertionError("later CUDA-graph metadata omitted DCP-local lengths")
-    torch.cuda.synchronize()
-    later_actual = later_lens.cpu().tolist()
-    if later_actual != [3]:
-        raise AssertionError(
-            f"successive graph step used stale DCP-local lengths: {later_actual}"
-        )
+    @contextmanager
+    def local_capture_stream(device):
+        # No model collective is used by this local-rank consumer. Preserve the
+        # real CUDA capture stream while omitting distributed communicator setup.
+        stream = torch.cuda.Stream(device=device)
+        stream.wait_stream(torch.cuda.current_stream(device))
+        with torch.cuda.stream(stream):
+            yield
+        torch.cuda.current_stream(device).wait_stream(stream)
+
+    if graph:
+        with (
+            patch.object(graph_module, "graph_capture", local_capture_stream),
+            patch.object(graph_module, "is_global_first_rank", return_value=False),
+        ):
+            runner.capture_model()
+
+    prompts = {
+        "long-a": list(range(10, 41)),
+        "long-b": list(range(50, 83)),
+        "new-c": [91, 92, 93],
+        "reuse-d": [107, 108],
+    }
+    bases = {"long-a": 10, "long-b": 60, "new-c": 110, "reuse-d": 160}
+    state = {}
+    sampling = SamplingParams(temperature=0, max_tokens=16, ignore_eos=True)
+    plans = [
+        ({"long-a": 31, "long-b": 33}, set()),
+        ({"long-b": 1, "long-a": 1}, set()),
+        ({"long-b": 1, "new-c": 3}, {"long-a"}),
+        ({"new-c": 1, "long-b": 1}, set()),
+        ({"long-b": 1}, {"new-c"}),
+        ({"reuse-d": 2}, {"long-b"}),
+        ({"reuse-d": 1}, set()),
+        ({}, {"reuse-d"}),
+    ]
+    for step, (counts, finished) in enumerate(plans):
+        output = SchedulerOutput.make_empty()
+        output.finished_req_ids = finished
+        output.num_scheduled_tokens = counts
+        output.total_num_scheduled_tokens = sum(counts.values())
+        expected = {}
+        for req_id, count in counts.items():
+            new = req_id not in state
+            if new:
+                state[req_id] = {
+                    "tokens": prompts[req_id].copy(), "computed": 0,
+                    "blocks": [[], []],
+                }
+            record = state[req_id]
+            end = record["computed"] + count
+            additions = []
+            for group, size in enumerate((16, 32)):
+                needed = (end + size * dcp_size - 1) // (size * dcp_size)
+                blocks = record["blocks"][group]
+                added = [
+                    bases[req_id] + group * 20 + i
+                    for i in range(len(blocks), needed)
+                ]
+                blocks.extend(added)
+                additions.append(added)
+            if new:
+                output.scheduled_new_reqs.append(NewRequestData(
+                    req_id=req_id, prompt_token_ids=prompts[req_id].copy(),
+                    prefill_token_ids=prompts[req_id].copy(), mm_features=[],
+                    sampling_params=sampling, pooling_params=None,
+                    block_ids=tuple(record["blocks"]), num_computed_tokens=0,
+                    lora_request=None,
+                ))
+            else:
+                cached = output.scheduled_cached_reqs
+                cached.req_ids.append(req_id)
+                cached.new_token_ids.append([])
+                cached.new_block_ids.append(
+                    tuple(additions) if any(additions) else None
+                )
+                cached.num_computed_tokens.append(record["computed"])
+                cached.num_output_tokens.append(
+                    len(record["tokens"]) - len(prompts[req_id])
+                )
+            position = end - 1
+            slots = [
+                expected_slots(
+                    [position], record["blocks"][group], size,
+                    dcp_size, dcp_rank, interleave,
+                )[0]
+                for group, size in enumerate((16, 32))
+            ]
+            local_length = sum(
+                (p // interleave) % dcp_size == dcp_rank for p in range(end)
+            )
+            expected[req_id] = (
+                record["tokens"][position] + 3 * position
+                + 5 * slots[0] + 11 * slots[1] + 7 * local_length
+            ) % 256
+        runner.execute_model(output)
+        if not counts:
+            continue
+        sampled = runner.sample_tokens(None)
+        if hasattr(sampled, "get_output"):
+            sampled = sampled.get_output()
+        observed = dict(zip(sampled.req_ids, sampled.sampled_token_ids))
+        wanted = {req_id: [token] for req_id, token in expected.items()}
+        if observed != wanted:
+            raise AssertionError(
+                f"runner lifecycle step={step} graph={graph} DCP={dcp_size}/"
+                f"{dcp_rank}: expected={wanted} actual={observed}"
+            )
+        for req_id, count in counts.items():
+            state[req_id]["computed"] += count
+            state[req_id]["tokens"].append(expected[req_id])
 
 
 def run_suite(emit) -> None:
@@ -403,8 +470,12 @@ def run_suite(emit) -> None:
     check_graph_replay(block_table_module)
     emit("graph-replay", True)
     emit("graph-block-update", True)
-    check_graph_metadata_flow()
-    emit("graph-metadata-successive", True)
+    check_runner_lifecycle(dcp_size=2, dcp_rank=1, graph=False)
+    emit("runner-eager-lifecycle", True)
+    check_runner_lifecycle(dcp_size=2, dcp_rank=1, graph=True)
+    emit("runner-graph-lifecycle", True)
+    check_runner_lifecycle(dcp_size=1, dcp_rank=0, graph=True)
+    emit("runner-non-dcp-lifecycle", True)
     print(
         "PASS: production slot mapping handles non-DCP, held-out DCP ranks, "
         "interleaving, multiple cache groups, requests, CUDA graph replay, "

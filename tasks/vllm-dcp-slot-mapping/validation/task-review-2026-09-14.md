@@ -1,5 +1,7 @@
 # Task review — 2026-09-14
 
+Historical review retained for provenance. Its verifier and fixture conclusions are superseded by [the 1.4.0 review](instruction-e2e-review-2026-09-16.md), which removes signature-based graph adaptation and documents a further corrected false rejection.
+
 Verdict: the task can be retained; its statement and verifier gates pass on the final rebuilt image, while publication awaits replay on the declared A100 runner. Review snapshot: PR #60 base `345a275c5971f9df527f8648509f03650980a193` plus the uncommitted hardening diff; Base `be3af2d29e2507f32b2190fe015cd6609b348caa`; review skill from official `main` on 2026-09-14.
 
 | # | Dimension | Score / status | Key evidence or gap | Next action |

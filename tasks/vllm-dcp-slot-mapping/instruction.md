@@ -1,1 +1,11 @@
-I am trying to move one of my deployments from the original GPU model runner to Model Runner V2. It already uses Decode Context Parallelism and works as expected with the original runner, but enabling V2 makes some requests fail or produce different output, including when CUDA graphs are enabled, so I cannot roll V2 out yet. Please make the existing DCP configuration work correctly with Model Runner V2 across supported paged-KV-cache layouts and successive decode steps in both eager and CUDA-graph execution, while preserving the behavior of deployments that do not use DCP.
+I am moving a text-generation deployment from the original GPU model runner to Model Runner V2, and I need to keep using DCP. For example, one of the configurations I want to carry over has these settings:
+
+```json
+{
+  "tensor_parallel_size": 2,
+  "decode_context_parallel_size": 2,
+  "cp_kv_cache_interleave_size": 2
+}
+```
+
+The traffic is ordinary batched generation: a short request may finish while a longer one keeps decoding, and a new prompt can join the next batch. V2 does not yet handle this DCP setup correctly. Please make it work with supported paged-KV-cache layouts, in both eager and CUDA-graph execution, so each request keeps producing the correct result as the batch changes and generation crosses cache-block boundaries. Deployments without DCP should continue to work as before.
