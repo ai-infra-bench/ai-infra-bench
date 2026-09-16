@@ -53,6 +53,15 @@ In particular:
 - require Base to fail for the target behavior and Oracle to pass at the same semantic boundary;
 - record dependency and artifact provenance, rebuilding native targets affected by candidate changes and verifying which artifacts are actually loaded.
 
+### ai-infra-bench agent-harness (pi) tasks
+
+If the target repository is a coding agent harness (pi) and the deliverable is
+an extension or core change judged by a deterministic verifier, also read
+[`references/ai-infra-agent-harness.md`](references/ai-infra-agent-harness.md)
+before writing the instruction or the verifier. It lists the pi facts the
+contract must state, the timing rules that keep the judge from rejecting
+correct submissions, and the validation hygiene that real rollouts taught.
+
 For ai-infra-bench tasks, set `[agent].timeout_sec = 36000`; this overrides the
 generic timeout example below.
 
@@ -506,3 +515,11 @@ aggregation strategy.
   `[environment].network_mode` for the baseline; agent/verifier fields are phase overrides
 - Phase override differs from baseline on Docker → task rejected unless provider supports
   `dynamic_network_policy`; use separate verifier env or match the baseline instead
+- Asserting equality between two timestamps (spans, events, records) → a correct
+  submission with a per-record clock or sub-millisecond digits scores 0; compare
+  against a verifier-observed window and ordering only
+- A verifier helper that throws on an empty workspace → Base fails on an
+  exception instead of the target behaviour; read the Base failure messages
+- Asserting something the instruction never says (an argument value must error,
+  a message must arrive after one prompt) → fix the instruction or the
+  assertion, never the score; see the agent-harness reference
