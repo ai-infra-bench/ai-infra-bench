@@ -88,3 +88,5 @@ workspace is missing instead of continuing). No contract semantics changed;
 the full fifteen-case matrix was rerun anyway on the arm64 image (all match)
 and base/oracle on the canonical amd64 image (0 / 1). See `e2e-evidence.json`
 `harbor_runs.style_pass_rerun`.
+
+Real-submission control (added 2026-09-16): `alt-grok-0.0.2-sigterm-listener.patch`, the unmodified grok-4.6 rollout 3 submission on the 0.0.2 wording, expected 0: contract 15/15 and PASS_TO_PASS pass, lifecycle 2/3 because its signal handlers stop the managed processes and then neither re-raise nor exit, so pi never terminates after `SIGTERM`.

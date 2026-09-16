@@ -99,6 +99,13 @@ See [`validation/rollout-2026-09-14-grok-build.md`](validation/rollout-2026-09-1
 `tests/test.sh` now also saves the agent's diff to
 `/logs/verifier/agent-changes.patch`.
 
+A third rollout (Grok Build, grok-4.6, 31 min) on the 0.0.2 wording scored 0
+the same way: PASS_TO_PASS pass, contract 15/15, lifecycle 2/3. Its signal
+handlers stop the managed processes and then neither re-raise nor exit, so a
+headless pi never terminates after `SIGTERM`. See
+[`validation/rollout-2026-09-16-grok-build.md`](validation/rollout-2026-09-16-grok-build.md);
+the submission is the expected-0 control `alt-grok-0.0.2-sigterm-listener`.
+
 ## Layout
 
 ```
