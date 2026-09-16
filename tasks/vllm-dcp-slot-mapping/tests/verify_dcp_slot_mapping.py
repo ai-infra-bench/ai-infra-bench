@@ -27,7 +27,7 @@ EXPECTED_CHECKPOINTS = (
     "slot-2-1-2",
     "slot-4-3-2",
     "graph-replay",
-    "graph-metadata",
+    "graph-metadata-successive",
     "complete",
 )
 
@@ -201,8 +201,8 @@ def check_graph_replay(module) -> None:
         module, dcp_size=dcp_size, dcp_rank=dcp_rank, interleave=interleave
     )
     block_ids = populate(tables)
-    idx = torch.tensor([0], dtype=torch.int32, device="cuda")
-    starts = torch.tensor([0, 16], dtype=torch.int32, device="cuda")
+    idx = torch.tensor([0, 1], dtype=torch.int32, device="cuda")
+    starts = torch.tensor([0, 8, 16], dtype=torch.int32, device="cuda")
     positions = torch.arange(16, dtype=torch.int64, device="cuda")
     tables.compute_slot_mappings(idx, starts, positions)
     torch.cuda.synchronize()
@@ -211,18 +211,37 @@ def check_graph_replay(module) -> None:
     with torch.cuda.graph(graph):
         slots = tables.compute_slot_mappings(idx, starts, positions)
 
+    # A later decode step can compact/reorder requests and change their token
+    # counts while replaying the same captured graph.  Mutate all three graph
+    # inputs in place so a candidate cannot pass by capturing only positions.
     heldout = [15, 0, 14, 1, 13, 2, 12, 3, 11, 4, 10, 5, 9, 6, 8, 7]
+    idx.copy_(torch.tensor([1, 0], dtype=torch.int32, device="cuda"))
+    starts.copy_(torch.tensor([0, 5, 16], dtype=torch.int32, device="cuda"))
     positions.copy_(torch.tensor(heldout, dtype=torch.int64, device="cuda"))
     graph.replay()
     torch.cuda.synchronize()
-    expected = expected_slots(
-        heldout, block_ids[0][0], 4, dcp_size, dcp_rank, interleave
-    )
-    actual = slots[0].cpu().tolist()
-    if actual != expected:
-        raise AssertionError(
-            f"CUDA graph replay used stale or incorrect inputs: {actual}!={expected}"
+    for group_index, block_size in enumerate((4, 8)):
+        expected = expected_slots(
+            heldout[:5],
+            block_ids[1][group_index],
+            block_size,
+            dcp_size,
+            dcp_rank,
+            interleave,
+        ) + expected_slots(
+            heldout[5:],
+            block_ids[0][group_index],
+            block_size,
+            dcp_size,
+            dcp_rank,
+            interleave,
         )
+        actual = slots[group_index].cpu().tolist()
+        if actual != expected:
+            raise AssertionError(
+                "CUDA graph replay used stale or incorrect inputs: "
+                f"group={group_index} {actual}!={expected}"
+            )
 
 
 def check_graph_metadata_flow() -> None:
@@ -303,9 +322,7 @@ def check_graph_metadata_flow() -> None:
         if parameter in capture_parameters:
             capture_kwargs[parameter] = value
 
-    metadata, slots_by_layer = graph_module.prepare_inputs_to_capture(
-        **capture_kwargs
-    )
+    metadata, slots_by_layer = graph_module.prepare_inputs_to_capture(**capture_kwargs)
     assert "layer" in metadata and "layer" in slots_by_layer
     assert len(captured) == 1
     local_lens = captured[0].dcp_local_seq_lens
@@ -315,6 +332,22 @@ def check_graph_metadata_flow() -> None:
     actual = local_lens.cpu().tolist()
     if actual != [8, 8]:
         raise AssertionError(f"wrong DCP-local graph sequence lengths: {actual}")
+
+    # Reuse the same production buffers for a later, differently sized decode
+    # step.  The consumer must see current lengths and no stale second request.
+    capture_kwargs["num_reqs"] = 1
+    capture_kwargs["num_tokens"] = 7
+    graph_module.prepare_inputs_to_capture(**capture_kwargs)
+    assert len(captured) == 2
+    later_lens = captured[1].dcp_local_seq_lens
+    if later_lens is None:
+        raise AssertionError("later CUDA-graph metadata omitted DCP-local lengths")
+    torch.cuda.synchronize()
+    later_actual = later_lens.cpu().tolist()
+    if later_actual != [3]:
+        raise AssertionError(
+            f"successive graph step used stale DCP-local lengths: {later_actual}"
+        )
 
 
 def run_suite(emit) -> None:
@@ -340,7 +373,7 @@ def run_suite(emit) -> None:
     check_graph_replay(block_table_module)
     emit("graph-replay", True)
     check_graph_metadata_flow()
-    emit("graph-metadata", True)
+    emit("graph-metadata-successive", True)
     print(
         "PASS: production slot mapping handles non-DCP, held-out DCP ranks, "
         "interleaving, multiple cache groups, requests, CUDA graph replay, "

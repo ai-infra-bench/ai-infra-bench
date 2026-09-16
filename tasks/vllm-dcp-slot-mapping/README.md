@@ -10,7 +10,7 @@ A digest-pinned vLLM CUDA image with the exact Base source, one A100-class GPU, 
 
 ## Verifier
 
-The separate hidden verifier exercises production Model Runner initialization, paged-KV slot mapping, multiple DCP layouts, eager execution, CUDA graph replay, and graph metadata. Full credit is binary and is written to `/logs/verifier/reward.txt`.
+The separate hidden verifier exercises production Model Runner initialization, paged-KV slot mapping, multiple DCP layouts, eager execution, changing request layouts across CUDA graph replay, and successive graph metadata preparation. Full credit is binary and is written to `/logs/verifier/reward.txt`.
 
 ## Layout
 
@@ -29,4 +29,3 @@ After the pending image and validation records are finalized:
 harbor run -p tasks/vllm-dcp-slot-mapping -a oracle
 harbor run -p tasks/vllm-dcp-slot-mapping -a terminus-2 -m anthropic/claude-opus-4-8
 ```
-

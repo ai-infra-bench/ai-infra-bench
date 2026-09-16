@@ -39,3 +39,26 @@ alternative, the existing incomplete implementation, and all five bypass
 controls. Rewards were respectively `0/1/1/1/0/1/0/0/0/0/0/0`, with no Harbor
 exceptions. Original trial artifacts and rewards remain unchanged; the corrected
 values are separate frozen-patch replays under `pr60-fairness-v2-*`.
+
+## 2026-09-16 final 1000-episode calibration
+
+After strengthening CUDA-graph replay to mutate request order, request splits,
+and positions across replays, three fresh Terminus-2 trials ran concurrently
+through Harbor with `openai/deepseek-v4-flash` and `max_turns=1000`. The frozen
+task checksum was
+`1e943dde68ddf037d6ae7403cbdc8cbf9708c373c2b03c1ab231aeb010f1934f`.
+All three trials completed without Harbor exceptions or retries; rewards were
+`0/1/0`.
+
+| Trial | Episodes | Reward | Verifier diagnosis |
+| --- | ---: | ---: | --- |
+| `CSdpUHn` | 1000 | 0 | Candidate changed the attention initialization return contract; production initialization failed with `expected 3, got 2` before the slot checks. |
+| `M7fmhHn` | 1000 | 1 | Candidate completed all eight authenticated checkpoints, including held-out ranks, multiple cache groups, mutable CUDA-graph replay, and successive graph metadata. |
+| `qP84ifA` | 1000 | 0 | Candidate rejected a contract-valid KV-cache spec during production initialization with `NotImplementedError`; only preflight completed. |
+
+The job used 110,667,768 input tokens, 106,960,128 cached-input tokens, and
+4,801,124 output tokens; endpoint-reported cost was `$0.641760768`. The two
+failures are candidate implementation regressions rather than verifier or
+environment failures. The raw Harbor job is
+`pr60-deepseek-v4-flash-auth-r5b-20260916` (job ID
+`3090e05f-220b-4776-b77c-f9b118a4162e`).
