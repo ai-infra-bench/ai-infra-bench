@@ -20,6 +20,8 @@ EXPECTED_CHECKPOINTS = (
     "idle-scaling",
     "completion-promotion",
     "abort",
+    "abort-late-completion",
+    "staggered-completion",
     "mixed-fcfs",
     "complete",
 )
@@ -307,6 +309,79 @@ def check_mixed_blocked_fcfs(model_dir: str) -> None:
         )
 
 
+def check_abort_late_completion(model_dir: str) -> None:
+    """A connector completion racing with cancellation must not revive it."""
+    scheduler, requests, output = create_blocked_scheduler(model_dir, 4)
+    victim = requests[1]
+    survivor = requests[2]
+    scheduler.finish_requests(victim.request_id, RequestStatus.FINISHED_ABORTED)
+
+    finished = copy.deepcopy(EMPTY_MODEL_RUNNER_OUTPUT)
+    finished.kv_connector_output = KVConnectorOutput(
+        finished_recving={victim.request_id, survivor.request_id}
+    )
+    scheduler.update_from_output(output, finished)
+    resumed = scheduler.schedule()
+    resumed_ids = [request.req_id for request in resumed.scheduled_new_reqs]
+    if resumed_ids != [survivor.request_id]:
+        raise AssertionError(
+            "late remote completion revived an aborted request or changed order: "
+            f"{resumed_ids}"
+        )
+    if victim.status != RequestStatus.FINISHED_ABORTED:
+        raise AssertionError(f"aborted request changed state: {victim.status}")
+    running, waiting = scheduler.get_request_counts()
+    if (running, waiting) != (1, 2):
+        raise AssertionError(
+            f"late completion corrupted request accounting: {(running, waiting)}"
+        )
+
+
+def check_staggered_completion_and_arrival(model_dir: str) -> None:
+    """Separate completion batches and a fresh arrival retain FCFS behavior."""
+    scheduler, requests, initial = create_blocked_scheduler(model_dir, 4)
+
+    first_ready = {requests[1].request_id, requests[3].request_id}
+    first_event = copy.deepcopy(EMPTY_MODEL_RUNNER_OUTPUT)
+    first_event.kv_connector_output = KVConnectorOutput(
+        finished_recving=first_ready
+    )
+    scheduler.update_from_output(initial, first_event)
+    first = scheduler.schedule()
+    first_ids = [request.req_id for request in first.scheduled_new_reqs]
+    if first_ids != [requests[1].request_id, requests[3].request_id]:
+        raise AssertionError(f"first completion batch changed FCFS order: {first_ids}")
+
+    # Complete the running work while a second connector event promotes the
+    # older remote waiters.  A newly admitted ordinary request must follow them.
+    completed = ModelRunnerOutput(
+        req_ids=first_ids,
+        req_id_to_index={request_id: i for i, request_id in enumerate(first_ids)},
+        sampled_token_ids=[[] for _ in first_ids],
+        kv_connector_output=KVConnectorOutput(
+            finished_recving={requests[0].request_id, requests[2].request_id}
+        ),
+    )
+    scheduler.update_from_output(first, completed)
+    scheduler.finish_requests(first_ids, RequestStatus.FINISHED_ABORTED)
+
+    scheduler.connector.get_num_new_matched_tokens = lambda request, count: (0, False)
+    newcomer = create_requests(1, request_ids=["new-arrival"])[0]
+    scheduler.add_request(newcomer)
+    second = scheduler.schedule()
+    second_ids = [request.req_id for request in second.scheduled_new_reqs]
+    expected = [
+        requests[0].request_id,
+        requests[2].request_id,
+        newcomer.request_id,
+    ]
+    if second_ids != expected:
+        raise AssertionError(
+            "staggered completion/new arrival changed FCFS order: "
+            f"expected={expected} actual={second_ids}"
+        )
+
+
 def run_suite(emit) -> None:
     load_candidate()
     with tempfile.TemporaryDirectory(prefix="remote-kv-model-") as tmp:
@@ -345,6 +420,12 @@ def run_suite(emit) -> None:
         scheduler.finish_requests(victim.request_id, RequestStatus.FINISHED_ABORTED)
         assert victim.status == RequestStatus.FINISHED_ABORTED
         emit("abort", True)
+
+        check_abort_late_completion(str(model_dir))
+        emit("abort-late-completion", True)
+
+        check_staggered_completion_and_arrival(str(model_dir))
+        emit("staggered-completion", True)
 
         check_mixed_blocked_fcfs(str(model_dir))
         emit("mixed-fcfs", True)

@@ -9,3 +9,26 @@ On 2026-09-14, three Terminus-2 rollouts ran concurrently through Harbor against
 | `PB35n37` | 0 | Investigated scheduler lifecycle and FCFS behavior but reached 100 turns with a clean worktree. | Idle-work scaling ratio remained 13.17. |
 
 All three failures preserve the intended Base performance defect; none is a verifier rejection of an implemented alternative. The rollout review found agent non-convergence, not an instruction/verifier mismatch. No task repair was made solely to increase the model pass rate. The raw Harbor job is `pr61-deepseek-v4-flash-publication-r3` (job ID `cf637fa4-5bf8-4966-af2f-130673bb8e43`) under the local `runs/hardening-pr60-pr61` directory. Earlier attempts on pre-final image digests are retained there as superseded infrastructure/hardening evidence and are excluded from this frozen-version result.
+
+## 2026-09-16 final 1000-episode calibration
+
+After adding cancellation/completion races and staggered completion with a new
+arrival, three fresh Terminus-2 trials ran concurrently through Harbor with
+`openai/deepseek-v4-flash` and `max_turns=1000`. The frozen task checksum was
+`f3a6b3dcbebf623889946757205b3eaf0ad41b8b04375551849c263258151795`.
+All three trials completed without Harbor exceptions or retries and scored 1.
+
+| Trial | Episodes | Reward | Candidate design and review result |
+| --- | ---: | ---: | --- |
+| `D25BJyV` | 637 | 1 | Split active and parked remote waiters while preserving the public queue facade; broad remote-KV, abort, ordering, and preemption tests passed. |
+| `EVoY6jt` | 608 | 1 | Added a scheduler waiting-queue facade with event-driven promotion and stable FCFS keys; all seven authenticated checkpoints passed. |
+| `iDuwE8i` | 484 | 1 | Added a combined queue with a separate remote-waiter map and event-driven promotion; focused and broader scheduler tests passed. |
+
+The job used 45,575,458 input tokens, 43,605,376 cached-input tokens, and
+4,662,386 output tokens; endpoint-reported cost was `$0.261632256`. Full patch
+and trajectory review found three materially different event-driven designs and
+no verifier false positive. A hypothesized queue-head/preemption interaction was
+not added as a hidden test after source audit showed that preemption and waiting
+allocation occur in separate production phases. The raw Harbor job is
+`pr61-deepseek-v4-flash-auth-r5b-20260916` (job ID
+`25f44faa-a97b-41de-b49e-3dbb6cade035`).

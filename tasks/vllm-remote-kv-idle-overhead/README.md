@@ -10,7 +10,7 @@ A digest-pinned vLLM CPU image with the exact Base source, offline runtime, and 
 
 ## Verifier
 
-The separate hidden verifier supplies its own minimal KV connector and exercises the production Scheduler with small and large blocked populations. Full credit is binary and is written to `/logs/verifier/reward.txt`.
+The separate hidden verifier supplies its own minimal KV connector and exercises the production Scheduler with small and large blocked populations, staggered completion events, new arrivals, cancellation races, mixed blocked reasons, accounting, and FCFS behavior. Full credit is binary and is written to `/logs/verifier/reward.txt`.
 
 ## Layout
 
@@ -29,4 +29,3 @@ After the pending image and validation records are finalized:
 harbor run -p tasks/vllm-remote-kv-idle-overhead -a oracle
 harbor run -p tasks/vllm-remote-kv-idle-overhead -a terminus-2 -m anthropic/claude-opus-4-8
 ```
-
