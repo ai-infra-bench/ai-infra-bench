@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 ARG BASE_IMAGE=vllm/vllm-openai-cpu@sha256:d19978a2d4bb2289c740a6c89d4cc15fbcf4d20d916f1e268168b8bbad3b776b
-FROM ${BASE_IMAGE}
+FROM ${BASE_IMAGE} AS prepared
 
 ARG BASE_IMAGE
 ARG VLLM_BASE_SHA=d88f28da05b12bc7d63ebe3dcedf445ecb274343
@@ -94,8 +94,50 @@ RUN apt-get -o Acquire::Retries=3 \
         -o Acquire::https::Timeout=30 update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tmux \
  && rm -rf /var/lib/apt/lists/*
-RUN PIP_NO_INDEX=0 /opt/venv/bin/python -m pip install --no-cache-dir pytest==8.4.2
+COPY lock/requirements.txt /tmp/upstream-test-requirements.txt
+RUN PIP_NO_INDEX=0 /opt/venv/bin/python -m pip install --no-cache-dir -r /tmp/upstream-test-requirements.txt
 
+# Normal upstream scheduler tests use this public, pre-cutoff model metadata.
+# No weights, task-specific reproducers, or hidden test inputs are included.
+COPY lock/hf-cache/ /home/agent/.cache/huggingface/hub/
+RUN chown -R agent:agent /home/agent/.cache
+
+# The source checkout, not a readable donor wheel, is the only vLLM source.
+RUN test -f /opt/venv/lib/python3.12/site-packages/vllm/v1/core/sched/scheduler.py \
+ && test -f /app/vllm/v1/core/sched/scheduler.py \
+ && rm -rf /opt/venv/lib/python3.12/site-packages/vllm /root/.cache/uv /vllm-workspace \
+ && ln -s /app/vllm /opt/venv/lib/python3.12/site-packages/vllm \
+ && python -c 'import pathlib,vllm; assert pathlib.Path(vllm.__file__).resolve().is_relative_to("/app")'
+
+# Export only the sanitized filesystem; donor source cannot survive in layers.
+FROM scratch
+COPY --from=prepared / /
+ENV PATH="/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ENV CC="/usr/bin/gcc-12"
+ENV CXX="/usr/bin/g++-12"
+ENV CCACHE_DIR="/root/.cache/ccache"
+ENV CMAKE_CXX_COMPILER_LAUNCHER="ccache"
+ENV VIRTUAL_ENV="/opt/venv"
+ENV UV_PYTHON_INSTALL_DIR="/opt/uv/python"
+ENV UV_HTTP_TIMEOUT="500"
+ENV PIP_EXTRA_INDEX_URL="https://download.pytorch.org/whl/cpu"
+ENV UV_EXTRA_INDEX_URL="https://download.pytorch.org/whl/cpu"
+ENV UV_INDEX_STRATEGY="unsafe-best-match"
+ENV UV_LINK_MODE="copy"
+ENV TARGETARCH="amd64"
+ENV LD_PRELOAD="/usr/lib/x86_64-linux-gnu/libtcmalloc_minimal.so.4:/opt/venv/lib/libiomp5.so"
+ENV HF_HUB_OFFLINE="1"
+ENV TRANSFORMERS_OFFLINE="1"
+ENV HF_DATASETS_OFFLINE="1"
+ENV PIP_NO_INDEX="1"
+ENV PIP_DISABLE_PIP_VERSION_CHECK="1"
+ENV PYTHONDONTWRITEBYTECODE="1"
+ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD="1"
+ENV TOKENIZERS_PARALLELISM="false"
+ENV TORCH_DEVICE_BACKEND_AUTOLOAD="0"
+ENV HOME="/home/agent"
+ENV HF_HOME="/home/agent/.cache/huggingface"
 USER 10001:10001
+WORKDIR /app
 ENTRYPOINT []
 CMD ["sleep", "infinity"]

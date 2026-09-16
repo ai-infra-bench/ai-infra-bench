@@ -6,7 +6,7 @@ Keep scheduler ticks inexpensive while requests wait asynchronously for remote K
 
 ## Environment
 
-A digest-pinned vLLM CPU image with the exact Base source, offline runtime, and a 10-hour Agent budget. The current image runs the hidden verifier, but an upstream pytest collection probe is blocked by missing `tblib`; full Agent-side upstream-test readiness is not claimed.
+A digest-pinned vLLM CPU image with the exact Base source, offline runtime, and a 10-hour Agent budget. Version 1.2.1 includes pinned pytest/tblib and immutable OPT config/tokenizer metadata needed by normal upstream scheduler tests. Eight selected upstream tests passed offline as the agent user in the final image. This focused smoke check is not a claim that every upstream test runs without additional model weights. The donor Python source is removed and the final image excludes donor layers; see [environment provenance](environment/lock/README.md).
 
 ## Verifier
 
