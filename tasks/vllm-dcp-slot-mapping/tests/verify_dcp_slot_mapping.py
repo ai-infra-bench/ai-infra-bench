@@ -81,6 +81,7 @@ def construct_tables(module, *, dcp_size: int, dcp_rank: int, interleave: int):
         dtype=torch.float16,
         max_model_len=64,
         uses_mrope=False,
+        use_mla=False,
         logprobs_mode="raw_logprobs",
         get_vocab_size=lambda: 256,
         get_inputs_embeds_size=lambda: 32,

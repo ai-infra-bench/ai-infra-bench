@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-09-16T15:42:00+08:00",
+  "recorded_at": "2026-09-16T18:37:12+08:00",
   "status": "validated-final-image-on-h20-a100-pending",
   "source": {
     "repository": "vllm-project/vllm",
@@ -20,17 +20,17 @@
       "instruction.md": "9a23a6173e26a13be7b638bd8b3e014e4359bfda84f600376f8649dabaa63d1c",
       "solution/oracle.patch": "10fccf7b1cffcdbb62b57984e164a11de7199108e60ee5ee4729ea7b61f0dcce",
       "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
-      "task.toml": "afebbd89cae9e085b78e41bbd148f394a012d49ef90d25327d5199b43abcb2e7",
+      "task.toml": "e38a1a9305247e342b175ada72467633dfec905b2baa847ce7fa033b2722ad7e",
       "tests/docker-compose.yaml": "597e3b182f1714efc87b877f5ac9af369aae9a54beba9debf65eca7d7ac7af23",
       "tests/checkpoint.c": "ebc9028bb2e4d0d0d347b5b2e60524708b37e41136edf9459da4db8fff422f9b",
       "tests/test.sh": "d3f04db96cda4c8f2cf00059aebcfdaf156ca8a6104dd667d27c9eeac781c473",
-      "tests/verify_dcp_slot_mapping.py": "550eeb7f033764fdb5e86aa3fd73e3f41b413cae183ef966c752954ae79661cb",
+      "tests/verify_dcp_slot_mapping.py": "5b1931af549201dc16c9b456a0c8c3f797ea38c4741a1a48f7f024557e850ad0",
       "validation/alternative-agent-implementation.patch": "73c959f3cbaa63664824c2c1f872318dd0b05edf80d108f34771d56a91f0ec77",
       "validation/ci-cases.json": "606efcbd9ba77a65be2846f660c1e0bea6928403d325ac3fed0175b89e0a643b",
       "validation/docker-build.md": "9ec1ac1ff7609180bb49f52353042803d97a765634d10dd873a4a86963b0e97d",
       "validation/incomplete-agent-implementation.patch": "a55bb0124c30c608b920ead0bc2a903efa247361a239de65a9997d34bb3db44b",
       "validation/remediation-matrix.md": "a16d536b73b07d523c9fc9c8d59e82b2f07432e5b74d4f9e21c7f47755407c57",
-      "validation/deepseek-v4-flash-rollouts.md": "120f064c3454cf2a69327f116a8a87ddf57bf0ab0b428b1a02c8239c15d16453",
+      "validation/deepseek-v4-flash-rollouts.md": "8385f617e6ac5234b6860a851127e10200e4c5ab60a81f9852bcc4181aa50cee",
       "validation/deepseek-explicit-capture-implementation.patch": "04a823593866a88f04c14bc96fd930b609b017d322f880cd54ffdea1df553f8c",
       "validation/deepseek-input-buffers-implementation.patch": "49ed6e577db494a156a704fd1151d8cd6578efeb957a40f179c5253559c2cd5a",
       "validation/task-review-2026-09-14.md": "b615e6ecc7694a3b13d06ff5214618571a8fed61502df5046c458d5d3616ac69",
@@ -48,7 +48,7 @@
     "substitution": "Model weights and multi-rank process launch are replaced by deterministic cache tables and DCP group metadata; the production runner, Triton slot kernel, CUDA graph, and metadata builder remain real.",
     "preserved_semantics": "Model weights and multi-rank process launch are replaced by deterministic cache tables and DCP group metadata; the production runner, Triton slot kernel, CUDA graph, and metadata builder remain real."
   },
-  "latest_verifier_replay": {
+  "previous_verifier_replay": {
     "date": "2026-09-16",
     "task_version": "1.3.5",
     "new_behavior": "CUDA-graph replay observes changed staged KV block IDs across both cache-group layouts after capture",
@@ -66,6 +66,27 @@
       "early-exit-os-exit": 0
     },
     "note": "Earlier validation entries below refer to the prior verifier snapshot; these fresh Harbor runs validate the changed verifier. Other historical controls were not rerun."
+  },
+  "latest_verifier_replay": {
+    "date": "2026-09-16",
+    "task_version": "1.3.6",
+    "job_directory": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/deepseek-verifier-enhance-20260916",
+    "fixture_correction": "The synthetic model_config now includes use_mla=False, matching the production configuration API; a valid implementation may read this property while checking DCP support.",
+    "rewards": {
+      "base": 0,
+      "oracle": 1,
+      "alternative-agent-implementation": 1,
+      "incomplete-agent-implementation": 0
+    },
+    "deepseek_v4_flash": {
+      "job_id": "c67555b5-cd65-4cbe-84aa-567b50d8c253",
+      "original_task_version": "1.3.5",
+      "n_completed_trials": 3,
+      "n_errored_trials": 0,
+      "original_rewards": [0, 0, 0],
+      "corrected_fixture_candidate_replay_rewards": [0, 0, 0],
+      "note": "The model rollout used version 1.3.5. The exact three saved candidate repositories were replayed against the 1.3.6 verifier; no model regeneration was claimed. The initially missing use_mla property masked a later genuine CUDA-graph metadata failure in one candidate."
+    }
   },
   "validation": {
     "executable_snapshot_frozen": true,

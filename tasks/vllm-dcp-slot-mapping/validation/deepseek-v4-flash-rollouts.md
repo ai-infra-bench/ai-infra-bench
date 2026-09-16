@@ -62,3 +62,25 @@ failures are candidate implementation regressions rather than verifier or
 environment failures. The raw Harbor job is
 `pr60-deepseek-v4-flash-auth-r5b-20260916` (job ID
 `3090e05f-220b-4776-b77c-f9b118a4162e`).
+
+## 2026-09-16 strengthened-verifier rerun and fixture correction
+
+Three more independent Terminus-2 / `openai/deepseek-v4-flash` trials ran in
+parallel against task version 1.3.5 with `max_turns=1000`. All reached the turn
+limit and completed Harbor verification without infrastructure errors. The raw
+rewards were `0/0/0` (job `pr60-deepseek-v4-flash-r3-enhanced`, ID
+`c67555b5-cd65-4cbe-84aa-567b50d8c253`). The endpoint reported 116,415,304
+input tokens, 112,787,712 cached-input tokens, 4,250,541 output tokens, and
+`$1.579027968` cost.
+
+| Trial | Original checkpoints | Final 1.3.6 candidate replay | Diagnosis |
+| --- | ---: | ---: | --- |
+| `jQwFCvS` | 3/9 | 0 | DCP interleave size was not passed from the production runner to `BlockTables`; the slot calculation used the default of 1. |
+| `sL3ZB4M` | 2/9 | 0 | The old synthetic `model_config` lacked the production `use_mla` property, masking a later real omission of DCP-local lengths in CUDA-graph attention metadata. With the fixture corrected, the candidate reached 7/9 before failing there. |
+| `ReK9erk` | 7/9 | 0 | Graph capture indexed a `CpuGpuBuffer` as though it were subscriptable, causing a candidate-side `TypeError`. |
+
+Task version 1.3.6 adds `use_mla=False` to the synthetic configuration. On
+that final snapshot, fresh Harbor Base, Oracle, correct alternative, and
+incomplete-implementation controls returned `0/1/1/0`. The three *saved*
+candidate repositories were then replayed against the corrected verifier;
+those replays do not constitute new model trials and all still score zero.
