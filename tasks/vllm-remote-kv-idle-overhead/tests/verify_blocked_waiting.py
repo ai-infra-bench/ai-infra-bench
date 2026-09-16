@@ -21,6 +21,7 @@ EXPECTED_CHECKPOINTS = (
     "completion-promotion",
     "abort",
     "abort-late-completion",
+    "abort-ready-race",
     "staggered-completion",
     "mixed-fcfs",
     "complete",
@@ -337,6 +338,50 @@ def check_abort_late_completion(model_dir: str) -> None:
         )
 
 
+def check_abort_after_ready_event(model_dir: str) -> None:
+    """Cancellation between connector completion and scheduling must win."""
+    scheduler, requests, initial = create_blocked_scheduler(model_dir, 5)
+    victim, survivor = requests[1], requests[3]
+    event = copy.deepcopy(EMPTY_MODEL_RUNNER_OUTPUT)
+    event.kv_connector_output = KVConnectorOutput(
+        finished_recving={victim.request_id, survivor.request_id}
+    )
+    scheduler.update_from_output(initial, event)
+    scheduler.finish_requests(victim.request_id, RequestStatus.FINISHED_ABORTED)
+
+    resumed = scheduler.schedule()
+    resumed_ids = [request.req_id for request in resumed.scheduled_new_reqs]
+    if resumed_ids != [survivor.request_id]:
+        raise AssertionError(
+            "cancellation after remote completion revived the victim or "
+            f"blocked its peer: {resumed_ids}"
+        )
+    if victim.status != RequestStatus.FINISHED_ABORTED:
+        raise AssertionError(f"cancelled request changed state: {victim.status}")
+    if scheduler.get_request_counts() != (1, 3):
+        raise AssertionError(
+            "completion/cancellation race corrupted request accounting: "
+            f"{scheduler.get_request_counts()}"
+        )
+
+    # A later connector event must still promote older blocked requests in
+    # arrival order, even when an earlier completion was cancelled.
+    scheduler.finish_requests(survivor.request_id, RequestStatus.FINISHED_ABORTED)
+    later = copy.deepcopy(EMPTY_MODEL_RUNNER_OUTPUT)
+    later.kv_connector_output = KVConnectorOutput(
+        finished_recving={requests[4].request_id, requests[0].request_id}
+    )
+    scheduler.update_from_output(resumed, later)
+    promoted = scheduler.schedule()
+    promoted_ids = [request.req_id for request in promoted.scheduled_new_reqs]
+    expected = [requests[0].request_id, requests[4].request_id]
+    if promoted_ids != expected:
+        raise AssertionError(
+            "later remote completion changed FCFS order after cancellation: "
+            f"expected={expected} actual={promoted_ids}"
+        )
+
+
 def check_staggered_completion_and_arrival(model_dir: str) -> None:
     """Separate completion batches and a fresh arrival retain FCFS behavior."""
     scheduler, requests, initial = create_blocked_scheduler(model_dir, 4)
@@ -423,6 +468,9 @@ def run_suite(emit) -> None:
 
         check_abort_late_completion(str(model_dir))
         emit("abort-late-completion", True)
+
+        check_abort_after_ready_event(str(model_dir))
+        emit("abort-ready-race", True)
 
         check_staggered_completion_and_arrival(str(model_dir))
         emit("staggered-completion", True)
