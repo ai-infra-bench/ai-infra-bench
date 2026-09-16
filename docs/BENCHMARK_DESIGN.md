@@ -14,7 +14,9 @@ This is an observational study of the community, separate from the agent benchma
 
 We will measure:
 
-- issue arrivals, closures, backlog, first maintainer response, first substantive response, and time to close;
+- issue arrivals, closures, backlog, first human response, first
+  snapshot-collaborator response, human-annotated substantive response, and
+  time to close;
 - pull-request categories, first review time, time to merge, review rounds, requested changes, review comments, reviewers, and code churn;
 - monthly demand relative to active maintainers and reviewers;
 - workload categories such as bug fix, feature, performance, refactor, test/e2e, CI/build, docs/API, and chore;
@@ -24,6 +26,14 @@ We will measure:
 GitHub activity is only an observable proxy for human effort. We will not equate comment counts or elapsed time with actual engineering hours without maintainer-survey calibration.
 
 Because vLLM emerged in 2023, the proposed reporting windows are launch through 2024, calendar year 2025, and 2026 through the frozen snapshot date. Monthly time series remain the primary view.
+
+The canonical observational snapshot is the
+`vllm-github-data-2026-07-31` release. Its collaborator list is a May 18
+snapshot roster, not historical event-time maintainer membership. The August
+8 API collection is a later supplement.
+
+The frozen operational definitions and data-quality rules for this study are
+documented in [`RQ1_METHODS.md`](RQ1_METHODS.md).
 
 ### RQ2: How much of that workload can agents solve?
 
@@ -207,4 +217,3 @@ Every release freezes a dataset version, image digest, task hash, and run protoc
 - **Week of August 29:** begin pilot evaluation on the frozen validated subset before scaling to the full release.
 
 The number of source records is never used as a proxy for benchmark readiness.
-

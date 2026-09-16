@@ -1,4 +1,14 @@
-# `vllm_survey_results.jsonl`
+# Data
+
+This directory contains reviewed datasets used by AI Infra Bench:
+
+- [`vllm_survey_results.jsonl`](vllm_survey_results.jsonl): de-identified
+  vLLM maintainer survey recommendations;
+- [`rq1/`](rq1/README.md): Release-aligned lifecycle and response metrics for
+  all 16,990 canonical vLLM Issues, plus subsystem and accelerator labels for
+  all 32,935 canonical vLLM PRs.
+
+## Maintainer survey
 
 This file contains de-identified source recommendations collected through the vLLM maintainer survey. Each JSONL record represents one unique GitHub issue or pull request. Repeated recommendations are merged into `survey.endorsements` rather than duplicated.
 
@@ -41,4 +51,7 @@ A later materialization stage creates runnable benchmark tasks with a verified b
 
 ## License
 
-The survey dataset in this directory is licensed under [Creative Commons Attribution 4.0 International](LICENSE). Software and documentation elsewhere in the repository use Apache-2.0.
+Datasets in this directory are licensed under [Creative Commons Attribution
+4.0 International](LICENSE), subject to the provenance qualifications in their
+dataset-specific documentation. Software and documentation elsewhere in the
+repository use Apache-2.0.

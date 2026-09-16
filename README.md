@@ -17,6 +17,9 @@ We will evaluate Claude Opus 5, GPT-5.6, Hunyuan 3, Qwen 3.8 Max, Kimi K3, GLM 5
 
 - [Weekly sync notes](https://docs.google.com/document/d/16E7Xm08JTIwKT6pbC5YezCEu-UbbNDzA1PTjk0ZH724/edit?tab=t.0#heading=h.45siya4cjzvw)
 - [Benchmark design](docs/BENCHMARK_DESIGN.md)
+- [RQ1 conclusions](analysis/rq1/RQ1_CONCLUSIONS_CN.md)
+- [RQ1 methods](docs/RQ1_METHODS.md)
+- [RQ1 derived Issue data and PR labels](data/rq1/README.md)
 - [Dataset card](docs/DATASET_CARD.md)
 - [Contributing](CONTRIBUTING.md)
 
