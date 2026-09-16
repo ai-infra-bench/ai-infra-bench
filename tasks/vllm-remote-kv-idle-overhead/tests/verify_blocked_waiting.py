@@ -24,6 +24,9 @@ EXPECTED_CHECKPOINTS = (
     "abort-ready-race",
     "staggered-completion",
     "mixed-fcfs",
+    "generation-lifecycle",
+    "ready-backpressure",
+    "no-connector-regression",
     "complete",
 )
 MODEL_CONFIG = {
@@ -131,13 +134,14 @@ def create_requests(
     *,
     token_counts: list[int] | None = None,
     request_ids: list[str] | None = None,
+    max_tokens: int = 16,
 ) -> list[Request]:
     global _HASH_INITIALIZED
     if not _HASH_INITIALIZED:
         init_none_hash(sha256)
         _HASH_INITIALIZED = True
     block_hasher = get_request_block_hasher(16, sha256)
-    sampling_params = SamplingParams(max_tokens=16)
+    sampling_params = SamplingParams(max_tokens=max_tokens, ignore_eos=True)
     sampling_params.update_from_generation_config({}, 50256)
     if token_counts is None:
         token_counts = [10] * request_count
@@ -162,6 +166,7 @@ def create_scheduler(
     request_count: int,
     *,
     max_num_batched_tokens: int | None = None,
+    use_connector: bool = True,
 ) -> Scheduler:
     model_config = ModelConfig(
         model=model_dir,
@@ -198,7 +203,7 @@ def create_scheduler(
         model_config=model_config,
         cache_config=cache_config,
         parallel_config=ParallelConfig(),
-        kv_transfer_config=transfer_config,
+        kv_transfer_config=transfer_config if use_connector else None,
     )
     kv_cache_config = KVCacheConfig(
         num_blocks=10000,
@@ -427,6 +432,133 @@ def check_staggered_completion_and_arrival(model_dir: str) -> None:
         )
 
 
+class GenerationDriver:
+    """Deterministic model results with real scheduler output/finish handling."""
+
+    def __init__(self, scheduler, requests):
+        self.scheduler = scheduler
+        self.requests = {r.request_id: r for r in requests}
+        self.expected = {
+            r.request_id: [100 + index * 10 + n for n in range(3)]
+            for index, r in enumerate(requests)
+        }
+        self.issued = {r.request_id: 0 for r in requests}
+        self.observed = {r.request_id: [] for r in requests}
+        self.finished = []
+        self.admitted = []
+
+    def tick(self, ready=()):
+        scheduled = self.scheduler.schedule()
+        self.admitted.extend(r.req_id for r in scheduled.scheduled_new_reqs)
+        req_ids = list(scheduled.num_scheduled_tokens)
+        sampled = []
+        for req_id in req_ids:
+            request = self.requests[req_id]
+            if request.num_computed_tokens < request.num_prompt_tokens:
+                sampled.append([])
+                continue
+            index = self.issued[req_id]
+            if index >= 3:
+                raise AssertionError(f"request scheduled after generation ended: {req_id}")
+            sampled.append([self.expected[req_id][index]])
+            self.issued[req_id] += 1
+        outputs = self.scheduler.update_from_output(scheduled, ModelRunnerOutput(
+            req_ids=req_ids,
+            req_id_to_index={req_id: i for i, req_id in enumerate(req_ids)},
+            sampled_token_ids=sampled,
+            kv_connector_output=(
+                KVConnectorOutput(finished_recving=set(ready)) if ready else None
+            ),
+        ))
+        for client_output in outputs.values():
+            for output in client_output.outputs:
+                self.observed[output.request_id].extend(output.new_token_ids)
+                if output.finish_reason is not None:
+                    if output.request_id in self.finished:
+                        raise AssertionError(f"duplicate terminal output: {output.request_id}")
+                    self.finished.append(output.request_id)
+        return scheduled
+
+    def drain(self):
+        for _ in range(40):
+            if self.scheduler.get_request_counts() == (0, 0):
+                break
+            self.tick()
+        if self.scheduler.get_request_counts() != (0, 0):
+            raise AssertionError("finite ready workload failed to finish")
+        if self.observed != self.expected:
+            raise AssertionError(
+                f"generated token streams lost or misrouted: "
+                f"expected={self.expected} actual={self.observed}"
+            )
+        if set(self.finished) != set(self.expected):
+            raise AssertionError(f"missing terminal outputs: {self.finished}")
+        # Empty ticks after completion must not resurrect or duplicate work.
+        if self.tick().num_scheduled_tokens:
+            raise AssertionError("completed requests were scheduled again")
+
+
+def check_generation_lifecycle(model_dir):
+    """Local work progresses during remote waits; all streams then finish."""
+    scheduler = create_scheduler(model_dir, 3, max_num_batched_tokens=12)
+    remote_ids = {"remote-a", "remote-b"}
+    scheduler.connector.get_num_new_matched_tokens = lambda request, count: (
+        (16, True) if request.request_id in remote_ids else (0, False)
+    )
+    requests = create_requests(
+        3, request_ids=["remote-a", "remote-b", "local-c"],
+        token_counts=[21, 19, 25], max_tokens=3,
+    )
+    driver = GenerationDriver(scheduler, requests)
+    for request in requests:
+        scheduler.add_request(request)
+    for _ in range(4):
+        driver.tick()
+    if not driver.observed["local-c"]:
+        raise AssertionError("local request stalled behind pending remote transfers")
+    if driver.observed["remote-a"] or driver.observed["remote-b"]:
+        raise AssertionError("remote request ran before transfer completion")
+    driver.tick(ready={"remote-b"})
+    driver.tick()
+    if not driver.observed["remote-b"] or driver.observed["remote-a"]:
+        raise AssertionError("out-of-order readiness did not wake the correct request")
+    driver.tick(ready={"remote-a"})
+    driver.drain()
+
+
+def check_ready_backpressure(model_dir, *, use_connector=True):
+    """Ready requests survive a full running batch and admit a later arrival."""
+    scheduler = create_scheduler(
+        model_dir, 1, max_num_batched_tokens=32, use_connector=use_connector,
+    )
+    requests = create_requests(
+        4, request_ids=["first", "second", "third", "later"],
+        token_counts=[20, 23, 18, 7], max_tokens=3,
+    )
+    if use_connector:
+        remote_ids = {r.request_id for r in requests[:3]}
+        scheduler.connector.get_num_new_matched_tokens = lambda request, count: (
+            (16, True) if request.request_id in remote_ids else (0, False)
+        )
+    driver = GenerationDriver(scheduler, requests)
+    for request in requests[:3]:
+        scheduler.add_request(request)
+    driver.tick()
+    if use_connector:
+        if scheduler.get_request_counts() != (0, 3):
+            raise AssertionError("pending transfers changed request accounting")
+        driver.tick(ready={r.request_id for r in requests[:3]})
+    driver.tick()
+    scheduler.add_request(requests[3])
+    driver.drain()
+    expected_order = [r.request_id for r in requests]
+    if driver.admitted != expected_order or driver.finished != expected_order:
+        raise AssertionError(
+            f"FCFS changed under capacity pressure: "
+            f"admitted={driver.admitted} finished={driver.finished}"
+        )
+
+
 def run_suite(emit) -> None:
     load_candidate()
     with tempfile.TemporaryDirectory(prefix="remote-kv-model-") as tmp:
@@ -477,6 +609,13 @@ def run_suite(emit) -> None:
 
         check_mixed_blocked_fcfs(str(model_dir))
         emit("mixed-fcfs", True)
+
+        check_generation_lifecycle(str(model_dir))
+        emit("generation-lifecycle", True)
+        check_ready_backpressure(str(model_dir))
+        emit("ready-backpressure", True)
+        check_ready_backpressure(str(model_dir), use_connector=False)
+        emit("no-connector-regression", True)
 
         print(
             json.dumps(

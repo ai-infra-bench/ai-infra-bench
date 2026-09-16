@@ -1,5 +1,7 @@
 # DeepSeek V4 Flash hardening rollouts
 
+Version clarification: regrading the latest enhanced batch QGr8Wd6/kGXSyGd/xfkdqfk on verifier 1.2.0 gives 1/1/1 without candidate changes. See [the lifecycle review](instruction-e2e-review-2026-09-16.md). This does not overwrite any original scores below and is not a new model rollout.
+
 On 2026-09-14, three Terminus-2 rollouts ran concurrently through Harbor against final image `sha256:714c9051899f5f88efaa7efeca4e42f6497d6daf076271f9bbd1ba3924d43883` with a 100-turn agent limit. All three trials completed without infrastructure errors or retries and scored 0. The job used 6,797,520 input tokens, 6,438,016 cached-input tokens, and 862,532 output tokens; the endpoint reported a total cost of `$0.090132224`.
 
 | Trial suffix | Reward | Agent behavior | Verifier diagnosis |

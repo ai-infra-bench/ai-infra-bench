@@ -1,5 +1,7 @@
 # Task review — 2026-09-14
 
+Historical review retained for provenance. Current lifecycle coverage, differential controls, and the upstream pytest dependency limitation are documented in [the 1.2.0 review](instruction-e2e-review-2026-09-16.md).
+
 Verdict: the task can be retained and passes all three review gates on the final rebuilt image. Review snapshot: PR #61 base `42d586d729d0a2a27c67a1efc1944c84d2875a41` plus the uncommitted hardening diff; Base `d88f28da05b12bc7d63ebe3dcedf445ecb274343`; review skill from official `main` on 2026-09-14.
 
 | # | Dimension | Score / status | Key evidence or gap | Next action |

@@ -1,1 +1,10 @@
-I use vLLM for disaggregated serving with asynchronous remote KV transfer, and a large batch waiting for remote KV data causes unexpectedly high scheduler CPU usage: an idle tick gets slower as I add unchanged blocked requests, and connector tracing shows those requests being checked repeatedly even though no transfer has completed. Please remove this idle overhead so a tick with no new remote event does not do work proportional to the blocked population, while preserving request accounting, abort handling, and FCFS behavior when remote-KV waiters coexist with requests temporarily blocked for other reasons and become ready at different times.
+I use vLLM for disaggregated serving with asynchronous remote KV transfer. When a large batch is waiting for remote KV data, the scheduler burns CPU even though the transfers have made no progress. Adding more unchanged waiting requests makes each idle tick slower. A small version of the workload looks like this:
+
+```text
+Arrival order: A, B, C
+A and B need remote KV data; their transfers are still pending.
+C can run without waiting for a remote transfer.
+B's transfer completes first, then A's.
+```
+
+I need C to keep making progress while the transfers are pending, and A and B to resume when their data arrives. Please remove the idle overhead so a tick with no new remote event does not do work proportional to the blocked population. Keep the existing FCFS behavior among requests that can run, including when other requests are temporarily blocked for different reasons. Request counts, cancellation during a transfer, normal generation and completion, and admission of subsequent requests should all keep working.

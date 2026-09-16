@@ -6,11 +6,13 @@ Keep scheduler ticks inexpensive while requests wait asynchronously for remote K
 
 ## Environment
 
-A digest-pinned vLLM CPU image with the exact Base source, offline runtime, and a 10-hour Agent budget. Its image must be rebuilt after removing task-specific assets.
+A digest-pinned vLLM CPU image with the exact Base source, offline runtime, and a 10-hour Agent budget. The current image runs the hidden verifier, but an upstream pytest collection probe is blocked by missing `tblib`; full Agent-side upstream-test readiness is not claimed.
 
 ## Verifier
 
-The separate hidden verifier supplies its own minimal KV connector and exercises the production Scheduler with small and large blocked populations, staggered completion events, new arrivals, cancellation races, mixed blocked reasons, accounting, and FCFS behavior. Full credit is binary and is written to `/logs/verifier/reward.txt`.
+The separate hidden verifier supplies its own minimal KV connector and exercises the production Scheduler with small and large blocked populations, staggered completion events, new arrivals, cancellation races, mixed blocked reasons, accounting, and FCFS behavior. Lifecycle tests then feed deterministic model results through real `schedule()` and `update_from_output()`: local work while transfers are pending, out-of-order remote readiness, chunked prefill, multiple generated tokens, terminal client outputs, capacity pressure, later admission, and connector-disabled regression. Full credit requires eleven authenticated checkpoints and is written to `/logs/verifier/reward.txt`.
+
+This is scheduler-subsystem end-to-end coverage: request admission through client-facing engine outputs and normal cleanup. Transport events and model token generation are deterministic substitutes. No HTTP server, actual NIXL/RDMA transfer, or full model accuracy benchmark is claimed. See [the current review](validation/instruction-e2e-review-2026-09-16.md).
 
 ## Layout
 
