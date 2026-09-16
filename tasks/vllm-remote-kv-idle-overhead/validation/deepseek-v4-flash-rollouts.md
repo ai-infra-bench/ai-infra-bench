@@ -32,3 +32,23 @@ not added as a hidden test after source audit showed that preemption and waiting
 allocation occur in separate production phases. The raw Harbor job is
 `pr61-deepseek-v4-flash-auth-r5b-20260916` (job ID
 `25f44faa-a97b-41de-b49e-3dbb6cade035`).
+
+## 2026-09-16 strengthened-verifier rerun
+
+Three further independent Terminus-2 trials ran concurrently through Harbor
+with `openai/deepseek-v4-flash` and `max_turns=1000` against task version 1.1.4.
+All three completed without Harbor errors, passed all eight authenticated
+behavior/performance checkpoints, and scored `1/1/1`. The job
+`pr61-deepseek-v4-flash-r3-enhanced` has ID
+`0ef335c4-6505-4803-81fb-07713ddaeaa9`.
+
+| Trial | Episodes | Reward | Code/trajectory review |
+| --- | ---: | ---: | --- |
+| `xfkdqfk` | 453 | 1 | Added an event-invalidated active waiting view in the scheduler; parked remote waiters remain visible for accounting, while idle ticks visit only active requests. |
+| `kGXSyGd` | 668 | 1 | Added a combined waiting-queue facade with an active heap and event-driven remote reactivation; the agent also ran randomized queue checks. Its full pytest attempt was blocked by the base environment's missing `tblib`, but Harbor verification completed. |
+| `QGr8Wd6` | 726 | 1 | Maintained active and logical queue views for FCFS/priority policies; the agent fixed a set-mutation bug found during its own review and ran queue smoke tests before grading. |
+
+The endpoint reported 46,425,364 input tokens, 44,305,024 cached-input
+tokens, 5,165,519 output tokens, and `$0.620270336` cost. Review of the
+saved implementations did not identify a concrete contract violation or
+verifier false positive. These are new runs, not replays of prior candidates.
