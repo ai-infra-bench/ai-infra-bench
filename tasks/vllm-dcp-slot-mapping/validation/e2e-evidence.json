@@ -1,6 +1,6 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-09-16T00:00:00+08:00",
+  "recorded_at": "2026-09-16T15:42:00+08:00",
   "status": "validated-final-image-on-h20-a100-pending",
   "source": {
     "repository": "vllm-project/vllm",
@@ -20,11 +20,11 @@
       "instruction.md": "9a23a6173e26a13be7b638bd8b3e014e4359bfda84f600376f8649dabaa63d1c",
       "solution/oracle.patch": "10fccf7b1cffcdbb62b57984e164a11de7199108e60ee5ee4729ea7b61f0dcce",
       "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
-      "task.toml": "67be4a3713af07a9b86df62a1e0377ea88c1106bb032de3ac98bc02627fd1764",
+      "task.toml": "afebbd89cae9e085b78e41bbd148f394a012d49ef90d25327d5199b43abcb2e7",
       "tests/docker-compose.yaml": "597e3b182f1714efc87b877f5ac9af369aae9a54beba9debf65eca7d7ac7af23",
       "tests/checkpoint.c": "ebc9028bb2e4d0d0d347b5b2e60524708b37e41136edf9459da4db8fff422f9b",
       "tests/test.sh": "d3f04db96cda4c8f2cf00059aebcfdaf156ca8a6104dd667d27c9eeac781c473",
-      "tests/verify_dcp_slot_mapping.py": "4eb5d12dc9fe28cf7b97f4c0928209f8e93857c6c5983c518c43b3e671d6e4fa",
+      "tests/verify_dcp_slot_mapping.py": "550eeb7f033764fdb5e86aa3fd73e3f41b413cae183ef966c752954ae79661cb",
       "validation/alternative-agent-implementation.patch": "73c959f3cbaa63664824c2c1f872318dd0b05edf80d108f34771d56a91f0ec77",
       "validation/ci-cases.json": "606efcbd9ba77a65be2846f660c1e0bea6928403d325ac3fed0175b89e0a643b",
       "validation/docker-build.md": "9ec1ac1ff7609180bb49f52353042803d97a765634d10dd873a4a86963b0e97d",
@@ -47,6 +47,25 @@
     "path": "production Model Runner V2 initialization -> DCP-aware paged-KV slot mapping -> eager and CUDA-graph attention metadata",
     "substitution": "Model weights and multi-rank process launch are replaced by deterministic cache tables and DCP group metadata; the production runner, Triton slot kernel, CUDA graph, and metadata builder remain real.",
     "preserved_semantics": "Model weights and multi-rank process launch are replaced by deterministic cache tables and DCP group metadata; the production runner, Triton slot kernel, CUDA graph, and metadata builder remain real."
+  },
+  "latest_verifier_replay": {
+    "date": "2026-09-16",
+    "task_version": "1.3.5",
+    "new_behavior": "CUDA-graph replay observes changed staged KV block IDs across both cache-group layouts after capture",
+    "job_directory": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/verifier-enhance-20260916",
+    "image_id": "sha256:b8a1ddd7e3a2c075f8ae106088c7f5c89e9dc28ec922e5fc2f43b7d6ce0adf15",
+    "gpu_runtime_adapter": "Harbor 0.22.0 --override-gpus 0; Compose injects NVIDIA H20 device",
+    "fixture_correction": "A first version wrote the same request's two cache groups in separate overwrite calls, intermittently leaving the second group stale; the final verifier submits both groups in one staged write. The final Oracle replay passes.",
+    "rewards": {
+      "base": 0,
+      "oracle": 1,
+      "alternative-agent-implementation": 1,
+      "deepseek-explicit-capture-implementation": 1,
+      "deepseek-input-buffers-implementation": 1,
+      "incomplete-agent-implementation": 0,
+      "early-exit-os-exit": 0
+    },
+    "note": "Earlier validation entries below refer to the prior verifier snapshot; these fresh Harbor runs validate the changed verifier. Other historical controls were not rerun."
   },
   "validation": {
     "executable_snapshot_frozen": true,

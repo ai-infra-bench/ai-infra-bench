@@ -27,6 +27,7 @@ EXPECTED_CHECKPOINTS = (
     "slot-2-1-2",
     "slot-4-3-2",
     "graph-replay",
+    "graph-block-update",
     "graph-metadata-successive",
     "complete",
 )
@@ -243,6 +244,34 @@ def check_graph_replay(module) -> None:
                 f"group={group_index} {actual}!={expected}"
             )
 
+    # KV blocks can be recycled between decode steps without recapturing the
+    # graph. Change the actual staged block-table backing storage, not a mock
+    # of the slot-mapping implementation, and check both cache-group layouts.
+    replacement_groups = []
+    for group_index, table in enumerate(tables.block_tables):
+        width = table.gpu.shape[1]
+        replacement = [120 + group_index * 40 + i for i in range(width)]
+        replacement_groups.append(replacement)
+    tables.append_block_ids(1, tuple(replacement_groups), overwrite=True)
+    block_ids[1] = replacement_groups
+    tables.apply_staged_writes()
+    graph.replay()
+    torch.cuda.synchronize()
+    for group_index, block_size in enumerate((4, 8)):
+        expected = expected_slots(
+            heldout[:5], block_ids[1][group_index], block_size,
+            dcp_size, dcp_rank, interleave,
+        ) + expected_slots(
+            heldout[5:], block_ids[0][group_index], block_size,
+            dcp_size, dcp_rank, interleave,
+        )
+        actual = slots[group_index].cpu().tolist()
+        if actual != expected:
+            raise AssertionError(
+                "CUDA graph replay used stale KV block IDs: "
+                f"group={group_index} {actual}!={expected}"
+            )
+
 
 def check_graph_metadata_flow() -> None:
     """Ensure DCP-local lengths reach the attention backend on graph warm-up.
@@ -372,6 +401,7 @@ def run_suite(emit) -> None:
         emit(f"slot-{case[0]}-{case[1]}-{case[2]}", True)
     check_graph_replay(block_table_module)
     emit("graph-replay", True)
+    emit("graph-block-update", True)
     check_graph_metadata_flow()
     emit("graph-metadata-successive", True)
     print(
