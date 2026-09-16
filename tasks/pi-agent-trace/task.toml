@@ -1,0 +1,38 @@
+schema_version = "1.4"
+
+[task]
+name = "ai-infra-bench/pi-agent-trace"
+version = "0.0.6"
+description = "Export pi's agent loop (runs, turns, provider requests, tool executions, compactions) as an OpenTelemetry trace written as OTLP/JSON lines, with token, cache and timing attributes tied to session entries."
+authors = [{name = ""}]
+keywords = ["pi", "agent-harness", "cpu", "extension", "observability", "opentelemetry", "tracing", "typescript"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+track = "representative"
+workload_type = "feature"
+subsystems = ["agent_harness", "observability", "session_storage"]
+repository = "earendil-works/pi"
+base_commit = "d981de1229ef899957bbe968bc8dcda02a21f477"
+dependency_cutoff = "2026-09-05T11:54:46Z"
+# image_digest = image_id from environment/image-manifest.json (build.py, linux/amd64; same Dockerfile bytes as pi-background-processes).
+image_digest = "sha256:40fe5f960138c58e4697f4fa2798accc4e383809d3f340242c8b3320f0eb91e8"
+environment_template = "pi-harbor-node"
+publication_state = "staged-smoke-only"
+
+[agent]
+timeout_sec = 36000
+user = "root"
+network_mode = "no-network"
+
+[environment]
+accelerator = "CPU"
+build_timeout_sec = 7200
+cpus = 4
+memory_mb = 8192
+storage_mb = 20480
+workdir = "/workspace/pi"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 3600
