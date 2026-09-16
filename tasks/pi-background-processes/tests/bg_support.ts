@@ -379,6 +379,9 @@ export async function prompt(
 	steps: FauxResponseStep[],
 	text = "go",
 ) {
+	// A wake that arrived while the agent was idle may have started a turn, as the contract
+	// requires; a prompt from the verifier waits for that turn like a user would.
+	await waitFor(() => live.session.isIdle || undefined, { label: "session idle before prompt", timeoutMs: 5000 });
 	live.faux.setResponses(withAcks(steps));
 	await live.session.prompt(text, { expandPromptTemplates: false, source: "interactive" });
 }

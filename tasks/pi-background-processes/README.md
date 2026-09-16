@@ -1,6 +1,6 @@
 # pi-background-processes
 
-**Status: staged (`staged-smoke-only`), task version 0.0.3.** Fully validated through the Harbor
+**Status: staged (`staged-smoke-only`), task version 0.0.4.** Fully validated through the Harbor
 entrypoint on a linux/arm64 build (Base 0, Oracle 1, one correct alternative 1,
 12 negative controls 0, independent oracle challenge passed); the canonical
 image is now built from `templates/pi-harbor-node` for linux/amd64 (CI's
@@ -11,6 +11,8 @@ yet.
 Version 0.0.2 (2026-09-16) rewrites the instruction as outcome requirements plus the tool and message contract, removing every mechanism it used to prescribe: the process-group and detached-stdio recipe, the hint that an extension may register a tool named `bash`, `pi.sendMessage`, pi's steering delivery, re-raising the signal, `SessionManager.getSessionDir()` with per-pi-process keying, writing logs as they arrive, and the built-in `bash` truncation limits and error strings (now: byte-for-byte what the built-in tool returns). The verifier observes behaviour only and is unchanged; the validation below and the real rollouts were made on the 0.0.1 wording.
 
 Version 0.0.3 (2026-09-16) keeps the 0.0.2 requirements and restates them as an issue rather than a specification: motivation, the ask, the agreed interface, the behaviour we expect to see, and the lifecycle rules, with no mechanism hints added. Verifier unchanged.
+
+Version 0.0.4 (2026-09-16) restates the SIGTERM/SIGINT sentence as an unmistakable outcome (pi, interactive or headless, must still end after the signal) after two more rollouts left a headless pi running, and revises the verifier harness: the between-test drain now waits 300 ms and for an idle session, and a verifier prompt waits for an idle session, since the contract lets a wake start a turn at any idle moment and an implementation may report an exit shortly after the process died. Cases, oracle and controls unchanged.
 
 ## What the agent does
 
@@ -107,6 +109,15 @@ handlers stop the managed processes and then neither re-raise nor exit, so a
 headless pi never terminates after `SIGTERM`. See
 [`validation/rollout-2026-09-16-grok-build.md`](validation/rollout-2026-09-16-grok-build.md);
 the submission is the expected-0 control `alt-grok-0.0.2-sigterm-listener`.
+
+A fourth rollout (claude-code + claude-opus-5, 32 min) on the 0.0.3 wording scored 0:
+PASS_TO_PASS pass, contract 10/15 as recorded, lifecycle 2/3. Four of the five contract
+failures were a harness fragility (a late but contract-conforming exit wake spilled into
+the next test's session and started a turn there; fixed in 0.0.4), one is a real defect
+(the auto-background path breaks after a reload), and the lifecycle failure is the SIGTERM
+clause again (the handler defers to other listeners). See
+[`validation/rollout-2026-09-16-claude-code.md`](validation/rollout-2026-09-16-claude-code.md);
+the submission is the expected-0 control `alt-opus-0.0.3-defer-and-reload`.
 
 ## Layout
 

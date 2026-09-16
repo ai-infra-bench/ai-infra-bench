@@ -95,6 +95,11 @@ function assistantTextIndex(session: Live["session"], text: string): number {
 /** Stop every still-running process through the public tools so its exit wake lands in this session. */
 async function drain(l: Live) {
 	await prompt(l, [toolCall("bg_list", {}), say("drain list")]);
+	// Late wakes are legitimate: an implementation may finish reading a dead process's pipes
+	// before it reports the exit. Give them a moment to land in this session, and let any turn
+	// they started finish, so nothing spills into the next test's session.
+	await sleep(300);
+	await waitFor(() => l.session.isIdle || undefined, { label: "session idle after drain", timeoutMs: 5000 });
 	const list = payload(l.rec.lastResult("bg_list"));
 	const running = (list.processes ?? list).filter((p: any) => p.state === "running");
 	if (running.length === 0) return;
@@ -104,8 +109,11 @@ async function drain(l: Live) {
 
 async function drainRuntime(r: LiveRuntime) {
 	const rec = await r.rebind();
+	await waitFor(() => r.runtime.session.isIdle || undefined, { label: "runtime idle before drain", timeoutMs: 5000 });
 	r.faux.setResponses(withAcks([toolCall("bg_list", {}), say("drain list")]));
 	await r.runtime.session.prompt("drain", { expandPromptTemplates: false, source: "interactive" });
+	await sleep(300);
+	await waitFor(() => r.runtime.session.isIdle || undefined, { label: "runtime idle after drain", timeoutMs: 5000 });
 	const list = payload(rec.lastResult("bg_list"));
 	const running = (list.processes ?? list).filter((p: any) => p.state === "running");
 	if (running.length === 0) return;
