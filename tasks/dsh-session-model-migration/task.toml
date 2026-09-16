@@ -1,0 +1,66 @@
+schema_version = "1.4"
+
+[task]
+name = "ai-infra-bench/dsh-session-model-migration"
+version = "0.0.9"
+description = "Add checked, durable session model migration with destination context budgeting and opt-in plaintext reasoning replay."
+authors = [{ name = "AI Infra Bench" }]
+keywords = ["agent-harness", "deepseek-harness", "typescript", "model-routing", "vitest", "cpu"]
+
+[metadata]
+benchmark_schema_version = "0.1"
+track = "representative"
+workload_type = "feature"
+subsystems = ["agent_runtime", "model_routing"]
+difficulty = "hard"
+repository = "deepseek-ai/deepseek-harness"
+base_commit = "4e84901e6471b79ec0338099867ebb4606d12bb5"
+source_cutoff = "2026-09-01"
+dependency_cutoff = "2026-09-01T15:37:26Z"
+publication_state = "development"
+
+[agent]
+timeout_sec = 36000
+user = "root"
+network_mode = "no-network"
+
+[environment]
+accelerator = "CPU"
+build_timeout_sec = 3600
+cpus = 4
+memory_mb = 8192
+storage_mb = 20480
+workdir = "/workspace/deepseek-harness"
+network_mode = "no-network"
+
+[verifier]
+timeout_sec = 1200
+environment_mode = "separate"
+user = "root"
+network_mode = "no-network"
+
+[verifier.environment]
+cpus = 4
+memory_mb = 8192
+storage_mb = 20480
+build_timeout_sec = 3600
+workdir = "/workspace/deepseek-harness"
+network_mode = "no-network"
+
+[[verifier.collect]]
+timeout_sec = 120
+command = '''
+set -eu
+cd /workspace/deepseek-harness
+mkdir -p /tmp/benchmark-submission
+idx=$(mktemp /tmp/submission-index.XXXXXX)
+trap 'rm -f "$idx"' EXIT
+cp .git/index "$idx"
+export GIT_INDEX_FILE="$idx"
+git add -N --all -- . ':(exclude,glob)**/node_modules' ':(exclude,glob)**/node_modules/**'
+git diff --binary --no-renames 4e84901e6471b79ec0338099867ebb4606d12bb5 -- . ':(exclude,glob)**/node_modules' ':(exclude,glob)**/node_modules/**' > /tmp/benchmark-submission/submission.patch
+'''
+
+[[artifacts]]
+source = "/tmp/benchmark-submission/submission.patch"
+destination = "submission.patch"

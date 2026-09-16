@@ -1,0 +1,684 @@
+diff --git a/.agents/notes/implemented/feature/2026-09-10-checked-session-model-migration.i18n.yaml b/.agents/notes/implemented/feature/2026-09-10-checked-session-model-migration.i18n.yaml
+new file mode 100644
+index 000000000..47c6294c7
+--- /dev/null
++++ b/.agents/notes/implemented/feature/2026-09-10-checked-session-model-migration.i18n.yaml
+@@ -0,0 +1,6 @@
++# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
++# side as of the last confirmed-consistent state. Both languages carry equal authority;
++# after editing either side, bring the other along and re-record with:
++#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-10-checked-session-model-migration.md
++2026-09-10-checked-session-model-migration.md: 5c48f77238785e26b171fb4e87f0b61382c9e858
++2026-09-10-checked-session-model-migration.zh.md: 3ffb6e14fa4870cfcbe2436ae1fe1bf76405ad75
+diff --git a/.agents/notes/implemented/feature/2026-09-10-checked-session-model-migration.md b/.agents/notes/implemented/feature/2026-09-10-checked-session-model-migration.md
+new file mode 100644
+index 000000000..5c48f7723
+--- /dev/null
++++ b/.agents/notes/implemented/feature/2026-09-10-checked-session-model-migration.md
+@@ -0,0 +1,27 @@
++# Agent Note: Checked Session Model Migration
++
++Status: implemented
++
++English | [中文](2026-09-10-checked-session-model-migration.zh.md)
++
++## Problem
++
++An existing session may exceed another model's context allowance. A reasoning gateway can also require plaintext reasoning alongside historical tool calls, even though ordinary cross-provider replay discards native reasoning state.
++
++## Decision
++
++Checked selection is opt-in and commits only after idle-state and event-revision checks around a destination capability snapshot. The existing token meter reprices retained work, including the latest request overhead. The destination replaces adapter-owned output defaults, while explicit caps remain user choices. Successful selection uses the existing durable session event without saving a deployment default.
++
++The pi-ai provider option enables a gateway-specific request projection. Foreign plaintext reasoning uses pi-ai's JSON replay carrier for a fresh reasoning item; it does not forge a provider signature. Foreign calls receive consistent request-local IDs, and their results follow those IDs. Native route metadata is retained only on its originating route. Stored events remain the source record.
++
++## Alternatives considered
++
++Automatic compaction can discard work and needs its own user policy; this operation refuses and lets callers compact or select a larger destination. Globally converting reasoning would send a gateway extension to providers that do not support it. Reusing foreign signatures would mistake opaque provider state for portable text.
++
++## Consequences
++
++Admission is an estimate of current work, with no reservation for later input and no external availability guarantee. Empty sessions still require declared capacity. Legacy selection behavior remains available. The [model picker decision](2026-07-24-web-session-model-selector.md) and [wire compatibility decision](2026-08-18-pi-ai-wire-compat-surface.md) remain active: this opt-in extension does not replace their ordinary selection or compatibility rules.
++
++## Testing
++
++A keyless recorded HTTP exchange drives the real Loader, agent loop, session controller, token meter, and tools. Reopening retained events preserves the new route; failed admission preserves the original route. The request snapshot pins the plaintext gateway representation. Exact-capacity, output-default, stale-session, and foreign replay cases verify admission and serialization separately.
+diff --git a/.agents/notes/implemented/feature/2026-09-10-checked-session-model-migration.zh.md b/.agents/notes/implemented/feature/2026-09-10-checked-session-model-migration.zh.md
+new file mode 100644
+index 000000000..3ffb6e14f
+--- /dev/null
++++ b/.agents/notes/implemented/feature/2026-09-10-checked-session-model-migration.zh.md
+@@ -0,0 +1,27 @@
++# Agent Note: 带校验的会话模型迁移
++
++Status: implemented
++
++[English](2026-09-10-checked-session-model-migration.md) | 中文
++
++## Problem
++
++已有会话可能超过目标模型的上下文额度。推理网关也可能要求历史工具调用附带明文推理，而普通跨 provider 回放会丢弃原生推理状态。
++
++## Decision
++
++带校验的选择需要显式启用，并在获取目标能力快照前后检查空闲状态和事件版本，通过后才提交。现有 token meter 按目标路由重新估算保留的工作，包含最近请求的固定开销。目标模型替换适配器提供的默认输出额度，显式额度则仍由用户决定。成功后使用现有的持久化会话事件保存选择，不修改部署默认值。
++
++pi-ai provider 选项启用网关专用的请求转换。其他路由的明文推理通过 pi-ai 的 JSON 回放载体生成新的 reasoning 项，并不伪造 provider 签名。外来工具调用在请求中获得一致的新 ID，结果同步使用这些 ID。原生路由元数据仅在原路由保留。存储事件仍是原始记录。
++
++## Alternatives considered
++
++自动压缩可能丢失工作，需要独立的用户策略；此操作拒绝迁移，由调用方压缩或选择更大的目标。全局转换 reasoning 会向不支持它的 provider 发送网关扩展。复用外来签名则会把 provider 的不透明状态误当作可移植文本。
++
++## Consequences
++
++检查仅估算当前工作，不为后续输入预留空间，也不保证外部服务可用。空会话同样需要已知容量。普通模型选择行为继续保留。[模型选择器决策](2026-07-24-web-session-model-selector.zh.md)和[协议兼容决策](2026-08-18-pi-ai-wire-compat-surface.zh.md)仍然有效：本次显式启用的扩展不替代它们的常规模型选择和兼容规则。
++
++## Testing
++
++无需凭证的录制 HTTP 交互驱动真实 Loader、agent loop、session controller、token meter 和工具。重新打开保留的事件后仍使用新路由；检查失败后原路由仍然有效。请求快照固定明文网关表示。容量边界、默认输出额度、过期会话和外来 replay 用例分别验证准入和序列化。
+diff --git a/packages/api/session-controller/README.i18n.yaml b/packages/api/session-controller/README.i18n.yaml
+index 9e96e16e0..e10e531fd 100644
+--- a/packages/api/session-controller/README.i18n.yaml
++++ b/packages/api/session-controller/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/api/session-controller/README.md
+-README.md: b3d22a340fff6a49270de520a043a1c8dfdbf096
+-README.zh.md: 45590a53db17b32cc59f6107957c284b53ee8302
++README.md: b311d4732a93b67d875552453b9e4ed1292c59bb
++README.zh.md: 45cbf04025b4055e58272a38801173ba1abb6b60
+diff --git a/packages/api/session-controller/README.md b/packages/api/session-controller/README.md
+index b3d22a340..b311d4732 100644
+--- a/packages/api/session-controller/README.md
++++ b/packages/api/session-controller/README.md
+@@ -33,6 +33,9 @@ The Session object also carries local submission echoes: `session.beginSubmissio
+ 
+ -----
+ 
++
++A client can pass `migration: "checked"` to `selectModel` to retain the current work on a validated destination. The session must be idle with empty input queues, and its event sequence must remain unchanged during resolution. This mode requires `token-meter` and known destination context and output limits. Admission includes retained history plus the latest system prompt, tool schemas, and output allowance; an explicit output cap remains in force, while an adapter default follows the destination. A rejected check leaves selection and history intact. A successful selection survives reopening and applies only to that session; calls without this option retain deployment-default persistence. The estimate does not reserve room for future prompts or automatically compact work.
++
+ <a id="configuration"></a>
+ ## Configuration
+ 
+diff --git a/packages/api/session-controller/README.zh.md b/packages/api/session-controller/README.zh.md
+index 45590a53d..45cbf0402 100644
+--- a/packages/api/session-controller/README.zh.md
++++ b/packages/api/session-controller/README.zh.md
+@@ -33,6 +33,9 @@ Session 对象还承载本地提交回显：`session.beginSubmission` 在调用
+ 
+ -----
+ 
++
++客户端可向 `selectModel` 传入 `migration: "checked"`，在校验目标模型后保留当前工作。会话必须空闲、输入队列为空，且解析模型期间事件序列不能变化。此模式要求挂载 `token-meter`，并能确定目标上下文窗口和输出额度。检查包含保留的历史、最近请求的系统提示词、工具 schema 和输出额度；显式输出上限保持不变，适配器默认值则采用目标模型的值。检查失败时保留选择和历史；成功的选择仅作用于本会话，重新打开后仍然有效。不传此选项的调用仍会保存部署默认模型。估算不会为后续任意提示词预留空间，也不会自动压缩工作。
++
+ <a id="configuration"></a>
+ ## 配置
+ 
+diff --git a/packages/api/session-controller/package.json b/packages/api/session-controller/package.json
+index b1fe281a9..8251235b4 100644
+--- a/packages/api/session-controller/package.json
++++ b/packages/api/session-controller/package.json
+@@ -94,6 +94,7 @@
+     "@deepseek-ai/dsh-session-title": "workspace:^",
+     "@deepseek-ai/dsh-skill": "workspace:^",
+     "@deepseek-ai/dsh-subagent": "workspace:^",
++    "@deepseek-ai/dsh-token-meter": "workspace:^",
+     "@deepseek-ai/dsh-typert-protocol": "workspace:^",
+     "@deepseek-ai/dsh-typert-registry": "workspace:^",
+     "@deepseek-ai/dsh-util-time": "workspace:^",
+@@ -109,12 +110,18 @@
+     },
+     "@deepseek-ai/dsh-session-projection-cache": {
+       "optional": true
++    },
++    "@deepseek-ai/dsh-token-meter": {
++      "optional": true
+     }
+   },
+   "devDependencies": {
+     "@deepseek-ai/cordis": "workspace:^",
++    "@deepseek-ai/cordis-plugin-include": "workspace:^",
++    "@deepseek-ai/cordis-plugin-loader": "workspace:^",
+     "@deepseek-ai/dsh-agent": "workspace:^",
+     "@deepseek-ai/dsh-agent-default-model": "workspace:^",
++    "@deepseek-ai/dsh-agent-loop": "workspace:^",
+     "@deepseek-ai/dsh-agent-presets": "workspace:^",
+     "@deepseek-ai/dsh-api-gateway": "workspace:^",
+     "@deepseek-ai/dsh-attachment": "workspace:^",
+@@ -123,6 +130,7 @@
+     "@deepseek-ai/dsh-file-reference": "workspace:^",
+     "@deepseek-ai/dsh-jobs": "workspace:^",
+     "@deepseek-ai/dsh-llm": "workspace:^",
++    "@deepseek-ai/dsh-llm-pi-ai": "workspace:^",
+     "@deepseek-ai/dsh-native-command": "workspace:^",
+     "@deepseek-ai/dsh-permission-presets": "workspace:^",
+     "@deepseek-ai/dsh-scope": "workspace:^",
+@@ -132,11 +140,15 @@
+     "@deepseek-ai/dsh-session-projection-cache": "workspace:^",
+     "@deepseek-ai/dsh-session-query": "workspace:^",
+     "@deepseek-ai/dsh-session-title": "workspace:^",
++    "@deepseek-ai/dsh-settings-file": "workspace:^",
+     "@deepseek-ai/dsh-skill": "workspace:^",
+     "@deepseek-ai/dsh-storage": "workspace:^",
+     "@deepseek-ai/dsh-storage-domain": "workspace:^",
+     "@deepseek-ai/dsh-storage-json": "workspace:^",
+     "@deepseek-ai/dsh-subagent": "workspace:^",
++    "@deepseek-ai/dsh-system-prompt": "workspace:^",
++    "@deepseek-ai/dsh-token-meter": "workspace:^",
++    "@deepseek-ai/dsh-tools": "workspace:^",
+     "@deepseek-ai/dsh-typert-protocol": "workspace:^",
+     "@deepseek-ai/dsh-typert-registry": "workspace:^",
+     "@deepseek-ai/dsh-util-crypto": "workspace:^",
+diff --git a/packages/api/session-controller/src/commands.ts b/packages/api/session-controller/src/commands.ts
+index 0e8015f79..49e88eab8 100644
+--- a/packages/api/session-controller/src/commands.ts
++++ b/packages/api/session-controller/src/commands.ts
+@@ -9,6 +9,7 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+ import {
+   ReasoningEffortId, createUserMessage, freezeMessage,
+ } from '@deepseek-ai/dsh-llm'
++import type {} from '@deepseek-ai/dsh-token-meter'
+ import type { MessageSource } from '@deepseek-ai/dsh-llm'
+ import { SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
+ import type { SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
+@@ -120,13 +121,41 @@ export class SessionCommandController {
+     const agent = await this.resolveAgent(request.sessionId)
+     return this.agents.serializeImageAdmission(agent, async () => {
+       try {
+-        const resolved = await this.ctx.llm.resolveCallConfig({
++        const revision = agent.session.seq
++        const checked = request.migration === 'checked'
++        if (checked) this.requireMigrationIdle(agent)
++        const previous = agent.session.requestHeader()
++        const proposal = {
+           provider: request.provider,
+           model: request.model,
+           ...(request.reasoningEffort === undefined
+             ? {}
+             : { reasoningEffort: ReasoningEffortId(request.reasoningEffort) }),
+-        })
++        }
++        const explicitOutput = previous?.adapterDefaults?.maxTokens === true
++          ? undefined : previous?.config.maxTokens
++        const prepared = checked
++          ? await this.ctx.llm.prepareCall({
++            ...proposal,
++            ...(explicitOutput === undefined ? {} : { maxTokens: explicitOutput }),
++          })
++          : undefined
++        const resolved = prepared?.config ?? await this.ctx.llm.resolveCallConfig(proposal)
++        if (checked) {
++          this.requireMigrationIdle(agent)
++          if (agent.session.seq !== revision) throw new Error('session changed while checking model migration; retry when idle')
++          const window = prepared?.context?.contextWindow
++          const output = prepared?.config.maxTokens
++          if (window === undefined || output === undefined) {
++            throw new Error('checked migration requires destination context window and output allowance')
++          }
++          const meter = this.ctx.get('tokenMeter')
++          if (meter === undefined) throw new Error('checked migration requires the token-meter service')
++          const input = meter.measure(agent.session, { ...previous, config: resolved }).totalTokens
++          if (input + output > window) {
++            throw new Error(`destination context window ${window} cannot fit estimated input ${input} plus output allowance ${output}; compact the session or choose a larger model`)
++          }
++        }
+         const selected: AgentModelSelection = {
+           provider: resolved.provider,
+           model: resolved.model,
+@@ -136,7 +165,7 @@ export class SessionCommandController {
+         }
+         this.agents.selectForNextRequest(agent, selected)
+         try {
+-          await this.ctx.agentDefaultModel.saveSelection(selected)
++          if (!checked) await this.ctx.agentDefaultModel.saveSelection(selected)
+         } catch (error) {
+           this.ctx.logger.warn(
+             `session-controller: model selection changed for the Session but the default was not saved: ${String(error)}`,
+@@ -154,6 +183,13 @@ export class SessionCommandController {
+     })
+   }
+ 
++  /** Require quiescence at both sides of asynchronous destination resolution. */
++  private requireMigrationIdle(agent: Agent): void {
++    if (agent.status !== 'idle' || agent.inbox.nextTurn.length > 0 || agent.inbox.nextStep.length > 0) {
++      throw new Error('checked model migration requires an idle session with no pending input')
++    }
++  }
++
+   /**
+    * Normalize and append a user-owned Session title.
+    * @param request - Session identity and proposed title.
+diff --git a/packages/api/session-controller/src/types.ts b/packages/api/session-controller/src/types.ts
+index 2e2a0d7c4..09c5f45b6 100644
+--- a/packages/api/session-controller/src/types.ts
++++ b/packages/api/session-controller/src/types.ts
+@@ -267,6 +267,8 @@ export interface SessionCreateValue {
+ 
+ /** Session model-selection request. */
+ export interface SessionSelectModelRequest extends ModelSelection {
++  /** Check an idle Session and destination capacity before changing its route. */
++  readonly migration?: 'checked'
+   readonly sessionId: SessionId
+ }
+ 
+diff --git a/packages/api/session-controller/tests/migration-support.ts b/packages/api/session-controller/tests/migration-support.ts
+new file mode 100644
+index 000000000..3a11a28f5
+--- /dev/null
++++ b/packages/api/session-controller/tests/migration-support.ts
+@@ -0,0 +1,119 @@
++/** External HTTP fixture plus real Loader, sessions, token meter, tools and agent loop. */
++import { createServer } from 'node:http'
++import { mkdtemp, writeFile, rm } from 'node:fs/promises'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++import { pathToFileURL } from 'node:url'
++import { Context } from '@deepseek-ai/cordis'
++import Loader from '@deepseek-ai/cordis-plugin-loader'
++import Include from '@deepseek-ai/cordis-plugin-include'
++import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
++import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
++import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
++import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
++import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
++import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
++import AgentRegistry from '@deepseek-ai/dsh-agent'
++import AgentLoop from '@deepseek-ai/dsh-agent-loop'
++import AgentDefaultModel from '@deepseek-ai/dsh-agent-default-model'
++import FileSettingsProvider from '@deepseek-ai/dsh-settings-file'
++import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
++import TokenMeter from '@deepseek-ai/dsh-token-meter'
++import { ApiSessionAgentController } from '../src/agent.ts'
++import { SessionCommandController } from '../src/commands.ts'
++import { installModelSelectionProjection } from '../src/model-selection-projection.ts'
++
++export const dispose: (() => Promise<unknown>)[] = []
++export async function cleanup() { for (const close of dispose.splice(0).reverse()) await close() }
++export async function endpoint() {
++  const requests: { path: string; body: any }[] = []
++  const scripts: string[][] = []
++  const server = createServer(async (req, res) => {
++    let body = ''; for await (const chunk of req) body += chunk
++    requests.push({ path: req.url!, body: JSON.parse(body || '{}') })
++    const events = scripts.shift()
++    if (!events) { res.writeHead(500); res.end('unexpected provider generation'); return }
++    res.writeHead(200, { 'Content-Type': 'text/event-stream' })
++    for (const event of events) res.write(`data: ${event}\n\n`)
++    res.end()
++  })
++  await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
++  dispose.push(async () => { server.closeAllConnections(); await new Promise<void>(r => server.close(() => r())) })
++  return { requests, scripts, url: `http://127.0.0.1:${(server.address() as any).port}` }
++}
++export function completion(text: string, calls: { id: string; value: string }[] = [], reasoning?: string) {
++  const deltas: any[] = [{ role: 'assistant', content: '' }]
++  if (reasoning) deltas.push({ reasoning_content: reasoning })
++  if (text) deltas.push({ content: text })
++  if (calls.length) deltas.push({ tool_calls: calls.map((c, index) => ({ index, id: c.id, type: 'function', function: { name: 'record_value', arguments: JSON.stringify({ value: c.value }) } })) })
++  return [...deltas.map(delta => JSON.stringify({ choices: [{ index: 0, delta, finish_reason: null }] })), JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: calls.length ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 11, completion_tokens: 7 } }), '[DONE]']
++}
++export function responses(items: any[]) {
++  const response = { id: 'resp_destination_native', model: 'next-model', status: 'completed', output: items, usage: { input_tokens: 13, output_tokens: 9, total_tokens: 22 } }
++  return [JSON.stringify({ type: 'response.created', response: { ...response, status: 'in_progress', output: [] } }), ...items.flatMap((item, output_index) => [JSON.stringify({ type: 'response.output_item.added', output_index, item }), JSON.stringify({ type: 'response.output_item.done', output_index, item })]), JSON.stringify({ type: 'response.completed', response })]
++}
++export const responseText = (text: string) => responses([{ type: 'message', id: 'msg_destination', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text, annotations: [] }] }])
++
++export async function harness(providers: Record<string, any>) {
++  const root = await mkdtemp(join(tmpdir(), 'migration-'))
++  dispose.push(() => rm(root, { recursive: true, force: true }))
++  const settings = join(root, 'settings.yaml')
++  await writeFile(settings, '{}\n')
++  process.env.MIGRATION_FIXTURE_KEY = 'local-test-key'
++  const modules = new Map<string, any>([
++    ['typert', TypertRegistry], ['llm', LlmRuntime], ['settings', FileSettingsProvider], ['sessions', SessionStore],
++    ['projection', SessionProjectionRegistry], ['meter', TokenMeter], ['prompt', SystemPrompt],
++    ['tools', ToolRuntime], ['agents', AgentRegistry], ['loop', AgentLoop],
++    ['default-model', AgentDefaultModel], ['pi', LlmPiAi],
++  ])
++  const config: Record<string, any> = {
++    settings: { path: settings }, prompt: { persona: 'Retain the work and use record_value when requested.' },
++    loop: { agents: [] }, 'default-model': { provider: 'origin', model: 'old-model' }, pi: { providers },
++  }
++  const configPath = join(root, 'cordis.yml')
++  await writeFile(configPath, JSON.stringify([...modules.keys()].map(name => ({ id: name, name, ...(config[name] ? { config: config[name] } : {}) }))))
++  const ctx = new Context()
++  dispose.push(() => ctx.fiber.dispose())
++  ctx.baseUrl = pathToFileURL(root).href + '/'
++  await ctx.plugin(Loader)
++  ctx.loader.builtins.include = Include
++  ctx.loader.internal = { version: 'v2', async import(name: string) { if (!modules.has(name)) throw new Error(name); return modules.get(name) } } as any
++  await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
++  await ctx.loader.await()
++  installModelSelectionProjection(ctx)
++  const agents = new ApiSessionAgentController(ctx)
++  const commands = new SessionCommandController(ctx, agents, root)
++  const recorded: string[] = []
++  ctx.tools.register(defineContentToolFixture({
++    name: 'record_value', description: 'Write an observed value to the work file.',
++    parameters: { value: { type: 'string' } },
++    async execute(args: any) {
++      recorded.push(args.value)
++      await writeFile(join(root, 'work.txt'), recorded.join('\n'))
++      return [{ type: 'text', text: `recorded:${args.value}` }]
++    },
++  }))
++  const create = (id = 'main', options: any = {}) => {
++    const agent = ctx.agentLoop.create(SessionId(id), { provider: 'origin', model: 'old-model', ...options })
++    agents.selectionFor(agent)
++    return agent
++  }
++  const reopen = async (events: any[]) => {
++    const handle = await ctx.agents.create({ sessionId: SessionId('restored'), seed: JSON.parse(JSON.stringify(events)), agentOptions: { provider: 'origin', model: 'old-model' } })
++    const agent = ctx.agents.get(SessionId('restored'))!
++    agents.selectionFor(agent)
++    return agent
++  }
++  return { ctx, commands, agents, root, settings, recorded, create, reopen }
++}
++export function profile(url: string, api: string, model: string, extra: any = {}) {
++  return { apiKeyEnv: 'MIGRATION_FIXTURE_KEY', baseURL: url, api, models: [{ id: model, contextWindow: 65536, maxTokens: 128 }], ...extra }
++}
++export async function turn(ctx: Context, agent: any, text: string) {
++  const idle = new Promise<void>(r => { const off = ctx.on('agent/status', ({ agent: subject, status }: any) => { if (subject === agent && status === 'idle') { off(); r() } }) })
++  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
++  await idle
++}
++export async function migrate(h: Awaited<ReturnType<typeof harness>>, agent: any, provider = 'destination', model = 'next-model') {
++  return h.commands.selectModel({ sessionId: agent.session.id, provider, model, migration: 'checked' } as any)
++}
+diff --git a/packages/api/session-controller/tests/model-migration.spec.ts b/packages/api/session-controller/tests/model-migration.spec.ts
+new file mode 100644
+index 000000000..9a4fb9cda
+--- /dev/null
++++ b/packages/api/session-controller/tests/model-migration.spec.ts
+@@ -0,0 +1,83 @@
++import { readFile } from 'node:fs/promises'
++import { join } from 'node:path'
++import { afterEach, describe, expect, it } from 'vitest'
++import { cleanup, endpoint, completion, responseText, responses, harness, profile, turn, migrate } from './migration-support.ts'
++
++afterEach(cleanup)
++
++describe('checked session migration', () => {
++  it('continues real tool work across protocols and after durable reopen', async () => {
++    const origin = await endpoint(), destination = await endpoint()
++    origin.scripts.push(completion('Checking two values.', [{ id: 'old/a|fc_secret_A', value: 'alpha' }, { id: 'old?b|fc_secret_B', value: 'beta' }], 'I need both independent observations.'), completion('Both values are saved.'))
++    const h = await harness({ origin: profile(origin.url, 'openai-completions', 'old-model'), destination: profile(destination.url, 'openai-responses', 'next-model', { responsesReasoningText: true }) })
++    const agent = h.create(), sibling = h.create('sibling')
++    await turn(h.ctx, agent, 'Record alpha and beta.')
++    expect(h.recorded).toEqual(['alpha', 'beta'])
++    const before = agent.session.snapshotEvents()
++    const settingsBefore = await readFile(h.settings, 'utf8')
++    await migrate(h, agent)
++    expect(destination.requests).toHaveLength(0)
++    expect(agent.session.snapshotEvents().slice(0, before.length)).toEqual(before)
++    expect(h.ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'origin', model: 'old-model' })
++    expect(await readFile(h.settings, 'utf8')).toBe(settingsBefore)
++    expect(h.agents.selectionFor(sibling).current.provider).toBe('origin')
++    const restored = await h.reopen(agent.session.snapshotEvents())
++    destination.scripts.push(responses([
++      { type: 'reasoning', id: 'rs_destination', summary: [{ type: 'summary_text', text: 'Continue the recorded work.' }], encrypted_content: 'destination-opaque-state' },
++      { type: 'function_call', id: 'fc_destination', call_id: 'call_next', name: 'record_value', arguments: '{"value":"gamma"}', status: 'completed' },
++    ]), responseText('All three values are saved.'))
++    await turn(h.ctx, restored, 'Continue by recording gamma.')
++    expect(h.recorded).toEqual(['alpha', 'beta', 'gamma'])
++    expect(await readFile(join(h.root, 'work.txt'), 'utf8')).toBe('alpha\nbeta\ngamma')
++    expect(origin.requests).toHaveLength(2)
++    expect(destination.requests.map(r => r.path)).toEqual(['/responses', '/responses'])
++    const payload = destination.requests[0].body
++    expect(payload.model).toBe('next-model')
++    const items = payload.input
++    const reasonIndex = items.findIndex((i: any) => i.type === 'reasoning')
++    expect(items[reasonIndex]).toEqual({ type: 'reasoning', content: [{ type: 'reasoning_text', text: 'I need both independent observations.' }] })
++    expect(items[reasonIndex]).toMatchInlineSnapshot(`
++      {
++        "content": [
++          {
++            "text": "I need both independent observations.",
++            "type": "reasoning_text",
++          },
++        ],
++        "type": "reasoning",
++      }
++    `)
++    const calls = items.filter((i: any) => i.type === 'function_call')
++    const results = items.filter((i: any) => i.type === 'function_call_output')
++    expect(calls).toHaveLength(2)
++    expect(new Set(calls.map((c: any) => c.call_id)).size).toBe(2)
++    for (const call of calls) {
++      expect(items.indexOf(call)).toBeGreaterThan(reasonIndex)
++      expect(results.find((r: any) => r.call_id === call.call_id)?.output).toContain(`recorded:${JSON.parse(call.arguments).value}`)
++    }
++    expect(JSON.stringify(payload)).not.toContain('fc_secret_')
++    const followup = destination.requests[1].body.input
++    expect(followup.find((i: any) => i.type === 'function_call_output' && i.call_id === 'call_next')?.output).toContain('recorded:gamma')
++    expect(followup.find((i: any) => i.id === 'rs_destination')?.encrypted_content).toBe('destination-opaque-state')
++    expect(restored.session.requestHeader().config.provider).toBe('destination')
++    expect(restored.session.snapshotEvents().slice(0, before.length)).toEqual(before)
++  })
++
++  it('rejects insufficient capacity without damaging the old route', async () => {
++    const origin = await endpoint(), destination = await endpoint()
++    origin.scripts.push(completion('A long retained observation. '.repeat(80)))
++    const h = await harness({ origin: profile(origin.url, 'openai-completions', 'old-model'), destination: profile(destination.url, 'openai-responses', 'next-model', { models: [{ id: 'next-model', contextWindow: 150, maxTokens: 128 }] }) })
++    const agent = h.create()
++    await turn(h.ctx, agent, 'Keep the observations.')
++    const before = agent.session.snapshotEvents(), settingsBefore = await readFile(h.settings, 'utf8')
++    await expect(migrate(h, agent)).rejects.toThrow(/context|window|fit|budget|capacity/i)
++    expect(agent.session.snapshotEvents()).toEqual(before)
++    expect(await readFile(h.settings, 'utf8')).toBe(settingsBefore)
++    expect(destination.requests).toHaveLength(0)
++    expect(h.agents.selectionFor(agent).current.provider).toBe('origin')
++    origin.scripts.push(completion('The original session still works.'))
++    await turn(h.ctx, agent, 'Continue here.')
++    expect(origin.requests).toHaveLength(2)
++    expect(agent.session.requestHeader().config.provider).toBe('origin')
++  })
++})
+diff --git a/packages/api/session-controller/tsconfig.host.json b/packages/api/session-controller/tsconfig.host.json
+index 854579f15..b7d883fd7 100644
+--- a/packages/api/session-controller/tsconfig.host.json
++++ b/packages/api/session-controller/tsconfig.host.json
+@@ -31,6 +31,7 @@
+     { "path": "../../interaction/permission-presets" },
+     { "path": "../../jobs/jobs" },
+     { "path": "../../llm/llm" },
++    { "path": "../../llm/token-meter" },
+     { "path": "../../util/deque" },
+     { "path": "../../util/native-command" },
+     { "path": "../../preset/agent-presets" },
+diff --git a/packages/llm/llm-pi-ai/README.i18n.yaml b/packages/llm/llm-pi-ai/README.i18n.yaml
+index 803c42af0..11f66e883 100644
+--- a/packages/llm/llm-pi-ai/README.i18n.yaml
++++ b/packages/llm/llm-pi-ai/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/llm/llm-pi-ai/README.md
+-README.md: 5994a72f28b0a52890cb7bf7a5bc2ee33eedf418
+-README.zh.md: 5f1c893128714caf24941943c57eaf3ab43314e0
++README.md: fcb7c0b77422b22d1a7f9e960a78f175ffdb7431
++README.zh.md: 6d145b1c8a415d81a9c67d6c3181974b7ea65a71
+diff --git a/packages/llm/llm-pi-ai/README.md b/packages/llm/llm-pi-ai/README.md
+index 5994a72f2..fcb7c0b77 100644
+--- a/packages/llm/llm-pi-ai/README.md
++++ b/packages/llm/llm-pi-ai/README.md
+@@ -96,6 +96,9 @@ A provider pi-ai ships a login for can be signed into through the harness author
+ 
+ A profile's `models` list replaces the route's installed catalog rather than extending it; each entry defaults its unset fields from the installed model of the same id, so narrowing a route to two models, correcting one capacity, or adding a model newer than the installed catalog are one-line edits. `modelOverrides` reshapes individual installed-catalog models without that cost — correct one model, keep the other thirty-seven — and is refused when set beside a `models` list, on a hand-declared route, or naming a model the catalog does not describe, because a silently unchanged model would be a typo someone hunts for later.
+ 
++
++Set `responsesReasoningText: true` only on a provider explicitly declaring `api: openai-responses` whose gateway accepts plaintext reasoning items. On a provider or model change, the request includes available historical reasoning as `reasoning` items with `reasoning_text` content, ordered with the assistant text and calls. Tool results retain their matching calls. Foreign opaque replay data and item identities are discarded; missing reasoning is not invented. Same-route native replay remains intact. This request-only projection leaves durable history unchanged. The setting defaults to false because this gateway extension is not universally accepted by Responses providers.
++
+ ### Run with reasoning and wire compatibility
+ 
+ `reasoningEfforts` declares a model's selectable thinking levels: each key is a level selectors offer, its value the spelling dispatch sends on the wire, so `max: ultra` renames a level for a gateway with its own vocabulary. Omitting the field keeps the installed catalog entry's capability; `false` declares a non-reasoning model. `compat` switches reshape the request for endpoints pi-ai cannot recognize — which role carries the system prompt, which field caps output, how a thinking level travels — configurable per route and per model. A model neither the entry nor the installed catalog sizes takes the route's `defaultContextWindow` and `defaultMaxTokens` fallbacks.
+diff --git a/packages/llm/llm-pi-ai/README.zh.md b/packages/llm/llm-pi-ai/README.zh.md
+index 5f1c89312..6d145b1c8 100644
+--- a/packages/llm/llm-pi-ai/README.zh.md
++++ b/packages/llm/llm-pi-ai/README.zh.md
+@@ -167,6 +167,9 @@ pi-ai 不提供的路由需要 `api`、`baseURL` 与非空 `models` 列表；无
+ 
+ -----
+ 
++
++仅当网关接受明文 reasoning 项时，在显式声明 `api: openai-responses` 的 provider 上设置 `responsesReasoningText: true`。切换 provider 或模型时，请求会把已有历史推理转换为内容类型为 `reasoning_text` 的 `reasoning` 项，并保留它们与助手文本、工具调用的顺序。工具结果仍与对应调用配对。其他路由的不透明 replay 数据和条目标识会被丢弃；缺失的推理不会被补造。同一路由的原生回放保持不变。此转换仅影响请求，不改写持久化历史。该选项默认为 false，因为并非所有 Responses provider 都接受此网关扩展。
++
+ <a id="model-experience"></a>
+ ## 模型体验
+ 
+diff --git a/packages/llm/llm-pi-ai/src/adapter.ts b/packages/llm/llm-pi-ai/src/adapter.ts
+index e20b8e007..4bca15ee1 100644
+--- a/packages/llm/llm-pi-ai/src/adapter.ts
++++ b/packages/llm/llm-pi-ai/src/adapter.ts
+@@ -60,6 +60,7 @@ import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attac
+ import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
+ import type { ResolvedPiAiProviderProfile } from './config.ts'
+ import { toPiContext } from './context.ts'
++import { projectResponsesReasoning } from './responses-reasoning.ts'
+ import { toStreamChunks } from './stream.ts'
+ 
+ /** One resolution's frozen view: the profiles and the collection built from them. */
+@@ -372,7 +373,8 @@ export class PiAiAdapter extends LlmAdapter {
+             maxBytes: profile.requestImageMaxBytes,
+           },
+         }, onReplayDegrade)
+-      const events = snapshot.models.streamSimple(model, context, {
++      const events = snapshot.models.streamSimple(model, profile.responsesReasoningText
++        ? projectResponsesReasoning(context, model) : context, {
+         ...profileOptions(profile, reasoning, apiKey),
+         ...options.temperature === undefined ? {} : { temperature: options.temperature },
+         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
+diff --git a/packages/llm/llm-pi-ai/src/config.ts b/packages/llm/llm-pi-ai/src/config.ts
+index 8da589cc3..c908a30c6 100644
+--- a/packages/llm/llm-pi-ai/src/config.ts
++++ b/packages/llm/llm-pi-ai/src/config.ts
+@@ -121,6 +121,8 @@ export interface PiAiProviderProfile {
+    * refused rather than left looking applied.
+    */
+   compat?: PiAiCompatProfile
++  /** Send available foreign plaintext reasoning as Responses reasoning_text items. */
++  responsesReasoningText?: boolean
+   /**
+    * Context capacity for a model this route lists that neither the entry nor
+    * the installed catalog sizes (default 262,144). A guess by construction, so
+@@ -319,6 +321,7 @@ const profile = z.object({
+   models: z.array(modelProfile),
+   modelOverrides: z.dict(modelOverride),
+   compat: compatProfile,
++  responsesReasoningText: z.boolean().default(false),
+   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
+   defaultMaxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
+   defaultInput: z.array(z.union(MODALITIES)).default([...DEFAULT_INPUT]),
+@@ -407,6 +410,12 @@ export function resolveProfiles(
+   const resolved = new Map<string, ResolvedPiAiProviderProfile>()
+   for (const [provider, source] of entries) {
+     rejectRemovedFields(provider, source)
++    if (source.responsesReasoningText !== undefined && typeof source.responsesReasoningText !== 'boolean') {
++      throw new Error('llm-pi-ai: responsesReasoningText must be boolean')
++    }
++    if (source.responsesReasoningText === true && source.api !== 'openai-responses') {
++      throw new Error('llm-pi-ai: responsesReasoningText requires an explicit openai-responses route')
++    }
+     if (provider.length === 0) throw new Error('llm-pi-ai: provider names must be non-empty')
+     if (source.baseURL !== undefined && source.baseURL.length === 0) {
+       throw new Error(`llm-pi-ai: provider "${provider}" has an empty baseURL`)
+diff --git a/packages/llm/llm-pi-ai/src/responses-reasoning.ts b/packages/llm/llm-pi-ai/src/responses-reasoning.ts
+new file mode 100644
+index 000000000..1618006f5
+--- /dev/null
++++ b/packages/llm/llm-pi-ai/src/responses-reasoning.ts
+@@ -0,0 +1,49 @@
++/** Plaintext reasoning projection for explicitly configured Responses gateways. */
++import { createHash } from 'node:crypto'
++import type { Api, Context, Model } from '@earendil-works/pi-ai'
++
++/**
++ * Translate foreign assistant records without borrowing provider-native identities.
++ * The destination gateway accepts fresh plaintext reasoning items; opaque replay
++ * metadata remains valid only for the exact route that produced it.
++ * @param context - detached request history, never the durable Session events.
++ * @param model - actual destination model descriptor.
++ * @returns a request projection with consistently renamed foreign tool pairs.
++ */
++export function projectResponsesReasoning(context: Context, model: Model<Api>): Context {
++  const calls = new Map<string, string>()
++  const messages = context.messages.map(message => {
++    if (message.role === 'toolResult') {
++      const id = calls.get(message.toolCallId)
++      return id === undefined ? message : { ...message, toolCallId: id }
++    }
++    if (message.role !== 'assistant') return message
++    const native = message.api === model.api && message.provider === model.provider && message.model === model.id
++    if (native) return message
++    const { responseId: _responseId, responseModel: _responseModel, ...foreign } = message
++    return {
++      ...foreign,
++      api: model.api,
++      provider: model.provider,
++      model: model.id,
++      content: message.content.flatMap((block): typeof message.content => {
++        if (block.type === 'thinking') {
++          if (block.redacted || block.thinking.trim() === '') return []
++          return [{
++            type: 'thinking',
++            thinking: block.thinking,
++            thinkingSignature: JSON.stringify({
++              type: 'reasoning',
++              content: [{ type: 'reasoning_text', text: block.thinking }],
++            }),
++          }]
++        }
++        if (block.type === 'text') return [{ type: 'text', text: block.text }]
++        const id = `call_${createHash('sha256').update(block.id).digest('hex').slice(0, 48)}`
++        calls.set(block.id, id)
++        return [{ type: 'toolCall', id, name: block.name, arguments: block.arguments }]
++      }),
++    }
++  })
++  return { ...context, messages }
++}
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 4521b1bbf..f75e4aa16 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -759,6 +759,27 @@ importers:
+         specifier: ^4.4.3
+         version: 4.4.3
+     devDependencies:
++      '@deepseek-ai/cordis-plugin-include':
++        specifier: workspace:^
++        version: link:../../../vendor/include
++      '@deepseek-ai/cordis-plugin-loader':
++        specifier: workspace:^
++        version: link:../../../vendor/loader
++      '@deepseek-ai/dsh-agent-loop':
++        specifier: workspace:^
++        version: link:../../core/agent-loop
++      '@deepseek-ai/dsh-llm-pi-ai':
++        specifier: workspace:^
++        version: link:../../llm/llm-pi-ai
++      '@deepseek-ai/dsh-settings-file':
++        specifier: workspace:^
++        version: link:../../settings/settings-file
++      '@deepseek-ai/dsh-system-prompt':
++        specifier: workspace:^
++        version: link:../../core/system-prompt
++      '@deepseek-ai/dsh-tools':
++        specifier: workspace:^
++        version: link:../../core/tools
+       '@deepseek-ai/cordis':
+         specifier: workspace:^
+         version: link:../../../vendor/cordis
+@@ -834,6 +855,9 @@ importers:
+       '@deepseek-ai/dsh-subagent':
+         specifier: workspace:^
+         version: link:../../subagent/subagent
++      '@deepseek-ai/dsh-token-meter':
++        specifier: workspace:^
++        version: link:../../llm/token-meter
+       '@deepseek-ai/dsh-typert-protocol':
+         specifier: workspace:^
+         version: link:../../typert/protocol
