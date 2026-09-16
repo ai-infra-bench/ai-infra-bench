@@ -1,0 +1,62 @@
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -1270,7 +1270,7 @@
+ 
+         return cu_num_tokens, arange
+ 
+-    def _prepare_input_ids(
++    def _prepare_decode_input_ids(
+         self,
+         scheduler_output: "SchedulerOutput",
+         total_num_scheduled_tokens: int,
+@@ -1568,7 +1568,7 @@
+         self.discard_request_mask.copy_to_gpu(num_reqs)
+ 
+         # Copy the tensors to the GPU.
+-        self._prepare_input_ids(
++        self._prepare_decode_input_ids(
+             scheduler_output,
+             total_num_scheduled_tokens,
+             cu_num_tokens,
+@@ -2816,7 +2816,7 @@
+             ec_connector_output,
+         )
+ 
+-    def _sample(
++    def _draw_token_samples(
+         self,
+         logits: torch.Tensor | None,
+         spec_decode_metadata: SpecDecodeMetadata | None,
+@@ -3627,7 +3627,7 @@
+             )
+ 
+         with record_function_or_nullcontext("gpu_model_runner: sample"):
+-            sampler_output = self._sample(logits, spec_decode_metadata)
++            sampler_output = self._draw_token_samples(logits, spec_decode_metadata)
+ 
+         self._update_states_after_model_execute(
+             sampler_output.sampled_token_ids, scheduler_output
+@@ -3784,8 +3784,8 @@
+             "PP+async expects sampled_token_ids to have shape [num_reqs, 1]"
+         )
+         if not self.discard_request_mask.np[:self.input_batch.num_reqs].all():
+-            torch.distributed.broadcast(
+-                sampled_token_ids, src=pp.rank, group=pp.device_group
++            torch.distributed.send(
++                sampled_token_ids, dst=pp.ranks[0], group=pp.device_group
+             )
+ 
+     def _pp_receive_prev_sampled_token_ids_to_input_batch(self) -> None:
+@@ -3796,10 +3796,10 @@
+         # `prev_sampled_token_ids` is expected to have shape [num_reqs, 1].
+         recv = torch.empty((num_reqs, 1), dtype=torch.int32, device=self.device)
+         if not self.discard_request_mask.np[:num_reqs].all():
+-            torch.distributed.broadcast(recv, src=pp.last_rank, group=pp.device_group)
++            torch.distributed.recv(recv, src=pp.last_rank, group=pp.device_group)
+         self.input_batch.prev_sampled_token_ids = recv
+ 
+-        # construct `prev_req_id_to_index` here so `_prepare_input_ids`
++        # construct `prev_req_id_to_index` here so `_prepare_decode_input_ids`
+         # can map req_id -> previous batch row
+         discard_req_indices = np.nonzero(self.discard_request_mask.np[:num_reqs])[0]
+         discard_req_indices_set = set(discard_req_indices)

@@ -1,0 +1,17 @@
+# Environment lock
+
+The source is vLLM Base `c7560af42487b1570c4e6f4cea5df1605a4d59fc`, with root tree `00dedbf38a187d7be24007ab92ce0158c646d024` and cutoff `2026-05-14T14:12:30Z`.
+
+The Dockerfile fetches that exact commit at depth one. HEAD retains the actual upstream identity; this is not a synthetic commit. Earlier history is not bundled. Remotes, tags, reflogs and fetch metadata are removed, and Git checks reject unreachable objects. A shallow boundary at Base prevents Git from treating absent ancestors as corruption. This choice avoids downloading years of history for a task reconstructible from the Base source and its normal upstream tests.
+
+The runtime comes from `vllm/vllm-openai:v0.20.2@sha256:70a098d90dbab428a001d9e852fc0fc8d67da5beb03e7851a22247653bf35923`, a pre-cutoff release using Python 3.12, PyTorch 2.11 and CUDA 13. Semantic runtime packages remain supplied by that image. A writable `.venv` inherits those packages and adds hash-locked pytest, pre-commit and test plugins from `dev-tools.txt`; `runtime-constraints.txt` prevents overlapping packages from changing versions. System Git packages are version-pinned in the Dockerfile. Build-time networking also populates ordinary developer-tool caches; agent and verifier execution remain offline.
+
+`native.sha256` locks nine ELF extensions and two generated Python files, `_version.py` and `third_party/flashmla/flash_mla_interface.py`, copied from that same official image. The latter is normally generated during the upstream CMake build and is needed by the real quantized-runner initialization imports. No runner implementation or task helper is copied from the release package into the Base tree. Candidate Python and native imports resolve under `/workspace/repo`.
+
+These native and generated artifacts are the documented nearest-pre-cutoff runtime binding, not a compilation of the exact Base. Verification executes real GPU allocation, distributed initialization and runner constructors, but it does not claim numerical model inference or FlashMLA kernel validation.
+
+The agent is non-root, can edit the repository, and runs offline with one A100. Hidden tests, the Oracle, control patches, reference results and checkpoint instrumentation are absent from the environment image and its build context. The checkpoint extension is compiled only during verification from the read-only test mount.
+
+The Base pre-commit configuration is unchanged. All configured hook environments are preinstalled under `/home/agent/.cache/pre-commit`, with hook Git revisions checked against `hook-revisions.json`, Python dependencies constrained by `hook-constraints.txt`, and markdownlint dependencies pinned by an npm shrinkwrap. `toolchains.json` locks Node and Go archives by version and SHA256; a build-only local Node mirror resolves the upstream `lts` selector to that pinned version. ShellCheck is also preinstalled. Test/lint tooling is cutoff-exempt infrastructure; it does not replace vLLM runtime code.
+
+The supported offline development check is `.venv/bin/python -m pytest tests/config/test_config_utils.py -q` followed by `.venv/bin/pre-commit run --files tests/config/test_config_utils.py`. Hooks whose file filters do not match are normally skipped. Changing dependencies or regenerating requirement locks can still require package indexes; this image does not bundle every package or model used by the entire upstream test suite.
