@@ -1,5 +1,5 @@
 ARG BASE_IMAGE=vllm/vllm-openai:v0.17.0@sha256:14ea8b431aaaf75eb873c46c8ebfbad2b4b0790d30c66126d789d8cb9bd0aab9
-FROM ${BASE_IMAGE}
+FROM ${BASE_IMAGE} AS prepared
 
 ARG VLLM_BASE_SHA=be3af2d29e2507f32b2190fe015cd6609b348caa
 ARG VLLM_SOURCE_TREE=fa64310667f4c1849399eedea2e4e05c57936453
@@ -83,11 +83,50 @@ ENV PYTHONPATH=/workspace/repo \
 
 # Keep the no-network agent phase usable by terminal-based benchmark agents.
 USER root
-RUN apt-get update \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tmux \
+RUN apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+        -o Acquire::https::Timeout=30 -o Dir::Etc::sourceparts=- update \
+ && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 \
+        -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+        install -y --no-install-recommends tmux \
  && rm -rf /var/lib/apt/lists/*
-RUN python3 -m pip install --no-cache-dir pytest==8.4.2
+COPY lock/requirements.txt /tmp/upstream-test-requirements.txt
+RUN python3 -m pip install --no-cache-dir -r /tmp/upstream-test-requirements.txt
 
+# The donor's Python package and example tree are newer than the target Base.
+# Import precedence is not isolation: remove these readable source copies.
+RUN test -f /usr/local/lib/python3.12/dist-packages/vllm/v1/worker/gpu/model_runner.py \
+ && test -f /workspace/repo/vllm/v1/worker/gpu/model_runner.py \
+ && rm -rf /usr/local/lib/python3.12/dist-packages/vllm /vllm-workspace /root/.cache/pip /workspace/environment-lock \
+ && ln -s /workspace/repo/vllm /usr/local/lib/python3.12/dist-packages/vllm \
+ && python3 -c 'import pathlib,vllm; assert pathlib.Path(vllm.__file__).resolve().is_relative_to("/workspace/repo")'
+
+# Export only the sanitized filesystem; donor source cannot survive in layers.
+FROM scratch
+COPY --from=prepared / /
+ENV PATH="/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ENV NVARCH="x86_64"
+ENV NVIDIA_REQUIRE_CUDA="cuda>=12.9 brand=unknown,driver>=535,driver<536 brand=grid,driver>=535,driver<536 brand=tesla,driver>=535,driver<536 brand=nvidia,driver>=535,driver<536 brand=quadro,driver>=535,driver<536 brand=quadrortx,driver>=535,driver<536 brand=nvidiartx,driver>=535,driver<536 brand=vapps,driver>=535,driver<536 brand=vpc,driver>=535,driver<536 brand=vcs,driver>=535,driver<536 brand=vws,driver>=535,driver<536 brand=cloudgaming,driver>=535,driver<536 brand=unknown,driver>=550,driver<551 brand=grid,driver>=550,driver<551 brand=tesla,driver>=550,driver<551 brand=nvidia,driver>=550,driver<551 brand=quadro,driver>=550,driver<551 brand=quadrortx,driver>=550,driver<551 brand=nvidiartx,driver>=550,driver<551 brand=vapps,driver>=550,driver<551 brand=vpc,driver>=550,driver<551 brand=vcs,driver>=550,driver<551 brand=vws,driver>=550,driver<551 brand=cloudgaming,driver>=550,driver<551 brand=unknown,driver>=560,driver<561 brand=grid,driver>=560,driver<561 brand=tesla,driver>=560,driver<561 brand=nvidia,driver>=560,driver<561 brand=quadro,driver>=560,driver<561 brand=quadrortx,driver>=560,driver<561 brand=nvidiartx,driver>=560,driver<561 brand=vapps,driver>=560,driver<561 brand=vpc,driver>=560,driver<561 brand=vcs,driver>=560,driver<561 brand=vws,driver>=560,driver<561 brand=cloudgaming,driver>=560,driver<561 brand=unknown,driver>=565,driver<566 brand=grid,driver>=565,driver<566 brand=tesla,driver>=565,driver<566 brand=nvidia,driver>=565,driver<566 brand=quadro,driver>=565,driver<566 brand=quadrortx,driver>=565,driver<566 brand=nvidiartx,driver>=565,driver<566 brand=vapps,driver>=565,driver<566 brand=vpc,driver>=565,driver<566 brand=vcs,driver>=565,driver<566 brand=vws,driver>=565,driver<566 brand=cloudgaming,driver>=565,driver<566 brand=unknown,driver>=570,driver<571 brand=grid,driver>=570,driver<571 brand=tesla,driver>=570,driver<571 brand=nvidia,driver>=570,driver<571 brand=quadro,driver>=570,driver<571 brand=quadrortx,driver>=570,driver<571 brand=nvidiartx,driver>=570,driver<571 brand=vapps,driver>=570,driver<571 brand=vpc,driver>=570,driver<571 brand=vcs,driver>=570,driver<571 brand=vws,driver>=570,driver<571 brand=cloudgaming,driver>=570,driver<571"
+ENV NV_CUDA_CUDART_VERSION="12.9.79-1"
+ENV CUDA_VERSION="12.9.1"
+ENV LD_LIBRARY_PATH="/usr/local/nvidia/lib64:/usr/local/cuda/lib64:/usr/local/cuda/lib64"
+ENV NVIDIA_VISIBLE_DEVICES="all"
+ENV NVIDIA_DRIVER_CAPABILITIES="compute,utility"
+ENV DEBIAN_FRONTEND="noninteractive"
+ENV UV_HTTP_TIMEOUT="500"
+ENV UV_INDEX_STRATEGY="unsafe-best-match"
+ENV UV_LINK_MODE="copy"
+ENV VLLM_ENABLE_CUDA_COMPATIBILITY="0"
+ENV TORCH_CUDA_ARCH_LIST="7.0 7.5 8.0 8.9 9.0 10.0 12.0"
+ENV VLLM_USAGE_SOURCE="production-docker-image"
+ENV PYTHONUNBUFFERED="1"
+ENV PIP_DISABLE_PIP_VERSION_CHECK="1"
+ENV PYTHONPATH="/workspace/repo"
+ENV HF_HUB_OFFLINE="1"
+ENV TRANSFORMERS_OFFLINE="1"
+ENV HOME="/home/agent"
+ENV HF_HOME="/home/agent/.cache/huggingface"
+ENV PYTHONDONTWRITEBYTECODE="1"
+ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD="1"
 USER agent
 WORKDIR /workspace/repo
 ENTRYPOINT []

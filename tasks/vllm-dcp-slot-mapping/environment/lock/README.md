@@ -18,7 +18,8 @@ revision. Native donor scope is also available in machine-readable form in
 - Exact head archive SHA-256:
   `1d6f5cae6f99615d761c580035e4bd9bfcef9fad99f5465d5fc29405f4677fe7`
 - Canonical forced-add tree: `fa64310667f4c1849399eedea2e4e05c57936453`
-- Runtime Git: one synthetic commit, branch `benchmark-base`, no remote
+- Runtime Git: exact upstream base and its reachable ancestors, branch
+  `benchmark-base`, no remotes, tags, reflogs, or unreachable future objects.
 
 ## Official runtime donor
 
@@ -45,6 +46,20 @@ sequence metadata outside graph capture, then captures and replays the
 production slot-mapping kernel over persistent buffers using a real CUDA
 graph. It does not load a model or initialize a multi-rank NCCL process group.
 
-Full acceptance still requires four GPUs, `DeepSeek-V2-lite`, TP4/DCP4,
-model-runner-v2, end-to-end accuracy, and paired performance. There are no
-external source dependencies beyond the pinned official runtime image.
+Additional behavioral coverage drives the real GPUModelRunner lifecycle and
+sampler with a deterministic lightweight model consumer. This is not full
+distributed model-serving validation: four-GPU TP4/DCP4, model accuracy, and
+paired serving performance remain outside this task's verified scope. Local
+calibration uses H20 hardware and does not certify the declared A100 runner.
+
+## Offline testing and donor isolation (task 1.4.1)
+
+`requirements.txt` pins pytest and tblib so the existing upstream worker tests
+can run offline as the agent user. Native donor files are copied before the
+donor Python package and `/vllm-workspace` are removed. The installed package
+path becomes a symlink to the candidate source; curator-only environment lock
+metadata is removed from the runtime filesystem. The final scratch stage
+copies only this cleaned filesystem, excluding historical donor layers.
+Previous images retained another readable donor Python tree; historical runs
+are not evidence that this revised isolation was present, nor proof that an
+agent actually read the donor tree.
