@@ -22,7 +22,7 @@ def load_candidate_native() -> pathlib.Path:
     spec = importlib.util.find_spec("vllm._moe_C")
     assert spec and spec.origin
     native = pathlib.Path(spec.origin).resolve()
-    assert native.is_relative_to(pathlib.Path("/app"))
+    assert native.is_relative_to(pathlib.Path("/workspace/vllm"))
     torch.ops.load_library(str(native))
     assert torch.ops._moe_C.moe_permute_unpermute_supported()
     return native

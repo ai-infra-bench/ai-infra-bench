@@ -34,7 +34,7 @@ import stat
 import sys
 from pathlib import Path
 
-BUILD_OUTPUT_DIR = Path("/app/vllm")
+BUILD_OUTPUT_DIR = Path("/workspace/vllm/vllm")
 ARTIFACT_GLOB = "_moe_C*.so"
 
 

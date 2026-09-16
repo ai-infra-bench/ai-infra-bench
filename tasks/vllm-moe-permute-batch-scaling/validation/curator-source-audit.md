@@ -4,7 +4,7 @@ The former in-image `environment/source_gate.py` was removed so no agent-visible
 provenance gate ships in the image (canonical review standard). The Base/source
 provenance it enforced is now a **curator audit performed outside the image**,
 before build and during review. Run these checks against the byte-locked
-candidate source tree (the `/app` extraction of the digest-locked
+candidate source tree (the `/workspace/vllm` extraction of the digest-locked
 `VLLM_SOURCE_URL` tarball, base commit `dc917cceb877dfd13f98c538c4c96158047d98bd`).
 
 ## Expected file hashes (sha256)

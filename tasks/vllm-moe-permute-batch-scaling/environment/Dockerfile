@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
 
+ARG BASE_IMAGE=vllm/vllm-openai@sha256:1d6866b87630d94f5e0cdae55ab5abb4ce0b03fcb84d9d10612f9d518d19d4fd
+
 ARG VLLM_BASE_SHA=dc917cceb877dfd13f98c538c4c96158047d98bd
 ARG VLLM_BASE_TREE=89beecb205e031cbb82e2eea9d2cd0f350135b8c
 ARG VLLM_ORACLE_SHA=c4e744dbd41f23ee7fd554a86cc1bf516082552d
@@ -38,7 +40,6 @@ RUN set -eux; \
     test -z "$(git -C /vllm-history fsck --full --no-reflogs --unreachable --no-progress 2>/dev/null)"; \
     ! git -C /vllm-history cat-file -e "${VLLM_ORACLE_SHA}^{commit}" 2>/dev/null
 
-ARG BASE_IMAGE=vllm/vllm-openai@sha256:1d6866b87630d94f5e0cdae55ab5abb4ce0b03fcb84d9d10612f9d518d19d4fd
 FROM vllm/vllm-openai@sha256:1d6866b87630d94f5e0cdae55ab5abb4ce0b03fcb84d9d10612f9d518d19d4fd
 
 ARG BASE_IMAGE
@@ -96,21 +97,21 @@ RUN set -eu; \
       | sha256sum --check --strict; \
     printf '%s  %s\n' "${CMAKE_WHEEL_SHA256}" "/tmp/${CMAKE_WHEEL_FILE}" \
       | sha256sum --check --strict; \
-    mkdir -p /app /opt/cutlass; \
+    mkdir -p /workspace/vllm /opt/cutlass; \
     python3 -m pip install --no-index --no-deps "/tmp/${CMAKE_WHEEL_FILE}"; \
-    tar -xzf /tmp/vllm-source.tar.gz -C /app --strip-components=1; \
+    tar -xzf /tmp/vllm-source.tar.gz -C /workspace/vllm --strip-components=1; \
     tar -xzf /tmp/cutlass-source.tar.gz -C /opt/cutlass --strip-components=1; \
     rm -rf /tmp/vllm-source.tar.gz \
       /tmp/cutlass-source.tar.gz "/tmp/${CMAKE_WHEEL_FILE}"; \
     test "$(cmake --version | sed -n '1s/.* //p')" = 3.31.10; \
     git --version
 
-COPY --from=git_runtime /vllm-history/.git /app/.git
+COPY --from=git_runtime /vllm-history/.git /workspace/vllm/.git
 
 # Bind the byte-locked source to the exact upstream Base and its parent
 # history. No upstream remotes, tags, reflogs, or future objects survive.
 RUN set -eu; \
-    cd /app; \
+    cd /workspace/vllm; \
     test "$(git rev-parse HEAD)" = "${VLLM_BASE_SHA}"; \
     test "$(git rev-parse 'HEAD^{tree}')" = "${VLLM_BASE_TREE}"; \
     test -z "$(git remote)"; \
@@ -132,51 +133,51 @@ RUN set -eu; \
 # out-of-image curator audit, not by an in-image gate script.
 RUN set -eu; \
     site_dir="$(python3 -c 'import site; print(site.getsitepackages()[0])')"; \
-    printf 'import sys; sys.path.insert(0, "/app")\n' \
+    printf 'import sys; sys.path.insert(0, "/workspace/vllm")\n' \
       > "${site_dir}/vllm-candidate-source.pth"; \
     nvidia_site=/usr/local/lib/python3.12/dist-packages/nvidia; \
     nvidia_includes="$(find "${nvidia_site}" -mindepth 2 -maxdepth 2 -type d -name include -print | sort | paste -sd: -)"; \
     test -n "${nvidia_includes}"; \
     export CPATH="${nvidia_includes}${CPATH:+:${CPATH}}"; \
     cmake_backup="$(mktemp /tmp/vllm-cmake.XXXXXX)"; \
-    cp -p /app/CMakeLists.txt "${cmake_backup}"; \
-    python3 -c 'import pathlib; p=pathlib.Path("/app/CMakeLists.txt"); t=p.read_text(); m="\n# For CUDA and HIP builds also build the triton_kernels external package.\n"; assert t.count(m)==1; p.write_text(t.replace(m,"\nreturn()\n"+m))'; \
-    cmake -S /app -B /app/build -G Ninja \
+    cp -p /workspace/vllm/CMakeLists.txt "${cmake_backup}"; \
+    python3 -c 'import pathlib; p=pathlib.Path("/workspace/vllm/CMakeLists.txt"); t=p.read_text(); m="\n# For CUDA and HIP builds also build the triton_kernels external package.\n"; assert t.count(m)==1; p.write_text(t.replace(m,"\nreturn()\n"+m))'; \
+    cmake -S /workspace/vllm -B /workspace/vllm/build -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_CUDA_ARCHITECTURES=80 \
       -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
-      -DCMAKE_INSTALL_PREFIX=/app \
+      -DCMAKE_INSTALL_PREFIX=/workspace/vllm \
       -DCUDA_nvrtc_LIBRARY=/usr/local/lib/python3.12/dist-packages/nvidia/cuda_nvrtc/lib/libnvrtc.so.12 \
-      -DFETCHCONTENT_BASE_DIR=/app/.deps \
+      -DFETCHCONTENT_BASE_DIR=/workspace/vllm/.deps \
       -DNVCC_THREADS=2 \
       -DVLLM_CUTLASS_SRC_DIR=/opt/cutlass \
       -DVLLM_PYTHON_EXECUTABLE=/usr/bin/python3 \
       -DVLLM_TARGET_DEVICE=cuda; \
-    cmake --build /app/build -j 8 --target _moe_C; \
-    cmake --install /app/build --prefix /app --component _moe_C; \
-    mv "${cmake_backup}" /app/CMakeLists.txt; \
-    native="$(find /app/vllm -maxdepth 1 -type f -name '_moe_C*.so' -print -quit)"; \
+    cmake --build /workspace/vllm/build -j 8 --target _moe_C; \
+    cmake --install /workspace/vllm/build --prefix /workspace/vllm --component _moe_C; \
+    mv "${cmake_backup}" /workspace/vllm/CMakeLists.txt; \
+    native="$(find /workspace/vllm/vllm -maxdepth 1 -type f -name '_moe_C*.so' -print -quit)"; \
     test -n "${native}"; \
     /usr/local/cuda/bin/cuobjdump --list-elf "${native}" | grep -q 'sm_80'; \
-    printf '/build/\n/.deps/\n/vllm/_moe_C*.so\n' >> /app/.git/info/exclude; \
-    test -z "$(cd /app && git status --porcelain=v1 --untracked-files=all)"
+    printf '/build/\n/.deps/\n/vllm/_moe_C*.so\n' >> /workspace/vllm/.git/info/exclude; \
+    test -z "$(cd /workspace/vllm && git status --porcelain=v1 --untracked-files=all)"
 
 # Candidate Python and the exact-source native extension both resolve under
-# /app. Other release extensions are not copied into the candidate tree.
+# /workspace/vllm. Other release extensions are not copied into the candidate tree.
 RUN set -eu; \
     site_dir="$(python3 -c 'import site; print(site.getsitepackages()[0])')"; \
-    printf 'import sys; sys.path.insert(0, "/app")\n' \
+    printf 'import sys; sys.path.insert(0, "/workspace/vllm")\n' \
       > "${site_dir}/vllm-candidate-source.pth"; \
     cd /tmp; \
-    python3 -I -c 'import importlib.util,pathlib,torch,vllm; root=pathlib.Path("/app"); assert pathlib.Path(vllm.__file__).resolve().is_relative_to(root); spec=importlib.util.find_spec("vllm._moe_C"); assert spec and pathlib.Path(spec.origin).resolve().is_relative_to(root); torch.ops.load_library(spec.origin); assert torch.ops._moe_C.moe_permute_unpermute_supported()'; \
-    test -z "$(cd /app && git status --porcelain=v1 --untracked-files=all)"
+    python3 -I -c 'import importlib.util,pathlib,torch,vllm; root=pathlib.Path("/workspace/vllm"); assert pathlib.Path(vllm.__file__).resolve().is_relative_to(root); spec=importlib.util.find_spec("vllm._moe_C"); assert spec and pathlib.Path(spec.origin).resolve().is_relative_to(root); torch.ops.load_library(spec.origin); assert torch.ops._moe_C.moe_permute_unpermute_supported()'; \
+    test -z "$(cd /workspace/vllm && git status --porcelain=v1 --untracked-files=all)"
 
 RUN groupadd --gid 10001 agent \
     && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/agent agent \
-    && chown -R agent:agent /app /home/agent \
+    && chown -R agent:agent /workspace/vllm /home/agent \
     && chmod -R a-w /opt/cutlass
 
-WORKDIR /app
+WORKDIR /workspace/vllm
 USER 10001:10001
 ENTRYPOINT []
 CMD ["sleep", "infinity"]

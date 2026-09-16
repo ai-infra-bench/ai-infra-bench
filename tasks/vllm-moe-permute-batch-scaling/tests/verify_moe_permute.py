@@ -19,6 +19,11 @@ the timed set, so a kernel cannot special-case the timed shapes and still pass.
 Performance follows the instruction's 20/50 protocol and numerical bounds at
 4096 and 512 tokens. Additional non-power-of-two measurements are diagnostic;
 they do not introduce undisclosed numerical acceptance criteria.
+
+Correctness payloads cover all 256 byte encodings. Six expert-partition cases
+cover mixed, all-local and all-remote routing with a noncontiguous expert map.
+The total correctness inventory is 32 cases. Timing retains its original input
+generation and protocol.
 """
 
 from __future__ import annotations
@@ -36,6 +41,7 @@ import sys
 # cannot reach the references it captured.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import trusted_timing  # noqa: E402
+import trusted_partition  # noqa: E402
 
 import torch  # noqa: E402
 
@@ -101,14 +107,17 @@ def load_staged_native() -> tuple[pathlib.Path, str]:
     return native, actual
 
 
-def make_inputs(n_token: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def make_inputs(n_token: int, *, full_bytes: bool = False) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     # FP8 is used as a one-byte storage type. This kernel only copies payload
     # bytes; it does not execute FP8 Tensor Core arithmetic, so SM80 is valid.
     torch.manual_seed(32892 + n_token)
     hidden = torch.empty(
         (n_token, HIDDEN), device="cuda", dtype=torch.float8_e4m3fn
     )
-    hidden.view(torch.uint8).random_(0, 127)
+    hidden.view(torch.uint8).random_(0, 256 if full_bytes else 127)
+    if full_bytes:
+        # Guarantee every encoding is exercised, even in the singleton case.
+        hidden.view(torch.uint8)[0, :256] = torch.arange(256, device="cuda").to(torch.uint8)
     token = torch.arange(n_token, device="cuda", dtype=torch.int64)[:, None]
     rank = torch.arange(TOPK, device="cuda", dtype=torch.int64)[None, :]
     topk_ids = ((token * 17 + rank * 7) % N_EXPERT).to(torch.int32)
@@ -158,13 +167,12 @@ def call_op(
 def check_case(n_token: int, align_block_size: int | None) -> str:
     """Validate one moe_permute call; return a digest of its real outputs.
 
-    The digest is taken over the actual offsets/inverse tensors the kernel
-    produced. A worker that prints a well-formed payload without running the
-    kernel cannot produce it, and the scorer recomputes the expected digest for
-    the same deterministic inputs independently.
+    The digest covers actual offsets and an inverse shape/dtype fingerprint;
+    mapping and payload assertions run below. The parent independently checks
+    the digest, but this deterministic value alone is not proof of execution.
     """
     aligned = align_block_size is not None
-    hidden, topk_ids, token_expert_indices = make_inputs(n_token)
+    hidden, topk_ids, token_expert_indices = make_inputs(n_token, full_bytes=True)
     outputs = allocate_outputs(n_token, hidden)
     permuted, offsets, inverse, permuted_idx, m_indices = outputs
     call_op(hidden, topk_ids, token_expert_indices, outputs, align_block_size)
@@ -248,7 +256,7 @@ def check_case(n_token: int, align_block_size: int | None) -> str:
 
 
 def check_expert_boundary(experts, align):
-    """Exercise the public expert-count range, including untouched buffer tails."""
+    """Exercise expert counts while checking only contract-defined outputs."""
     n, h, k = 7, 128, 2
     x = torch.arange(n * h, device="cuda", dtype=torch.float32).reshape(n, h).half()
     ids = ((torch.arange(n * k, device="cuda") * 17 + 7) % experts).reshape(n, k).int()
@@ -264,7 +272,8 @@ def check_expert_boundary(experts, align):
         out, offsets, inverse, forward, mids,
     )
     torch.cuda.synchronize()
-    # Reference grouping is computed on the CPU and compares every output byte.
+    # Reference grouping is computed on the CPU. Unused payload and unaligned
+    # m_indices are not observable outputs of this mode.
     expected = torch.full((cap, h), -33, dtype=x.dtype)
     ef = torch.full((cap,), -27, dtype=torch.int32)
     ei = torch.full((n, k), -29, dtype=torch.int32)
@@ -285,13 +294,57 @@ def check_expert_boundary(experts, align):
         eo.append(cursor)
     actual = [v.cpu() for v in (out, offsets, inverse, forward, mids)]
     wanted = [expected, torch.tensor(eo, dtype=torch.int64), ei, ef, em]
-    for name, observed, reference in zip(("payload", "offsets", "inverse", "forward", "m_indices"), actual, wanted):
-        assert torch.equal(observed, reference), (experts, align, name)
+    valid_rows = ei.flatten().to(torch.int64)
+    torch.testing.assert_close(
+        actual[0][valid_rows].view(torch.uint8),
+        expected[valid_rows].view(torch.uint8), atol=0, rtol=0,
+    )
+    for index in (1, 2, 3):
+        assert torch.equal(actual[index], wanted[index]), (experts, align, index)
+    if align:
+        assert torch.equal(actual[4], em), (experts, align, "m_indices")
     key = f"experts={experts}:{'aligned' if align else 'unaligned'}"
+    # Hash valid payload in source-slot order; retain complete forward sentinels
+    # and aligned expert ranges, excluding only unconstrained storage.
+    observed = [actual[0][valid_rows], *actual[1:4]]
+    if align:
+        observed.append(actual[4])
     CASE_DIGESTS[key] = hashlib.sha256(b"|".join(
-        [key.encode()] + [v.numpy().tobytes() for v in actual]
+        [key.encode()] + [v.numpy().tobytes() for v in observed]
     )).hexdigest()
     CALL_COUNTS["check_case"] += 1
+
+def check_partition(name: str, aligned: bool) -> None:
+    """Exercise mixed, all-local and all-remote expert-parallel routing."""
+    ref = trusted_partition
+    n, k, h = ref.TOKENS, ref.TOPK, ref.HIDDEN
+    cap = ref.capacity(aligned)
+    raw = torch.tensor(list(ref.payload_bytes()), dtype=torch.uint8, device="cuda").reshape(n, h)
+    hidden = raw.view(torch.float8_e4m3fn)
+    routes = ref.routes_for(name)
+    ids = torch.tensor(routes, dtype=torch.int32, device="cuda").reshape(n, k)
+    src = torch.arange(n * k, dtype=torch.int32, device="cuda").reshape(n, k)
+    mapping = torch.tensor(ref.EXPERT_MAP, dtype=torch.int32, device="cuda")
+    payload = torch.full((cap, h), 0xA5, dtype=torch.uint8, device="cuda").view(hidden.dtype)
+    offsets = torch.full((ref.LOCAL_EXPERTS + 1,), -31, dtype=torch.int64, device="cuda")
+    inverse = torch.full_like(src, -29)
+    forward = torch.full((cap,), n * k, dtype=torch.int32, device="cuda")
+    mids = torch.full_like(forward, -1)
+    torch.ops._moe_C.moe_permute(
+        hidden, ids, src, mapping, ref.EXPERTS, ref.LOCAL_EXPERTS, k,
+        ref.ALIGN if aligned else None, payload, offsets, inverse, forward, mids,
+    )
+    torch.cuda.synchronize()
+    assert ids.cpu().flatten().tolist() == routes, "routing input modified"
+    assert mapping.cpu().tolist() == list(ref.EXPERT_MAP), "expert map modified"
+    digest = ref.validate_partition_outputs(
+        name, aligned, payload.view(torch.uint8).cpu().numpy().tobytes(),
+        offsets.cpu().tolist(), inverse.cpu().flatten().tolist(),
+        forward.cpu().tolist(), mids.cpu().tolist(),
+    )
+    CASE_DIGESTS[ref.case_key(name, aligned)] = digest
+    CALL_COUNTS["check_case"] += 1
+
 
 def time_case(
     n_token: int, align_block_size: int | None = ALIGN,
@@ -348,10 +401,14 @@ def main() -> None:
         for experts in (64, 1023, 1024, 1025):
             for align in (None, ALIGN):
                 check_expert_boundary(experts, align)
+        for name in trusted_partition.PARTITION_CASES:
+            for aligned in (False, True):
+                check_partition(name, aligned)
         print(json.dumps({**common,
                           "actual_uid": actual_uid,
                           "expert_count_cases": [64, 1023, 1024, 1025],
-                          "correctness_cases": len(CORRECTNESS_TOKENS) * 2 + 8,
+                          "partition_cases": list(trusted_partition.PARTITION_CASES),
+                          "correctness_cases": len(CORRECTNESS_TOKENS) * 2 + 8 + 2 * len(trusted_partition.PARTITION_CASES),
                           "call_counts": dict(CALL_COUNTS),
                           "case_digests": dict(CASE_DIGESTS),
                           "correctness_passed": True}, sort_keys=True))

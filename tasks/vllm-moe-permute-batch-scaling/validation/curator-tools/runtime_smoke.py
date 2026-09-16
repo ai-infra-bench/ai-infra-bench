@@ -14,7 +14,7 @@ import vllm
 
 
 def main() -> None:
-    root = pathlib.Path("/app").resolve()
+    root = pathlib.Path("/workspace/vllm").resolve()
     python_source = pathlib.Path(vllm.__file__).resolve()
     native_spec = importlib.util.find_spec("vllm._moe_C")
     assert native_spec and native_spec.origin
@@ -33,10 +33,10 @@ def main() -> None:
         sock.close()
 
     git_tree = subprocess.check_output(
-        ["git", "-C", "/app", "rev-parse", "HEAD^{tree}"], text=True
+        ["git", "-C", "/workspace/vllm", "rev-parse", "HEAD^{tree}"], text=True
     ).strip()
     git_status = subprocess.check_output(
-        ["git", "-C", "/app", "status", "--porcelain=v1", "--untracked-files=all"],
+        ["git", "-C", "/workspace/vllm", "status", "--porcelain=v1", "--untracked-files=all"],
         text=True,
     )
     properties = torch.cuda.get_device_properties(0)
@@ -50,13 +50,13 @@ def main() -> None:
                 "git_clean": git_status == "",
                 "git_commit_count": int(
                     subprocess.check_output(
-                        ["git", "-C", "/app", "rev-list", "--count", "HEAD"],
+                        ["git", "-C", "/workspace/vllm", "rev-list", "--count", "HEAD"],
                         text=True,
                     )
                 ),
                 "git_remote_count": len(
                     subprocess.check_output(
-                        ["git", "-C", "/app", "remote"], text=True
+                        ["git", "-C", "/workspace/vllm", "remote"], text=True
                     ).splitlines()
                 ),
                 "git_tree": git_tree,

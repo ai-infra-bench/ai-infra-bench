@@ -14,7 +14,7 @@ Reference semantics used here (no candidate kernel involved):
   * unaligned offsets are ``cumsum(count)`` per expert;
   * ``inverse`` is the permutation index the reference derives from the same ids.
 
-SCOPE (deliberately conservative): the digest covers the per-expert OFFSETS plus
+For the original batch cases, the digest covers the per-expert OFFSETS plus
 the shape/dtype fingerprint. Offsets are provably derivable here -- the verifier
 already asserts them byte-exactly against this same cumsum formula, so an
 independent recomputation is sound.
@@ -23,7 +23,9 @@ The ``inverse`` permutation is NOT included. Its exact tie-ordering is a propert
 of the kernel's implementation, and asserting a reference argsort against it
 without GPU confirmation could fail a correct implementation. Including it is
 tracked as future work; excluding it keeps this helper's expectation exact rather
-than merely plausible.
+than merely plausible. Expert-boundary cases hash valid payload rows, maps and aligned ranges.
+Partition cases hash canonical observations of local payloads, mappings, expert
+windows and skipped destinations, allowing different within-expert ordering.
 """
 
 from __future__ import annotations
@@ -31,6 +33,8 @@ from __future__ import annotations
 import hashlib
 import json
 import struct
+
+from trusted_partition import PARTITION_CASES, case_key, expected_partition_digest
 
 N_EXPERT = 64
 TOPK = 6
@@ -77,7 +81,7 @@ def expected_case_digest(n_token: int, aligned: bool) -> str:
 
 
 def expected_expert_digest(experts: int, aligned: bool) -> str:
-    """Independent stdlib reference for all five buffers, including padding."""
+    """Reference for valid payload, maps/sentinels and aligned expert ranges."""
     n, h, k = 7, 128, 2
     cap = n * k + (experts * 127 if aligned else 0)
     payload = bytearray(struct.pack("<e", -33) * (cap * h))
@@ -100,10 +104,13 @@ def expected_expert_digest(experts: int, aligned: bool) -> str:
         cursor += width
         offsets.append(cursor)
     key = f"experts={experts}:{'aligned' if aligned else 'unaligned'}"
-    return hashlib.sha256(b"|".join([
-        key.encode(), payload, struct.pack(f"<{len(offsets)}q", *offsets),
-        inverse, forward, mids,
-    ])).hexdigest()
+    rows = struct.unpack(f"<{n * k}i", inverse)
+    valid_payload = b"".join(payload[row * h * 2:(row + 1) * h * 2] for row in rows)
+    parts = [key.encode(), valid_payload, struct.pack(f"<{len(offsets)}q", *offsets),
+             inverse, forward]
+    if aligned:
+        parts.append(mids)
+    return hashlib.sha256(b"|".join(parts)).hexdigest()
 
 def expected_digests() -> dict[str, str]:
     out = {}
@@ -115,6 +122,9 @@ def expected_digests() -> dict[str, str]:
         for aligned in (True, False):
             key = f"experts={experts}:{'aligned' if aligned else 'unaligned'}"
             out[key] = expected_expert_digest(experts, aligned)
+    for name in PARTITION_CASES:
+        for aligned in (True, False):
+            out[case_key(name, aligned)] = expected_partition_digest(name, aligned)
     return out
 
 
@@ -123,6 +133,8 @@ REQUIRED_CASE_KEYS = tuple(
 ) + tuple(
     f"experts={e}:{m}" for e in (64, 1023, 1024, 1025)
     for m in ("aligned", "unaligned")
+) + tuple(
+    case_key(name, aligned) for name in PARTITION_CASES for aligned in (True, False)
 )
 
 # Exact timing protocol the performance stage must have used.

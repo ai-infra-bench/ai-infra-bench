@@ -15,14 +15,11 @@ manifest-digest pinned. No `VLLM_TARGET_DEVICE=empty` build is used.
 
 PR 32892 modifies the native `_moe_C` extension. Consequently the Dockerfile
 does not reuse the release image's `_moe_C`. It compiles the target from the
-exact source for SM80 and installs it under `/app/vllm`. The build retains
+exact source for SM80 and installs it under `/workspace/vllm/vllm`. The build retains
 CMake, Ninja, the build directory, and locked Cutlass 4.2.1 headers so the
 non-root agent can rebuild after changing candidate CUDA sources.
 
-CMake 3.31.10 and the Ubuntu 22.04 Git packages are downloaded once outside
-the image, hashed, and installed from loopback-served offline artifacts. Their
-individual package versions and aggregate archive hashes are recorded in
-`environment.json`. Proxy credentials are never build arguments or layers.
+CMake 3.31.10 is installed from a SHA-256-locked wheel. Git 2.49.1 and its musl runtime are copied from the digest-pinned Alpine Git stage. The source is exposed through `vllm-candidate-source.pth`; only the focused `_moe_C` extension is built and installed with CMake. There is no editable pip installation. Versions and immutable identities are recorded in `environment.json`.
 
 The task needs no model or dataset. The reproduction creates DeepSeek-V2-lite
 MoE dimensions directly (`64` experts, top-k `6`, hidden size `2048`, alignment

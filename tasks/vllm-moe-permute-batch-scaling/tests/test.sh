@@ -17,7 +17,7 @@ set -uo pipefail
 mkdir -p /logs/verifier
 printf '0\n' > /logs/verifier/reward.txt
 
-REPO=/app
+REPO=/workspace/vllm
 STAGE_MANIFEST=/logs/verifier/native-staging.json
 SCORE_MANIFEST=/logs/verifier/scoring-manifest.json
 
@@ -87,7 +87,7 @@ WORKER_GID=65534
 rm -rf "${STAGING}"
 mkdir -p "${STAGING}" || fail_closed staging_mkdir
 for f in verify_moe_permute.py trusted_timing.py trusted_stage_native.py \
-         trusted_expected.py trusted_performance.py trusted_python.py; do
+         trusted_expected.py trusted_performance.py trusted_partition.py trusted_python.py; do
   cp "/tests/${f}" "${STAGING}/${f}" || fail_closed "staging_copy_${f}"
 done
 chown -R 0:0 "${STAGING}" || fail_closed staging_chown
@@ -200,7 +200,7 @@ make_worker_env() {
 make_worker_env correctness
 
 # The unprivileged worker must be able to read the candidate tree.
-chmod o+rx /app 2>/dev/null || true
+chmod o+rx /workspace/vllm 2>/dev/null || true
 
 "${drop_priv[@]}" "${worker_env[@]}" \
   python3 -I -S "${STAGING}/trusted_python.py" "${STAGING}/verify_moe_permute.py" --stage correctness \
@@ -327,7 +327,7 @@ for stage, rc in (("correctness", c_rc), ("performance", p_rc)):
             rec["counts_ok"] = counts.get("check_case") == want
             digests = payload.get("case_digests") or {}
             # Compare EVERY case against the digest this scorer derived itself
-            # from reference semantics. Distinctness is NOT the test: 18 randomly
+            # from reference semantics. Distinctness is NOT the test: randomly
             # generated distinct digests fail here because none of them equals
             # the independently recomputed expectation.
             mismatched = [

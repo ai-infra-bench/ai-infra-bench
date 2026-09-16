@@ -1,0 +1,15 @@
+diff --git a/csrc/moe/moe_permute_unpermute_op.cu b/csrc/moe/moe_permute_unpermute_op.cu
+--- a/csrc/moe/moe_permute_unpermute_op.cu
++++ b/csrc/moe/moe_permute_unpermute_op.cu
+@@ -20,6 +20,11 @@
+     torch::Tensor& inv_permuted_idx,           // [n_token, topk]
+     torch::Tensor& permuted_idx,               // [permute_size]
+     torch::Tensor& m_indices) {                // [align_expand_m]
++  // Storage outside valid payload rows is unspecified. Initialize it freely.
++  permuted_input.zero_();
++  if (!align_block_size.has_value()) {
++    m_indices.zero_();
++  }
+   TORCH_CHECK(expert_first_token_offset.scalar_type() == at::ScalarType::Long,
+               "expert_first_token_offset must be int64");
+   TORCH_CHECK(topk_ids.scalar_type() == at::ScalarType::Int,
