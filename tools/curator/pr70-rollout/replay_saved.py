@@ -64,12 +64,19 @@ for dtype in ('float16','bfloat16','float32'):
 code='''
 import sys,json
 sys.path.insert(0,'/tests')
-from quant_boundary import cases,observe
+from quant_boundary import cases,observe,compare,frozen_observations
 from vllm.model_executor.layers.quantization.utils.int8_utils import per_token_group_quant_int8
 c=next(c for c in cases() if c['name']==sys.argv[1])
 print('CASE='+json.dumps(c),flush=True)
+# Run the frozen reference in a separate process before the candidate can
+# leave a pending CUDA error. A successful observation alone is not a pass:
+# invalid launches can return unwritten output without raising immediately.
+expected=frozen_observations([c],'/tests/frozen-reference')
 r=observe([c],per_token_group_quant_int8)
 print('OBSERVED='+json.dumps(r),flush=True)
+errors=compare(r,expected)
+print('COMPARISON='+json.dumps(dict(errors=errors)),flush=True)
+raise SystemExit(bool(errors))
 '''
 for name in ('single-large-fp32','single-large-fp16','unaligned-fp16','unaligned-bf16','unaligned-fp32'):
     with (a.output/('isolated-'+name+'.log')).open('w') as log:
