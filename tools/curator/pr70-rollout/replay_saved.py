@@ -16,7 +16,7 @@ def sha(f):
 def run(cmd, **kw):
     return subprocess.run(cmd, check=True, **kw)
 def shell(cmd):
-    return run(['docker', 'exec', a.container, 'bash', '-lc', cmd])
+    return run(['docker', 'exec', '-u', 'root', a.container, 'bash', '-lc', cmd])
 def cp(src, dest):
     return run(['docker', 'cp', str(src), a.container + ':' + dest])
 archive = a.snapshot / 'full-repository.tar.gz'
