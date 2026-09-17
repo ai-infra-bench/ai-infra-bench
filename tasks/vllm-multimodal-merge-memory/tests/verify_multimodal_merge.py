@@ -9,7 +9,7 @@ def run_suite(cases, emit):
     from pathlib import Path
     import sys
     from unittest.mock import patch
-    from contextlib import ExitStack
+    from contextlib import ExitStack, nullcontext
     import torch
 
     sys.path.insert(0, "/workspace/repo")
@@ -107,7 +107,6 @@ def run_suite(cases, emit):
                 weight = torch.arange(128, dtype=torch.float16, device="cuda").reshape(16, 8)
                 return torch.nn.functional.embedding(ids, weight)
         class ModelHarness:
-            _has_oov_mm_tokens = spec["oov"]
             _embed_text_input_ids = SupportsMultiModal._embed_text_input_ids
             def get_language_model(self):
                 return LanguageModel()
@@ -118,8 +117,15 @@ def run_suite(cases, emit):
             ids_cpu[mask] = 100
         ids = ids_cpu.cuda()
         replacements = torch.arange(24, dtype=torch.float32, device="cuda").reshape(3, 8)
-        with RejectCudaSync():
-            output = SupportsMultiModal.embed_input_ids(ModelHarness(), ids, replacements, is_multimodal=mask)
+        model = ModelHarness()
+        SupportsMultiModal.configure_mm_token_handling(
+            model, vocab_size=16, mm_token_ids=[100 if spec["oov"] else 1])
+        # Qwen3-VL uses in-vocabulary placeholders. Preserve the existing OOV
+        # preparation path with its normal device-local mask; requiring CPU
+        # masks here would silently extend the requested merge repair.
+        device_mask = mask.to(spec["device"])
+        with RejectCudaSync() if spec["device"] == "cpu" else nullcontext():
+            output = SupportsMultiModal.embed_input_ids(model, ids, replacements, is_multimodal=device_mask)
         torch.cuda.synchronize()
         expected = torch.arange(128, dtype=torch.float16).reshape(16, 8)[torch.arange(12)]
         expected[mask] = torch.arange(24, dtype=torch.float16).reshape(3, 8)

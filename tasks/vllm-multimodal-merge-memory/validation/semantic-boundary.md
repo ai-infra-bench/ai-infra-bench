@@ -1,4 +1,4 @@
-# Behavioral contract and validation boundary (1.3.0)
+# Behavioral contract and validation boundary (1.3.1)
 
 CPU or CUDA placeholder mask + CUDA text/multimodal embeddings -> real production merge and model-interface preparation -> ordered in-place output, count errors, synchronization and temporary CUDA allocation.
 
@@ -8,14 +8,14 @@ The CPU-mask valid-input path must not synchronize CUDA. A CUDA mask may synchro
 | --- | --- | --- |
 | Ordered values, preserved dtype, unchanged text positions, in-place identity | 12 merge combinations; each runs twice | Real production merge and CUDA; unique per-row values reveal within-segment reorderings |
 | Nested and batched tensor input | Two forms × three dtypes × both mask devices | Existing flattening forms at Base; deterministic values replace model forward |
-| CPU-mask asynchronous execution | All six CPU-mask merge combinations; both interface cases | Real CUDA synchronization debug guard; it is not a complete detector for every possible native synchronization |
+| CPU-mask asynchronous execution | All six CPU-mask merge combinations; the in-vocabulary CPU-mask interface case | Real CUDA synchronization debug guard; it is not a complete detector for every possible native synchronization |
 | Bounded memory for both mask devices | All 12 merge cases, two measurements each | Real PyTorch peak allocator statistics; pre-existing tensors excluded, peak includes live temporaries; threshold <4× destination bytes |
 | Useful count errors | Five mismatches × both devices | Existing merge API; errors are an explicit part of the contract. Singleton and zero cases supplement non-broadcastable mismatches |
 | Empty identity | Both mask devices | Empty list and zero mask; independent challenge also uses a zero-row tensor |
-| Model input preparation | In-vocabulary and OOV multimodal placeholders | Real SupportsMultiModal methods and actual embedding lookup; small fixed weights substitute model parameters |
+| Model input preparation | In-vocabulary CPU-mask and OOV CUDA-mask placeholders | Real SupportsMultiModal methods and actual embedding lookup; small fixed weights substitute model parameters |
 | Completion integrity | All 26 ordered authenticated checkpoints plus successful child exit | Root parent grades; stdout never authenticates completion |
 
-Masks and tensors in valid cases follow the production interface: a boolean mask of destination row count, with one embedding row for each true entry. The malformed-count cases intentionally enter the existing merge boundary that owns the requested error handling; they do not claim that normal Qwen preprocessing necessarily produces malformed counts. The OOV case exercises the existing `_has_oov_mm_tokens` branch with out-of-range placeholder IDs and legal text IDs.
+Masks and tensors in valid cases follow the production interface: a boolean mask of destination row count, with one embedding row for each true entry. The malformed-count cases intentionally enter the existing merge boundary that owns the requested error handling; they do not claim that normal Qwen preprocessing necessarily produces malformed counts. The OOV preservation case uses the normal CUDA mask and public `configure_mm_token_handling` initialization. CPU-mask OOV preprocessing is outside the stated Qwen3-VL merge repair: Qwen3-VL never configures the OOV branch at Base, while both production runners send device-local masks. Version 1.3.0 incorrectly combined the requested CPU-mask merge support with an additional OOV preprocessing extension. Its original rewards remain historical; saved answers are regraded separately.
 
 Full Qwen weights, image decoding and HTTP serving do not determine this primitive's indexing or allocator behavior and are not claimed as executed. Independent challenges cover noncontiguous destinations and zero/singleton valid input sizes, rather than copying the scored inventory.
 

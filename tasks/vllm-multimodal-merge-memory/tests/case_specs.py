@@ -14,6 +14,7 @@ CASES = [
     dict(name=f"empty_{device}", kind="empty", device=device)
     for device in ("cpu", "cuda")
 ] + [
-    dict(name=f"interface_{oov}", kind="interface", oov=oov)
+    dict(name=f"interface_{oov}", kind="interface", oov=oov,
+         device="cuda" if oov else "cpu")
     for oov in (False, True)
 ]

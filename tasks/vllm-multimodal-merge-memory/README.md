@@ -4,7 +4,7 @@ Repair multimodal embedding merge resource usage while retaining ordered, in-pla
 
 The environment is an offline, exact-Base vLLM checkout with PyTorch CUDA, pinned local pytest tooling, a non-root agent and a 10-hour budget. It requests one A100 GPU, 4 CPUs and 16 GiB RAM. Model weights are not required for this Python/PyTorch boundary.
 
-The separate verifier runs 26 behavioral cases. It measures both mask devices, checks CPU-mask synchronization, exercises nested/tensor inputs and OOV preparation, and rejects singleton/zero count mismatches. A root supervisor requires authenticated ordered checkpoints emitted by the preloaded test suite after privilege drop. Stdout success strings never establish completion. The bounded threat model and exact behavior map are in [validation/semantic-boundary.md](validation/semantic-boundary.md).
+The separate verifier runs 26 behavioral cases. It measures both mask devices, checks CPU-mask synchronization, exercises nested/tensor inputs and existing CUDA-mask OOV preparation, and rejects singleton/zero count mismatches. A root supervisor requires authenticated ordered checkpoints emitted by the preloaded test suite after privilege drop. Stdout success strings never establish completion. The bounded threat model and exact behavior map are in [validation/semantic-boundary.md](validation/semantic-boundary.md).
 
 - `environment/`: pinned source/runtime construction and offline test-tool wheels.
 - `solution/`: corrected Oracle; hidden from the evaluated agent.
