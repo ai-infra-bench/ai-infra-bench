@@ -12,7 +12,7 @@ Version 0.0.2 (2026-09-16) rewrites the instruction as outcome requirements plus
 
 Version 0.0.3 (2026-09-16) keeps the 0.0.2 requirements and restates them as an issue rather than a specification: motivation, the ask, the agreed interface, the behaviour we expect to see, and the lifecycle rules, with no mechanism hints added. Verifier unchanged.
 
-Version 0.0.4 (2026-09-16) restates the SIGTERM/SIGINT sentence as an unmistakable outcome (pi, interactive or headless, must still end after the signal) after two more rollouts left a headless pi running, and revises the verifier harness: the between-test drain now waits 300 ms and for an idle session, and a verifier prompt waits for an idle session, since the contract lets a wake start a turn at any idle moment and an implementation may report an exit shortly after the process died. Cases, oracle and controls unchanged.
+Harness revision 2 (2026-09-17): the lifecycle suite keeps the runner's `VITEST*` variables out of the child pi it spawns. Version 0.0.4 (2026-09-16) restates the SIGTERM/SIGINT sentence as an unmistakable outcome (pi, interactive or headless, must still end after the signal) after two more rollouts left a headless pi running, and revises the verifier harness: the between-test drain now waits 300 ms and for an idle session, and a verifier prompt waits for an idle session, since the contract lets a wake start a turn at any idle moment and an implementation may report an exit shortly after the process died. Cases, oracle and controls unchanged.
 
 ## What the agent does
 
@@ -118,6 +118,19 @@ the next test's session and started a turn there; fixed in 0.0.4), one is a real
 clause again (the handler defers to other listeners). See
 [`validation/rollout-2026-09-16-claude-code.md`](validation/rollout-2026-09-16-claude-code.md);
 the submission is the expected-0 control `alt-opus-0.0.3-defer-and-reload`.
+
+A fifth rollout (Grok Build, grok-4.6, 31 min) on the 0.0.4 wording is the first pass:
+contract 15/15, PASS_TO_PASS pass, lifecycle 3/3 once the harness stopped leaking the
+runner's `VITEST` variable into the child pi (the submission skips its exit hooks under
+that variable; a real pi never carries it). Recorded reward 0, corrected 1. See
+[`validation/rollout-2026-09-17-grok-build.md`](validation/rollout-2026-09-17-grok-build.md);
+the submission is the expected-1 control `alt-grok-0.0.4-vitest-guard`.
+
+A sixth rollout (Grok Build, grok-4.6, 26 min) on the 0.0.4 wording passed outright:
+contract 15/15, lifecycle 3/3, PASS_TO_PASS pass, reward 1, re-verified twice under the
+final harness. See
+[`validation/rollout-2026-09-17-grok-build-2.md`](validation/rollout-2026-09-17-grok-build-2.md);
+the submission is the expected-1 control `alt-grok-0.0.4-clean-pass`.
 
 ## Layout
 
