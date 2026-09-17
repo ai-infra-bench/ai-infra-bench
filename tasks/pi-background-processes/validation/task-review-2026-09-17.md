@@ -9,9 +9,9 @@ Review made with `.agents/skills/ai-infra-bench-task-review` (SKILL.md `41a993d1
 
 ## Disposition
 
-**Retain, needs targeted hardening before final acceptance** (F1 is a demonstrated grading bypass; all other gates pass).
+**Retain; F1 hardened on 2026-09-17 (harness revision 3) and revalidated** (initial disposition: needs targeted hardening; see the update below).
 
-Scored dimensions: 10/10, unverified: 0, sum 17/20. Blocking: F1 (dimension 9). Non-blocking warnings: none for the agent budget (`[agent].timeout_sec` = 36000 s).
+Scored dimensions: 10/10, unverified: 0, sum 19/20 after the update (17/20 at the initial review). Blocking: none open (F1 closed; F2 remains non-blocking). Non-blocking warnings: none for the agent budget (`[agent].timeout_sec` = 36000 s).
 
 | # | Dimension | Score / status | Key evidence or gap | Next action |
 |---|---|---|---|---|
@@ -23,7 +23,7 @@ Scored dimensions: 10/10, unverified: 0, sum 17/20. Blocking: F1 (dimension 9). 
 | 6 | Can different correct implementations pass? | 2 | Three non-Oracle passes, two of them unmodified real grok-4.6 submissions (one with an environment guard, one without), differing from the Oracle in module structure, log storage and signal handling. | none |
 | 7 | Are incorrect implementations rejected for the right reasons? | 2 | Base 0 (`Tool bg_run not found`, built-in `bash` rejects `stalledSec`); 12 negative controls with recorded rejecting layers; two real submissions kept as expected-0 controls (SIGTERM listener never re-raises; listener deferral plus reload `instanceof`); matrix 19/19 locally (`bg-matrix-0.0.4-rev2.log`) and CI x64 green (#92). | none |
 | 8 | Is the Oracle independently validated? | 2 | `validation/independent_challenge.py` / `independent_probe.mjs`: four cases absent from the suites (relative cwd + Unicode error pattern, intermittent output stays foreground, paging past the end, `bg_kill` on a finished process); Oracle and both real passes 4/4; `baseline_pin_forgery_check.py` shows the PASS_TO_PASS pins reject rewritten baselines. | none |
-| 9 | Is the grading result trustworthy? | 0 | F1 (same `test.sh` shape): runner substitution yields reward 1 on Base (`~/ai-infra-scratch/probe-runner-forge-bg/`). Early-exit and forged-report controls hold at their own boundary. | F1 hardening |
+| 9 | Is the grading result trustworthy? | 2 (was 0) | F1 closed by harness revision 3: the agent phase runs as the unprivileged `node` user with the toolchain root-owned (runner and interpreter substitution reproduced as impossible), `test.sh` rejects changes to pi source or the build/test toolchain before running suites (control `control-toolchain-config-injected` expected 0, rejected), vite temp bundles removed; pinned environmental failures tolerated in the candidate run. Matrix rerun all-match on the rebuilt image. | CI on the new image |
 | 10 | Is acceptance reproducible and the handoff clear? | 2 | Strict artifact audit 0/0, `git diff --check` clean, evidence hashes match, Harbor matrix and CI x64 run; README lists validation, rollouts, limitations and remaining publication steps; `publication_state` `staged-smoke-only`. Evidence gap noted in the rollout review: the 2026-09-14/15 attempts are documented without job identities (does not affect acceptance evidence). | publication workflow |
 
 ## Gates
@@ -65,3 +65,7 @@ The `alt-grok-0.0.4-vitest-guard` alternative skips its exit hooks under `VITEST
 2. Optional F2 check.
 3. Image publication before release.
 4. Independent reviewer to repeat the scorecard.
+
+## Update, 2026-09-17 (harness revision 3)
+
+F1 hardening applied with authorization and revalidated: `task.toml` `[agent].user = "node"` (Harbor-native); the rendered Dockerfile leaves the checkout node-owned and `node_modules`, `node`, `python3`, `bash` root-owned and read-only for the agent, with node-owned `node_modules/.vite-temp` and `.vite` per package and `git config --system safe.directory`; `tests/test.sh` rejects submissions that changed pi source or the build/test toolchain (`scope_exit_code`, `scope.log`) and removes vite's transient bundles; `check_pass_to_pass.py` tolerates the pinned environmental failures in the candidate run (pi's timing-dependent `AuthStorage` case failed for root in the rebuilt image after passing at build time). New control `control-toolchain-config-injected` (expected 0). Probes in the rebuilt image: as `node`, replacing `node_modules/vitest/vitest.mjs` or `/usr/local/bin/node` fails with EACCES; the original F1 forgery cannot be installed; the injected-config control is rejected with the reason logged; Oracle reward 1. Matrices on the rebuilt image: pi-background-processes 20/20 (`~/ai-infra-scratch/bg-matrix-r3.log`). Dimension 9 rescored 2. Remaining: CI on the rebuilt image, canonical amd64 image and manifest, and the two authorized grok-4.6 rollouts on this revision (recorded in the evidence when done).

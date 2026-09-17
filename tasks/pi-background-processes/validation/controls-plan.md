@@ -96,3 +96,5 @@ Real-submission control (added 2026-09-16): `alt-opus-0.0.3-defer-and-reload.pat
 Real-submission alternative (added 2026-09-17): `alt-grok-0.0.4-vitest-guard.patch`, the unmodified grok-4.6 rollout 5 submission on the 0.0.4 wording, expected 1: a second independently written correct implementation (contract 15/15, lifecycle 3/3 once the harness stopped leaking VITEST into the child pi).
 
 Real-submission alternative (added 2026-09-17): `alt-grok-0.0.4-clean-pass.patch`, the unmodified grok-4.6 rollout 6 submission on the 0.0.4 wording, expected 1: passes every layer with no environment guard (re-raises the signal unconditionally).
+
+Scope control (added 2026-09-17): `control-toolchain-config-injected.patch`, the Oracle plus an edit to `packages/coding-agent/vitest.config.ts` (a config the verifier's own vitest run would load), expected 0: rejected by the verifier's scope check (`scope_exit_code` 1, reason in `scope.log`) before any suite runs; behavioural layers still pass, which is the point.

@@ -14,6 +14,8 @@ Version 0.0.3 (2026-09-16) keeps the 0.0.2 requirements and restates them as an 
 
 Harness revision 2 (2026-09-17): the lifecycle suite keeps the runner's `VITEST*` variables out of the child pi it spawns. Version 0.0.4 (2026-09-16) restates the SIGTERM/SIGINT sentence as an unmistakable outcome (pi, interactive or headless, must still end after the signal) after two more rollouts left a headless pi running, and revises the verifier harness: the between-test drain now waits 300 ms and for an idle session, and a verifier prompt waits for an idle session, since the contract lets a wake start a turn at any idle moment and an implementation may report an exit shortly after the process died. Cases, oracle and controls unchanged.
 
+Harness revision 3 (2026-09-17): the agent phase runs as the unprivileged `node` user while the verifier runs as root; the installed toolchain is root-owned so candidate code cannot rewrite the runner that produces the verifier's reports, and `tests/test.sh` rejects submissions that change pi source or the build/test toolchain (see the task review under `validation/`); the pass-to-pass check tolerates the pinned environmental failures in the candidate run too. Verifier cases unchanged.
+
 ## What the agent does
 
 Adds a background-process extension to [pi](https://github.com/earendil-works/pi)
