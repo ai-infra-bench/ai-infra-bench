@@ -4,7 +4,7 @@
 # complete. A successful process exit is never sufficient on its own.
 set -uo pipefail
 mkdir -p /logs/verifier
-rm -f /logs/verifier/{reward.txt,reward.json,contract-junit.xml,lifecycle-junit.xml,contract-summary.json,lifecycle-summary.json}
+rm -f /logs/verifier/{reward.txt,reward.json,contract-junit.xml,lifecycle-junit.xml,contract-summary.json,lifecycle-summary.json,scope.log}
 export PI_WORKSPACE=/workspace/pi
 export PI_VERIFIER_FIXTURES=/tests/fixtures
 export PI_OFFLINE=1 PI_TELEMETRY=0 PI_NO_LOCAL_LLM=1
@@ -49,6 +49,25 @@ p2p_check_rc=0
   git -C /workspace/pi reset -q 2>/dev/null || true
 } > /logs/verifier/agent-changes.patch 2>&1 || true
 
+
+# Toolchain and core scope: the instruction keeps the work inside the extension directory,
+# a new unit test file and documentation, and forbids changes to pi core. The verifier
+# rejects a submission that changed pi source or the build/test toolchain it is about to
+# execute (configs, manifests, scripts), whether by editing a tracked file or adding one.
+# Scratch files elsewhere are not penalised.
+scope_rc=0
+scope_changes="$(git -C /workspace/pi status --porcelain --untracked-files=all -- . ':!**/node_modules/**' ':!**/dist/**' 2>/dev/null | awk '{print $NF}' \
+  | grep -E '^(packages/[^/]+/src/|scripts/|\.github/|\.npmrc$|package\.json$|package-lock\.json$|tsconfig[^/]*\.json$|biome\.json$|vitest[^/]*$|vite\.config[^/]*$|packages/[^/]+/(package\.json|tsconfig[^/]*\.json|vitest[^/]*|vite\.config[^/]*)$)' || true)"
+if [ -n "$scope_changes" ]; then
+  {
+    echo "SCOPE: the submission changed pi core or the build/test toolchain, which the instruction forbids:"
+    echo "$scope_changes"
+  } | tee /logs/verifier/scope.log
+  scope_rc=1
+fi
+# Never execute vite's transient config bundles left by the agent phase.
+rm -rf /workspace/pi/node_modules/.vite-temp /workspace/pi/node_modules/.vite /workspace/pi/packages/*/node_modules/.vite-temp /workspace/pi/packages/*/node_modules/.vite 2>/dev/null || true
+
 # PASS_TO_PASS: pi's own coding-agent suite must match the Base baseline recorded
 # in the image, and existing test files must be untouched (new files are fine).
 if ! git -C /workspace/pi diff --quiet d981de1229ef899957bbe968bc8dcda02a21f477 -- packages/coding-agent/test; then
@@ -82,10 +101,10 @@ rm -rf test/__verifier__
 reward=0
 if [ "$contract_rc" -eq 0 ] && [ "$contract_integrity_rc" -eq 0 ] \
    && [ "$lifecycle_rc" -eq 0 ] && [ "$lifecycle_integrity_rc" -eq 0 ] \
-   && [ "$p2p_check_rc" -eq 0 ]; then
+   && [ "$p2p_check_rc" -eq 0 ] && [ "$scope_rc" -eq 0 ]; then
   reward=1
 fi
 printf '%s\n' "$reward" > /logs/verifier/reward.txt
-printf '{"reward":%s,"command_exit_code":%s,"contract_exit_code":%s,"contract_integrity_exit_code":%s,"lifecycle_exit_code":%s,"lifecycle_integrity_exit_code":%s,"pass_to_pass_exit_code":%s,"pass_to_pass_check_exit_code":%s}\n' \
-  "$reward" "$((1-reward))" "$contract_rc" "$contract_integrity_rc" "$lifecycle_rc" "$lifecycle_integrity_rc" "$p2p_rc" "$p2p_check_rc" > /logs/verifier/reward.json
+printf '{"reward":%s,"command_exit_code":%s,"contract_exit_code":%s,"contract_integrity_exit_code":%s,"lifecycle_exit_code":%s,"lifecycle_integrity_exit_code":%s,"pass_to_pass_exit_code":%s,"pass_to_pass_check_exit_code":%s,"scope_exit_code":%s}\n' \
+  "$reward" "$((1-reward))" "$contract_rc" "$contract_integrity_rc" "$lifecycle_rc" "$lifecycle_integrity_rc" "$p2p_rc" "$p2p_check_rc" "$scope_rc" > /logs/verifier/reward.json
 exit 0

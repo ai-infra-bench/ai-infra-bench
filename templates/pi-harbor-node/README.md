@@ -52,3 +52,7 @@ After every rebuild, compare the manifest's `pass_to_pass_baseline.failed_on_bas
 with the task's `tests/baseline-pins.json` `allowed_failures`: a platform may
 show an environmental failure the pin does not list yet, and the fix is to
 extend the pin.
+
+## Agent user and toolchain ownership
+
+The rendered image leaves the checkout owned by the `node` user and the installed toolchain (`node_modules`, `node`, `python3`, `bash`) owned by root and read-only for others; tasks set `[agent].user = "node"` so the agent cannot rewrite the test runner the verifier (root) executes. vite's transient config bundles go to `node_modules/.vite-temp` and `.vite`, which are node-owned; verifiers remove them before running. Root's git is configured with `safe.directory /workspace/pi`. Pair this with a verifier-side check that the submission did not change pi source or the build/test toolchain (see the pi task `tests/test.sh` scope check).

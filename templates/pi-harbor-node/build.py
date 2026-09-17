@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import tempfile
 from datetime import datetime, timezone
@@ -52,6 +53,17 @@ def build(task_dir: Path, platform: str | None) -> None:
     run("python3", str(TEMPLATE_DIR / "generate.py"), "--check", str(task_dir))
 
     platform_args = ["--platform", platform] if platform else []
+    # A host proxy (HTTPS_PROXY/HTTP_PROXY in the environment) is forwarded to the build
+    # steps as the predefined proxy build args; BuildKit keeps those out of the image
+    # configuration and history. 127.0.0.1/localhost become host.docker.internal.
+    proxy_args: list[str] = []
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"):
+        value = os.environ.get(key) or os.environ.get(key.lower())
+        if value:
+            value = value.replace("127.0.0.1", "host.docker.internal").replace("localhost", "host.docker.internal")
+            proxy_args += ["--build-arg", f"{key}={value}", "--build-arg", f"{key.lower()}={value}"]
+    if proxy_args:
+        proxy_args += ["--build-arg", "NO_PROXY=localhost,127.0.0.1,host.docker.internal", "--build-arg", "no_proxy=localhost,127.0.0.1,host.docker.internal"] if not any(a.startswith("NO_PROXY=") for a in proxy_args) else []
     with tempfile.TemporaryDirectory(prefix="ai-infra-build-context-") as context:
         run(
             "docker",
@@ -61,6 +73,7 @@ def build(task_dir: Path, platform: str | None) -> None:
             "--provenance=false",
             "--progress=plain",
             *platform_args,
+            *proxy_args,
             "--tag",
             tag,
             "--file",
