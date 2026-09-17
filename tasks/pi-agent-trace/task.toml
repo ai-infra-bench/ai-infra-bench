@@ -17,13 +17,15 @@ repository = "earendil-works/pi"
 base_commit = "d981de1229ef899957bbe968bc8dcda02a21f477"
 dependency_cutoff = "2026-09-05T11:54:46Z"
 # image_digest = image_id from environment/image-manifest.json (build.py, linux/amd64; same Dockerfile bytes as pi-background-processes).
-image_digest = "sha256:40fe5f960138c58e4697f4fa2798accc4e383809d3f340242c8b3320f0eb91e8"
+image_digest = "sha256:b44780bd36bae60aa0877c361c7856ab1d52467899105d2c23dd26454bf9bd0f"
 environment_template = "pi-harbor-node"
 publication_state = "staged-smoke-only"
 
 [agent]
 timeout_sec = 36000
-user = "root"
+# The agent works as the image's unprivileged `node` user: it owns the checkout but not the
+# installed toolchain, so it cannot rewrite the test runner the verifier (root) executes.
+user = "node"
 network_mode = "no-network"
 
 [environment]

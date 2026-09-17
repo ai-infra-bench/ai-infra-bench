@@ -6,6 +6,8 @@ image is the same template build as `pi-background-processes` and
 `pi-history-notes` (identical Dockerfile bytes, so the same image id); the CI
 x64 runner has not built or published it yet.
 
+Harness revision 3 (2026-09-17): the agent phase runs as the unprivileged `node` user while the verifier runs as root; the installed toolchain is root-owned so candidate code cannot rewrite the runner that produces the verifier's reports, and `tests/test.sh` rejects submissions that change pi source or the build/test toolchain (see the task review under `validation/`); the pass-to-pass check tolerates the pinned environmental failures in the candidate run too. Verifier cases unchanged.
+
 ## What the agent does
 
 Adds an OpenTelemetry trace exporter to [pi](https://github.com/earendil-works/pi)

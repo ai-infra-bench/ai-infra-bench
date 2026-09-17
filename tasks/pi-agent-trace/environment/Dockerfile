@@ -135,6 +135,22 @@ RUN cd packages/coding-agent \
  && python3 /opt/pi-baseline/baseline_check.py
 
 # Agent-phase view: no verifier, solution, or validation material is present.
+# The agent phase runs as the unprivileged `node` user (task.toml `[agent].user`), the
+# verifier as root. The checkout belongs to the agent; the installed toolchain
+# (node_modules, node, python3, bash) stays root-owned and read-only for it, so
+# candidate code cannot rewrite the runner that later produces the verifier's
+# reports. vite needs a writable temp dir next to each package's node_modules,
+# and root's git must accept a checkout owned by another user.
+RUN chown -R node:node /workspace/pi \
+ && find /workspace/pi -type d -name node_modules -prune -exec chown -R root:root {} + \
+ && find /workspace/pi -type d -name node_modules -prune -exec chmod -R go-w {} + \
+ && for d in $(find /workspace/pi -type d -name node_modules -not -path '*/node_modules/*/node_modules'); do \
+      install -d -o node -g node -m 0755 "$d/.vite-temp" "$d/.vite"; \
+    done \
+ && git config --system --add safe.directory /workspace/pi \
+ && su node -c 'cd /workspace/pi && git status --porcelain | wc -l && test ! -w node_modules/vitest/vitest.mjs' \
+ && test "$(stat -c %U /workspace/pi/node_modules)" = root
+
 RUN test ! -e /tests && test ! -e /solution && test ! -e /validation
 
 LABEL ai.infra.bench.environment-template=pi-harbor-node \

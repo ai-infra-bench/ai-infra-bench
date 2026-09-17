@@ -9,9 +9,9 @@ Review made with `.agents/skills/ai-infra-bench-task-review` (SKILL.md `41a993d1
 
 ## Disposition
 
-**Retain, needs targeted hardening before final acceptance** (F1 is a demonstrated grading bypass; all other gates pass).
+**Retain; F1 hardened on 2026-09-17 (harness revision 3) and revalidated** (initial disposition: needs targeted hardening; see the update below).
 
-Scored dimensions: 10/10, unverified: 0, sum 17/20. Blocking: F1 (dimension 9). Non-blocking warnings: none for the agent budget (`[agent].timeout_sec` = 36000 s).
+Scored dimensions: 10/10, unverified: 0, sum 19/20 after the update (17/20 at the initial review). Blocking: none open (F1 closed; F2 remains non-blocking). Non-blocking warnings: none for the agent budget (`[agent].timeout_sec` = 36000 s).
 
 | # | Dimension | Score / status | Key evidence or gap | Next action |
 |---|---|---|---|---|
@@ -23,7 +23,7 @@ Scored dimensions: 10/10, unverified: 0, sum 17/20. Blocking: F1 (dimension 9). 
 | 6 | Can different correct implementations pass? | 2 | Three non-Oracle implementations pass every layer: two unmodified real submissions (grok 0.0.4, opus 0.0.6) and one real submission with a 54-line curator fix; they differ in write timing (immediate vs turn-end buffering), clock construction and entry resolution. Exact attribute maps replaced by listed-keys matching after run 11. | none |
 | 7 | Are incorrect implementations rejected for the right reasons? | 2 | Base 0 (no trace file, not a harness error); 27 negative controls each rejected by the layer named in `validation/controls-plan.md`; three real 0.0.1/0.0.3 submissions rejected by exactly the cases their revision added; matrix 31/31 locally (`at-matrix-11.log`) and CI x64 green (#94). | none |
 | 8 | Is the Oracle independently validated? | 2 | New in this review: `validation/at.independent.test.ts` + `independent_challenge.py`, two scenarios the suite never composes (failing first tool + manual compaction + parallel batch with one failure; PI_AGENT_TRACE_FILE + reload + wakeup in one session), expectations derived from the instruction. Oracle 2/2, the three alternatives 2/2, three negative controls and the 0.0.1 submission rejected. Shared invariants (`traceProblems`, `liveProblems`) are reused; no scored case is copied. | none |
-| 9 | Is the grading result trustworthy? | 0 | F1: a candidate-writable test runner yields reward 1 with Base code through `tests/test.sh` (reproduced). Existing safeguards (exact JUnit inventory, forged-report control, early-exit control, baseline pins) do not cover runner substitution. | F1 hardening |
+| 9 | Is the grading result trustworthy? | 2 (was 0) | F1 closed by harness revision 3: the agent phase runs as the unprivileged `node` user with the toolchain root-owned (runner and interpreter substitution reproduced as impossible), `test.sh` rejects changes to pi source or the build/test toolchain before running suites (control `control-toolchain-config-injected` expected 0, rejected), vite temp bundles removed; pinned environmental failures tolerated in the candidate run. Matrix rerun all-match on the rebuilt image. | CI on the new image |
 | 10 | Is acceptance reproducible and the handoff clear? | 2 | `audit_task_artifacts.py --strict-evidence` 0 errors 0 warnings, `git diff --check` clean, evidence hashes match the executable artifacts, formal Harbor path run locally (matrix) and in CI (x64); README records revisions, controls, rollouts and limitations; `publication_state` is `staged-smoke-only` (image publication is a release step). | publication workflow |
 
 ## Gates
@@ -65,3 +65,7 @@ The instruction requires the extension to live under `examples/extensions/agent-
 2. Optional F2 check, same rerun.
 3. Image publication through `publish-task-images.yml` before release.
 4. An independent reviewer should repeat the scorecard; this one was produced by the task's own curator.
+
+## Update, 2026-09-17 (harness revision 3)
+
+F1 hardening applied with authorization and revalidated: `task.toml` `[agent].user = "node"` (Harbor-native); the rendered Dockerfile leaves the checkout node-owned and `node_modules`, `node`, `python3`, `bash` root-owned and read-only for the agent, with node-owned `node_modules/.vite-temp` and `.vite` per package and `git config --system safe.directory`; `tests/test.sh` rejects submissions that changed pi source or the build/test toolchain (`scope_exit_code`, `scope.log`) and removes vite's transient bundles; `check_pass_to_pass.py` tolerates the pinned environmental failures in the candidate run (pi's timing-dependent `AuthStorage` case failed for root in the rebuilt image after passing at build time). New control `control-toolchain-config-injected` (expected 0). Probes in the rebuilt image: as `node`, replacing `node_modules/vitest/vitest.mjs` or `/usr/local/bin/node` fails with EACCES; the original F1 forgery cannot be installed; the injected-config control is rejected with the reason logged; Oracle reward 1. Matrices on the rebuilt image: pi-agent-trace 32/32 (`~/ai-infra-scratch/at-matrix-r3.log`). Dimension 9 rescored 2. Remaining: CI on the rebuilt image, canonical amd64 image and manifest, and the two authorized grok-4.6 rollouts on this revision (recorded in the evidence when done).

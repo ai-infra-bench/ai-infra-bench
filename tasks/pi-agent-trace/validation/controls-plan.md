@@ -84,3 +84,5 @@ the reward; the Harbor matrix below is the authoritative result for them.
 ## Harbor matrix
 
 See `e2e-evidence.json` `harbor_runs` for the recorded runs.
+
+Scope control (added 2026-09-17): `control-toolchain-config-injected.patch`, the Oracle plus an edit to `packages/coding-agent/vitest.config.ts` (a config the verifier's own vitest run would load), expected 0: rejected by the verifier's scope check (`scope_exit_code` 1, reason in `scope.log`) before any suite runs; behavioural layers still pass, which is the point.

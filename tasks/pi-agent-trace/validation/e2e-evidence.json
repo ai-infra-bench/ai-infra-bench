@@ -3,8 +3,8 @@
   "task": "ai-infra-bench/pi-agent-trace",
   "task_version": "0.0.6",
   "previous_evidence": "validation/history/0.0.5-evidence.json",
-  "version_note": "Verifier revision 2 of 2026-09-16 (still 0.0.6), a review of every time comparison: (a) the two places where an implementation timestamp is compared against the verifier's own Date.now() reading (the run start of the first case, the shutdown window) now allow 1 ms below, matching the 1 ms already allowed above; (b) the two comparisons that mix clocks inside the trace, a turn start (pinned by the contract to pi's millisecond event timestamp) against the previous turn's sub-millisecond end in the steering case, and a child process's run against the parent's tool span in the sub-agent case, are made at millisecond granularity like the shared invariants in at_support.ts already were; every other comparison is between two timestamps of one implementation clock and stays exact; found when the claude-opus-5 submission, whose clock is a monotonic hrtime offset anchored on a millisecond-truncated Date.now() (an OpenTelemetry-style clock the instruction permits: 'sub-millisecond digits are yours'), failed the shutdown case in 2 of 8 local runs by 16 microseconds while passing in Harbor. Verifier revision of 2026-09-16 (still 0.0.6, contract text unchanged): the tool and compaction attribute maps are now checked like the chat map already was, listed keys with the right values and extra keys allowed (toMatchObject instead of toEqual), and the failed-compaction case asserts explicitly that no entry-derived attribute is present; prompted by grok run 11, whose compaction line carried two extra pi.usage.cache_* attributes. 0.0.6 adds one sentence to the failure-safe requirement (a shutdown close carries every attribute known at that moment; an entry id is known only once pi persisted the entry) after the 0.0.5 grok rollout closed pi.run with no attributes; verifier, oracle and controls unchanged, so the 0.0.5 matrix results carry over. 0.0.5 rewrites the instruction as outcome requirements plus an export contract, dropping every prescribed mechanism, and makes the verifier mechanism-agnostic (same Oracle, same controls); 0.0.4 added overflow recovery (error chat, overflow compaction with will_retry, retry run with pi.run.after_compaction) and sub-agent trace propagation through PI_AGENT_TRACE_PARENT, with two contract cases and three controls; 0.0.3 added concurrent tool spans, steering bookkeeping (pi.run.steer_count / steer_entry_ids) and compaction usage accounting with two contract cases and three controls; 0.0.2 added live start lines (every span written at start and at end) and the failure-path requirements (aborted stream, failed compaction, quit while streaming, unwritable path, crash during a tool execution) with five contract cases, one lifecycle case and six controls.",
-  "recorded_at": "2026-09-16T09:32:02.228930+00:00",
+  "version_note": "Harness revision 3 (2026-09-17, both pi tasks): the agent phase runs as the image's unprivileged `node` user (task.toml `[agent].user`; the checkout is node-owned, node_modules and the interpreters stay root-owned, vite gets writable temp dirs, root's git accepts the checkout), and `tests/test.sh` rejects a submission that changed pi source or the build/test toolchain (configs, manifests, scripts; `scope_exit_code`, reason in `scope.log`) before running any suite, and removes vite's transient bundles first. Motivation: the task review of 2026-09-17 reproduced a grading bypass in which a root agent replaced `node_modules/vitest/vitest.mjs` and obtained reward 1 with Base code; the toolchain check also closes the tracked-config path. New control `control-toolchain-config-injected` (expected 0). The pass-to-pass check now tolerates the pinned environmental failures in the candidate run as well as in the baseline (a known timing-dependent case in pi's own suite failed for root in the rebuilt image after passing at build time; it is not attributable to a candidate). Image rebuilt; matrix and CI rerun recorded below. Verifier revision 2 of 2026-09-16 (still 0.0.6), a review of every time comparison: (a) the two places where an implementation timestamp is compared against the verifier's own Date.now() reading (the run start of the first case, the shutdown window) now allow 1 ms below, matching the 1 ms already allowed above; (b) the two comparisons that mix clocks inside the trace, a turn start (pinned by the contract to pi's millisecond event timestamp) against the previous turn's sub-millisecond end in the steering case, and a child process's run against the parent's tool span in the sub-agent case, are made at millisecond granularity like the shared invariants in at_support.ts already were; every other comparison is between two timestamps of one implementation clock and stays exact; found when the claude-opus-5 submission, whose clock is a monotonic hrtime offset anchored on a millisecond-truncated Date.now() (an OpenTelemetry-style clock the instruction permits: 'sub-millisecond digits are yours'), failed the shutdown case in 2 of 8 local runs by 16 microseconds while passing in Harbor. Verifier revision of 2026-09-16 (still 0.0.6, contract text unchanged): the tool and compaction attribute maps are now checked like the chat map already was, listed keys with the right values and extra keys allowed (toMatchObject instead of toEqual), and the failed-compaction case asserts explicitly that no entry-derived attribute is present; prompted by grok run 11, whose compaction line carried two extra pi.usage.cache_* attributes. 0.0.6 adds one sentence to the failure-safe requirement (a shutdown close carries every attribute known at that moment; an entry id is known only once pi persisted the entry) after the 0.0.5 grok rollout closed pi.run with no attributes; verifier, oracle and controls unchanged, so the 0.0.5 matrix results carry over. 0.0.5 rewrites the instruction as outcome requirements plus an export contract, dropping every prescribed mechanism, and makes the verifier mechanism-agnostic (same Oracle, same controls); 0.0.4 added overflow recovery (error chat, overflow compaction with will_retry, retry run with pi.run.after_compaction) and sub-agent trace propagation through PI_AGENT_TRACE_PARENT, with two contract cases and three controls; 0.0.3 added concurrent tool spans, steering bookkeeping (pi.run.steer_count / steer_entry_ids) and compaction usage accounting with two contract cases and three controls; 0.0.2 added live start lines (every span written at start and at end) and the failure-path requirements (aborted stream, failed compaction, quit while streaming, unwritable path, crash during a tool execution) with five contract cases, one lifecycle case and six controls.",
+  "recorded_at": "2026-09-17T16:04:43.290307+00:00",
   "base_commit": "d981de1229ef899957bbe968bc8dcda02a21f477",
   "dependency_cutoff": "2026-09-05T11:54:46Z",
   "image": {
@@ -18,13 +18,13 @@
   "hardware": "local macOS (Apple Silicon) host, colima docker VM; CI x64 runner not yet used",
   "executable_hashes": {
     "instruction_sha256": "606dd2c1ac8b85f67a3ab595da323d57eff36d39b7679fe53d07fcc5915247aa",
-    "task_toml_sha256": "b30a232f1f45059b84a16a7cc20b404c9408130f081fa0378182b95c17c12738",
-    "dockerfile_sha256": "a0e0bce4acc153635c2541adada3d167865c6b14ccd95ca207c93e48d856817a",
+    "task_toml_sha256": "4593319fef4fba698393826df8d8ba0589822c1417458a70fceeb8d11518c6bf",
+    "dockerfile_sha256": "0f3adb8228746b1865ce3435e32d05269f204b4f1996b2ba7f7ef325c3ee7ea9",
     "oracle_patch_sha256": "48ae4c3436169764077986f760b55dc4ece45fe2a0791c698433ca009812cbd8",
     "solve_script_sha256": "9fc62fd65f4dafe37cd88285894776535c4bfa300e62d5570140f49fdc93a8f9",
-    "test_script_sha256": "36697f84f21f25901025dc863367a0538ee7f6864c2cae9b479165f9db642dc0",
+    "test_script_sha256": "697f39b8f32e4e24ee377eafea720c3aaae004573374a2d7b61a77a195c18636",
     "check_junit_sha256": "c83c7f28d13b83d57295855e497f8eb443eeb16592777baa8fcbf84799cf6760",
-    "check_pass_to_pass_sha256": "9853a53422a0ac46c5468c883ac2503acc2d938034ab77b3669fa5461b45a80a",
+    "check_pass_to_pass_sha256": "45524a99263891462e106cdb8b10e270cb5a9b9a69f7360a4515a6f7a3ef82e0",
     "case_contract_sha256": "933c657fa8007a0e842de20801afc5ba9c1eed8b0f54321b5a0f4692dfb8a3fc",
     "at_support_sha256": "c8b96f7427cffcc6b49dc689e8a38105360d5198c740b722dc86bef2fc174c73",
     "contract_test_sha256": "7062c184e42677398b86f9f6bfd8458280b18c83488cccffc5427441c1e8b96c",
@@ -46,228 +46,235 @@
   "harbor_runs": {
     "entrypoint": "python3.12 .github/scripts/task_ci.py {validate,image-check,prepare-case,check-result} + uvx --from harbor==0.22.0 harbor run --env docker --n-concurrent 1 --cpus ignore --memory ignore --delete --yes",
     "latest": {
-      "date": "2026-09-16",
-      "image_id": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d",
-      "log": "~/ai-infra-scratch/at-matrix-11.log",
+      "date": "2026-09-17",
+      "image_id": "sha256:96703b6c4db6547b7096cd4d802fbc6f14bf35af9e2a3dd2418aa2c5a2eefd2d",
+      "log": "~/ai-infra-scratch/at-matrix-r3.log",
       "parallel_jobs": 2,
-      "note": "full matrix after verifier revision 2 of 2026-09-16 (1 ms slack below verifier-clock windows; millisecond granularity for the two mixed-clock in-trace comparisons); includes alt-grok-run8-fixed and alt-opus-run1",
+      "note": "full matrix on harness revision 3 (non-root agent user, root-owned toolchain, scope check, pinned environmental failures tolerated); includes control-toolchain-config-injected",
       "cases": [
         {
           "case": "base",
           "expected_reward": 0,
           "reward": 0,
           "status": "OK",
-          "elapsed_sec": 86
+          "elapsed_sec": 79
         },
         {
           "case": "oracle",
           "expected_reward": 1,
           "reward": 1,
           "status": "OK",
-          "elapsed_sec": 89
+          "elapsed_sec": 82
         },
         {
           "case": "control-int-attributes-as-numbers",
           "expected_reward": 0,
           "reward": 0,
           "status": "OK",
-          "elapsed_sec": 96
+          "elapsed_sec": 76
         },
         {
           "case": "control-chat-written-before-persist",
           "expected_reward": 0,
           "reward": 0,
           "status": "OK",
-          "elapsed_sec": 93
-        },
-        {
-          "case": "control-wakeup-as-prompt",
-          "expected_reward": 0,
-          "reward": 0,
-          "status": "OK",
-          "elapsed_sec": 90
+          "elapsed_sec": 77
         },
         {
           "case": "control-trace-id-per-process",
           "expected_reward": 0,
           "reward": 0,
           "status": "OK",
-          "elapsed_sec": 90
+          "elapsed_sec": 79
         },
         {
-          "case": "control-continuation-as-wakeup",
+          "case": "control-wakeup-as-prompt",
           "expected_reward": 0,
           "reward": 0,
           "status": "OK",
-          "elapsed_sec": 82
+          "elapsed_sec": 77
         },
         {
           "case": "control-tool-error-status-ok",
           "expected_reward": 0,
           "reward": 0,
           "status": "OK",
-          "elapsed_sec": 82
+          "elapsed_sec": 79
         },
         {
-          "case": "control-missing-line-terminator",
-          "expected_reward": 0,
-          "reward": 0,
-          "status": "OK",
-          "elapsed_sec": 78
-        },
-        {
-          "case": "control-compaction-under-last-run",
-          "expected_reward": 0,
-          "reward": 0,
-          "status": "OK",
-          "elapsed_sec": 80
-        },
-        {
-          "case": "control-error-status-without-message",
-          "expected_reward": 0,
-          "reward": 0,
-          "status": "OK",
-          "elapsed_sec": 84
-        },
-        {
-          "case": "control-chat-held-until-turn-end",
-          "expected_reward": 0,
-          "reward": 0,
-          "status": "OK",
-          "elapsed_sec": 82
-        },
-        {
-          "case": "control-write-failure-throws",
-          "expected_reward": 0,
-          "reward": 0,
-          "status": "OK",
-          "elapsed_sec": 84
-        },
-        {
-          "case": "control-no-shutdown-flush",
-          "expected_reward": 0,
-          "reward": 0,
-          "status": "OK",
-          "elapsed_sec": 85
-        },
-        {
-          "case": "control-no-start-lines",
-          "expected_reward": 0,
-          "reward": 0,
-          "status": "OK",
-          "elapsed_sec": 87
-        },
-        {
-          "case": "control-aborted-as-ok",
-          "expected_reward": 0,
-          "reward": 0,
-          "status": "OK",
-          "elapsed_sec": 89
-        },
-        {
-          "case": "control-end-line-keeps-phase",
+          "case": "control-continuation-as-wakeup",
           "expected_reward": 0,
           "reward": 0,
           "status": "OK",
           "elapsed_sec": 83
         },
         {
+          "case": "control-missing-line-terminator",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 79
+        },
+        {
+          "case": "control-compaction-under-last-run",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 83
+        },
+        {
+          "case": "control-chat-held-until-turn-end",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 76
+        },
+        {
+          "case": "control-error-status-without-message",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 78
+        },
+        {
+          "case": "control-write-failure-throws",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 76
+        },
+        {
+          "case": "control-no-shutdown-flush",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 78
+        },
+        {
+          "case": "control-no-start-lines",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 76
+        },
+        {
+          "case": "control-aborted-as-ok",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 76
+        },
+        {
           "case": "control-single-tool-slot",
           "expected_reward": 0,
           "reward": 0,
           "status": "OK",
-          "elapsed_sec": 85
+          "elapsed_sec": 78
+        },
+        {
+          "case": "control-end-line-keeps-phase",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 79
         },
         {
           "case": "control-compaction-usage-omitted",
           "expected_reward": 0,
           "reward": 0,
           "status": "OK",
-          "elapsed_sec": 86
+          "elapsed_sec": 77
         },
         {
           "case": "control-steer-messages-unrecorded",
           "expected_reward": 0,
           "reward": 0,
           "status": "OK",
-          "elapsed_sec": 87
+          "elapsed_sec": 80
         },
         {
           "case": "control-no-trace-propagation",
           "expected_reward": 0,
           "reward": 0,
           "status": "OK",
-          "elapsed_sec": 86
+          "elapsed_sec": 77
         },
         {
           "case": "control-retry-run-claims-a-message",
           "expected_reward": 0,
           "reward": 0,
           "status": "OK",
-          "elapsed_sec": 88
-        },
-        {
-          "case": "control-overflow-will-retry-false",
-          "expected_reward": 0,
-          "reward": 0,
-          "status": "OK",
-          "elapsed_sec": 89
+          "elapsed_sec": 75
         },
         {
           "case": "control-forged-junit",
           "expected_reward": 0,
           "reward": 0,
           "status": "OK",
-          "elapsed_sec": 88
+          "elapsed_sec": 77
+        },
+        {
+          "case": "control-overflow-will-retry-false",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 79
         },
         {
           "case": "alt-grok-run1",
           "expected_reward": 0,
           "reward": 0,
           "status": "OK",
-          "elapsed_sec": 85
+          "elapsed_sec": 84
         },
         {
           "case": "control-process-exit-zero-after-registration",
           "expected_reward": 0,
           "reward": 0,
           "status": "OK",
-          "elapsed_sec": 85
-        },
-        {
-          "case": "alt-grok-run4",
-          "expected_reward": 0,
-          "reward": 0,
-          "status": "OK",
-          "elapsed_sec": 89
+          "elapsed_sec": 86
         },
         {
           "case": "alt-grok-run3",
           "expected_reward": 0,
           "reward": 0,
           "status": "OK",
-          "elapsed_sec": 89
+          "elapsed_sec": 79
+        },
+        {
+          "case": "alt-grok-run4",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 79
         },
         {
           "case": "alt-grok-run8-fixed",
           "expected_reward": 1,
           "reward": 1,
           "status": "OK",
-          "elapsed_sec": 89
+          "elapsed_sec": 78
         },
         {
           "case": "alt-grok-run5",
           "expected_reward": 1,
           "reward": 1,
           "status": "OK",
-          "elapsed_sec": 89
+          "elapsed_sec": 78
         },
         {
           "case": "alt-opus-run1",
           "expected_reward": 1,
           "reward": 1,
           "status": "OK",
-          "elapsed_sec": 70
+          "elapsed_sec": 80
+        },
+        {
+          "case": "control-toolchain-config-injected",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 80
         }
       ],
       "all_match": true
@@ -286,6 +293,15 @@
         "log": "~/ai-infra-scratch/at-matrix-9.log",
         "parallel_jobs": 2,
         "note": "full matrix after the 2026-09-16 verifier revision (listed-keys attribute matching); includes alt-grok-run8-fixed",
+        "all_match": true,
+        "n_cases": 31
+      },
+      {
+        "date": "2026-09-16",
+        "image_id": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d",
+        "log": "~/ai-infra-scratch/at-matrix-11.log",
+        "parallel_jobs": 2,
+        "note": "full matrix after verifier revision 2 of 2026-09-16 (1 ms slack below verifier-clock windows; millisecond granularity for the two mixed-clock in-trace comparisons); includes alt-grok-run8-fixed and alt-opus-run1",
         "all_match": true,
         "n_cases": 31
       }
@@ -1047,25 +1063,25 @@
   ],
   "artifacts": {
     "files": {
-      "README.md": "eed47404743fa50ddf3730d29e530f13ef6b71f75bbd6a0d4c82556eb1cdf179",
-      "environment/Dockerfile": "a0e0bce4acc153635c2541adada3d167865c6b14ccd95ca207c93e48d856817a",
-      "environment/image-manifest.json": "b7e760758731623ee11dac90eb6326a457297e6cf71fbef25469e93225632bc4",
+      "README.md": "7b56a912510185d0c9c53f08d02a2d6b402580d94c70eef2136554d3030f5f3d",
+      "environment/Dockerfile": "0f3adb8228746b1865ce3435e32d05269f204b4f1996b2ba7f7ef325c3ee7ea9",
+      "environment/image-manifest.json": "ff77a03038c5b90ee56dd6a08651f54679bbdc9e479b5cc4911aebfef7c1ffaf",
       "environment/lock/manifest.json": "967f6a3c67d25bae5ed6be1dad6bc7ca15d2cfd3d3539f93366a02100d13cf2f",
       "environment/lock/package-lock.json": "e3569b99e673a0051be908f2bed57651b90a966a5a0d208913c29e6830a6a6c2",
       "instruction.md": "606dd2c1ac8b85f67a3ab595da323d57eff36d39b7679fe53d07fcc5915247aa",
       "solution/README.md": "3846768f81bcbc8be890ec89fb7a63ce3ec307b30a68ec48f1bec4dde0263d15",
       "solution/oracle.patch": "48ae4c3436169764077986f760b55dc4ece45fe2a0791c698433ca009812cbd8",
       "solution/solve.sh": "9fc62fd65f4dafe37cd88285894776535c4bfa300e62d5570140f49fdc93a8f9",
-      "task.toml": "b30a232f1f45059b84a16a7cc20b404c9408130f081fa0378182b95c17c12738",
+      "task.toml": "4593319fef4fba698393826df8d8ba0589822c1417458a70fceeb8d11518c6bf",
       "tests/at.contract.test.ts": "16b26caacc23882128ce067b3ef4454e146b4282303438ae1c4ac3d6141a430c",
       "tests/at.lifecycle.test.ts": "9fa73df9709ac0ac094bb4c2de2a57640990ebbbdefe7e3c5b0a8c043babcdd6",
       "tests/at_support.ts": "c8b96f7427cffcc6b49dc689e8a38105360d5198c740b722dc86bef2fc174c73",
       "tests/baseline-pins.json": "a1618c332ca4f20f37c06ca13a53b30b759bc9dd1044f6d9c4bb38c2c7ef04b9",
       "tests/case_contract.py": "933c657fa8007a0e842de20801afc5ba9c1eed8b0f54321b5a0f4692dfb8a3fc",
       "tests/check_junit.py": "c83c7f28d13b83d57295855e497f8eb443eeb16592777baa8fcbf84799cf6760",
-      "tests/check_pass_to_pass.py": "9853a53422a0ac46c5468c883ac2503acc2d938034ab77b3669fa5461b45a80a",
+      "tests/check_pass_to_pass.py": "45524a99263891462e106cdb8b10e270cb5a9b9a69f7360a4515a6f7a3ef82e0",
       "tests/fixtures/pi_child.mjs": "73c2d9d4d705831095f69772c9bf02fd7c4e414748608c223a02262dfdfc32b7",
-      "tests/test.sh": "36697f84f21f25901025dc863367a0538ee7f6864c2cae9b479165f9db642dc0",
+      "tests/test.sh": "697f39b8f32e4e24ee377eafea720c3aaae004573374a2d7b61a77a195c18636",
       "validation/alt-grok-run1.patch": "982fd144d6693192497809994d9bcb54664d296aaff9767cdf07543d3036ea81",
       "validation/alt-grok-run3.patch": "1fc1f7529e23b694b392aee8cfb9196b94bbd152b1b36b9aef55b4aec998708c",
       "validation/alt-grok-run4.patch": "a07861ba020a599cfef10b63b1d0ae1b88a8814a2bd0a51caa6fb6f958825830",
@@ -1073,7 +1089,7 @@
       "validation/alt-grok-run8-fixed.patch": "87c7ff027eb4d9e2e730368b2fa2f02c51fcb96083a6fdbed47c9223aa24e602",
       "validation/alt-opus-run1.patch": "9817d4ffcb6dc7cf129ddb627cff82a3b3a1974789e17aee133f5ab0bd027479",
       "validation/behavior-map.md": "27dbf0ae5ae49ace5638c6e8c86d26aca831b7edc2a1d337e76d138735b36cf4",
-      "validation/ci-cases.json": "daefee8c2fa1799cec11ab341d7edd048c9d8ac5449adf721100b0ee11d2a8be",
+      "validation/ci-cases.json": "57c0450d6ddaeb46a0a530388a4841d4e40b39a2b94b256584a519bfb1aad89f",
       "validation/control-aborted-as-ok.patch": "ca556da5fe2bebcd6a9d83cd5ea0d0032668ad9acc27776124a1b9bd74b69ea9",
       "validation/control-chat-held-until-turn-end.patch": "7bd30caee123446bce4a601442a8fcee07afe7e9f9db6d5e93d224584081a894",
       "validation/control-chat-written-before-persist.patch": "4a28605f512f881759f816b2d62ed74c2ac3466e13f4f557ce0017d9e4b409f3",
@@ -1094,14 +1110,15 @@
       "validation/control-single-tool-slot.patch": "621a72ddafe1cdf90e7e63e07f19706d13be598bcda079d5c173449f9627d6cd",
       "validation/control-steer-messages-unrecorded.patch": "b32ec91403cd06852ab543370cc1c3d48ac4ee2a72be52705fb14798d01995a9",
       "validation/control-tool-error-status-ok.patch": "a407f12297f7cd1c65c2509b54969bbd413655634dfb62158d5559c95c99ace4",
+      "validation/control-toolchain-config-injected.patch": "7c12a627329da73fe2618d0ef4624656cf6577f7ab55f4295f2f8f9ea668ff16",
       "validation/control-trace-id-per-process.patch": "06d98f8db7b5edf3d06c444cfd92763fc583b8116f0029175df94cde4f05fa7c",
       "validation/control-wakeup-as-prompt.patch": "81571621c837afaa2608b0ddcb84be2cfb88cab8462c1745a1be992181eb3a5e",
       "validation/control-write-failure-throws.patch": "ef4b99cdba0ee7f108e3d112feb697c4182b5250c8c33597ba5cc2a57accdbd0",
-      "validation/controls-plan.md": "76a4d583451fd878cd7fc6fc6e86e936926cbac99400bee9c905a5bd1eeb1403",
+      "validation/controls-plan.md": "54c28ccb04d6dd5c12e70661af7f36943a60e94b548e925773d5c2d38614d63d",
       "validation/independent_challenge.py": "0c293e1904a558c028081c8f0d9e194e4523720a61c193fabfcd8a624174c94e",
       "validation/make_controls.py": "86f014a4a2580adbff3864c277ff16520ca43ac29af702a3b0eb752c4492800a",
       "validation/rollout-review-2026-09-17.md": "9087e16bb9d4f91233497b3818206d5c60b017d1723f7e370ece830c4a61bbc6",
-      "validation/task-review-2026-09-17.md": "7ed823a7b6dfb119c7a1d772daec5a998c3008992e1ff69cd274eb7abf5a62ae"
+      "validation/task-review-2026-09-17.md": "ba8cf20308f2f8589c3f1b918ec64286a7573d0dcd0c3f5268253ae6fe9707d2"
     }
   }
 }
