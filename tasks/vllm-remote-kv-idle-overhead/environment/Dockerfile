@@ -97,7 +97,7 @@ RUN apt-get -o Acquire::Retries=3 \
 COPY lock/requirements.txt /tmp/upstream-test-requirements.txt
 RUN PIP_NO_INDEX=0 /opt/venv/bin/python -m pip install --no-cache-dir -r /tmp/upstream-test-requirements.txt
 
-# Normal upstream scheduler tests use this public, pre-cutoff model metadata.
+# Normal upstream scheduler tests use this public, pre-cutoff OPT and LLaVA metadata.
 # No weights, task-specific reproducers, or hidden test inputs are included.
 COPY lock/hf-cache/ /home/agent/.cache/huggingface/hub/
 RUN chown -R agent:agent /home/agent/.cache

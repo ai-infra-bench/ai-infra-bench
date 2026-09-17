@@ -46,3 +46,16 @@ native files are copied. The installed package path is a symlink to `/app/vllm`.
 A final scratch stage exports only the cleaned filesystem, without historical
 donor layers. Earlier images retained a second donor source tree; old results
 must not be presented as validation of this new isolation.
+
+## Additional ordinary test metadata (task 1.3.0)
+
+`llava-hf/llava-1.5-7b-hf` is pinned to revision
+`b234b804b114d9e37bb655e11cbbb5f5e971b7a9`, dated 2025-06-06, before
+the task cutoff. The eleven public config, tokenizer, and template files total
+4,124,291 bytes; `refs/main` resolves that exact revision. There are no weights,
+solutions, or reproducer scripts. `manifest.json` records each file hash.
+The cache fixes a demonstrated offline ModelConfig failure in ordinary upstream
+multimodal scheduler tests. A diagnostic on clean Base with this cache produced
+91 passed / 1 skipped in `tests/v1/core/test_scheduler.py`. Separate streaming
+upstream fixtures have eight pre-existing MagicMock failures on Base; optional
+connector dependencies and other model caches are not claimed complete.

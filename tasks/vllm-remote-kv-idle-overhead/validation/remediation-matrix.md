@@ -1,5 +1,18 @@
 # Review remediation matrix
 
+## Current repair: 1.3.0
+
+See [the current review](repair-review-2026-09-17.md) and
+[actual repair controls](repair-calibration-2026-09-17.json). The old streaming
+fixture rejected event-driven solutions; the old Oracle starved mixed streaming
+continuations and the old alternative retained linear mixed-idle work. Those
+findings are repaired, with both flawed references retained as negative controls.
+LLaVA metadata is now pinned for ordinary offline tests. Twelve Harbor controls
+matched expectations, but final trust review and fresh model trials are pending.
+The following table describes the earlier 1.2.x iteration, not current acceptance.
+
+## Historical 1.2.x record
+
 | Review finding | Remediation | Current state |
 | --- | --- | --- |
 | Meaningful task identity | Uses the descriptive task directory and task name. | Complete |

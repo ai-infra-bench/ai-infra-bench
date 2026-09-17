@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+from concurrent.futures import Future
 import json
 import statistics
 import sys
@@ -18,12 +19,14 @@ REQUEST_COUNT = 24
 IDLE_ROUNDS = 200
 EXPECTED_CHECKPOINTS = (
     "idle-scaling",
+    "mixed-idle-scaling",
     "completion-promotion",
     "abort",
     "abort-late-completion",
     "abort-ready-race",
     "staggered-completion",
     "mixed-fcfs",
+    "streaming-resumption",
     "generation-lifecycle",
     "ready-backpressure",
     "no-connector-regression",
@@ -68,7 +71,7 @@ def load_candidate() -> None:
         KVConnectorBase_V1,
         KVConnectorRole,
     )
-    from vllm.sampling_params import SamplingParams
+    from vllm.sampling_params import SamplingParams, StructuredOutputsParams
     from vllm.utils.hashing import sha256
     from vllm.v1.core.kv_cache_utils import (
         get_request_block_hasher,
@@ -255,64 +258,123 @@ def measure_idle(model_dir: str, request_count: int) -> float:
     return statistics.median(samples) / IDLE_ROUNDS
 
 
+def start_stream_and_wait(scheduler, request_id="stream"):
+    """Enter streaming wait by ending a real resumable output segment."""
+    request = create_requests(
+        1, request_ids=[request_id], token_counts=[1], max_tokens=1,
+    )[0]
+    request.resumable = True
+    scheduler.add_request(request)
+    scheduled = scheduler.schedule()
+    if list(scheduled.num_scheduled_tokens) != [request_id]:
+        raise AssertionError("runnable streaming segment stalled behind blocked work")
+    outputs = scheduler.update_from_output(scheduled, ModelRunnerOutput(
+        req_ids=[request_id], req_id_to_index={request_id: 0}, sampled_token_ids=[[42]],
+    ))
+    observed = [token for client in outputs.values() for output in client.outputs
+                if output.request_id == request_id for token in output.new_token_ids]
+    if observed != [42] or request.status != RequestStatus.WAITING_FOR_STREAMING_REQ:
+        raise AssertionError("streaming segment failed to return output and await next input")
+    return request
+
+
+def deliver_stream_input(scheduler, request_id="stream"):
+    update = create_requests(
+        1, request_ids=[request_id], token_counts=[1], max_tokens=1,
+    )[0]
+    update.resumable = True
+    scheduler.add_request(update)
+
+
+def create_mixed_idle_scheduler(model_dir, request_count):
+    scheduler, requests, _ = create_blocked_scheduler(model_dir, request_count)
+    scheduler.connector.get_num_new_matched_tokens = lambda request, count: (
+        (0, False) if request.request_id == "stream" else (8, True)
+    )
+    stream = start_stream_and_wait(scheduler)
+    if scheduler.get_request_counts() != (0, request_count + 1):
+        raise AssertionError("mixed waits lost request accounting")
+    return scheduler, requests, stream
+
+
+def measure_mixed_idle(model_dir, request_count):
+    scheduler, _, _ = create_mixed_idle_scheduler(model_dir, request_count)
+    scheduler.schedule()
+    samples = []
+    for _ in range(5):
+        started = time.perf_counter_ns()
+        for _ in range(IDLE_ROUNDS):
+            if scheduler.schedule().num_scheduled_tokens:
+                raise AssertionError("request ran before its pending input/transfer arrived")
+        samples.append(time.perf_counter_ns() - started)
+    if scheduler.get_request_counts() != (0, request_count + 1):
+        raise AssertionError("idle ticks lost mixed waiting requests")
+    return statistics.median(samples) / IDLE_ROUNDS
+
+
+def check_streaming_resumption(model_dir):
+    for request_count in (3, 37):
+        scheduler, requests, stream = create_mixed_idle_scheduler(model_dir, request_count)
+        for _ in range(3):
+            if scheduler.schedule().num_scheduled_tokens:
+                raise AssertionError("pending mixed requests unexpectedly ran")
+        # A new streaming input is independent of every remote transfer. No
+        # remote completion may be needed for it to become runnable again.
+        for token in (43, 44):
+            deliver_stream_input(scheduler)
+            scheduled = scheduler.schedule()
+            if list(scheduled.num_scheduled_tokens) != ["stream"]:
+                raise AssertionError("streaming continuation stalled without a remote completion")
+            outputs = scheduler.update_from_output(scheduled, ModelRunnerOutput(
+                req_ids=["stream"], req_id_to_index={"stream": 0}, sampled_token_ids=[[token]],
+            ))
+            actual = [t for client in outputs.values() for output in client.outputs
+                      if output.request_id == "stream" for t in output.new_token_ids]
+            if actual != [token] or stream.status != RequestStatus.WAITING_FOR_STREAMING_REQ:
+                raise AssertionError("resumed streaming output/lifecycle was corrupted")
+        scheduler.finish_requests("stream", RequestStatus.FINISHED_ABORTED)
+        if scheduler.get_request_counts() != (0, request_count):
+            raise AssertionError("cancelling a streaming wait corrupted remote counts")
+
+
 def check_mixed_blocked_fcfs(model_dir: str) -> None:
-    """Blocked reasons may coexist without changing observable FCFS order."""
-    scheduler = create_scheduler(
-        model_dir,
-        request_count=5,
-        max_num_batched_tokens=20,
+    """Real remote and streaming events preserve order with pending grammar."""
+    scheduler = create_scheduler(model_dir, 5, max_num_batched_tokens=20)
+    scheduler.connector.get_num_new_matched_tokens = lambda request, count: (
+        (8, True) if request.request_id == "remote" else (0, False)
     )
-    # This scenario controls readiness explicitly; ordinary requests should not
-    # start another asynchronous transfer while the ordering contract is tested.
-    scheduler.connector.get_num_new_matched_tokens = lambda request, count: (0, False)
-    requests = create_requests(
-        5,
-        token_counts=[1, 1, 1, 20, 1],
-        request_ids=["fsm", "remote", "stream", "regular", "tail"],
-    )
-    req_fsm, req_remote, req_stream, req_regular, req_tail = requests
-    req_fsm.status = RequestStatus.WAITING_FOR_FSM
-    req_fsm.structured_output_request = types.SimpleNamespace(grammar=None)
-    req_remote.status = RequestStatus.WAITING_FOR_REMOTE_KVS
-    req_stream.status = RequestStatus.WAITING_FOR_STREAMING_REQ
-
-    for request in requests:
-        scheduler.add_request(request)
+    remote = create_requests(1, request_ids=["remote"], token_counts=[10])[0]
+    params = SamplingParams(max_tokens=16, ignore_eos=True,
+                            structured_outputs=StructuredOutputsParams(choice=["yes", "no"]))
+    params.update_from_generation_config({}, 50256)
+    fsm = Request(request_id="fsm", prompt_token_ids=[1], sampling_params=params,
+                  pooling_params=None, block_hasher=get_request_block_hasher(16, sha256))
+    # Grammar compilation is outside the scheduler boundary; a real Future
+    # supplies the same completion event as the upstream grammar worker.
+    grammar = Future()
+    fsm.structured_output_request.grammar = grammar
+    scheduler.add_request(fsm)
+    scheduler.add_request(remote)
+    start_stream_and_wait(scheduler)
+    if remote.status != RequestStatus.WAITING_FOR_REMOTE_KVS:
+        raise AssertionError("remote request did not enter asynchronous receive")
+    regular, tail = create_requests(2, request_ids=["regular", "tail"], token_counts=[20, 1])
+    scheduler.add_request(regular)
+    scheduler.add_request(tail)
     first = scheduler.schedule()
-    first_ids = [request.req_id for request in first.scheduled_new_reqs]
-    if first_ids != [req_regular.request_id]:
-        raise AssertionError(f"unexpected first scheduling order: {first_ids}")
-
-    # Deliver readiness through the production connector-output boundary. An
-    # implementation may keep a dirty flag or a separate pending-id set that
-    # is updated here, so mutating the scheduler's internal completion set
-    # directly would incorrectly reject those event-driven designs.
-    req_fsm.structured_output_request = types.SimpleNamespace(grammar=object())
-    req_stream.status = RequestStatus.WAITING
-    finished = ModelRunnerOutput(
-        req_ids=[req_regular.request_id],
-        req_id_to_index={req_regular.request_id: 0},
-        sampled_token_ids=[[]],
-        kv_connector_output=KVConnectorOutput(
-            finished_recving={req_remote.request_id}
-        ),
-    )
-    scheduler.update_from_output(first, finished)
-    scheduler.finish_requests(req_regular.request_id, RequestStatus.FINISHED_ABORTED)
-
+    if list(first.num_scheduled_tokens) != ["regular"]:
+        raise AssertionError("ordinary runnable request stalled behind mixed waits")
+    scheduler.update_from_output(first, ModelRunnerOutput(
+        req_ids=["regular"], req_id_to_index={"regular": 0}, sampled_token_ids=[[]],
+        kv_connector_output=KVConnectorOutput(finished_recving={"remote"}),
+    ))
+    scheduler.finish_requests("regular", RequestStatus.FINISHED_ABORTED)
+    grammar.set_result(object())
+    deliver_stream_input(scheduler)
     second = scheduler.schedule()
-    resumed_ids = [request.req_id for request in second.scheduled_new_reqs]
-    expected_ids = [
-        req_fsm.request_id,
-        req_remote.request_id,
-        req_stream.request_id,
-        req_tail.request_id,
-    ]
-    if resumed_ids != expected_ids:
-        raise AssertionError(
-            "FCFS order changed across mixed blocked reasons: "
-            f"expected={expected_ids} actual={resumed_ids}"
-        )
+    observed = list(second.num_scheduled_tokens)
+    if observed != ["fsm", "remote", "stream", "tail"]:
+        raise AssertionError(f"FCFS order changed across mixed waits: {observed}")
 
 
 def check_abort_late_completion(model_dir: str) -> None:
@@ -576,6 +638,13 @@ def run_suite(emit) -> None:
             )
         emit("idle-scaling", True)
 
+        mixed_small_ns = measure_mixed_idle(str(model_dir), REQUEST_COUNT)
+        mixed_large_ns = measure_mixed_idle(str(model_dir), REQUEST_COUNT * 16)
+        mixed_ratio = mixed_large_ns / max(mixed_small_ns, 1.0)
+        if mixed_ratio >= 6.0:
+            raise AssertionError(f"mixed idle remote-KV overhead still scales: ratio={mixed_ratio:.2f}")
+        emit("mixed-idle-scaling", True)
+
         scheduler, requests, output = create_blocked_scheduler(
             str(model_dir), REQUEST_COUNT
         )
@@ -610,6 +679,9 @@ def run_suite(emit) -> None:
         check_mixed_blocked_fcfs(str(model_dir))
         emit("mixed-fcfs", True)
 
+        check_streaming_resumption(str(model_dir))
+        emit("streaming-resumption", True)
+
         check_generation_lifecycle(str(model_dir))
         emit("generation-lifecycle", True)
         check_ready_backpressure(str(model_dir))
@@ -626,6 +698,7 @@ def run_suite(emit) -> None:
                 "small_tick_ns": small_ns,
                 "large_tick_ns": large_ns,
                 "scaling_ratio": ratio,
+                "mixed_scaling_ratio": mixed_ratio,
                 "resumed": resumed_ids,
             },
                 sort_keys=True,
