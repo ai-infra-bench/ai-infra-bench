@@ -1,6 +1,6 @@
 # Negative controls
 
-Each control is a complete patch against Base `d981de1229ef899957bbe968bc8dcda02a21f477`, including the production implementation except for the deliberate defect below. They do not require applying Oracle first. Base and Oracle are the CI runner's built-in cases; `ci-cases.json` lists these controls and the separately maintained positive alternative.
+Each control is a complete patch against Base `d981de1229ef899957bbe968bc8dcda02a21f477`, including the production implementation except for the deliberate defect below. They do not require applying Oracle first. Base and Oracle are the CI runner's built-in cases; `ci-cases.json` lists these controls and the separately maintained positive controls described in [alternative-correctness.md](alternative-correctness.md).
 
 | Case | Deliberate defect | Expected distinguishing behavior |
 | --- | --- | --- |
@@ -16,6 +16,22 @@ Each control is a complete patch against Base `d981de1229ef899957bbe968bc8dcda02
 Regenerate with `python3 validation/generate_controls.py --base-repo /path/to/pi`. The script reads the pinned Base object and current `solution/oracle.patch`, works in temporary directories, checks clean Base application, and verifies complete resulting file contents against each intended mutation before publishing patches. It preserves unrelated CI cases, including the alternative. Patch hashes and generation checks are recorded in `control-generation.json` and `ci-cases.json`.
 
 Compilation and behavioral rewards are separate checks. These controls must compile; a build failure is not evidence that the intended semantic defect was detected. Recorded matrix evidence is the authority for observed rewards.
+
+Version `0.0.3` retains all eight negative controls and all 25 behavioral scenarios.
+The first-person statement removes unnecessary metadata, list-order,
+acknowledgement-payload and preflight-status requirements. The verifier replaces
+those constraints with direct conversation restoration and conflict-resolution
+retry checks; crash recovery, manual-edit protection, branch isolation and
+execution gating remain required. The added `minimal-checkpoint-metadata`
+positive is derived from Oracle to challenge representation bias, not to replace
+any negative control or provide another independent recovery algorithm.
+
+The author matrix therefore comprises Base, Oracle, two positive controls and
+these eight negative controls. Expected outcomes are not recorded outcomes:
+consult the current [e2e-evidence.json](e2e-evidence.json) for completed trials
+bound to the current verifier. Individual negative controls may fail different
+numbers of cases after behavioral checks are strengthened; the relevant evidence
+is that their intended defects are observed and they earn zero reward.
 
 Keeping internal records of abandoned branches is permitted when they are not
 eligible public targets and cannot contaminate later behavior. The branch control

@@ -6,13 +6,13 @@ real files, Git state, public results and captured local provider requests.
 
 | Case | Public requirement checked |
 | --- | --- |
-| sdk_public_contract | Opt-in SDK, public state and one stable checkpoint per request |
+| sdk_public_contract | Opt-in SDK, public state, one stable checkpoint per request and actual rollback to the preceding effective conversation |
 | disabled_regression | Disabled behavior, empty list and side-effect-free rejection |
 | in_memory_rejected | Persistent sessions required when enabled |
 | normal_files_and_conversation | Actual edit/write/bash; bytes, permissions, create/delete/rename; pre-existing dirty files; effective context; immediate restart |
-| checkpoint_branch_and_idempotence | Repeat success; new branch after rollback; abandoned target rejected |
+| checkpoint_branch_and_idempotence | Actual second-request rollback preserves the first request's files and effective conversation; direct rollback across multiple requests restores the selected earlier boundary; repeat success; new branch after rollback; abandoned target rejected |
 | invalid_and_foreign_targets | Invalid and another session's actual checkpoint IDs rejected; normal navigation to an ancestor excludes later checkpoints and rejects their IDs without side effects |
-| idle_external_conflict | Complete preflight rejection; explicit path; no partial files or context changes |
+| idle_external_conflict | Complete preflight rejection; explicit path; no partial files or context changes; successful retry after the conflicting edit is resolved preserves unrelated human work |
 | idle_unrelated_changes_preserved | Successful rollback preserves unrelated idle modification and newly created human file |
 | file_becomes_nested_directory | Real Bash replaces a tracked file with nested directories/files and another original directory with a regular file; rollback restores both original shapes and survives restart |
 | idle_descendant_conflict | Restoring an original file over a directory cannot discard a human-added descendant; whole operation rejects |
@@ -28,9 +28,26 @@ real files, Git state, public results and captured local provider requests.
 | rollback_concurrent_prompt | Prompt submitted alongside rollback either rejects or reaches the real provider only after files and conversation have been restored |
 | filesystem_failure_retry | Ordinary filesystem access failure cannot report success; a pending restore remains inspectable and gated after restart with the fault present; retry after access restored |
 | steering_followup_single_checkpoint | A real retry after a transient HTTP provider error, steering and queued follow-up all stay within the initial request boundary |
-| rpc_cli_contract | Real CLI flag and JSON-lines RPC operations, response shape and provider context |
+| rpc_cli_contract | Real CLI flag and JSON-lines RPC operations, existing success/error envelope, actual restoration and subsequent provider context |
 | rpc_cli_resume_recovery | CLI opt-in persists across restarts; unfinished execution gate and durable RPC recovery |
 | tui_rollback_command | Real interactive checkpoint listing and rollback command (separate PTY scenario) |
+
+Version `0.0.3` keeps all 25 scenarios while matching the shorter, first-person
+statement. Checkpoints need stable IDs, but need not expose `sessionId` or
+`entryId`, and their list order is unrestricted. Multi-request cases identify a
+new checkpoint by comparing ID sets. Conversation boundaries are checked by
+performing rollback and comparing effective message content, rather than
+reconstructing a boundary from checkpoint metadata. Both restoration of the
+immediately preceding boundary and direct rollback across multiple completed
+requests are exercised.
+
+The existing RPC envelope and the documented list payload remain required;
+successful rollback may return an empty acknowledgement. A preflight conflict's
+diagnostic status does not determine its score: complete refusal, a useful path,
+unchanged files and conversation, and successful retry after conflict resolution
+do. The documented state vocabulary and execution gates remain in force.
+These changes remove representation requirements without removing crash,
+concurrency, branch, permission, Git-state or manual-edit protection checks.
 
 The loopback provider supplies only model tool calls and text. It never performs
 file mutations, checkpoints, session rewinds or crash recovery. The peer is a

@@ -193,9 +193,7 @@ class Peer:
         require(isinstance(records, list), 'Checkpoint response is not a list')
         ids = []
         for record in records:
-            require(isinstance(record.get('id'), str) and record['id'], 'Invalid checkpoint ID')
-            require(isinstance(record.get('sessionId'), str), 'Missing checkpoint session ID')
-            require('entryId' in record and (record['entryId'] is None or isinstance(record['entryId'], str)), 'Invalid entry ID')
+            require(isinstance(record, dict) and isinstance(record.get('id'), str) and record['id'], 'Invalid checkpoint ID')
             ids.append(record['id'])
         require(len(ids) == len(set(ids)), 'Duplicate checkpoint IDs')
         return records
@@ -338,16 +336,16 @@ def assert_no_text(payload, text):
     require(text not in json.dumps(payload), 'Rolled-back conversation leaked into effective context: ' + text)
 
 
-def assert_checkpoint_boundary(peer, checkpoint, before_messages):
-    entries={entry['id']:entry for entry in peer.call('inspect')['entries']}
-    current=checkpoint['entryId']; path=[]; seen=set()
-    while current is not None:
-        require(current in entries and current not in seen,'Checkpoint entryId is not a valid session boundary')
-        seen.add(current); entry=entries[current]; path.append(entry); current=entry['parentId']
-    messages=[entry['message'] for entry in reversed(path) if entry.get('type')=='message']
+def assert_conversation_restored(peer, before_messages):
     def content(items):
         return [{key:message[key] for key in ('role','content','toolCallId','toolName','isError') if key in message} for message in items]
-    require(content(messages)==content(before_messages),'Checkpoint entryId describes a different conversation boundary')
+    require(content(peer.call('inspect')['messages'])==content(before_messages),'Rollback restored a different effective conversation')
+
+
+def new_checkpoint(peer, before_ids):
+    created={checkpoint['id'] for checkpoint in peer.list()}-set(before_ids)
+    require(len(created)==1,'Expected exactly one new stable checkpoint ID per request')
+    return created.pop()
 
 
 def sdk_public_contract(f):
@@ -358,8 +356,8 @@ def sdk_public_contract(f):
     f.provider.script({'text':'hello'})
     p.prompt('one-' + f.nonce)
     cp = p.list(); require(len(cp)==1,'Expected one checkpoint per request')
-    require(cp[0]['sessionId']==p.ready['sessionId'],'Checkpoint belongs to wrong session')
-    assert_checkpoint_boundary(p,cp[0],before)
+    p.rollback(cp[0]['id'])
+    assert_conversation_restored(p,before)
 
 
 def disabled_regression(f):
@@ -401,16 +399,26 @@ def checkpoint_branch_and_idempotence(f):
     p.prompt('first-'+f.nonce); first=p.list()[0]['id']
     before_second=p.call('inspect')['messages']
     f.provider.script(tool('write',path='a.txt',content='branch-b'),{'text':'b'})
-    p.prompt('abandoned-'+f.nonce); cps=p.list(); require(len(cps)==2,'Second checkpoint absent'); abandoned=cps[-1]['id']
-    assert_checkpoint_boundary(p,cps[-1],before_second)
+    p.prompt('abandoned-'+f.nonce); cps=p.list(); require(len(cps)==2,'Second checkpoint absent')
+    abandoned=new_checkpoint(p,{first})
+    p.rollback(abandoned)
+    require((f.project/'a.txt').read_text()=='branch-a','Second checkpoint restored the wrong file boundary')
+    assert_conversation_restored(p,before_second)
     p.rollback(first); p.rollback(first); f.assert_baseline()
+    before_branch={checkpoint['id'] for checkpoint in p.list()}
+    before_branch_messages=p.call('inspect')['messages']
     f.provider.script(tool('write',path='a.txt',content='branch-c'),{'text':'c'})
     p.prompt('new-branch-'+f.nonce)
+    branch=new_checkpoint(p,before_branch)
     require(abandoned not in [c['id'] for c in p.list()], 'Abandoned checkpoint remains eligible')
     before=p.call('inspect')['messages']; p.rollback(abandoned,okay=False)
     require((f.project/'a.txt').read_text()=='branch-c' and p.call('inspect')['messages']==before,'Invalid branch rollback had side effects')
     assert_no_text(f.provider.requests[-1], 'abandoned-'+f.nonce)
-    p.rollback(p.list()[-1]['id']); f.assert_baseline()
+    f.provider.script(tool('write',path='a.txt',content='branch-d'),{'text':'d'})
+    p.prompt('new-branch-second-'+f.nonce)
+    require((f.project/'a.txt').read_text()=='branch-d','Second request on new branch did not execute')
+    p.rollback(branch); f.assert_baseline()
+    assert_conversation_restored(p,before_branch_messages)
 
 
 def invalid_and_foreign_targets(f):
@@ -428,8 +436,9 @@ def invalid_and_foreign_targets(f):
     entry=next(entry for entry in p.call('inspect')['entries']
                if entry.get('type')=='message' and entry.get('message',{}).get('role')=='user'
                and 'ancestor-a-'+f.nonce in json.dumps(entry['message']))
+    before_descendant={checkpoint['id'] for checkpoint in p.list()}
     f.provider.script(tool('write',path='a.txt',content='descendant-b'),{'text':'descendant b complete'})
-    p.prompt('descendant-b-'+f.nonce); descendant=p.list()[-1]['id']
+    p.prompt('descendant-b-'+f.nonce); descendant=new_checkpoint(p,before_descendant)
     p.call('navigate',entryId=entry['id'])
     require(descendant not in [cp['id'] for cp in p.list()],
             'Checkpoint outside the active ancestor chain remains eligible after normal navigation')
@@ -447,23 +456,30 @@ def idle_external_conflict(f):
     (f.project/'unrelated-user.txt').write_text('keep unrelated')
     before={name:file_state(f.project/name) for name in f.names+['created.txt','renamed.txt','constructor','unrelated-user.txt']}
     messages=p.call('inspect')['messages']
-    rejection=p.rollback(p.list()[0]['id'],okay=False)
+    checkpoint=p.list()[0]['id']
+    rejection=p.rollback(checkpoint,okay=False)
     require('a.txt' in json.dumps([rejection,p.state()]),'Conflict path missing')
-    require(p.state()['status']=='ready','Preflight conflict created pending recovery')
     require(p.call('inspect')['messages']==messages,'Conflict changed conversation')
     require(before=={name:file_state(f.project/name) for name in before},'Conflict partially changed files')
+    # Resolve only the overlapping idle edit, leaving unrelated human work in
+    # place. A diagnostic state label must not decide whether refusal was safe.
+    (f.project/'a.txt').write_text('changed-'+f.nonce)
+    p.rollback(checkpoint); f.assert_baseline(['created.txt','renamed.txt'])
+    require(file_state(f.project/'unrelated-user.txt')==before['unrelated-user.txt'],'Conflict retry changed unrelated human work')
 
 
 def between_requests_external_conflict(f):
     p=f.peer(); p.require_api()
     f.provider.script(tool('write',path='a.txt',content='first'),{'text':'first'}); p.prompt('first')
+    first=p.list()[0]['id']
     (f.project/'a.txt').write_text('human-between-'+f.nonce)
     f.provider.script(tool('write',path='a.txt',content='second'),{'text':'second'}); p.prompt('second')
     cps=p.list(); require(len(cps)==2,'Expected two checkpoints')
-    messages=p.call('inspect')['messages']; rejection=p.rollback(cps[0]['id'],okay=False)
+    second=new_checkpoint(p,{first})
+    messages=p.call('inspect')['messages']; rejection=p.rollback(first,okay=False)
     require('a.txt' in json.dumps([rejection,p.state()]),'Between-request conflict not identified')
     require((f.project/'a.txt').read_text()=='second' and messages==p.call('inspect')['messages'],'Between-request conflict mutated state')
-    p.rollback(cps[1]['id']); require((f.project/'a.txt').read_text()=='human-between-'+f.nonce,'Latest checkpoint did not preserve human baseline')
+    p.rollback(second); require((f.project/'a.txt').read_text()=='human-between-'+f.nonce,'Latest checkpoint did not preserve human baseline')
 
 
 def idle_unrelated_changes_preserved(f):
@@ -733,8 +749,8 @@ def rpc_cli_contract(f):
     p=f.peer(rpc=True)
     require(p.state()['enabled'],'CLI flag did not enable rollback')
     f.provider.script(tool('write',path='a.txt',content='rpc-change'),{'text':'done'})
-    p.prompt('rpc-discard-'+f.nonce); cp=p.list()[0]['id']; result=p.rollback(cp)
-    require(isinstance(result,dict) and result.get('checkpointId')==cp,'RPC rollback response shape mismatch'); f.assert_baseline()
+    p.prompt('rpc-discard-'+f.nonce); cp=p.list()[0]['id']; p.rollback(cp)
+    f.assert_baseline()
     p.rollback('invalid',okay=False)
     f.provider.script({'text':'continued'}); p.prompt('rpc-continue')
     assert_no_text(f.provider.requests[-1],'rpc-discard-'+f.nonce)

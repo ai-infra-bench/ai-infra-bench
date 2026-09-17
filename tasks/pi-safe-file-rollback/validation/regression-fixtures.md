@@ -1,6 +1,6 @@
 # Regression fixture compatibility
 
-Version 0.0.2 supplies the task-specified disabled-session API to two legacy TUI
+Introduced in version 0.0.2, the verifier supplies the task-specified disabled-session API to two legacy TUI
 regression fixtures after loading them from the pinned Base. It preserves every
 original assertion, event sequence, deferred barrier and testcase identity.
 
@@ -26,7 +26,7 @@ The historical reward 0 remains a record of the old verifier.
 The declared original regression inventory remains 2,158 cases, including the
 same 50 existing skips. Enabled recovery behavior is still exercised separately
 through the real SDK, RPC and terminal; these disabled-state stubs do not replace
-those checks. Version 0.0.2 validation records the formal author-control matrix
+those checks. Current validation records the formal author-control matrix
 and the unchanged saved-answer replay in [e2e-evidence.json](e2e-evidence.json)
 and [saved-answer-regrade.json](saved-answer-regrade.json).
 

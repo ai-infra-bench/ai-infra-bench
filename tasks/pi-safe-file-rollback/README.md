@@ -1,9 +1,9 @@
 # pi-safe-file-rollback
 
-**Status: locally validated; image publication pending.** Version `0.0.2` was
+**Status: locally validated; image publication pending.** Version `0.0.3` was
 validated through Harbor on a retained linux/amd64 image: Base 0, Oracle 1,
-one correct alternative 1, and eight negative controls 0. A saved Codex /
-GPT-6 Astra xhigh answer also passes. Results are in
+one correct alternative and one interface variant 1, and eight negative controls
+0. A saved Codex / GPT-6 Astra xhigh answer also passes. Results are in
 [`validation/e2e-evidence.json`](validation/e2e-evidence.json) and
 [`validation/saved-answer-regrade.json`](validation/saved-answer-regrade.json).
 
@@ -63,7 +63,8 @@ layer passes; a successful candidate process exit alone is insufficient.
 The provider supplies model responses and records actual subsequent requests;
 Pi's tools, filesystem, session persistence, and recovery run for real. Scoring
 does not inspect private recovery journals or require a particular storage
-layout or restoration order. The mapping is in
+layout or restoration order. Checkpoint metadata and list order are not graded;
+actual file and conversation restoration are. The mapping is in
 [`validation/behavior-map.md`](validation/behavior-map.md).
 
 The two TUI fixture adaptations and their negative controls are documented in
@@ -72,22 +73,26 @@ One unrelated AuthStorage assertion has a narrowly defined accepted Base
 failure signature and a mandatory stable counterpart; see
 [`validation/base-auth-timestamp-evidence.md`](validation/base-auth-timestamp-evidence.md).
 
-## Validation (2026-09-16)
+## Validation (2026-09-17)
 
-All 11 author-control cases and the saved-answer replay completed through
-Harbor 0.23.0 with zero errored trials and the expected rewards. Every trial
-passed 2,108 original regression cases, retained 50 existing skips, and passed
-the separate stable auth test. None used the AuthStorage exception.
+All 12 author-control cases and the saved-answer replay completed through
+Harbor 0.23.0 with zero errored trials and the expected rewards. All 13 trials
+completed the 2,158-case original inventory and passed the separate stable auth
+test. Eleven passed all 2,108 active original cases with 50 existing
+skips. The `memory-only` and `early-process-exit-zero` controls each triggered
+the previously documented AuthStorage timestamp exception once; neither had
+other regression failures. Both receive 0 for their intended rollback defects.
 
 | Case | Agent / implementation | Expected reward | Result |
 | --- | --- | --- | --- |
 | `base` | `nop`, unchanged Base | 0 | 0; build and PASS_TO_PASS pass; required rollback interfaces are absent. |
 | `oracle` | `oracle`, reference patch | 1 | 1; all layers pass, including 25/25 behavior cases. |
 | `alternative-blob-journal` | `oracle`, alternative storage/restoration patch | 1 | 1; all layers pass, including 25/25 behavior cases. |
+| `minimal-checkpoint-metadata` | `oracle`, interface variant of the reference patch | 1 | 1; 25/25 behaviors pass with ID-only records, reversed lists and empty rollback success data. |
 | `memory-only` | `oracle`, Base-applicable negative control | 0 | 0; 17/25 behaviors pass; restart loses recovery state. |
 | `checkpoint-at-request-end` | `oracle`, Base-applicable negative control | 0 | 0; 20/25 pass; interrupted requests lack a checkpoint. |
-| `files-only` | `oracle`, Base-applicable negative control | 0 | 0; 14/25 pass; revoked messages remain in effective context. |
-| `conversation-only` | `oracle`, Base-applicable negative control | 0 | 0; 9/25 pass; workspace changes remain. |
+| `files-only` | `oracle`, Base-applicable negative control | 0 | 0; 13/25 pass; revoked messages remain in effective context. |
+| `conversation-only` | `oracle`, Base-applicable negative control | 0 | 0; 8/25 pass; workspace changes remain. |
 | `ignore-conflicts` | `oracle`, Base-applicable negative control | 0 | 0; 22/25 pass; conflicting human edits are overwritten. |
 | `skip-startup-recovery` | `oracle`, Base-applicable negative control | 0 | 0; 19/25 pass; restart leaves recovery unresolved. |
 | `abandoned-branch-included` | `oracle`, Base-applicable negative control | 0 | 0; 23/25 pass; non-ancestor checkpoints remain eligible. |
@@ -99,7 +104,7 @@ apply directly to Base; controls do not require a preceding Oracle application.
 Rationale and detailed results are in
 [`validation/wrong-controls.md`](validation/wrong-controls.md) and the evidence
 linked above. The saved answer's historical reward under version 0.0.1 remains
-recorded as 0; its version 0.0.2 reward is 1. Regrading generated no new answer.
+recorded as 0; its version 0.0.3 replay reward is 1. Regrading generated no new answer.
 
 Independent supervisor probes passed 33/33 executions on the retained image
 without additional Docker privileges. The
@@ -126,6 +131,7 @@ pi-safe-file-rollback/
 └── validation/                          # Alternative, controls, and evidence
     ├── ci-cases.json
     ├── alternative-blob-journal.patch
+    ├── minimal-checkpoint-metadata.patch
     ├── behavior-map.md
     ├── e2e-evidence.json
     ├── saved-answer-regrade.json

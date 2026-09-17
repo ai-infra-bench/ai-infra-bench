@@ -1,0 +1,1062 @@
+diff --git a/packages/coding-agent/src/cli/args.ts b/packages/coding-agent/src/cli/args.ts
+index 8ad5da63e5cce1ee17476d061b3798359818fc97..45905916aa397cf586a3abc189b754691243496a 100644
+--- a/packages/coding-agent/src/cli/args.ts
++++ b/packages/coding-agent/src/cli/args.ts
+@@ -24,6 +24,7 @@ export interface Args {
+ 	mode?: Mode;
+ 	name?: string;
+ 	noSession?: boolean;
++	safeRollback?: boolean;
+ 	session?: string;
+ 	sessionId?: string;
+ 	fork?: string;
+@@ -120,6 +121,8 @@ export function parseArgs(args: string[]): Args {
+ 			}
+ 		} else if (arg === "--no-session") {
+ 			result.noSession = true;
++		} else if (arg === "--safe-rollback") {
++			result.safeRollback = true;
+ 		} else if (arg === "--session" && i + 1 < args.length) {
+ 			result.session = args[++i];
+ 		} else if (arg === "--session-id" && i + 1 < args.length) {
+@@ -289,6 +292,7 @@ ${chalk.bold("Options:")}
+   --fork <path|id>               Fork specific session file or partial UUID into a new session
+   --session-dir <dir>            Directory for session storage and lookup
+   --no-session                   Don't save session (ephemeral)
++  --safe-rollback                Enable safe file and conversation rollback
+   --name, -n <name>              Set session display name
+   --models <patterns>            Comma-separated model patterns for Ctrl+P cycling
+                                  Supports globs (anthropic/*, *sonnet*) and fuzzy matching
+diff --git a/packages/coding-agent/src/core/agent-session-runtime.ts b/packages/coding-agent/src/core/agent-session-runtime.ts
+index 861c00f75e3f02ba5985807d870b7d856e6acd0a..43fec28b8ee4c2ea23db6efca91686c03269af5c 100644
+--- a/packages/coding-agent/src/core/agent-session-runtime.ts
++++ b/packages/coding-agent/src/core/agent-session-runtime.ts
+@@ -201,6 +201,7 @@ export class AgentSessionRuntime {
+ 			projectTrustContextFactory?: (cwd: string) => ProjectTrustContext;
+ 		},
+ 	): Promise<{ cancelled: boolean }> {
++		this.session.assertRollbackReady();
+ 		const beforeResult = await this.emitBeforeSwitch("resume", sessionPath);
+ 		if (beforeResult.cancelled) {
+ 			return beforeResult;
+@@ -228,6 +229,7 @@ export class AgentSessionRuntime {
+ 		setup?: (sessionManager: SessionManager) => Promise<void>;
+ 		withSession?: (ctx: ReplacedSessionContext) => Promise<void>;
+ 	}): Promise<{ cancelled: boolean }> {
++		this.session.assertRollbackReady();
+ 		const beforeResult = await this.emitBeforeSwitch("new");
+ 		if (beforeResult.cancelled) {
+ 			return beforeResult;
+@@ -263,6 +265,7 @@ export class AgentSessionRuntime {
+ 		entryId: string,
+ 		options?: { position?: "before" | "at"; withSession?: (ctx: ReplacedSessionContext) => Promise<void> },
+ 	): Promise<{ cancelled: boolean; selectedText?: string }> {
++		this.session.assertRollbackReady();
+ 		const position = options?.position ?? "before";
+ 		const beforeResult = await this.emitBeforeFork(entryId, { position });
+ 		if (beforeResult.cancelled) {
+@@ -359,6 +362,7 @@ export class AgentSessionRuntime {
+ 	 * @throws {MissingSessionCwdError} When the imported session cwd cannot be resolved and no override is provided.
+ 	 */
+ 	async importFromJsonl(inputPath: string, cwdOverride?: string): Promise<{ cancelled: boolean }> {
++		this.session.assertRollbackReady();
+ 		const resolvedPath = resolvePath(inputPath);
+ 		if (!existsSync(resolvedPath)) {
+ 			throw new SessionImportFileNotFoundError(resolvedPath);
+diff --git a/packages/coding-agent/src/core/agent-session-services.ts b/packages/coding-agent/src/core/agent-session-services.ts
+index 531f51d61b8767d9e6ee3406ddac5f3cdcb8ad23..f078a574e72d87de039655402be581ea052730c7 100644
+--- a/packages/coding-agent/src/core/agent-session-services.ts
++++ b/packages/coding-agent/src/core/agent-session-services.ts
+@@ -54,6 +54,7 @@ export interface CreateAgentSessionServicesOptions {
+ export interface CreateAgentSessionFromServicesOptions {
+ 	services: AgentSessionServices;
+ 	sessionManager: SessionManager;
++	safeRollback?: boolean;
+ 	sessionStartEvent?: SessionStartEvent;
+ 	model?: Model<any>;
+ 	thinkingLevel?: ThinkingLevel;
+@@ -209,6 +210,7 @@ export async function createAgentSessionFromServices(
+ 		settingsManager: options.services.settingsManager,
+ 		resourceLoader: options.services.resourceLoader,
+ 		sessionManager: options.sessionManager,
++		safeRollback: options.safeRollback,
+ 		model: options.model,
+ 		thinkingLevel: options.thinkingLevel,
+ 		scopedModels: options.scopedModels,
+diff --git a/packages/coding-agent/src/core/agent-session.ts b/packages/coding-agent/src/core/agent-session.ts
+index ac2bd4b18dbe4d888e48309ad7bb63f1166179b5..0c3a8f0f72161fdcfe987659965dee1f7fcbe9d6 100644
+--- a/packages/coding-agent/src/core/agent-session.ts
++++ b/packages/coding-agent/src/core/agent-session.ts
+@@ -101,6 +101,7 @@ import { ModelRegistry } from "./model-registry.ts";
+ import type { ModelRuntime } from "./model-runtime.ts";
+ import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
+ import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
++import { type RollbackCheckpoint, type RollbackState, SafeRollbackStore } from "./safe-rollback.ts";
+ import { exportSessionToJsonl } from "./session-export.ts";
+ import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
+ import { getLatestCompactionEntry } from "./session-manager.ts";
+@@ -199,6 +200,8 @@ function withoutDeletedHeaders(headers: ProviderHeaders | undefined): Record<str
+ 
+ export interface AgentSessionConfig {
+ 	agent: Agent;
++	/** Persist request checkpoints and support crash-safe workspace rollback. */
++	safeRollback?: boolean;
+ 	sessionManager: SessionManager;
+ 	settingsManager: SettingsManager;
+ 	cwd: string;
+@@ -311,6 +314,9 @@ export class AgentSession {
+ 	readonly agent: Agent;
+ 	readonly sessionManager: SessionManager;
+ 	readonly settingsManager: SettingsManager;
++	private readonly _safeRollbackRequested: boolean;
++	private _rollbackStore?: SafeRollbackStore;
++	private _rollbackInitialized = false;
+ 
+ 	private _scopedModels: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
+ 
+@@ -382,6 +388,7 @@ export class AgentSession {
+ 	private _systemPromptOverride?: string;
+ 
+ 	constructor(config: AgentSessionConfig) {
++		this._safeRollbackRequested = config.safeRollback ?? false;
+ 		this.agent = config.agent;
+ 		this.sessionManager = config.sessionManager;
+ 		this.settingsManager = config.settingsManager;
+@@ -413,6 +420,51 @@ export class AgentSession {
+ 		return this._modelRuntime;
+ 	}
+ 
++	/** Called by the SDK before exposing a resumed session to UI or RPC callers. */
++	async initializeSafeRollback(): Promise<void> {
++		if (this._rollbackInitialized) return;
++		this._rollbackStore = SafeRollbackStore.open(this.sessionManager, this._safeRollbackRequested);
++		await this._rollbackStore?.recover(this._restoreRollbackConversation);
++		this._rollbackInitialized = true;
++	}
++
++	getRollbackState(): RollbackState {
++		const state = this._rollbackStore?.state() ?? { enabled: false, status: "ready" };
++		return state.status === "ready" && state.conflicts?.length ? { ...state, status: "blocked" } : state;
++	}
++
++	async listCheckpoints(): Promise<Pick<RollbackCheckpoint, "id">[]> {
++		return (this._rollbackStore?.list() ?? []).map(({ id }) => ({ id })).reverse();
++	}
++
++	/** Runtime hosts must check this before replacing, forking, or navigating a session. */
++	assertRollbackReady(): void {
++		this._rollbackStore?.assertReady();
++	}
++
++	async rollbackCheckpoint(id: string): Promise<void> {
++		if (!this._rollbackStore) throw new Error("Safe rollback is disabled for this session");
++		if (this.isStreaming || this.isBashRunning || this.isCompacting || this._branchSummaryAbortController) {
++			throw new Error("Cannot roll back while the session is busy");
++		}
++		await this._rollbackStore.rollback(id, this._restoreRollbackConversation);
++	}
++
++	private _restoreRollbackConversation = (entryId: string | null, checkpointId: string): void => {
++		if (entryId === null) this.sessionManager.resetLeaf();
++		else this.sessionManager.branch(entryId);
++		// The marker is context-free, but its parent makes the selected branch
++		// durable even if the process exits before another user message arrives.
++		this.sessionManager.appendCustomEntry("safe_rollback", { checkpointId });
++		this.clearQueue();
++		this._pendingNextTurnMessages = [];
++		this._pendingCustomMessages = [];
++		this._pendingBashMessages = [];
++		this._lastAssistantMessage = undefined;
++		this._retryAttempt = 0;
++		this.agent.state.messages = this.sessionManager.buildSessionContext().messages;
++	};
++
+ 	private async _getRequiredRequestAuth(model: Model<any>): Promise<{
+ 		model: Model<any>;
+ 		apiKey?: string;
+@@ -1103,6 +1155,11 @@ export class AgentSession {
+ 	// =========================================================================
+ 
+ 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
++		this.assertRollbackReady();
++		if (this._rollbackStore && !this._rollbackStore.running) {
++			if (this.isBashRunning) throw new Error("Cannot start a request while Bash is running");
++			this._rollbackStore.begin();
++		}
+ 		this._isAgentRunActive = true;
+ 		try {
+ 			await this.agent.prompt(messages);
+@@ -1113,7 +1170,11 @@ export class AgentSession {
+ 			this._systemPromptOverride = undefined;
+ 			this._flushPendingBashMessages();
+ 			this._flushPendingCustomMessages();
+-			await this._emitAgentSettled();
++			try {
++				this._rollbackStore?.finish();
++			} finally {
++				await this._emitAgentSettled();
++			}
+ 		}
+ 	}
+ 
+@@ -1160,8 +1221,10 @@ export class AgentSession {
+ 		const expandPromptTemplates = options?.expandPromptTemplates ?? true;
+ 		const preflightResult = options?.preflightResult;
+ 		let messages: AgentMessage[] | undefined;
++		let rollbackStarted = false;
+ 
+ 		try {
++			this.assertRollbackReady();
+ 			// Handle extension commands first (execute immediately, even during streaming)
+ 			// Extension commands manage their own LLM interaction via pi.sendMessage()
+ 			if (expandPromptTemplates && text.startsWith("/")) {
+@@ -1246,6 +1309,12 @@ export class AgentSession {
+ 				throw new Error(formatNoApiKeyFoundMessage(this.model.provider));
+ 			}
+ 
++			if (this._rollbackStore) {
++				if (this.isBashRunning) throw new Error("Cannot start a request while Bash is running");
++				this._rollbackStore.begin();
++				rollbackStarted = true;
++			}
++
+ 			// Check if we need to compact before sending (catches aborted responses).
+ 			// The user's new prompt is sent below, so do not call agent.continue() here.
+ 			const lastAssistant = this._findLastAssistantMessage();
+@@ -1305,6 +1374,7 @@ export class AgentSession {
+ 			}
+ 		} catch (error) {
+ 			preflightResult?.(false);
++			if (rollbackStarted) this._rollbackStore?.finish();
+ 			throw error;
+ 		}
+ 
+@@ -1385,6 +1455,7 @@ export class AgentSession {
+ 	 * @throws Error if text is an extension command
+ 	 */
+ 	async steer(text: string, images?: ImageContent[]): Promise<void> {
++		this.assertRollbackReady();
+ 		// Check for extension commands (cannot be queued)
+ 		if (text.startsWith("/")) {
+ 			this._throwIfExtensionCommand(text);
+@@ -1405,6 +1476,7 @@ export class AgentSession {
+ 	 * @throws Error if text is an extension command
+ 	 */
+ 	async followUp(text: string, images?: ImageContent[]): Promise<void> {
++		this.assertRollbackReady();
+ 		// Check for extension commands (cannot be queued)
+ 		if (text.startsWith("/")) {
+ 			this._throwIfExtensionCommand(text);
+@@ -1483,6 +1555,7 @@ export class AgentSession {
+ 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details">,
+ 		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
+ 	): Promise<void> {
++		this.assertRollbackReady();
+ 		const appMessage = {
+ 			role: "custom" as const,
+ 			customType: message.customType,
+@@ -1944,6 +2017,7 @@ export class AgentSession {
+ 	 * @param customInstructions Optional instructions for the compaction summary
+ 	 */
+ 	async compact(customInstructions?: string): Promise<CompactionResult> {
++		this.assertRollbackReady();
+ 		await this.abort();
+ 		this._compactionAbortController = new AbortController();
+ 		this._emit({ type: "compaction_start", reason: "manual" });
+@@ -2816,6 +2890,7 @@ export class AgentSession {
+ 	}
+ 
+ 	async reload(options?: { beforeSessionStart?: () => void | Promise<void> }): Promise<void> {
++		this.assertRollbackReady();
+ 		const oldRunner = this._extensionRunner;
+ 		const previousFlagValues = oldRunner.getFlagValues();
+ 		await emitSessionShutdownEvent(oldRunner, { type: "session_shutdown", reason: "reload" });
+@@ -2985,6 +3060,10 @@ export class AgentSession {
+ 		onChunk?: (chunk: string) => void,
+ 		options?: { excludeFromContext?: boolean; id?: string; operations?: BashOperations },
+ 	): Promise<BashResult> {
++		this.assertRollbackReady();
++		if (this._rollbackStore?.running) throw new Error("Cannot start Bash while a safe rollback request is running");
++		const ownsCheckpoint = this._rollbackStore !== undefined && !this._rollbackStore.running;
++		if (ownsCheckpoint) this._rollbackStore!.begin();
+ 		const abortController = new AbortController();
+ 		this._bashAbortControllers.add(abortController);
+ 
+@@ -3011,6 +3090,7 @@ export class AgentSession {
+ 			return result;
+ 		} finally {
+ 			this._bashAbortControllers.delete(abortController);
++			if (ownsCheckpoint) this._rollbackStore!.finish();
+ 		}
+ 	}
+ 
+@@ -3114,6 +3194,7 @@ export class AgentSession {
+ 		targetId: string,
+ 		options: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string } = {},
+ 	): Promise<{ editorText?: string; cancelled: boolean; aborted?: boolean; summaryEntry?: BranchSummaryEntry }> {
++		this.assertRollbackReady();
+ 		if (this.isStreaming) {
+ 			throw new Error("Wait for the current response to finish before navigating the session tree.");
+ 		}
+diff --git a/packages/coding-agent/src/core/safe-rollback.ts b/packages/coding-agent/src/core/safe-rollback.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..79b21885b6b06df6c86ca4aced3408dce4777891
+--- /dev/null
++++ b/packages/coding-agent/src/core/safe-rollback.ts
+@@ -0,0 +1,370 @@
++import { execFileSync } from "node:child_process";
++import { randomUUID } from "node:crypto";
++import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
++import { chmod, lstat, mkdir, rmdir, unlink, writeFile } from "node:fs/promises";
++import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
++import type { SessionManager } from "./session-manager.ts";
++
++export interface RollbackCheckpoint {
++	id: string;
++	sessionId: string;
++	entryId: string | null;
++}
++
++export interface RollbackState {
++	enabled: boolean;
++	status: "ready" | "interrupted" | "restoring" | "blocked";
++	checkpointId?: string;
++	conflicts?: string[];
++}
++
++interface FileImage {
++	bytes: string;
++	mode: number;
++}
++type Snapshot = Record<string, FileImage>;
++interface Checkpoint extends RollbackCheckpoint {
++	before: Snapshot;
++	after?: Snapshot;
++}
++interface RestoreIntent {
++	checkpointId: string;
++	files: Record<string, FileImage | null>;
++}
++interface Journal {
++	version: 1;
++	sessionId: string;
++	root: string;
++	checkpoints: Checkpoint[];
++	active?: string;
++	restored?: string;
++	intent?: RestoreIntent;
++}
++
++function missing(error: unknown): boolean {
++	return ["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "");
++}
++
++function equal(a: FileImage | undefined | null, b: FileImage | undefined | null): boolean {
++	return a == null ? b == null : b != null && a.bytes === b.bytes && a.mode === b.mode;
++}
++
++function imageAt(snapshot: Snapshot, path: string): FileImage | undefined {
++	return Object.hasOwn(snapshot, path) ? snapshot[path] : undefined;
++}
++
++function changed(a: Snapshot, b: Snapshot): string[] {
++	return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter(
++		(path) => !equal(imageAt(a, path), imageAt(b, path)),
++	);
++}
++
++/**
++ * A session-local journal, outside the set of files it restores. A request is
++ * published before tools run; a restore intent is published before any file is
++ * changed. Replaying an intent is idempotent, including the conversation branch.
++ * Atomic rename is sufficient for process termination (not power-loss recovery).
++ */
++export class SafeRollbackStore {
++	private readonly sessionManager: SessionManager;
++	private readonly journalPath: string;
++	private readonly excludedPaths: string[];
++	private journal: Journal;
++	private liveRequest = false;
++	private restoring = false;
++	private blocked = false;
++	private conflicts: string[] | undefined;
++
++	private constructor(sessionManager: SessionManager, journalPath: string, journal: Journal) {
++		this.sessionManager = sessionManager;
++		this.journalPath = journalPath;
++		this.journal = journal;
++		this.excludedPaths = [sessionManager.getSessionFile()!, journalPath, `${journalPath}.tmp`].map((path) =>
++			resolve(path),
++		);
++	}
++
++	static open(sessionManager: SessionManager, enabled: boolean): SafeRollbackStore | undefined {
++		const sessionFile = sessionManager.getSessionFile();
++		if (!sessionManager.isPersisted() || !sessionFile) {
++			if (enabled)
++				throw new Error("Safe rollback requires a file-backed session; in-memory sessions are unsupported");
++			return undefined;
++		}
++		const journalPath = `${sessionFile}.rollback.json`;
++		if (existsSync(journalPath)) {
++			const journal = JSON.parse(readFileSync(journalPath, "utf8")) as Journal;
++			if (journal.version !== 1 || journal.sessionId !== sessionManager.getSessionId()) {
++				throw new Error("Invalid safe rollback journal for this session");
++			}
++			return new SafeRollbackStore(sessionManager, journalPath, journal);
++		}
++		if (!enabled) return undefined;
++		const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
++			cwd: sessionManager.getCwd(),
++			encoding: "utf8",
++		}).trim();
++		const store = new SafeRollbackStore(sessionManager, journalPath, {
++			version: 1,
++			sessionId: sessionManager.getSessionId(),
++			root,
++			checkpoints: [],
++		});
++		sessionManager.persistForRecovery();
++		store.save();
++		return store;
++	}
++
++	get running(): boolean {
++		return this.liveRequest;
++	}
++
++	state(): RollbackState {
++		const status = this.restoring
++			? "restoring"
++			: this.blocked
++				? "blocked"
++				: this.journal.active && !this.liveRequest
++					? "interrupted"
++					: "ready";
++		return {
++			enabled: true,
++			status,
++			...(this.journal.intent || this.journal.active || this.journal.restored
++				? { checkpointId: this.journal.intent?.checkpointId ?? this.journal.active ?? this.journal.restored }
++				: {}),
++			...(this.conflicts ? { conflicts: [...this.conflicts] } : {}),
++		};
++	}
++
++	assertReady(): void {
++		if (this.journal.intent || (this.journal.active && !this.liveRequest)) {
++			throw new Error("Safe rollback recovery is unresolved; restore a checkpoint before continuing");
++		}
++	}
++
++	list(): RollbackCheckpoint[] {
++		const ancestors = new Set(this.sessionManager.getBranch().map((entry) => entry.id));
++		return this.journal.checkpoints
++			.filter(({ entryId }) => entryId === null || ancestors.has(entryId))
++			.map(({ id, sessionId, entryId }) => ({ id, sessionId, entryId }));
++	}
++
++	begin(): void {
++		this.assertReady();
++		if (this.liveRequest) throw new Error("A safe rollback request is already running");
++		const checkpoint: Checkpoint = {
++			id: randomUUID(),
++			sessionId: this.journal.sessionId,
++			entryId: this.sessionManager.getLeafId(),
++			before: this.snapshot(),
++		};
++		this.journal.checkpoints.push(checkpoint);
++		this.journal.active = checkpoint.id;
++		delete this.journal.restored;
++		this.conflicts = undefined;
++		this.save();
++		this.liveRequest = true;
++	}
++
++	finish(): void {
++		if (!this.liveRequest) return;
++		const active = this.journal.active;
++		try {
++			const checkpoint = this.journal.checkpoints.at(-1)!;
++			checkpoint.after = this.snapshot();
++			delete this.journal.active;
++			this.save();
++		} catch (error) {
++			this.journal.active = active;
++			throw error;
++		} finally {
++			this.liveRequest = false;
++		}
++	}
++
++	/** Resume a previously published restore before returning control to callers. */
++	async recover(restoreConversation: (entryId: string | null, checkpointId: string) => void): Promise<void> {
++		if (!this.journal.intent) {
++			const interrupted = this.journal.checkpoints.at(-1);
++			if (this.journal.active && interrupted && !interrupted.after) {
++				interrupted.after = this.snapshot();
++				this.save();
++			}
++			return;
++		}
++		try {
++			await this.applyIntent(restoreConversation);
++		} catch {
++			// Keep the session inspectable, but all execution remains gated. A user
++			// can repair permissions or free space and retry the same checkpoint.
++		}
++	}
++
++	async rollback(
++		id: string,
++		restoreConversation: (entryId: string | null, checkpointId: string) => void,
++	): Promise<void> {
++		if (this.liveRequest || this.restoring) throw new Error("Cannot roll back while the session is busy");
++		const index = this.journal.checkpoints.findIndex((checkpoint) => checkpoint.id === id);
++		if (index < 0 || !this.list().some((checkpoint) => checkpoint.id === id))
++			throw new Error("Invalid, foreign, or non-ancestor rollback checkpoint");
++		if (this.journal.intent) {
++			if (this.journal.intent.checkpointId !== id) throw new Error("Retry the unfinished rollback checkpoint first");
++			await this.applyIntent(restoreConversation);
++			return;
++		}
++		if (this.journal.restored === id) return;
++
++		const checkpoints = this.journal.checkpoints.slice(index);
++		const target = checkpoints[0];
++		const current = this.snapshot();
++		// An unfinished request owns its complete execution interval, including
++		// downtime. Capture partial effects once before comparing later idle edits.
++		const last = checkpoints.at(-1)!;
++		if (!last.after) {
++			last.after = current;
++			this.save();
++		}
++		const touched = new Set(checkpoints.flatMap((checkpoint) => changed(checkpoint.before, checkpoint.after!)));
++		const conflicts = new Set<string>();
++		const restoredFiles = [...touched].filter((path) => imageAt(target.before, path) !== undefined);
++		for (let i = 0; i < checkpoints.length; i++) {
++			const idleBefore = checkpoints[i].after!;
++			const idleAfter = checkpoints[i + 1]?.before ?? current;
++			for (const path of changed(idleBefore, idleAfter)) {
++				const overlaps =
++					touched.has(path) ||
++					restoredFiles.some((file) => path.startsWith(`${file}/`) || file.startsWith(`${path}/`));
++				if (overlaps && !equal(imageAt(target.before, path), imageAt(idleAfter, path))) conflicts.add(path);
++			}
++		}
++		if (conflicts.size > 0) {
++			this.conflicts = [...conflicts].sort();
++			throw new Error(`Rollback conflicts with idle workspace edits: ${this.conflicts.join(", ")}`);
++		}
++		this.conflicts = undefined;
++		this.journal.intent = {
++			checkpointId: id,
++			files: Object.fromEntries([...touched].sort().map((path) => [path, imageAt(target.before, path) ?? null])),
++		};
++		this.save();
++		await this.applyIntent(restoreConversation);
++	}
++
++	private async applyIntent(
++		restoreConversation: (entryId: string | null, checkpointId: string) => void,
++	): Promise<void> {
++		const intent = this.journal.intent!;
++		const before = this.journal;
++		this.restoring = true;
++		this.blocked = false;
++		try {
++			// Remove regular files first, deepest first, to handle file/directory
++			// shape changes without deleting unrelated directory contents.
++			for (const path of Object.keys(intent.files).sort((a, b) => b.length - a.length)) {
++				const absolute = this.absolute(path);
++				this.assertNoSymlinkParents(absolute);
++				try {
++					const stat = await lstat(absolute);
++					if (stat.isFile() && stat.nlink === 1) {
++						await unlink(absolute);
++						await this.removeEmptyParents(absolute);
++					} else if (!stat.isDirectory()) throw new Error(`Unsupported rollback path: ${path}`);
++				} catch (error) {
++					if (!missing(error)) throw error;
++				}
++			}
++			for (const [path, file] of Object.entries(intent.files)) {
++				if (!file) continue;
++				const absolute = this.absolute(path);
++				this.assertNoSymlinkParents(absolute);
++				try {
++					if ((await lstat(absolute)).isDirectory()) await rmdir(absolute);
++				} catch (error) {
++					if (!missing(error)) throw error;
++				}
++				await mkdir(dirname(absolute), { recursive: true });
++				await writeFile(absolute, Buffer.from(file.bytes, "base64"), { mode: file.mode });
++				await chmod(absolute, file.mode);
++			}
++			const index = this.journal.checkpoints.findIndex((checkpoint) => checkpoint.id === intent.checkpointId);
++			const target = this.journal.checkpoints[index];
++			restoreConversation(target.entryId, target.id);
++			this.journal = {
++				...this.journal,
++				checkpoints: [...this.journal.checkpoints.slice(0, index), { ...target, after: target.before }],
++				restored: target.id,
++				active: undefined,
++				intent: undefined,
++			};
++			this.save();
++		} catch (error) {
++			this.journal = before;
++			this.blocked = true;
++			throw error;
++		} finally {
++			this.restoring = false;
++		}
++	}
++
++	private absolute(path: string): string {
++		const absolute = resolve(this.journal.root, path);
++		const rel = relative(this.journal.root, absolute);
++		if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel))
++			throw new Error("Invalid rollback path");
++		return absolute;
++	}
++
++	private async removeEmptyParents(absolute: string): Promise<void> {
++		for (let parent = dirname(absolute); parent !== this.journal.root; parent = dirname(parent)) {
++			try {
++				await rmdir(parent);
++			} catch (error) {
++				if (["ENOTEMPTY", "EEXIST"].includes((error as NodeJS.ErrnoException).code ?? "")) return;
++				if (!missing(error)) throw error;
++			}
++		}
++	}
++
++	private assertNoSymlinkParents(absolute: string): void {
++		for (let parent = dirname(absolute); parent !== this.journal.root; parent = dirname(parent)) {
++			try {
++				if (lstatSync(parent).isSymbolicLink())
++					throw new Error(`Symlink parent is outside rollback scope: ${parent}`);
++			} catch (error) {
++				if (!missing(error)) throw error;
++			}
++		}
++	}
++
++	private snapshot(): Snapshot {
++		const paths = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
++			cwd: this.journal.root,
++			maxBuffer: 64 * 1024 * 1024,
++		})
++			.toString("utf8")
++			.split("\0")
++			.filter(Boolean);
++		const result: Snapshot = Object.create(null);
++		for (const path of [...new Set(paths)].sort()) {
++			const absolute = this.absolute(path);
++			if (this.excludedPaths.includes(absolute)) continue;
++			this.assertNoSymlinkParents(absolute);
++			try {
++				const stat = lstatSync(absolute);
++				if (stat.isFile() && stat.nlink === 1)
++					result[path] = { bytes: readFileSync(absolute).toString("base64"), mode: stat.mode & 0o7777 };
++			} catch (error) {
++				if (!missing(error)) throw error;
++			}
++		}
++		return result;
++	}
++
++	private save(): void {
++		mkdirSync(dirname(this.journalPath), { recursive: true });
++		writeFileSync(`${this.journalPath}.tmp`, JSON.stringify(this.journal), { mode: 0o600 });
++		renameSync(`${this.journalPath}.tmp`, this.journalPath);
++	}
++}
+diff --git a/packages/coding-agent/src/core/sdk.ts b/packages/coding-agent/src/core/sdk.ts
+index adbf102a398289212122c4b187b1bed8d79a08be..9d22070eb3643e72783d81e6f69d5feeb092173b 100644
+--- a/packages/coding-agent/src/core/sdk.ts
++++ b/packages/coding-agent/src/core/sdk.ts
+@@ -80,6 +80,8 @@ export interface CreateAgentSessionOptions {
+ 
+ 	/** Session manager. Default: SessionManager.create(cwd) */
+ 	sessionManager?: SessionManager;
++	/** Enable request checkpoints and safe file/conversation rollback for this persistent session. */
++	safeRollback?: boolean;
+ 
+ 	/** Settings manager. Default: SettingsManager.create(cwd, agentDir) */
+ 	settingsManager?: SettingsManager;
+@@ -399,7 +401,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
+ 		excludedToolNames,
+ 		extensionRunnerRef,
+ 		sessionStartEvent: options.sessionStartEvent,
++		safeRollback: options.safeRollback,
+ 	});
++	await session.initializeSafeRollback();
+ 	const extensionsResult = resourceLoader.getExtensions();
+ 
+ 	return {
+diff --git a/packages/coding-agent/src/core/session-manager.ts b/packages/coding-agent/src/core/session-manager.ts
+index d25b196a5c661d33bc0b12693eb30a0591837562..fa171e8b832c9e88dddabb343e97a272d9c9db93 100644
+--- a/packages/coding-agent/src/core/session-manager.ts
++++ b/packages/coding-agent/src/core/session-manager.ts
+@@ -1006,6 +1006,15 @@ export class SessionManager {
+ 		return this.persist;
+ 	}
+ 
++	/** Publish even a session with no assistant response before recovery work starts. */
++	persistForRecovery(): void {
++		if (!this.persist || !this.sessionFile) throw new Error("Recovery requires a file-backed session");
++		if (!this.flushed) {
++			this._rewriteFile();
++			this.flushed = true;
++		}
++	}
++
+ 	getCwd(): string {
+ 		return this.cwd;
+ 	}
+diff --git a/packages/coding-agent/src/core/slash-commands.ts b/packages/coding-agent/src/core/slash-commands.ts
+index 13326d2dabdcd6556621e5bcad46404eac0c18eb..badf47483e91aeebccec30cc2c4be6bab1e034be 100644
+--- a/packages/coding-agent/src/core/slash-commands.ts
++++ b/packages/coding-agent/src/core/slash-commands.ts
+@@ -20,6 +20,7 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
+ 	{ name: "settings", description: "Open settings menu" },
+ 	{ name: "model", description: "Select model (opens selector UI)", argumentHint: "<provider/model>" },
+ 	{ name: "tree", description: "Navigate session tree (switch branches)" },
++	{ name: "rollback", description: "List or restore safe rollback checkpoints", argumentHint: "<id>" },
+ 	{ name: "thinking", description: "Set thinking level", argumentHint: "<level>" },
+ 	{ name: "scoped-models", description: "Enable/disable models for Ctrl+P cycling" },
+ 	{ name: "export", description: "Export session (HTML default, or specify path: .html/.jsonl)" },
+diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
+index 6667389f1cdd71f3342626b9f5aab45bee755958..c322bc24e013b39036a20579dd0c2de5b5568d86 100644
+--- a/packages/coding-agent/src/index.ts
++++ b/packages/coding-agent/src/index.ts
+@@ -200,6 +200,7 @@ export type {
+ export { DefaultPackageManager } from "./core/package-manager.ts";
+ export type { ResourceCollision, ResourceDiagnostic, ResourceLoader } from "./core/resource-loader.ts";
+ export { DefaultResourceLoader, loadProjectContextFiles } from "./core/resource-loader.ts";
++export type { RollbackCheckpoint, RollbackState } from "./core/safe-rollback.ts";
+ // SDK for programmatic usage
+ export {
+ 	AgentSessionRuntime,
+diff --git a/packages/coding-agent/src/main.ts b/packages/coding-agent/src/main.ts
+index 55351dfe6680f6eff339543e4e2fecb50cd8e97b..00bd8fde639e34fe4669f4c55f08d53e685fae7a 100644
+--- a/packages/coding-agent/src/main.ts
++++ b/packages/coding-agent/src/main.ts
+@@ -455,6 +455,9 @@ function buildSessionOptions(
+ 	diagnostics: AgentSessionRuntimeDiagnostic[];
+ } {
+ 	const options: CreateAgentSessionOptions = {};
++	if (parsed.safeRollback && !parsed.help && parsed.listModels === undefined) {
++		options.safeRollback = true;
++	}
+ 	const diagnostics: AgentSessionRuntimeDiagnostic[] = [];
+ 	let cliThinkingFromModel = false;
+ 
+@@ -825,6 +828,7 @@ export async function main(args: string[], options?: MainOptions) {
+ 			excludeTools: sessionOptions.excludeTools,
+ 			noTools: sessionOptions.noTools,
+ 			customTools: sessionOptions.customTools,
++			safeRollback: sessionOptions.safeRollback,
+ 		});
+ 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
+ 		if (created.session.model && cliThinkingOverride) {
+diff --git a/packages/coding-agent/src/modes/interactive/interactive-mode.ts b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
+index 8db1b802789a755063ed65d927dbe54ae7f20dff..30075c32bd0ebe2d69d942dc253da1570ffd371b 100644
+--- a/packages/coding-agent/src/modes/interactive/interactive-mode.ts
++++ b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
+@@ -989,6 +989,13 @@ export class InteractiveMode {
+ 
+ 		// Render initial messages AFTER showing loaded resources
+ 		this.renderInitialMessages();
++		const rollbackState = await this.session.getRollbackState();
++		if (rollbackState.enabled && rollbackState.status !== "ready") {
++			const checkpoints = await this.session.listCheckpoints();
++			this.showWarning(
++				`Safe rollback: ${rollbackState.status}. Use /rollback <id> before continuing.\n${checkpoints.map((checkpoint) => checkpoint.id).join("\n")}`,
++			);
++		}
+ 
+ 		// Set up theme file watcher
+ 		onThemeChange(() => {
+@@ -2967,6 +2974,28 @@ export class InteractiveMode {
+ 			if (!text) return;
+ 
+ 			// Handle commands
++			if (text === "/rollback" || text.startsWith("/rollback ")) {
++				this.editor.setText("");
++				try {
++					const checkpointId = text.slice("/rollback".length).trim();
++					if (checkpointId) {
++						await this.session.rollbackCheckpoint(checkpointId);
++						this.renderCurrentSessionState();
++						this.showStatus(`Restored checkpoint ${checkpointId}`);
++					} else {
++						const state = await this.session.getRollbackState();
++						const checkpoints = await this.session.listCheckpoints();
++						this.showStatus(
++							state.enabled
++								? `Safe rollback: ${state.status}\n${checkpoints.length ? checkpoints.map((checkpoint) => checkpoint.id).join("\n") : "No checkpoints"}`
++								: "Safe rollback is not enabled for this session",
++						);
++					}
++				} catch (error) {
++					this.showError(error instanceof Error ? error.message : String(error));
++				}
++				return;
++			}
+ 			if (text === "/settings") {
+ 				this.showSettingsSelector();
+ 				this.editor.setText("");
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index fc8083bedc67824dd7ff1a5a154f1a08b28c4098..7536ab56c40c659b6d924129abd3f211f259e5b9 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -465,6 +465,19 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
+ 				return success(id, "get_state", state);
+ 			}
+ 
++			case "list_checkpoints": {
++				return success(id, "list_checkpoints", { checkpoints: await session.listCheckpoints() });
++			}
++
++			case "get_rollback_state": {
++				return success(id, "get_rollback_state", await session.getRollbackState());
++			}
++
++			case "rollback_checkpoint": {
++				await session.rollbackCheckpoint(command.checkpointId);
++				return success(id, "rollback_checkpoint", {});
++			}
++
+ 			// =================================================================
+ 			// Model
+ 			// =================================================================
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-types.ts b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+index 1cbd49a898382f0fbb409a7d241ad694b2f59e0d..4d942d0bdb79f212e148da7602a4125e1903d765 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-types.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-types.ts
+@@ -7,7 +7,7 @@
+ 
+ import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+ import type { ImageContent, Model } from "@earendil-works/pi-ai";
+-import type { SessionStats } from "../../core/agent-session.ts";
++import type { AgentSession, SessionStats } from "../../core/agent-session.ts";
+ import type { BashResult } from "../../core/bash-executor.ts";
+ import type { CompactionResult } from "../../core/compaction/index.ts";
+ import type { SessionEntry, SessionTreeNode } from "../../core/session-manager.ts";
+@@ -28,6 +28,9 @@ export type RpcCommand =
+ 
+ 	// State
+ 	| { id?: string; type: "get_state" }
++	| { id?: string; type: "list_checkpoints" }
++	| { id?: string; type: "get_rollback_state" }
++	| { id?: string; type: "rollback_checkpoint"; checkpointId: string }
+ 
+ 	// Model
+ 	| { id?: string; type: "set_model"; provider: string; modelId: string }
+@@ -130,6 +133,27 @@ export type RpcResponse =
+ 
+ 	// State
+ 	| { id?: string; type: "response"; command: "get_state"; success: true; data: RpcSessionState }
++	| {
++			id?: string;
++			type: "response";
++			command: "list_checkpoints";
++			success: true;
++			data: { checkpoints: Awaited<ReturnType<AgentSession["listCheckpoints"]>> };
++	  }
++	| {
++			id?: string;
++			type: "response";
++			command: "get_rollback_state";
++			success: true;
++			data: Awaited<ReturnType<AgentSession["getRollbackState"]>>;
++	  }
++	| {
++			id?: string;
++			type: "response";
++			command: "rollback_checkpoint";
++			success: true;
++			data: Record<string, never>;
++	  }
+ 
+ 	// Model
+ 	| {
+diff --git a/packages/coding-agent/test/safe-rollback.test.ts b/packages/coding-agent/test/safe-rollback.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..83a3ca031da9c464bf69f3c8ccdf0952363a94a5
+--- /dev/null
++++ b/packages/coding-agent/test/safe-rollback.test.ts
+@@ -0,0 +1,169 @@
++import { execFileSync } from "node:child_process";
++import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { afterEach, beforeEach, describe, expect, it } from "vitest";
++import { SafeRollbackStore } from "../src/core/safe-rollback.ts";
++import { SessionManager } from "../src/core/session-manager.ts";
++
++describe("safe rollback recovery", () => {
++	let temp: string;
++	let cwd: string;
++	let manager: SessionManager;
++	let store: SafeRollbackStore;
++	const restore = (entryId: string | null, checkpointId: string) => {
++		if (entryId === null) manager.resetLeaf();
++		else manager.branch(entryId);
++		manager.appendCustomEntry("safe_rollback", { checkpointId });
++	};
++	beforeEach(() => {
++		temp = mkdtempSync(join(tmpdir(), "pi-rollback-test-"));
++		cwd = join(temp, "work");
++		mkdirSync(cwd);
++		execFileSync("git", ["init", "-q", cwd]);
++		writeFileSync(join(cwd, "tracked"), "original");
++		writeFileSync(join(cwd, ".gitignore"), "ignored\n");
++		execFileSync("git", ["add", "tracked", ".gitignore"], { cwd });
++		manager = SessionManager.create(cwd, join(temp, "sessions"));
++		store = SafeRollbackStore.open(manager, true)!;
++	});
++	afterEach(() => rmSync(temp, { recursive: true, force: true }));
++
++	it("restores dirty bytes, modes, deletions and untracked files without changing the index", async () => {
++		const path = join(cwd, "tracked");
++		writeFileSync(path, Buffer.from([0, 255, 10]));
++		chmodSync(path, 0o751);
++		writeFileSync(join(cwd, "untracked"), "before");
++		const index = readFileSync(join(cwd, ".git", "index"));
++		store.begin();
++		writeFileSync(path, "changed");
++		chmodSync(path, 0o600);
++		rmSync(join(cwd, "untracked"));
++		writeFileSync(join(cwd, "created"), "new");
++		writeFileSync(join(cwd, "ignored"), "outside guarantee");
++		manager.appendMessage({ role: "user", content: "remove this request", timestamp: 1 });
++		store.finish();
++		await store.rollback(store.list()[0].id, restore);
++		expect(readFileSync(path)).toEqual(Buffer.from([0, 255, 10]));
++		expect(statSync(path).mode & 0o777).toBe(0o751);
++		expect(readFileSync(join(cwd, "untracked"), "utf8")).toBe("before");
++		expect(existsSync(join(cwd, "created"))).toBe(false);
++		expect(readFileSync(join(cwd, "ignored"), "utf8")).toBe("outside guarantee");
++		expect(readFileSync(join(cwd, ".git", "index"))).toEqual(index);
++		expect(SessionManager.open(manager.getSessionFile()!).buildSessionContext().messages).toEqual([]);
++	});
++
++	it("rejects all changes when an idle edit occurred between requests", async () => {
++		store.begin();
++		writeFileSync(join(cwd, "tracked"), "request one");
++		store.finish();
++		writeFileSync(join(cwd, "tracked"), "human");
++		store.begin();
++		writeFileSync(join(cwd, "tracked"), "request two");
++		writeFileSync(join(cwd, "second"), "keep on rejection");
++		store.finish();
++		await expect(store.rollback(store.list()[0].id, restore)).rejects.toThrow("tracked");
++		expect(readFileSync(join(cwd, "tracked"), "utf8")).toBe("request two");
++		expect(readFileSync(join(cwd, "second"), "utf8")).toBe("keep on rejection");
++		expect(store.state()).toMatchObject({ status: "ready", conflicts: ["tracked"] });
++		await store.rollback(store.list()[1].id, restore);
++		expect(readFileSync(join(cwd, "tracked"), "utf8")).toBe("human");
++	});
++
++	it("publishes the first request and seals partial effects at initial interrupted startup", async () => {
++		store.begin();
++		manager.appendMessage({ role: "user", content: "first request", timestamp: 1 });
++		writeFileSync(join(cwd, "tracked"), "partial work");
++		const sessionFile = manager.getSessionFile()!;
++		manager = SessionManager.open(sessionFile);
++		store = SafeRollbackStore.open(manager, false)!;
++		await store.recover(restore);
++		expect(store.state().status).toBe("interrupted");
++		expect(() => store.assertReady()).toThrow("unresolved");
++		expect(manager.buildSessionContext().messages).toHaveLength(1);
++		writeFileSync(join(cwd, "tracked"), "human after restart");
++		await expect(store.rollback(store.list()[0].id, restore)).rejects.toThrow("tracked");
++		expect(store.state().status).toBe("interrupted");
++	});
++
++	it("replays an unfinished restore on startup and persists the effective conversation", async () => {
++		store.begin();
++		writeFileSync(join(cwd, "tracked"), "changed");
++		manager.appendMessage({ role: "user", content: "abandoned", timestamp: 1 });
++		store.finish();
++		const id = store.list()[0].id;
++		await expect(
++			store.rollback(id, () => {
++				throw new Error("interrupted before conversation commit");
++			}),
++		).rejects.toThrow("interrupted");
++		expect(store.state().status).toBe("blocked");
++		manager = SessionManager.open(manager.getSessionFile()!);
++		store = SafeRollbackStore.open(manager, false)!;
++		await store.recover(restore);
++		expect(store.state().status).toBe("ready");
++		expect(readFileSync(join(cwd, "tracked"), "utf8")).toBe("original");
++		expect(SessionManager.open(manager.getSessionFile()!).buildSessionContext().messages).toEqual([]);
++		await store.rollback(id, restore);
++	});
++
++	it("excludes abandoned descendants and preserves unrelated idle edits on a new branch", async () => {
++		store.begin();
++		writeFileSync(join(cwd, "tracked"), "one");
++		store.finish();
++		const first = store.list()[0].id;
++		store.begin();
++		writeFileSync(join(cwd, "abandoned"), "two");
++		store.finish();
++		const abandoned = store.list()[1].id;
++		await store.rollback(first, restore);
++		writeFileSync(join(cwd, "human"), "keep");
++		store.begin();
++		writeFileSync(join(cwd, "new-branch"), "three");
++		store.finish();
++		await expect(store.rollback(abandoned, restore)).rejects.toThrow("non-ancestor");
++		await store.rollback(first, restore);
++		expect(readFileSync(join(cwd, "human"), "utf8")).toBe("keep");
++		expect(existsSync(join(cwd, "new-branch"))).toBe(false);
++		expect(existsSync(join(cwd, "abandoned"))).toBe(false);
++	});
++
++	it("rejects a checkpoint outside the current ancestry after conversation navigation", async () => {
++		store.begin();
++		manager.appendMessage({ role: "user", content: "first", timestamp: 1 });
++		writeFileSync(join(cwd, "tracked"), "one");
++		store.finish();
++		const first = store.list()[0].id;
++		store.begin();
++		manager.appendMessage({ role: "user", content: "second", timestamp: 2 });
++		writeFileSync(join(cwd, "tracked"), "two");
++		store.finish();
++		const later = store.list()[1].id;
++		manager.resetLeaf();
++		expect(store.list().map(({ id }) => id)).toEqual([first]);
++		await expect(store.rollback(later, restore)).rejects.toThrow("non-ancestor");
++		expect(readFileSync(join(cwd, "tracked"), "utf8")).toBe("two");
++		expect(manager.getLeafId()).toBeNull();
++		await store.rollback(first, restore);
++		expect(readFileSync(join(cwd, "tracked"), "utf8")).toBe("original");
++	});
++
++	it("rejects disabled in-memory sessions only when safe mode was requested", () => {
++		expect(SafeRollbackStore.open(SessionManager.inMemory(cwd), false)).toBeUndefined();
++		expect(() => SafeRollbackStore.open(SessionManager.inMemory(cwd), true)).toThrow("file-backed");
++	});
++
++	it("restores regular files whose names collide with JavaScript object properties after restart", async () => {
++		writeFileSync(join(cwd, "__proto__"), "before");
++		store.begin();
++		writeFileSync(join(cwd, "__proto__"), "changed");
++		writeFileSync(join(cwd, "constructor"), "created");
++		store.finish();
++		manager = SessionManager.open(manager.getSessionFile()!);
++		store = SafeRollbackStore.open(manager, false)!;
++		await store.recover(restore);
++		await store.rollback(store.list()[0].id, restore);
++		expect(readFileSync(join(cwd, "__proto__"), "utf8")).toBe("before");
++		expect(existsSync(join(cwd, "constructor"))).toBe(false);
++	});
++});
