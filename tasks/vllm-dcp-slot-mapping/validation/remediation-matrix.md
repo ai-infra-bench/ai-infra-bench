@@ -1,5 +1,18 @@
 # Review remediation matrix
 
+## Current repair: 1.5.0
+
+See [the supported-layout repair review](repair-review-2026-09-17.md) and
+[current control evidence](repair-calibration-2026-09-17.json). The old verifier
+invented a two-group DCP cache layout that normal Base configuration cannot
+produce. It now generates independent legal block-size 16/32 configurations,
+retains request/graph lifecycle coverage, and derives block demand from logical
+context instead of candidate table width. The instruction and image are unchanged.
+Historical control results below do not certify this revision; the machine record
+distinguishes rerun functional controls from controls not rerun in this repair.
+
+## Historical 1.4.x record
+
 | Review finding | Remediation | Current state |
 | --- | --- | --- |
 | Meaningful task identity | Uses the descriptive task directory and task name. | Complete |

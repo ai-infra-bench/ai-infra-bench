@@ -71,15 +71,18 @@ def configure_group(module, dcp_size: int, dcp_rank: int) -> None:
     module.get_dcp_group = lambda: group
 
 
-def construct_runner(*, dcp_size: int, dcp_rank: int, interleave: int, graph=False):
+def construct_runner(*, dcp_size: int, dcp_rank: int, interleave: int,
+                     block_size: int, graph=False):
     from vllm.config import (
         CacheConfig, CompilationConfig, ModelConfig, ParallelConfig,
         SchedulerConfig, VllmConfig,
     )
     from vllm.config.compilation import CUDAGraphMode
-    from vllm.v1.kv_cache_interface import (
-        FullAttentionSpec, KVCacheConfig, KVCacheGroupSpec,
+    from vllm.v1.kv_cache_interface import FullAttentionSpec
+    from vllm.v1.core.kv_cache_utils import (
+        get_kv_cache_groups, get_kv_cache_config_from_groups,
     )
+    from vllm.v1.core.kv_cache_manager import KVCacheManager
     import vllm.v1.worker.gpu.block_table as block_table_module
     import vllm.v1.worker.gpu.cudagraph_utils as graph_module
     import vllm.v1.worker.gpu.model_runner as model_runner_module
@@ -100,7 +103,7 @@ def construct_runner(*, dcp_size: int, dcp_rank: int, interleave: int, graph=Fal
                 model=model_dir, dtype="float16", max_model_len=128,
                 skip_tokenizer_init=True, enforce_eager=not graph,
             ),
-            cache_config=CacheConfig(block_size=16, cache_dtype="auto"),
+            cache_config=CacheConfig(block_size=block_size, cache_dtype="auto"),
             parallel_config=ParallelConfig(
                 tensor_parallel_size=dcp_size,
                 distributed_executor_backend="mp",
@@ -117,14 +120,24 @@ def construct_runner(*, dcp_size: int, dcp_rank: int, interleave: int, graph=Fal
                 cudagraph_capture_sizes=[1, 2, 4, 8, 16],
             ),
         )
-    cache_config = KVCacheConfig(
-        num_blocks=256, kv_cache_tensors=[],
-        kv_cache_groups=[KVCacheGroupSpec(
-            [f"layer{index}"], FullAttentionSpec(
-                block_size=size, num_kv_heads=1, head_size=32,
-                dtype=torch.float16,
-            ),
-        ) for index, size in enumerate((16, 32))],
+    # Use the ordinary configuration path: two full-attention layers share one
+    # group. DCP does not support hybrid groups at this Base. Different block
+    # sizes are separate deployments, not an invented multi-group layout.
+    layer_specs = {
+        f"layer{index}": FullAttentionSpec(
+            block_size=block_size, num_kv_heads=1, head_size=32,
+            dtype=torch.float16,
+        ) for index in range(2)
+    }
+    groups = get_kv_cache_groups(vllm_config, layer_specs)
+    cache_config = get_kv_cache_config_from_groups(
+        vllm_config, groups, 4 * 1024 * 1024,
+    )
+    # Reachability sanity: this exact generated layout is accepted by the
+    # scheduler's production coordinator with the real DCP hash granularity.
+    KVCacheManager(
+        cache_config, max_model_len=128, hash_block_size=block_size * dcp_size,
+        enable_caching=True, dcp_world_size=dcp_size,
     )
 
     class ConsumerBuilder:
@@ -136,7 +149,7 @@ def construct_runner(*, dcp_size: int, dcp_rank: int, interleave: int, graph=Fal
     # wiring. No candidate-added names/signatures are inspected or supplied.
     with (
         patch.object(model_runner_module, "init_attn_backend",
-                     return_value=({}, [ConsumerBuilder(), ConsumerBuilder()])),
+                     return_value=({}, [ConsumerBuilder() for _ in groups])),
         patch.object(model_runner_module, "init_kv_cache", return_value={}),
     ):
         runner = model_runner_module.GPUModelRunner(
@@ -146,18 +159,20 @@ def construct_runner(*, dcp_size: int, dcp_rank: int, interleave: int, graph=Fal
     return runner
 
 
-def construct_tables(module, *, dcp_size: int, dcp_rank: int, interleave: int):
+def construct_tables(module, *, dcp_size: int, dcp_rank: int, interleave: int,
+                     block_size: int):
     return construct_runner(
-        dcp_size=dcp_size, dcp_rank=dcp_rank, interleave=interleave
+        dcp_size=dcp_size, dcp_rank=dcp_rank, interleave=interleave,
+        block_size=block_size,
     ).block_tables
 
 
-def populate(tables):
+def populate(tables, *, block_size: int, dcp_size: int):
     per_request = []
     for req_index, base in enumerate((10, 40)):
         groups = []
-        for group_index, table in enumerate(tables.block_tables):
-            width = table.gpu.shape[1]
+        for group_index in range(1):
+            width = (128 + block_size * dcp_size - 1) // (block_size * dcp_size)
             groups.append([base + group_index * 20 + i for i in range(width)])
         tables.append_block_ids(req_index, tuple(groups), overwrite=True)
         per_request.append(groups)
@@ -165,11 +180,13 @@ def populate(tables):
     return per_request
 
 
-def run_case(module, *, dcp_size: int, dcp_rank: int, interleave: int) -> None:
+def run_case(module, *, dcp_size: int, dcp_rank: int, interleave: int,
+             block_size: int) -> None:
     tables = construct_tables(
-        module, dcp_size=dcp_size, dcp_rank=dcp_rank, interleave=interleave
+        module, dcp_size=dcp_size, dcp_rank=dcp_rank, interleave=interleave,
+        block_size=block_size,
     )
-    block_ids = populate(tables)
+    block_ids = populate(tables, block_size=block_size, dcp_size=dcp_size)
     # Include both early decode positions and positions close to max_model_len.
     # This exercises capacity without prescribing an internal table width: a
     # compact table and a safely over-allocated table are both valid.
@@ -181,7 +198,7 @@ def run_case(module, *, dcp_size: int, dcp_rank: int, interleave: int) -> None:
         torch.tensor(positions, dtype=torch.int64, device="cuda"),
     )
     torch.cuda.synchronize()
-    for group_index, block_size in enumerate((16, 32)):
+    for group_index in range(1):
         expected = expected_slots(
             positions[:split],
             block_ids[0][group_index],
@@ -206,12 +223,13 @@ def run_case(module, *, dcp_size: int, dcp_rank: int, interleave: int) -> None:
             )
 
 
-def check_graph_replay(module) -> None:
+def check_graph_replay(module, *, block_size: int) -> None:
     dcp_size, dcp_rank, interleave = 2, 1, 2
     tables = construct_tables(
-        module, dcp_size=dcp_size, dcp_rank=dcp_rank, interleave=interleave
+        module, dcp_size=dcp_size, dcp_rank=dcp_rank, interleave=interleave,
+        block_size=block_size,
     )
-    block_ids = populate(tables)
+    block_ids = populate(tables, block_size=block_size, dcp_size=dcp_size)
     idx = torch.tensor([0, 1], dtype=torch.int32, device="cuda")
     starts = torch.tensor([0, 8, 16], dtype=torch.int32, device="cuda")
     positions = torch.tensor(
@@ -234,7 +252,7 @@ def check_graph_replay(module) -> None:
     positions.copy_(torch.tensor(heldout, dtype=torch.int64, device="cuda"))
     graph.replay()
     torch.cuda.synchronize()
-    for group_index, block_size in enumerate((16, 32)):
+    for group_index in range(1):
         expected = expected_slots(
             heldout[:5],
             block_ids[1][group_index],
@@ -259,10 +277,10 @@ def check_graph_replay(module) -> None:
 
     # KV blocks can be recycled between decode steps without recapturing the
     # graph. Change the actual staged block-table backing storage, not a mock
-    # of the slot-mapping implementation, and check both cache-group layouts.
+    # of the slot-mapping implementation, for this supported cache layout.
     replacement_groups = []
-    for group_index, table in enumerate(tables.block_tables):
-        width = table.gpu.shape[1]
+    for group_index in range(1):
+        width = (128 + block_size * dcp_size - 1) // (block_size * dcp_size)
         replacement = [120 + group_index * 40 + i for i in range(width)]
         replacement_groups.append(replacement)
     tables.append_block_ids(1, tuple(replacement_groups), overwrite=True)
@@ -270,7 +288,7 @@ def check_graph_replay(module) -> None:
     tables.apply_staged_writes()
     graph.replay()
     torch.cuda.synchronize()
-    for group_index, block_size in enumerate((16, 32)):
+    for group_index in range(1):
         expected = expected_slots(
             heldout[:5], block_ids[1][group_index], block_size,
             dcp_size, dcp_rank, interleave,
@@ -286,7 +304,8 @@ def check_graph_replay(module) -> None:
             )
 
 
-def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool) -> None:
+def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool,
+                           block_size: int) -> None:
     """Scheduler messages -> real runner/graphs/sampler -> per-request tokens.
 
     A deterministic model consumes the same CommonAttentionMetadata and slot
@@ -301,7 +320,8 @@ def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool) -> None
 
     interleave = 2
     runner = construct_runner(
-        dcp_size=dcp_size, dcp_rank=dcp_rank, interleave=interleave, graph=graph
+        dcp_size=dcp_size, dcp_rank=dcp_rank, interleave=interleave,
+        block_size=block_size, graph=graph,
     )
 
     class MetadataConsumer(torch.nn.Module):
@@ -320,7 +340,7 @@ def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool) -> None
             fingerprint = (
                 input_ids.to(torch.int64) + 3 * positions
                 + 5 * context.slot_mapping["layer0"]
-                + 11 * context.slot_mapping["layer1"]
+                + 12 * context.slot_mapping["layer1"]
                 + 7 * lengths[rows]
             )
             return fingerprint.remainder(256).unsqueeze(1).float()
@@ -351,9 +371,12 @@ def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool) -> None
         ):
             runner.capture_model()
 
+    boundary = block_size * dcp_size
+    long_length = min(boundary - 1, 63)
+    short_length = 64 - long_length
     prompts = {
-        "long-a": list(range(10, 41)),
-        "long-b": list(range(50, 83)),
+        "long-a": list(range(10, 10 + short_length)),
+        "long-b": list(range(50, 50 + long_length)),
         "new-c": [91, 92, 93],
         "reuse-d": [107, 108],
     }
@@ -361,7 +384,7 @@ def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool) -> None
     state = {}
     sampling = SamplingParams(temperature=0, max_tokens=16, ignore_eos=True)
     plans = [
-        ({"long-a": 31, "long-b": 33}, set()),
+        ({"long-a": short_length, "long-b": long_length}, set()),
         ({"long-b": 1, "long-a": 1}, set()),
         ({"long-b": 1, "new-c": 3}, {"long-a"}),
         ({"new-c": 1, "long-b": 1}, set()),
@@ -381,12 +404,12 @@ def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool) -> None
             if new:
                 state[req_id] = {
                     "tokens": prompts[req_id].copy(), "computed": 0,
-                    "blocks": [[], []],
+                    "blocks": [[]],
                 }
             record = state[req_id]
             end = record["computed"] + count
             additions = []
-            for group, size in enumerate((16, 32)):
+            for group, size in enumerate((block_size,)):
                 needed = (end + size * dcp_size - 1) // (size * dcp_size)
                 blocks = record["blocks"][group]
                 added = [
@@ -420,14 +443,14 @@ def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool) -> None
                     [position], record["blocks"][group], size,
                     dcp_size, dcp_rank, interleave,
                 )[0]
-                for group, size in enumerate((16, 32))
+                for group, size in enumerate((block_size,))
             ]
             local_length = sum(
                 (p // interleave) % dcp_size == dcp_rank for p in range(end)
             )
             expected[req_id] = (
                 record["tokens"][position] + 3 * position
-                + 5 * slots[0] + 11 * slots[1] + 7 * local_length
+                + 5 * slots[0] + 12 * slots[0] + 7 * local_length
             ) % 256
         runner.execute_model(output)
         if not counts:
@@ -460,25 +483,32 @@ def run_suite(emit) -> None:
     emit("preflight", True)
 
     for case in ((1, 0, 1), (2, 0, 1), (2, 1, 2), (4, 3, 2)):
-        run_case(
-            block_table_module,
-            dcp_size=case[0],
-            dcp_rank=case[1],
-            interleave=case[2],
-        )
+        for block_size in (16, 32):
+            run_case(
+                block_table_module,
+                dcp_size=case[0], dcp_rank=case[1], interleave=case[2],
+                block_size=block_size,
+            )
         emit(f"slot-{case[0]}-{case[1]}-{case[2]}", True)
-    check_graph_replay(block_table_module)
+    for block_size in (16, 32):
+        check_graph_replay(block_table_module, block_size=block_size)
     emit("graph-replay", True)
     emit("graph-block-update", True)
-    check_runner_lifecycle(dcp_size=2, dcp_rank=1, graph=False)
+    for block_size in (16, 32):
+        check_runner_lifecycle(dcp_size=2, dcp_rank=1, graph=False,
+                               block_size=block_size)
     emit("runner-eager-lifecycle", True)
-    check_runner_lifecycle(dcp_size=2, dcp_rank=1, graph=True)
+    for block_size in (16, 32):
+        check_runner_lifecycle(dcp_size=2, dcp_rank=1, graph=True,
+                               block_size=block_size)
     emit("runner-graph-lifecycle", True)
-    check_runner_lifecycle(dcp_size=1, dcp_rank=0, graph=True)
+    for block_size in (16, 32):
+        check_runner_lifecycle(dcp_size=1, dcp_rank=0, graph=True,
+                               block_size=block_size)
     emit("runner-non-dcp-lifecycle", True)
     print(
         "PASS: production slot mapping handles non-DCP, held-out DCP ranks, "
-        "interleaving, multiple cache groups, requests, CUDA graph replay, "
+        "interleaving, supported block sizes, requests, CUDA graph replay, "
         "and graph attention metadata"
     )
     print(f"candidate_source={source} gpu={torch.cuda.get_device_name(0)}")

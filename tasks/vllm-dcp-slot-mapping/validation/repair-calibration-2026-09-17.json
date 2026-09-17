@@ -1,0 +1,4283 @@
+{
+  "schema_version": "ai_infra_bench_repair_calibration.v1",
+  "task_version": "1.5.0",
+  "base_commit": "be3af2d29e2507f32b2190fe015cd6609b348caa",
+  "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+  "image_tag": "ai-infra-bench/vllm-dcp-slot-mapping:base-be3af2d29e25-isolated-v141",
+  "hardware": "H20 local rank on physical device 4, shared host; A100/multi-rank not validated",
+  "harness": "Harbor 0.22.0; oracle/nop controls; separate verifier where configured",
+  "status": "controls-matched-expectations; final-quality-review-pending",
+  "executed_inputs": {
+    "environment/Dockerfile": "b2eb2d3e05c2315c26e09835b07dd29bd7eb191dc579ea40553b42caa82c4fdc",
+    "environment/docker-compose.yaml": "2a8ebdb1c56b1d74ce13762d408a6efac3cd46c9b4277c669dbac6580db3b523",
+    "environment/lock/manifest.json": "a8224e5a129a4afb573c2021ddc6226e0489f3ef04357af4ba3726d5b104647b",
+    "environment/lock/native-donor.json": "6bb55f559541246bcbd7c078369dcbaaa8cf25b83b19a524d6a76a1c4f36f311",
+    "environment/lock/requirements.txt": "d66b1c0ec910a2220a1a5cd871df5864031c51e6df814f4be58c0caeda873eaf",
+    "instruction.md": "9e927685943caf09779b50c0fc7602025467386380a72c9df7994ef763a54ee5",
+    "solution/oracle.patch": "10fccf7b1cffcdbb62b57984e164a11de7199108e60ee5ee4729ea7b61f0dcce",
+    "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+    "task.toml": "d2f731d873e8493968a0956426ae1e111a07c13c7982684b982972f27e022040",
+    "tests/checkpoint.c": "ebc9028bb2e4d0d0d347b5b2e60524708b37e41136edf9459da4db8fff422f9b",
+    "tests/docker-compose.yaml": "597e3b182f1714efc87b877f5ac9af369aae9a54beba9debf65eca7d7ac7af23",
+    "tests/supervise_verifier.py": "65523f24fc12b84c0a1114079bca93c380872fd147714d2d0743399c6323eb28",
+    "tests/test.sh": "d3f04db96cda4c8f2cf00059aebcfdaf156ca8a6104dd667d27c9eeac781c473",
+    "tests/verify_dcp_slot_mapping.py": "86ca633d5500aeb33a04274a882e36a0c2216d937d16e40e60ca6e0ce73d041c",
+    "validation/alternative-agent-implementation.patch": "73c959f3cbaa63664824c2c1f872318dd0b05edf80d108f34771d56a91f0ec77",
+    "validation/deepseek-explicit-capture-implementation.patch": "04a823593866a88f04c14bc96fd930b609b017d322f880cd54ffdea1df553f8c",
+    "validation/deepseek-input-buffers-implementation.patch": "49ed6e577db494a156a704fd1151d8cd6578efeb957a40f179c5253559c2cd5a",
+    "validation/early-exit-os-exit.patch": "7e8264005f8d1cbc83bbe2fe6d9195e6ff06c117600fa08b5d41c620294c4d46",
+    "validation/early-exit-systemexit.patch": "80f7fd0dce410eb62373fa96daeb380acaf16d0de85b03872956c1a0e142a2fe",
+    "validation/forged-callback.patch": "27f04aacfe875ecfe1ba9126f2a3d484886cddbe7cd934bfe2e39fc851d4de63",
+    "validation/forged-checkpoint.patch": "362f0182ff3632399d3a616f0f1a00a4c1eb8c11852f749ae18208e1452d1d44",
+    "validation/forged-success-output.patch": "e1907a5c2890bb35e95cabcb18bb390a418f4ca65241875d5627bebea120e448",
+    "validation/incomplete-agent-implementation.patch": "a55bb0124c30c608b920ead0bc2a903efa247361a239de65a9997d34bb3db44b"
+  },
+  "checksum_note": "Harbor checksum predates evidence-only updates; executable identities compared before export.",
+  "results": [
+    {
+      "case": "base",
+      "expected_reward": 0,
+      "observed_rewards": [
+        0.0
+      ],
+      "harness_errors": 0,
+      "command_exit": 0,
+      "completed_trials": 1,
+      "verdict": {
+        "completed": 2,
+        "failure_count": 2,
+        "required": 11,
+        "reward": 0,
+        "worker_exit_status": 256
+      },
+      "trial_id": "pr60-final-base__GypweeZ",
+      "task_checksum": "5ab1622481cf2c6cc7b6756fe925c2b7daa8e52148d1c6f10c4e1b94615c7007",
+      "started_at": "2026-09-17T01:48:31.049602Z",
+      "finished_at": "2026-09-17T01:49:52.425398Z",
+      "exception_info": null,
+      "evidence_directory": "validation/repair-control-logs/base",
+      "evidence_sha256": {
+        "test-stdout.txt": "e01d5ac540c99767e9efa26355b183e8ab99ac6af1fb64985179e7b395c5aded",
+        "reward.json": "016c89c08f48607aa99377933625dcf78facd1792a4f59a9a2281d72c2b6ebf2"
+      },
+      "failure_summary": [
+        "AssertionError: slot mismatch size=2 rank=0 interleave=1 group=0: expected=[187, -1, 188, -1, 189, -1, 190, -1, 191, -1, 701, -1, 702, -1, 703, -1] actual=[214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 10, 11, 12, 13, 14, 15]"
+      ],
+      "input_snapshot": "pr60-final-controls-inputs.json",
+      "device_observations": [
+        {
+          "name": "pr60-final-base__gypweez__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f4ff58f306dd2ebc72719b54122f15d99ba33046c510158cc2976e3c6784624c",
+          "mount_destinations": [
+            "/logs/verifier",
+            "/logs/agent",
+            "/logs/artifacts"
+          ],
+          "observed_at": "2026-09-17T01:48:43.632262+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f4ff58f306dd2ebc72719b54122f15d99ba33046c510158cc2976e3c6784624c",
+          "mount_destinations": [
+            "/logs/agent",
+            "/logs/artifacts",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:48:46.696233+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f4ff58f306dd2ebc72719b54122f15d99ba33046c510158cc2976e3c6784624c",
+          "mount_destinations": [
+            "/logs/artifacts",
+            "/logs/verifier",
+            "/logs/agent"
+          ],
+          "observed_at": "2026-09-17T01:48:49.742680+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f4ff58f306dd2ebc72719b54122f15d99ba33046c510158cc2976e3c6784624c",
+          "mount_destinations": [
+            "/logs/verifier",
+            "/logs/agent",
+            "/logs/artifacts"
+          ],
+          "observed_at": "2026-09-17T01:48:52.792326+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:6bdcd730e419a1a730ccfc60faace04f196328b4c049f71d736508904805b1a2",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:49:05.229523+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:6bdcd730e419a1a730ccfc60faace04f196328b4c049f71d736508904805b1a2",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:49:08.276231+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:6bdcd730e419a1a730ccfc60faace04f196328b4c049f71d736508904805b1a2",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:49:11.324759+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:6bdcd730e419a1a730ccfc60faace04f196328b4c049f71d736508904805b1a2",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:49:14.378234+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:6bdcd730e419a1a730ccfc60faace04f196328b4c049f71d736508904805b1a2",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:49:17.428663+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:6bdcd730e419a1a730ccfc60faace04f196328b4c049f71d736508904805b1a2",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:49:20.480638+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:6bdcd730e419a1a730ccfc60faace04f196328b4c049f71d736508904805b1a2",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:49:23.669664+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:6bdcd730e419a1a730ccfc60faace04f196328b4c049f71d736508904805b1a2",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:49:26.718726+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:6bdcd730e419a1a730ccfc60faace04f196328b4c049f71d736508904805b1a2",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:49:29.767445+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:6bdcd730e419a1a730ccfc60faace04f196328b4c049f71d736508904805b1a2",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:49:32.820321+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:6bdcd730e419a1a730ccfc60faace04f196328b4c049f71d736508904805b1a2",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:49:35.869149+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:6bdcd730e419a1a730ccfc60faace04f196328b4c049f71d736508904805b1a2",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:49:39.017814+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:6bdcd730e419a1a730ccfc60faace04f196328b4c049f71d736508904805b1a2",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:49:42.066267+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:6bdcd730e419a1a730ccfc60faace04f196328b4c049f71d736508904805b1a2",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:49:45.114965+00:00"
+        },
+        {
+          "name": "pr60-final-base__gypweez__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:6bdcd730e419a1a730ccfc60faace04f196328b4c049f71d736508904805b1a2",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:49:48.161864+00:00"
+        }
+      ]
+    },
+    {
+      "case": "oracle",
+      "expected_reward": 1,
+      "observed_rewards": [
+        1.0
+      ],
+      "harness_errors": 0,
+      "command_exit": 0,
+      "completed_trials": 1,
+      "verdict": {
+        "completed": 11,
+        "failure_count": 0,
+        "required": 11,
+        "reward": 1,
+        "worker_exit_status": 0
+      },
+      "trial_id": "pr60-final-oracle__m6yLAii",
+      "task_checksum": "5ab1622481cf2c6cc7b6756fe925c2b7daa8e52148d1c6f10c4e1b94615c7007",
+      "started_at": "2026-09-17T01:50:01.926805Z",
+      "finished_at": "2026-09-17T01:51:55.573887Z",
+      "exception_info": null,
+      "evidence_directory": "validation/repair-control-logs/oracle",
+      "evidence_sha256": {
+        "test-stdout.txt": "17c8ee806ebf28ee0cfbe2e6ceec65e7be035d24eb801e32b7e724ccd11abaee",
+        "reward.json": "d77f8a5987ecd401c1ff80d541f9d703051ffb17ee67107d96b4a4bf97d0f17d"
+      },
+      "failure_summary": [],
+      "input_snapshot": "pr60-final-controls-inputs.json",
+      "device_observations": [
+        {
+          "name": "pr60-final-oracle__m6ylaii__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:a645ae4d3ad3ab6a45f9e0c76fafa49f014db6cd7a14e26e758aacbca7d807b7",
+          "mount_destinations": [
+            "/logs/agent",
+            "/logs/artifacts",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:50:13.839101+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:a645ae4d3ad3ab6a45f9e0c76fafa49f014db6cd7a14e26e758aacbca7d807b7",
+          "mount_destinations": [
+            "/logs/agent",
+            "/logs/artifacts",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:50:16.903653+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:a645ae4d3ad3ab6a45f9e0c76fafa49f014db6cd7a14e26e758aacbca7d807b7",
+          "mount_destinations": [
+            "/logs/agent",
+            "/logs/artifacts",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:50:19.951453+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:a645ae4d3ad3ab6a45f9e0c76fafa49f014db6cd7a14e26e758aacbca7d807b7",
+          "mount_destinations": [
+            "/logs/agent",
+            "/logs/artifacts",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:50:22.999871+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:50:39.901589+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:50:42.948337+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:50:45.996516+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:50:49.046561+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:50:52.095835+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:50:55.142286+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:50:58.273719+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:51:01.325227+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:51:04.376957+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:51:07.425745+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:51:10.471430+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:51:13.616950+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:51:16.665162+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:51:19.924456+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:51:22.972057+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:51:26.020495+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:51:29.066259+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:51:32.114805+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:51:35.162042+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:51:38.209376+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:51:41.267640+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:51:44.313509+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:51:47.524420+00:00"
+        },
+        {
+          "name": "pr60-final-oracle__m6ylaii__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:9f050da8765e8e2b3e528e7e833a8bcdad9817135424f7f10570f0863931e657",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:51:50.571682+00:00"
+        }
+      ]
+    },
+    {
+      "case": "deepseek-explicit-capture-implementation",
+      "expected_reward": 1,
+      "observed_rewards": [
+        1.0
+      ],
+      "harness_errors": 0,
+      "command_exit": 0,
+      "completed_trials": 1,
+      "verdict": {
+        "completed": 11,
+        "failure_count": 0,
+        "required": 11,
+        "reward": 1,
+        "worker_exit_status": 0
+      },
+      "trial_id": "pr60-final-deepseek-explicit-cap__KY7nJqv",
+      "task_checksum": "fcf1fdb995441634bb0f864530ca8063329c41a925ba22e33a7b607dbaf2dcd6",
+      "started_at": "2026-09-17T01:52:04.904139Z",
+      "finished_at": "2026-09-17T01:53:59.579817Z",
+      "exception_info": null,
+      "evidence_directory": "validation/repair-control-logs/deepseek-explicit-capture-implementation",
+      "evidence_sha256": {
+        "test-stdout.txt": "2d9c6ff889391391d09a691d258a52f11c982ae8755e926b619ab93e1ff1a336",
+        "reward.json": "d77f8a5987ecd401c1ff80d541f9d703051ffb17ee67107d96b4a4bf97d0f17d"
+      },
+      "failure_summary": [],
+      "input_snapshot": "pr60-final-controls-inputs.json",
+      "device_observations": [
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:15f1fd349184447026dbecf921421cf304ee972db7a53088a23bbb7274b91df9",
+          "mount_destinations": [
+            "/logs/artifacts",
+            "/logs/verifier",
+            "/logs/agent"
+          ],
+          "observed_at": "2026-09-17T01:52:16.520542+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:15f1fd349184447026dbecf921421cf304ee972db7a53088a23bbb7274b91df9",
+          "mount_destinations": [
+            "/logs/artifacts",
+            "/logs/verifier",
+            "/logs/agent"
+          ],
+          "observed_at": "2026-09-17T01:52:19.567394+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:15f1fd349184447026dbecf921421cf304ee972db7a53088a23bbb7274b91df9",
+          "mount_destinations": [
+            "/logs/artifacts",
+            "/logs/verifier",
+            "/logs/agent"
+          ],
+          "observed_at": "2026-09-17T01:52:22.614159+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:15f1fd349184447026dbecf921421cf304ee972db7a53088a23bbb7274b91df9",
+          "mount_destinations": [
+            "/logs/artifacts",
+            "/logs/verifier",
+            "/logs/agent"
+          ],
+          "observed_at": "2026-09-17T01:52:25.868314+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:52:42.795137+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:52:45.843621+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:52:48.893012+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:52:51.942830+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:52:54.991319+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:52:58.067439+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:01.113418+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:04.162173+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:07.253980+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/logs/verifier",
+            "/tests"
+          ],
+          "observed_at": "2026-09-17T01:53:10.301964+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:13.350780+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:16.400980+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:19.451549+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:22.737111+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:25.781664+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:28.827508+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:31.897455+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:34.944926+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:37.994222+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:41.041067+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:44.088313+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:47.358542+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:50.405970+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:53.451986+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-explicit-cap__ky7njqv__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:5e3d71c891106333d8ac86c4da30f0622c7f7fc3d08bfa92931124a95183fedb",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:53:56.540318+00:00"
+        }
+      ]
+    },
+    {
+      "case": "deepseek-input-buffers-implementation",
+      "expected_reward": 1,
+      "observed_rewards": [
+        1.0
+      ],
+      "harness_errors": 0,
+      "command_exit": 0,
+      "completed_trials": 1,
+      "verdict": {
+        "completed": 11,
+        "failure_count": 0,
+        "required": 11,
+        "reward": 1,
+        "worker_exit_status": 0
+      },
+      "trial_id": "pr60-final-deepseek-input-buffer__idnft9z",
+      "task_checksum": "ecd667b5d25fffeebe7a690a7592459457b003c4af963b7201b47c4eece1f890",
+      "started_at": "2026-09-17T01:54:07.423789Z",
+      "finished_at": "2026-09-17T01:56:07.841583Z",
+      "exception_info": null,
+      "evidence_directory": "validation/repair-control-logs/deepseek-input-buffers-implementation",
+      "evidence_sha256": {
+        "test-stdout.txt": "faf33a9ad923e1d941d03743bdeba6f73c7593dd52f23e7c252f37668effc1df",
+        "reward.json": "d77f8a5987ecd401c1ff80d541f9d703051ffb17ee67107d96b4a4bf97d0f17d"
+      },
+      "failure_summary": [],
+      "input_snapshot": "pr60-final-controls-inputs.json",
+      "device_observations": [
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:d42458be3fbdfd67783d79554dac94bfa86ac807faba340dd67849faee8ef12d",
+          "mount_destinations": [
+            "/logs/artifacts",
+            "/logs/verifier",
+            "/logs/agent"
+          ],
+          "observed_at": "2026-09-17T01:54:19.804164+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:d42458be3fbdfd67783d79554dac94bfa86ac807faba340dd67849faee8ef12d",
+          "mount_destinations": [
+            "/logs/artifacts",
+            "/logs/verifier",
+            "/logs/agent"
+          ],
+          "observed_at": "2026-09-17T01:54:22.854446+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:d42458be3fbdfd67783d79554dac94bfa86ac807faba340dd67849faee8ef12d",
+          "mount_destinations": [
+            "/logs/artifacts",
+            "/logs/verifier",
+            "/logs/agent"
+          ],
+          "observed_at": "2026-09-17T01:54:25.904527+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:d42458be3fbdfd67783d79554dac94bfa86ac807faba340dd67849faee8ef12d",
+          "mount_destinations": [
+            "/logs/artifacts",
+            "/logs/verifier",
+            "/logs/agent"
+          ],
+          "observed_at": "2026-09-17T01:54:28.952943+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:54:44.820468+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/logs/verifier",
+            "/tests"
+          ],
+          "observed_at": "2026-09-17T01:54:47.869587+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:54:50.917848+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:54:53.967519+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:54:57.016835+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:00.299340+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:03.347955+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:06.401348+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:09.451893+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:12.501807+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:15.551790+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:18.600364+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:21.822874+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:24.869928+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:27.919987+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:30.969076+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:34.015438+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:37.287698+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:40.337998+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:43.387368+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/logs/verifier",
+            "/tests"
+          ],
+          "observed_at": "2026-09-17T01:55:46.436253+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:49.485329+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:52.533710+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:55:55.580880+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/logs/verifier",
+            "/tests"
+          ],
+          "observed_at": "2026-09-17T01:55:58.632273+00:00"
+        },
+        {
+          "name": "pr60-final-deepseek-input-buffer__idnft9z__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f7b2ba7cf0026ff6427dc8b75aa27ca4077bb7d0a18149b6763739220f9a172c",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:56:01.683494+00:00"
+        }
+      ]
+    },
+    {
+      "case": "alternative-agent-implementation",
+      "expected_reward": 1,
+      "observed_rewards": [
+        1.0
+      ],
+      "harness_errors": 0,
+      "command_exit": 0,
+      "completed_trials": 1,
+      "verdict": {
+        "completed": 11,
+        "failure_count": 0,
+        "required": 11,
+        "reward": 1,
+        "worker_exit_status": 0
+      },
+      "trial_id": "pr60-final-alternative-agent-imp__99T8qnF",
+      "task_checksum": "16b016e4d98cbb15eed49b55d41011d247cf260f5f5fa2ea2484895dd09bf3b0",
+      "started_at": "2026-09-17T01:56:15.787705Z",
+      "finished_at": "2026-09-17T01:58:13.982228Z",
+      "exception_info": null,
+      "evidence_directory": "validation/repair-control-logs/alternative-agent-implementation",
+      "evidence_sha256": {
+        "test-stdout.txt": "90d01ef7ae9e35ae282776f9c711635b02c6e55c9b22391b3f10538503312012",
+        "reward.json": "d77f8a5987ecd401c1ff80d541f9d703051ffb17ee67107d96b4a4bf97d0f17d"
+      },
+      "failure_summary": [],
+      "input_snapshot": "pr60-final-controls-inputs.json",
+      "device_observations": [
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:2ec81147f0fd1ae9a3951d3f308067b05d13aaadbfd2b48e746df418f3f3b597",
+          "mount_destinations": [
+            "/logs/agent",
+            "/logs/artifacts",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:56:27.805169+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:2ec81147f0fd1ae9a3951d3f308067b05d13aaadbfd2b48e746df418f3f3b597",
+          "mount_destinations": [
+            "/logs/agent",
+            "/logs/artifacts",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:56:30.854969+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:2ec81147f0fd1ae9a3951d3f308067b05d13aaadbfd2b48e746df418f3f3b597",
+          "mount_destinations": [
+            "/logs/verifier",
+            "/logs/agent",
+            "/logs/artifacts"
+          ],
+          "observed_at": "2026-09-17T01:56:33.904414+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:2ec81147f0fd1ae9a3951d3f308067b05d13aaadbfd2b48e746df418f3f3b597",
+          "mount_destinations": [
+            "/logs/artifacts",
+            "/logs/verifier",
+            "/logs/agent"
+          ],
+          "observed_at": "2026-09-17T01:56:36.979493+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/logs/verifier",
+            "/tests"
+          ],
+          "observed_at": "2026-09-17T01:56:54.652398+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:56:57.700332+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:00.751583+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:03.803136+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:06.849962+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:09.901885+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:12.952863+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:16.001372+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:19.049815+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:22.155739+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/logs/verifier",
+            "/tests"
+          ],
+          "observed_at": "2026-09-17T01:57:25.207760+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:28.259874+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:31.309276+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:34.359807+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:37.553779+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:40.601667+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:43.652515+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:46.701125+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:49.749392+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:52.868628+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:55.917060+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:57:58.966929+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:58:02.016093+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/logs/verifier",
+            "/tests"
+          ],
+          "observed_at": "2026-09-17T01:58:05.065329+00:00"
+        },
+        {
+          "name": "pr60-final-alternative-agent-imp__99t8qnf__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:f469e412be9fde598987f71857a63aa34e534b62ea984030567ebe5477dfa3bd",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:58:08.115096+00:00"
+        }
+      ]
+    },
+    {
+      "case": "incomplete-agent-implementation",
+      "expected_reward": 0,
+      "observed_rewards": [
+        0.0
+      ],
+      "harness_errors": 0,
+      "command_exit": 0,
+      "completed_trials": 1,
+      "verdict": {
+        "completed": 2,
+        "failure_count": 2,
+        "required": 11,
+        "reward": 0,
+        "worker_exit_status": 256
+      },
+      "trial_id": "pr60-final-incomplete-agent-impl__W7YEbV9",
+      "task_checksum": "d07b29ed4f0186bf99a51e01c8eaefc1a1348cc416f068310642014d1edcbf72",
+      "started_at": "2026-09-17T01:58:21.978728Z",
+      "finished_at": "2026-09-17T01:59:43.052352Z",
+      "exception_info": null,
+      "evidence_directory": "validation/repair-control-logs/incomplete-agent-implementation",
+      "evidence_sha256": {
+        "test-stdout.txt": "7df69513597632ccfee3170f90fd1b87231dcaf52fb9f458ee0509cad92d3910",
+        "reward.json": "016c89c08f48607aa99377933625dcf78facd1792a4f59a9a2281d72c2b6ebf2"
+      },
+      "failure_summary": [
+        "AssertionError: slot mismatch size=2 rank=0 interleave=1 group=0: expected=[187, -1, 188, -1, 189, -1, 190, -1, 191, -1, 701, -1, 702, -1, 703, -1] actual=[214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 10, 11, 12, 13, 14, 15]"
+      ],
+      "input_snapshot": "pr60-final-controls-inputs.json",
+      "device_observations": [
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:c4a50e5aeb2cc5572dd2d5bf99e9a55098b8662ec721402fc15df3c4e78e2bdb",
+          "mount_destinations": [
+            "/logs/verifier",
+            "/logs/agent",
+            "/logs/artifacts"
+          ],
+          "observed_at": "2026-09-17T01:58:29.715099+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:c4a50e5aeb2cc5572dd2d5bf99e9a55098b8662ec721402fc15df3c4e78e2bdb",
+          "mount_destinations": [
+            "/logs/verifier",
+            "/logs/agent",
+            "/logs/artifacts"
+          ],
+          "observed_at": "2026-09-17T01:58:33.061358+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:c4a50e5aeb2cc5572dd2d5bf99e9a55098b8662ec721402fc15df3c4e78e2bdb",
+          "mount_destinations": [
+            "/logs/verifier",
+            "/logs/agent",
+            "/logs/artifacts"
+          ],
+          "observed_at": "2026-09-17T01:58:36.108285+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:c4a50e5aeb2cc5572dd2d5bf99e9a55098b8662ec721402fc15df3c4e78e2bdb",
+          "mount_destinations": [
+            "/logs/verifier",
+            "/logs/agent",
+            "/logs/artifacts"
+          ],
+          "observed_at": "2026-09-17T01:58:39.156553+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__env-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:c4a50e5aeb2cc5572dd2d5bf99e9a55098b8662ec721402fc15df3c4e78e2bdb",
+          "mount_destinations": [
+            "/logs/verifier",
+            "/logs/agent",
+            "/logs/artifacts"
+          ],
+          "observed_at": "2026-09-17T01:58:42.436351+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:8347a2290842212b9e999b097460f596fcd408168f7c589450fb4af7d25f4e04",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:58:55.325727+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:8347a2290842212b9e999b097460f596fcd408168f7c589450fb4af7d25f4e04",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:58:58.398631+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:8347a2290842212b9e999b097460f596fcd408168f7c589450fb4af7d25f4e04",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:59:01.445906+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:8347a2290842212b9e999b097460f596fcd408168f7c589450fb4af7d25f4e04",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:59:04.496274+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:8347a2290842212b9e999b097460f596fcd408168f7c589450fb4af7d25f4e04",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:59:07.755206+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:8347a2290842212b9e999b097460f596fcd408168f7c589450fb4af7d25f4e04",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:59:10.805830+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:8347a2290842212b9e999b097460f596fcd408168f7c589450fb4af7d25f4e04",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:59:14.174817+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:8347a2290842212b9e999b097460f596fcd408168f7c589450fb4af7d25f4e04",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:59:17.224388+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:8347a2290842212b9e999b097460f596fcd408168f7c589450fb4af7d25f4e04",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:59:20.275526+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:8347a2290842212b9e999b097460f596fcd408168f7c589450fb4af7d25f4e04",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:59:23.325358+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:8347a2290842212b9e999b097460f596fcd408168f7c589450fb4af7d25f4e04",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:59:26.372310+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:8347a2290842212b9e999b097460f596fcd408168f7c589450fb4af7d25f4e04",
+          "mount_destinations": [
+            "/logs/verifier",
+            "/tests"
+          ],
+          "observed_at": "2026-09-17T01:59:29.609573+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:8347a2290842212b9e999b097460f596fcd408168f7c589450fb4af7d25f4e04",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:59:32.656590+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:8347a2290842212b9e999b097460f596fcd408168f7c589450fb4af7d25f4e04",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:59:35.929496+00:00"
+        },
+        {
+          "name": "pr60-final-incomplete-agent-impl__w7yebv9__verifier__trial-main-1",
+          "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
+          "user": "agent",
+          "device_requests": [
+            {
+              "Driver": "nvidia",
+              "Count": 0,
+              "DeviceIDs": [
+                "4"
+              ],
+              "Capabilities": [
+                [
+                  "gpu"
+                ]
+              ],
+              "Options": null
+            }
+          ],
+          "network_mode": "container:8347a2290842212b9e999b097460f596fcd408168f7c589450fb4af7d25f4e04",
+          "mount_destinations": [
+            "/tests",
+            "/logs/verifier"
+          ],
+          "observed_at": "2026-09-17T01:59:38.976691+00:00"
+        }
+      ]
+    }
+  ]
+}
