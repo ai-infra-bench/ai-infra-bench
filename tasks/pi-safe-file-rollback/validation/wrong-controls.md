@@ -4,6 +4,7 @@ Each control is a complete patch against Base `d981de1229ef899957bbe968bc8dcda02
 
 | Case | Deliberate defect | Expected distinguishing behavior |
 | --- | --- | --- |
+| `missing-runtime-fork-gate` | Removes only the real runtime fork readiness guard. | Interrupted recovery must prevent session replacement through the public fork API, after ready-state fork is proven operational. |
 | `memory-only` | Journal publication is disabled. | A restarted session must retain enablement and checkpoints. |
 | `checkpoint-at-request-end` | The new request is published only after it finishes. | Killing the first or a later request must retain its pre-request checkpoint and require recovery. |
 | `files-only` | Conversation restoration is omitted. | Removed messages must disappear from effective provider context and remain absent after restart. |
@@ -26,8 +27,8 @@ execution gating remain required. The added `minimal-checkpoint-metadata`
 positive is derived from Oracle to challenge representation bias, not to replace
 any negative control or provide another independent recovery algorithm.
 
-The author matrix therefore comprises Base, Oracle, two positive controls and
-these eight negative controls. Expected outcomes are not recorded outcomes:
+The current author matrix comprises Base, Oracle, two positive controls and
+these nine negative controls. Expected outcomes are not recorded outcomes:
 consult the current [e2e-evidence.json](e2e-evidence.json) for completed trials
 bound to the current verifier. Individual negative controls may fail different
 numbers of cases after behavioral checks are strengthened; the relevant evidence
@@ -37,3 +38,11 @@ Keeping internal records of abandoned branches is permitted when they are not
 eligible public targets and cannot contaminate later behavior. The branch control
 therefore includes the externally observable eligibility defect; private storage
 retention alone is not treated as incorrect.
+
+Version `0.0.4` adds `missing-runtime-fork-gate`, bringing the canonical author
+inventory to 13 (Base, Oracle, two correct controls, nine negative controls).
+Its full patch differs from Oracle only by the deleted runtime fork guard.
+The third TUI fixture's bad startup-queue mutation and the public cancellation
+variant are separate diagnostic controls; they do not increase this inventory.
+`generate_controls.py --cases missing-runtime-fork-gate` can regenerate only the
+new patch while preserving earlier control provenance.

@@ -19,6 +19,7 @@ import tempfile
 BASE = "d981de1229ef899957bbe968bc8dcda02a21f477"
 STORE = Path("packages/coding-agent/src/core/safe-rollback.ts")
 SDK = Path("packages/coding-agent/src/core/sdk.ts")
+RUNTIME = Path("packages/coding-agent/src/core/agent-session-runtime.ts")
 SCHEMA = "ai_infra_bench_validation_cases.v1"
 
 
@@ -76,7 +77,14 @@ def early_exit(source):
     return replace_once(source, "\tawait session.initializeSafeRollback();", "\tif (options.safeRollback === true) await new Promise<void>(() => { process.exit(0); });\n\tawait session.initializeSafeRollback();")
 
 
+def missing_fork_gate(source):
+    anchor = '\t): Promise<{ cancelled: boolean; selectedText?: string }> {\n\t\tthis.session.assertRollbackReady();'
+    return replace_once(source, anchor, '\t): Promise<{ cancelled: boolean; selectedText?: string }> {')
+
+
+
 CONTROLS = [
+    ("missing-runtime-fork-gate", RUNTIME, missing_fork_gate, "Allows runtime fork while recovery is unresolved; the real public fork boundary must reject without replacing the session."),
     ("memory-only", STORE, memory_only, "Keeps checkpoint state only in process memory; restart loses enablement and recovery history."),
     ("checkpoint-at-request-end", STORE, end_only, "Publishes a checkpoint only at completion, losing the current checkpoint when a request is killed."),
     ("files-only", STORE, files_only, "Restores workspace files while retaining the abandoned effective conversation."),
@@ -103,7 +111,9 @@ def fingerprint(root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-repo", type=Path, required=True)
+    parser.add_argument("--cases", nargs="*", choices=[item[0] for item in CONTROLS])
     args = parser.parse_args()
+    selected = [item for item in CONTROLS if not args.cases or item[0] in args.cases]
     validation = Path(__file__).resolve().parent
     oracle = validation.parent / "solution/oracle.patch"
     archive = run(["git", "archive", BASE], cwd=args.base_repo)
@@ -115,7 +125,7 @@ def main():
         base.mkdir()
         with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
             tar.extractall(base, filter="data")
-        for name, source_path, mutate, rationale in CONTROLS:
+        for name, source_path, mutate, rationale in selected:
             candidate = temp / "candidate"
             applied = temp / "applied"
             shutil.copytree(base, candidate, symlinks=True)
@@ -143,10 +153,16 @@ def main():
             shutil.rmtree(applied)
     case_file = validation / "ci-cases.json"
     existing = json.loads(case_file.read_text()) if case_file.exists() else {"schema_version": SCHEMA, "cases": []}
-    controlled_names = {item[0] for item in CONTROLS}
+    controlled_names = {item[0] for item in selected}
     existing["cases"] = [case for case in existing["cases"] if case["name"] not in controlled_names] + cases
     case_file.write_text(json.dumps(existing, indent=2) + "\n")
-    (validation / "control-generation.json").write_text(json.dumps(provenance, indent=2) + "\n")
+    provenance_file = validation / "control-generation.json"
+    if args.cases and provenance_file.exists():
+        previous = json.loads(provenance_file.read_text())
+        assert previous["base_commit"] == provenance["base_commit"]
+        assert previous["oracle_patch_sha256"] == provenance["oracle_patch_sha256"]
+        provenance["controls"] = [item for item in previous["controls"] if item["name"] not in controlled_names] + provenance["controls"]
+    provenance_file.write_text(json.dumps(provenance, indent=2) + "\n")
     print(f"Generated and checked {len(cases)} standalone Base patches")
 
 

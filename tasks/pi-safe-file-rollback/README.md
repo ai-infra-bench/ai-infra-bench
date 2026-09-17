@@ -1,11 +1,12 @@
 # pi-safe-file-rollback
 
-**Status: locally validated; image publication pending.** Version `0.0.3` was
-validated through Harbor on a retained linux/amd64 image: Base 0, Oracle 1,
-one correct alternative and one interface variant 1, and eight negative controls
-0. A saved Codex / GPT-6 Astra xhigh answer also passes. Results are in
-[`validation/e2e-evidence.json`](validation/e2e-evidence.json) and
-[`validation/saved-answer-regrade.json`](validation/saved-answer-regrade.json).
+**Status: locally validated; image publication pending.** Version `0.0.4`
+was validated through Harbor on the retained linux/amd64 image: Base 0,
+Oracle and two correct implementation/interface controls 1, and nine negative
+controls 0. Four complete saved answers were regraded without new model calls.
+See [author evidence](validation/e2e-evidence.json),
+[saved-answer evidence](validation/saved-answer-regrade.json), and the
+[hardening record](validation/rollout-hardening.md).
 
 ## What the agent does
 
@@ -54,9 +55,9 @@ layer passes; a successful candidate process exit alone is insufficient.
 | Layer | File | What it observes |
 | --- | --- | --- |
 | Build and protected inputs | `tests/run_verifier.py`, `tests/baseline-pins.json` | Installed dependencies and protected build inputs match their pins; the candidate builds offline. |
-| PASS_TO_PASS | `tests/run_verifier.py` | All 2,158 original coding-agent cases remain in the inventory, with unchanged skips and no unaccepted regressions. Two legacy TUI session stubs are adapted to the new public API; their assertions remain unchanged. |
+| PASS_TO_PASS | `tests/run_verifier.py` | All 2,158 original coding-agent cases remain in the inventory, with unchanged skips and no unaccepted regressions. Three legacy TUI session fixtures are adapted to the new public API; their assertions remain unchanged. |
 | Stable auth regression | `tests/stable_auth_reload.test.ts` | A deterministic counterpart to the timestamp-sensitive Base AuthStorage assertion must pass. |
-| Behavior (25 cases) | `tests/verify.py`, `tests/sdk_peer.mjs`, `tests/tui_case.py` | Real request boundaries, file and conversation restoration, partial Bash effects, process interruptions, conflict rejection, restart and branch isolation, execution gating, and SDK/RPC/terminal interfaces. |
+| Behavior (26 cases) | `tests/verify.py`, `tests/sdk_peer.mjs`, `tests/tui_case.py` | Real request boundaries, file and conversation restoration, partial Bash effects, process interruptions, conflict rejection, restart and branch isolation, execution gating, and SDK/RPC/terminal interfaces. |
 | Interruption observation | `tests/process_supervisor.py`, `tests/scripted_provider.py` | Causal barriers and actual filesystem activity establish interruption points across Pi, Bash, and child processes. The observer does not restore files or session state. |
 | Integrity | `tests/run_verifier.py`, `tests/drop_worker.cjs` | Independent scoring, protected reports, exact completed inventories, and rejection of missing results or early successful exits. |
 
@@ -67,7 +68,7 @@ layout or restoration order. Checkpoint metadata and list order are not graded;
 actual file and conversation restoration are. The mapping is in
 [`validation/behavior-map.md`](validation/behavior-map.md).
 
-The two TUI fixture adaptations and their negative controls are documented in
+The three TUI fixture adaptations and their negative controls are documented in
 [`validation/regression-fixtures.md`](validation/regression-fixtures.md).
 One unrelated AuthStorage assertion has a narrowly defined accepted Base
 failure signature and a mandatory stable counterpart; see
@@ -75,42 +76,61 @@ failure signature and a mandatory stable counterpart; see
 
 ## Validation (2026-09-17)
 
-All 12 author-control cases and the saved-answer replay completed through
-Harbor 0.23.0 with zero errored trials and the expected rewards. All 13 trials
-completed the 2,158-case original inventory and passed the separate stable auth
-test. Eleven passed all 2,108 active original cases with 50 existing
-skips. The `memory-only` and `early-process-exit-zero` controls each triggered
-the previously documented AuthStorage timestamp exception once; neither had
-other regression failures. Both receive 0 for their intended rollback defects.
+All 13 author cases and four full saved-answer replays completed through Harbor
+0.23.0 with zero errored trials. All author checks matched. Three of four original
+saved-answer launcher checks matched: Sol xhigh was mistakenly configured to
+expect 1, although prior review established 0 for its ENOTDIR defect. Its actual
+reward remains 0; the original check exit 2 is preserved, and a separate read-only
+result check against the correct expectation 0 passes. The table uses reviewed
+expectations, not the mistaken launcher input. The author inventory
+includes Base, Oracle, two correct controls, and nine negative controls. Inputs
+were frozen before each run and checked afterward, including every prepared
+case. All trials retain the original 2,158-case inventory and the separate
+stable auth check; detailed outcomes and any narrowly accepted Base timestamp
+failure are recorded in the linked evidence.
 
-| Case | Agent / implementation | Expected reward | Result |
+| Case | Expected | Reward | Behaviors passed |
 | --- | --- | --- | --- |
-| `base` | `nop`, unchanged Base | 0 | 0; build and PASS_TO_PASS pass; required rollback interfaces are absent. |
-| `oracle` | `oracle`, reference patch | 1 | 1; all layers pass, including 25/25 behavior cases. |
-| `alternative-blob-journal` | `oracle`, alternative storage/restoration patch | 1 | 1; all layers pass, including 25/25 behavior cases. |
-| `minimal-checkpoint-metadata` | `oracle`, interface variant of the reference patch | 1 | 1; 25/25 behaviors pass with ID-only records, reversed lists and empty rollback success data. |
-| `memory-only` | `oracle`, Base-applicable negative control | 0 | 0; 17/25 behaviors pass; restart loses recovery state. |
-| `checkpoint-at-request-end` | `oracle`, Base-applicable negative control | 0 | 0; 20/25 pass; interrupted requests lack a checkpoint. |
-| `files-only` | `oracle`, Base-applicable negative control | 0 | 0; 13/25 pass; revoked messages remain in effective context. |
-| `conversation-only` | `oracle`, Base-applicable negative control | 0 | 0; 8/25 pass; workspace changes remain. |
-| `ignore-conflicts` | `oracle`, Base-applicable negative control | 0 | 0; 22/25 pass; conflicting human edits are overwritten. |
-| `skip-startup-recovery` | `oracle`, Base-applicable negative control | 0 | 0; 19/25 pass; restart leaves recovery unresolved. |
-| `abandoned-branch-included` | `oracle`, Base-applicable negative control | 0 | 0; 23/25 pass; non-ancestor checkpoints remain eligible. |
-| `early-process-exit-zero` | `oracle`, Base-applicable negative control | 0 | 0; only disabled behavior passes; incomplete execution is rejected. |
-| Saved Codex / GPT-6 Astra xhigh answer | Replay of the complete unchanged answer | 1 | 1; 25/25 behaviors pass after the regression-fixture correction. |
+| `base` | 0 | 0 | 0/26 |
+| `oracle` | 1 | 1 | 26/26 |
+| `alternative-blob-journal` | 1 | 1 | 26/26 |
+| `minimal-checkpoint-metadata` | 1 | 1 | 26/26 |
+| `memory-only` | 0 | 0 | 17/26 |
+| `checkpoint-at-request-end` | 0 | 0 | 21/26 |
+| `files-only` | 0 | 0 | 14/26 |
+| `conversation-only` | 0 | 0 | 9/26 |
+| `ignore-conflicts` | 0 | 0 | 23/26 |
+| `skip-startup-recovery` | 0 | 0 | 19/26 |
+| `abandoned-branch-included` | 0 | 0 | 24/26 |
+| `early-process-exit-zero` | 0 | 0 | 1/26 |
+| `missing-runtime-fork-gate` | 0 | 0 | 21/26 |
+| Saved `traex-gpt55` | 0 | 0 | 2/26 |
+| Saved `astra-xhigh` | 1 | 1 | 26/26 |
+| Saved `sol-medium` | 0 | 0 | 19/26 |
+| Saved `sol-xhigh` | 0 | 0 | 25/26 |
 
-[`validation/ci-cases.json`](validation/ci-cases.json) pins complete patches that
-apply directly to Base; controls do not require a preceding Oracle application.
-Rationale and detailed results are in
-[`validation/wrong-controls.md`](validation/wrong-controls.md) and the evidence
-linked above. The saved answer's historical reward under version 0.0.1 remains
-recorded as 0; its version 0.0.3 replay reward is 1. Regrading generated no new answer.
+Saved-answer rewards belong to this verifier version. All four historical
+rewards remain 0 in their original records; the source archives were unchanged.
+The two repaired TUI fixtures from v0.0.2 and a third startup-input fixture now
+supply the required disabled/ready API while preserving the original assertions.
+Independent production mutations still trigger those assertions.
 
-Independent supervisor probes passed 33/33 executions on the retained image
-without additional Docker privileges. The
-[`task review`](validation/review-report.md) records fixture, image, statement,
-and scoring checks; the [`artifact audit`](validation/artifact-audit.json) and
-[`manifest`](validation/artifact-manifest.json) bind the final delivery files.
+The new `runtime_fork_contract` calls the pinned SDK's real
+`AgentSessionRuntime.fork`: a ready fork succeeds without a provider request;
+recovery gates reject or explicitly cancel changes while preserving the session,
+checked fixture files and effective conversation. A missing runtime fork guard
+is now a declared negative control. Filesystem failure injection preserves Git
+repository ownership and accepts complete preflight refusal as well as a
+retryable pending restore. A public cancellation variant is exercised separately.
+
+[CI cases](validation/ci-cases.json) pin complete Base-applicable control patches.
+The [negative-control record](validation/wrong-controls.md),
+[regression fixture record](validation/regression-fixtures.md), and
+[hardening record](validation/rollout-hardening.md) explain their scope.
+Earlier supervisor probes (33/33) are retained as historical evidence; they were
+not rerun because the observer and retained image are unchanged. The
+[artifact audit](validation/artifact-audit.json) and
+[manifest](validation/artifact-manifest.json) bind final delivery files.
 
 ## Layout
 
@@ -203,6 +223,6 @@ the image it publishes and retain a pullable immutable reference. OS repositorie
 and the Dockerfile frontend are not snapshot-pinned, so a later rebuild is not
 guaranteed to produce identical bytes.
 
-The saved answer demonstrates one successful implementation. Repeated
-independent trials are needed to estimate model solve rates or compare agents;
-the control matrix and a single replay do not establish practical difficulty.
+Saved-answer replays demonstrate the recorded implementations under this
+verifier. Repeated independent trials are needed to estimate solve rates or
+compare agents; this control matrix does not establish practical difficulty.

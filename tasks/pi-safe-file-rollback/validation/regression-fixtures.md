@@ -43,3 +43,23 @@ controls, retaining all original assertions:
 
 These checks demonstrate continued detection of the original TUI regressions.
 Hashes and results are recorded in [regression-fixtures.json](regression-fixtures.json).
+
+## Version 0.0.4: startup input
+
+A Sol xhigh saved answer exposed one further partial receiver in
+`interactive-mode-startup-input.test.ts`. Its type and value now provide
+`getRollbackState()` returning disabled/ready. The original three assertions,
+barriers and test identities are unchanged. The full source archive was restored
+and verified before using the frozen formal `run_verifier.prepare` adaptation.
+
+The corrected fixture passes 3/3 original tests. An isolated production mutation
+that discards `pendingUserInputs.push(text)` fails exactly the original
+“queues a normal prompt submitted before the input callback is installed”
+assertion: the observed queue is empty instead of containing `early prompt`.
+The other two tests pass. The fixture bytes remain identical between variants,
+and all 680 delivered production source files match after restoring the one
+mutated file. Frozen inputs and the original full archive are unchanged.
+
+This sensitivity diagnostic is additional evidence for the third fixture; it is
+not a new full-suite reward or another canonical CI case. Earlier v0.0.2 fixture
+controls are retained explicitly as historical evidence in the JSON record.

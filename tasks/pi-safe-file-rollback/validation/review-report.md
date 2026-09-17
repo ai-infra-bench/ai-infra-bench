@@ -1,3 +1,11 @@
+# Version 0.0.4 rollout-driven hardening
+
+The current release is validated by [rollout-hardening.md](rollout-hardening.md),
+[e2e-evidence.json](e2e-evidence.json), and the four full
+[saved-answer replays](saved-answer-regrade.json). The statement, pinned Base,
+image, Oracle and earlier controls are unchanged. The earlier review below is
+historical context; its version/counts are not the current release inventory.
+
 # Independent task review
 
 **Disposition: retain version 0.0.3 for review.** All 12 author-control trials and one saved-answer replay produced the expected rewards with zero errored trials. Post-rollout review exposed a regression-fixture defect missed by initial qualification; the correction and its independent checks are recorded as R3 below. R4 records the first-person prompt rewrite and removal of unnecessary interface representation constraints. Current executable artifacts match the new evidence. No blocking finding remains for local task validation; public image distribution is still pending.

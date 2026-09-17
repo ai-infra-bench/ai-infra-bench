@@ -7,6 +7,7 @@ real files, Git state, public results and captured local provider requests.
 | Case | Public requirement checked |
 | --- | --- |
 | sdk_public_contract | Opt-in SDK, public state, one stable checkpoint per request and actual rollback to the preceding effective conversation |
+| runtime_fork_contract | Real public runtime fork succeeds in ready state, creates the expected session/conversation boundary, and makes no provider request or file/Git mutation |
 | disabled_regression | Disabled behavior, empty list and side-effect-free rejection |
 | in_memory_rejected | Persistent sessions required when enabled |
 | normal_files_and_conversation | Actual edit/write/bash; bytes, permissions, create/delete/rename; pre-existing dirty files; effective context; immediate restart |
@@ -20,13 +21,13 @@ real files, Git state, public results and captured local provider requests.
 | failed_bash_changes | Nonzero exit code preserved; preceding mutations remain reversible |
 | cancelled_bash_changes | Actual cancellation after Bash mutation; settled state and recovery |
 | running_request_busy | Rollback rejects while a real model request is outstanding |
-| interrupted_request_recovery | Kill after tool result is sent to next real provider request; preserve work on resume; block model, bash and navigation; user-selected recovery |
+| interrupted_request_recovery | Kill after tool result is sent to next real provider request; preserve work on resume; block model, bash, changed-target navigation, real runtime fork and compaction; user-selected recovery |
 | first_request_interruption | Kill the first request before any assistant response; checkpoint and recovery gate survive |
 | repeated_interrupted_resume | Restart and kill repeatedly while awaiting user selection; preserve checkpoint identity and interrupted files |
 | inflight_bash_recovery | Kill process tree while Bash waits on an external FIFO after partial filesystem changes |
 | rollback_process_interruption | Kill at the first observed restoration mutation, and again during startup if another file mutation is needed; asynchronous startup is allowed, and real provider requests must observe complete recovery |
 | rollback_concurrent_prompt | Prompt submitted alongside rollback either rejects or reaches the real provider only after files and conversation have been restored |
-| filesystem_failure_retry | Ordinary filesystem access failure cannot report success; a pending restore remains inspectable and gated after restart with the fault present; retry after access restored |
+| filesystem_failure_retry | Ordinary filesystem access failure without Git ownership changes cannot report success; complete preflight refusal is allowed, while a pending restore remains inspectable and gated after restart; retry after access restored |
 | steering_followup_single_checkpoint | A real retry after a transient HTTP provider error, steering and queued follow-up all stay within the initial request boundary |
 | rpc_cli_contract | Real CLI flag and JSON-lines RPC operations, existing success/error envelope, actual restoration and subsequent provider context |
 | rpc_cli_resume_recovery | CLI opt-in persists across restarts; unfinished execution gate and durable RPC recovery |
@@ -61,3 +62,12 @@ the task. The Linux supervisor is exercised separately with direct writes,
 rename replacement, concurrent workers and Bash descendants. The reward writer
 must also require the fixed case inventory, scope checks, a fresh build and the
 independent existing-suite regression result; this runner alone is not a reward.
+
+Version `0.0.4` adds a ready-state public runtime fork calibration and fixes
+the recovery gate to call that same real runtime. Recovery navigation/fork may
+throw an explained error or return the documented `{ cancelled: true }`; the
+checks then observe the actual runtime session, effective messages, protected
+fixture files, and provider requests. State must remain enabled and unresolved,
+without imposing a particular unresolved status transition. Same-leaf navigation
+is a documented no-op, so recovery navigation checks choose a different target.
+An exception caused by a missing method or receiver is not a valid gate result.

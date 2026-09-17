@@ -1,0 +1,137 @@
+{
+  "schema_version": "pi_safe_rollback_rollout_hardening.v1",
+  "task_version": "0.0.4",
+  "status": "validated_with_preserved_launcher_expectation_anomaly",
+  "recorded_at": "2026-09-17T11:36:51.251419+00:00",
+  "canonical_author_cases": 13,
+  "canonical_author_checks_matched": 13,
+  "saved_answer_trials": 4,
+  "original_saved_launcher_checks_matched": 3,
+  "actual_saved_rewards": {
+    "traex-gpt55": 0,
+    "astra-xhigh": 1,
+    "sol-medium": 0,
+    "sol-xhigh": 0
+  },
+  "no_new_model_calls": true,
+  "unchanged_inputs": [
+    "instruction.md",
+    "environment/",
+    "solution/oracle.patch",
+    "previous validation control patches"
+  ],
+  "new_fork_negative": {
+    "patch_sha256": "6588ff72d898d804020acc19be8d48dad9438cbf631d9c51b641d63afa5f4c4b",
+    "build_passed": true,
+    "original_regression_outcomes": {
+      "passed": 2108,
+      "skipped": 50
+    },
+    "behavior_passed": 21,
+    "behavior_total": 26,
+    "failed_cases": [
+      "interrupted_request_recovery",
+      "first_request_interruption",
+      "repeated_interrupted_resume",
+      "inflight_bash_recovery",
+      "filesystem_failure_retry"
+    ],
+    "failure_summary": "Real runtime fork was not rejected or explicitly cancelled while recovery was unresolved; ready-state fork remains operational."
+  },
+  "filesystem_fault_positive_observations": {
+    "oracle": "blocked across restart; retry succeeds",
+    "alternative-blob-journal": "blocked across restart; retry succeeds",
+    "minimal-checkpoint-metadata": "blocked across restart; retry succeeds",
+    "allowed_behavior": "An implementation may instead refuse fully at preflight and stay ready with files/conversation unchanged; the verifier does not force late failure."
+  },
+  "diagnostics": {
+    "startup_input_original_cases": 3,
+    "startup_input_positive_passed": 3,
+    "startup_input_bad_queue_passed": 2,
+    "public_cancellation_cases": 3,
+    "public_cancellation_passed": 3,
+    "public_cancellation_true_replies": 4,
+    "counted_as_full_rewards": false
+  },
+  "excluded_drafts": [
+    {
+      "accepted_evidence": false,
+      "inputs_unchanged_at_interruption": true,
+      "reason": "Stopped before completion to remove overstrict exact unresolved-state equality; contract permits interrupted/blocked diagnostic transitions. Final acceptance runs will use separately frozen v2 inputs.",
+      "cases_started": [
+        "base",
+        "oracle",
+        "alternative-blob-journal"
+      ],
+      "label": "author-matrix",
+      "evidence_sha256": {
+        "draft-interruption.json": "76703dd3753bb9f80f8fc5ae66c3119e10cb1a1ed822a268ed2f427bd0fc60b8",
+        "input-hashes.json": "5e5fc10be15756ed7e31ab7804ec2f310ed297258fc89828fdfb122fadc93fe6",
+        "input-hashes-at-interruption.json": "276a6c3f97ed1bf88bb5ed9f73892cbb129952dee063a2b49b09293e73b363b5"
+      }
+    },
+    {
+      "accepted_evidence": false,
+      "inputs_unchanged_at_interruption": true,
+      "reason": "Stopped before completion to allow public cancelled:true navigation/fork results and observe actual runtime.session after a failed fork. Final acceptance uses separately frozen v3 inputs.",
+      "cases_started": [
+        "base",
+        "oracle",
+        "alternative-blob-journal"
+      ],
+      "label": "author-matrix-v2",
+      "evidence_sha256": {
+        "draft-interruption.json": "28cb97acf58239a0b333dd1afe55428bf60d4c0458444f876e1780653577724d",
+        "input-hashes.json": "7f3de9a6a3e4867d15818dbbd3401c2d56c724dde06f5b35440bd1916e49f0d4",
+        "input-hashes-at-interruption.json": "170d0a58b0efafee5f5977d9d901da31192f0303384edfb841fb707360a94a31"
+      }
+    },
+    {
+      "accepted_evidence": false,
+      "inputs_unchanged_at_interruption": true,
+      "reason": "Stopped before completion to avoid asserting rejection for documented same-leaf navigation no-op. Final acceptance uses separately frozen v4 inputs.",
+      "cases_started": [
+        "base",
+        "oracle",
+        "alternative-blob-journal"
+      ],
+      "label": "author-matrix-v3",
+      "evidence_sha256": {
+        "draft-interruption.json": "a17bb1fc5b1730df0f7b52f3ac00d04ce6c6e593c9ace2dba8d4987ff4407c48",
+        "input-hashes.json": "42fcd19483e4c53dbe7daa47d192824d93bf121209cd2335c20fdf9bd7daceb7",
+        "input-hashes-at-interruption.json": "1889ba6c446720650784c82aa43583632d55adc5470b7c9b4a0c06894afad66e"
+      }
+    }
+  ],
+  "saved_expectation_anomaly": {
+    "case": "sol-xhigh",
+    "kind": "launcher_expected_reward_metadata_error",
+    "run_expected_reward": 1,
+    "review_expected_reward": 0,
+    "actual_reward": 0,
+    "original_harbor_exit_code": 0,
+    "original_check_exit_code": 2,
+    "original_check_output": "error: unexpected Harbor result: completed=1, errored=0, rewards=[0.0], expected=[1.0]\n",
+    "review_expected_reason": "Completed rollout review already established original and fixture-only replays reward 0 due to captureSnapshot ENOTDIR on directory-to-file replacement; the launcher mistakenly entered 1.",
+    "readonly_recheck_exit_code": 0,
+    "readonly_recheck_output": "{\"completed\": 1, \"errored\": 0, \"rewards\": [0.0]}\n",
+    "original_run_check_sha256": "6fbc1bb7dc902ef1e2b547c586e82bcd870e1dd6af50476cd4b0e79dbf5b0345",
+    "unchanged_harbor_result_sha256": "49998cf4cd5b986af46b4877112bbec28dd64037eb4216135778b17a0b5c5de8",
+    "new_grading_execution": false,
+    "original_records_modified": false
+  },
+  "prior_sol_xhigh_review_sha256": "99c61461ddfe787454ff2b3fdae6e3f300470cc88cf0a02774b8f5dea9497bce",
+  "independent_saved_audit_sha256": "8fa63ef3b3dedfda84a102bca34b657f16f4de89d6848ebbef9a717eadb264f6",
+  "evidence_files_sha256": {
+    "validation/e2e-evidence.json": "6955e500ecddbceedbdda5f753cc6c8d3f4034f9efdee64ecd5d412b993d71f3",
+    "validation/saved-answer-regrade.json": "396b62ca6f16b28322bc31dc21c68a3f41202dd9a9b6e2bba9fc5e89acb0ce26",
+    "validation/regression-fixtures.json": "53967fd52fca93a6fdae47511aa4008f71350cf78f06787f5f9eb85a88088d9a",
+    "validation/public-cancellation-diagnostic.json": "3b136bba88e993be2420ea3d7e00a8303f0b8c100e8ff933c1d8cc3645caf1fb"
+  },
+  "limits": [
+    "Saved-answer reward expectations are author metadata, not ground truth; Sol xhigh original checker mismatch is retained.",
+    "Three stopped draft matrix launches are not completed tests and do not contribute accepted results.",
+    "Boundary diagnostics supplement the full Harbor controls and do not establish a separate full-solution score."
+  ],
+  "delivery_metadata_note": "Task-local .gitattributes marks *.patch -whitespace so outer staged-diff checks do not misinterpret valid nested unified-diff context prefixes/tabs. All 12 patches still pass actual application checks. Scored runtime inputs are unchanged."
+}

@@ -23,7 +23,7 @@ from scripted_provider import ScriptedProvider, tool
 HERE = Path(__file__).resolve().parent
 UID = GID = 65534
 CASE_IDS = [
-    'sdk_public_contract', 'disabled_regression', 'in_memory_rejected',
+    'sdk_public_contract', 'runtime_fork_contract', 'disabled_regression', 'in_memory_rejected',
     'normal_files_and_conversation', 'checkpoint_branch_and_idempotence',
     'invalid_and_foreign_targets', 'idle_external_conflict',
     'idle_unrelated_changes_preserved', 'file_becomes_nested_directory', 'idle_descendant_conflict',
@@ -360,6 +360,23 @@ def sdk_public_contract(f):
     assert_conversation_restored(p,before)
 
 
+def runtime_fork_contract(f):
+    p=f.peer(); p.require_api()
+    f.provider.script({'text':'completed before fork'})
+    p.prompt('fork-boundary-'+f.nonce)
+    before=p.call('inspect')
+    entry=next(e['id'] for e in before['entries'] if e.get('type')=='message' and e.get('message',{}).get('role')=='user')
+    provider_count=len(f.provider.requests)
+    result=p.call('fork',entryId=entry,options={'position':'at'})
+    after=p.call('inspect')
+    require(result.get('cancelled') is False,'Ready runtime fork was cancelled')
+    require(after['sessionId']!=before['sessionId'],'Ready runtime fork did not create a new session')
+    expected=before['messages'][:next(i for i,m in enumerate(before['messages']) if m.get('role')=='user')+1]
+    assert_conversation_restored(p,expected)
+    require(len(f.provider.requests)==provider_count,'Unsummarized fork called the provider')
+    f.assert_baseline()
+
+
 def disabled_regression(f):
     p = f.peer(enable=False); p.require_api()
     state=p.state(); require(state['enabled'] is False and state['status']=='ready','Disabled state mismatch')
@@ -570,17 +587,35 @@ def assert_interrupted_gate(f,p):
 
 
 def assert_recovery_commands_reject(f,p):
-    count=len(f.provider.requests); before=p.call('inspect')['messages']
+    count=len(f.provider.requests); before_inspect=p.call('inspect'); before=before_inspect['messages']
+    before_files={name:file_state(f.project/name) for name in f.names}
     p.call('prompt',text='forbidden-new-request',okay=False)
     p.call('bash',command='printf forbidden > forbidden.txt',okay=False)
     entries=p.call('inspect')['entries']
     targets=[e['id'] for e in entries if e.get('type')=='message' and e.get('message',{}).get('role')=='user']
     if targets:
-        p.call('navigate',entryId=targets[0],okay=False)
-        p.call('fork',entryId=targets[0],okay=False)
+        operations=[('fork',targets[0])]
+        navigation_target=next((target for target in targets if target!=before_inspect['leafId']),None)
+        if navigation_target is not None:
+            operations.insert(0,('navigate',navigation_target))
+        for operation,target in operations:
+            reply=p.result(p.begin(operation,entryId=target))
+            if reply.get('ok'):
+                require(isinstance(reply.get('data'),dict) and reply['data'].get('cancelled') is True,
+                        operation+' was not rejected or explicitly cancelled')
+            else:
+                explanation=reply.get('error','')
+                require(bool(explanation.strip()),operation+' rejection lacks an explanation')
+                require('is not a function' not in explanation and 'Cannot read properties of' not in explanation,
+                        operation+' check failed at an invalid fixture/API boundary')
     p.call('compact',okay=False)
     require(len(f.provider.requests)==count,'Recovery gate called model')
-    require(p.call('inspect')['messages']==before,'Recovery gate allowed context mutation')
+    after=p.call('inspect'); after_state=p.state()
+    require(after['sessionId']==before_inspect['sessionId'] and after['messages']==before,
+            'Recovery gate allowed session/context mutation')
+    require(after_state['enabled'] and after_state['status'] in ('interrupted','restoring','blocked'),
+            'Recovery gate cleared unresolved recovery state')
+    require(before_files=={name:file_state(f.project/name) for name in f.names},'Recovery gate changed workspace files')
     require(not (f.project/'forbidden.txt').exists(),'Recovery gate allowed shell write')
 
 
@@ -683,11 +718,12 @@ def filesystem_failure_retry(f):
     # Ordinary EACCES without changing ANY protected regular-file permission
     # bits/content. Deny in-place writes and rename replacement alike. Keep the
     # session/config directories writable; never touch candidate private data.
-    protected=[f.root,f.project,f.project/'a.txt']
+    # Keep Git-root ownership stable so inspection does not fail at Git's
+    # dubious-ownership preflight. Deny both in-place writes and replacement.
+    protected=[f.project,f.project/'a.txt']
     attrs={path:(path.stat().st_uid,path.stat().st_gid,path.stat().st_mode & 0o7777) for path in protected}
-    for path in protected:
-        os.chown(path,0,0)
-        if path.is_dir(): os.chmod(path,0o555)
+    os.chmod(f.project,0o555)
+    os.chown(f.project/'a.txt',0,0)
     try:
         p.rollback(cp,okay=False)
         state=p.state()

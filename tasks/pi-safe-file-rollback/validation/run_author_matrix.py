@@ -42,7 +42,8 @@ def main() -> int:
             selected.append(root / 'validation/ci-cases.json')
         return {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
                 for path in sorted(set(selected))}
-    (output / 'input-hashes.json').write_text(json.dumps(file_hashes(task), indent=2) + '\n')
+    initial_hashes = file_hashes(task)
+    (output / 'input-hashes.json').write_text(json.dumps(initial_hashes, indent=2) + '\n')
     subprocess.run([sys.executable, str(helper), "validate", task.name], cwd=repo, check=True)
     subprocess.run([sys.executable, str(helper), "image-check", "--task", task.name, "--image", args.image], cwd=repo, check=True)
 
@@ -72,17 +73,21 @@ def main() -> int:
                   "check_output": check.stdout.strip(), "result": str(result), "command": command,
                   "elapsed_sec": round(time.monotonic() - started, 2)}
         record['prepared_input_hashes'] = prepared_hashes
+        record['prepared_input_hashes_after'] = file_hashes(prepared)
+        record['prepared_inputs_unchanged'] = prepared_hashes == record['prepared_input_hashes_after']
         (output / f"{name}.check.json").write_text(json.dumps(record, indent=2) + "\n")
         print(json.dumps({key: record[key] for key in ('case', 'expected_reward', 'harbor_exit_code', 'check_exit_code', 'check_output', 'elapsed_sec')}), flush=True)
         return record
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
         results = list(pool.map(run_case, cases))
-    summary = {"recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    final_hashes = file_hashes(task)
+    (output / 'input-hashes-after.json').write_text(json.dumps(final_hashes, indent=2) + '\n')
+    summary = {"inputs_unchanged": initial_hashes == final_hashes, "recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                "image": args.image, "harbor": subprocess.check_output([args.harbor, "--version"], text=True).strip(),
                "results": results}
     (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-    return 0 if all(r["harbor_exit_code"] == 0 and r["check_exit_code"] == 0 for r in results) else 1
+    return 0 if initial_hashes == final_hashes and all(r["harbor_exit_code"] == 0 and r["check_exit_code"] == 0 and r["prepared_inputs_unchanged"] for r in results) else 1
 
 
 if __name__ == "__main__":

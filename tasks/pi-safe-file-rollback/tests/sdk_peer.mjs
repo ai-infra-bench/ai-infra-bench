@@ -6,6 +6,7 @@ import { join } from 'node:path';
 const send = value => process.stdout.write(`${JSON.stringify(value)}\n`);
 const config = JSON.parse(process.env.ROLLBACK_PEER_CONFIG);
 let session;
+let runtime;
 try {
   const sdk = await import(pathToFileURL(join(config.pi, 'packages/coding-agent/dist/index.js')).href);
   const modelRuntime = await sdk.ModelRuntime.create({authPath: join(config.agentDir, 'auth.json'), modelsPath: join(config.agentDir, 'models.json'), allowModelNetwork: false});
@@ -18,7 +19,20 @@ try {
       defaultTools: ['read','edit','write','bash']}),
   };
   if (config.enable !== undefined) options.safeRollback = config.enable;
-  ({session} = await sdk.createAgentSession(options));
+  // Runtime owns session replacement in the pinned SDK. Keep the task's public
+  // createAgentSession option as the entrypoint for enabling rollback.
+  const factory = async ({cwd, agentDir, sessionManager, sessionStartEvent}) => {
+    const services = await sdk.createAgentSessionServices({cwd, agentDir, modelRuntime,
+      settingsManager: options.settingsManager});
+    const created = await sdk.createAgentSession({...options, cwd, agentDir, sessionManager,
+      sessionStartEvent, resourceLoader: services.resourceLoader});
+    return {...created, services, diagnostics: services.diagnostics};
+  };
+  runtime = await sdk.createAgentSessionRuntime(factory, {
+    cwd: config.cwd, agentDir: config.agentDir, sessionManager: options.sessionManager,
+  });
+  if (typeof runtime.fork !== 'function') throw new Error('Public runtime fork API is unavailable');
+  session = runtime.session;
   session.subscribe(event => send({kind:'event', event}));
   send({kind:'ready', sessionId:session.sessionId, sessionFile:session.sessionFile,
     capabilities:Object.fromEntries(['listCheckpoints','getRollbackState','rollbackCheckpoint'].map(name => [name,typeof session[name] === 'function']))});
@@ -43,7 +57,17 @@ lines.on('line', line => {
       case 'steer': data = await session.steer(command.text); break;
       case 'follow_up': data = await session.followUp(command.text); break;
       case 'navigate': data = await session.navigateTree(command.entryId, {summarize:false}); break;
-      case 'fork': data = await session.fork(command.entryId); break;
+      case 'fork':
+        try {
+          data = await runtime.fork(command.entryId, command.options);
+        } finally {
+          // Observe the actual runtime even if replacement partially succeeded.
+          if (session !== runtime.session) {
+            session = runtime.session;
+            session.subscribe(event => send({kind:'event', event}));
+          }
+        }
+        break;
       case 'compact': data = await session.compact(); break;
       case 'inspect': data = {messages:session.messages, entries:session.sessionManager.getEntries(), leafId:session.sessionManager.getLeafId(), sessionId:session.sessionId, isIdle:session.isIdle}; break;
       case 'close':

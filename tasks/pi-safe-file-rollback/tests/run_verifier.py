@@ -123,6 +123,13 @@ def prepare(pins):
             text = text.replace('const startupSession = {};', 'const startupSession = { getRollbackState: () => ({ enabled: false, status: "ready" }) };')
             text = text.replace('const replacementSession = {};', 'const replacementSession = { getRollbackState: () => ({ enabled: false, status: "ready" }) };')
             contents = text.encode()
+        elif name == 'packages/coding-agent/test/interactive-mode-startup-input.test.ts':
+            text = contents.decode()
+            assert text.count('\t\tisCompacting: boolean;') == 1
+            assert text.count('\t\t\tisCompacting: false,') == 1
+            text = text.replace('\t\tisCompacting: boolean;', '\t\tgetRollbackState: () => { enabled: false; status: "ready" };\n\t\tisCompacting: boolean;')
+            text = text.replace('\t\t\tisCompacting: false,', '\t\t\tgetRollbackState: () => ({ enabled: false, status: "ready" }),\n\t\t\tisCompacting: false,')
+            contents = text.encode()
         path.write_bytes(contents)
         if name.endswith(('.test.ts','.test.js','.test.mjs')):
             original.append(name.removeprefix('packages/coding-agent/'))
