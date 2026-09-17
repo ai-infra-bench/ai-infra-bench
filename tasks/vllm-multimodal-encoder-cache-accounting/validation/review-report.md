@@ -1,9 +1,18 @@
-# PR8 task review — 1.2.8
+# PR84 — 1.3.0 workspace migration
 
-The task can be retained after this repair. Capacity planning now executes the real scheduler compute_encoder_budget and runner MultiModalBudget consumers, controlling only media production and processor-cache creation. SchedulerConfig is constructed for real; the grading batch limit is one and the independent challenge batch limit is two, with expected capacity max(batch limit, embedding rows). The registry default coordinate system is no longer a scoring requirement. The saved Astra source with distinct prompt/embedding accessors passes, while independent scheduler-only and runner-only regressions are rejected. All existing cache, write/read, empty-window, speculative lookahead and parent observation checks remain.
+结论：路径迁移已实现，等待 A100 新镜像验证。已评分 2/10、小计 4/4，第 3–10 维 U，总分待定。1.2.9 的镜像验证与完整评审已归档到 history，不能作为本版通过证据。
 
-Gate 1 passes: the description is three continuous prose paragraphs. Public requirements establish the behavior before the verifier and Oracle. Gate 2 passes: source, dependencies, Docker recipe and image are unchanged; each run checked image identity and an agent-user canary. Gate 3 passes for the declared behavioral boundary: 20 full Harbor runs and 8 independent challenges met their expected outcomes; zero Harbor errors in those completed control runs. 2 failed preflight or environment-start attempts are preserved separately and excluded from grading conclusions. The final frozen Oracle scored 1.
+| # | 维度 | 分数/状态 | 证据或缺口 | 下一步 |
+|---|---|---|---|---|
+| 1 | 任务真实且清晰 | 2 | 仅工作目录改为 /workspace/vllm | 无 |
+| 2 | 正确性独立于源 PR | 2 | 公开行为约定未变 | 无 |
+| 3 | 环境可解 | U | 新目录镜像待构建 | A100 构建和 canary |
+| 4 | 说明与测试双向一致 | U | 路径已同步，待重跑 | 完整矩阵 |
+| 5 | 执行真实语义路径 | U | 需确认导入新路径源码 | 镜像内运行 |
+| 6 | 接受不同正确实现 | U | 5 个正对照待重跑 | 正对照与 challenge |
+| 7 | 正确拒绝错误实现 | U | Base 与负对照待重跑 | 完整矩阵 |
+| 8 | Oracle 独立验证 | U | challenge 待重跑 | 独立 challenge |
+| 9 | 评分可信 | U | 路径变动后的最终入口待验证 | 攻击对照 |
+| 10 | 验收可复现且交接清楚 | U | 新 image ID 和证据待归档 | 更新 pin 和原始记录 |
 
-The exact source boundary and allowed producer substitutions are documented in semantic-boundary.md. Current executable SHA256 values, image identity, per-run job/trial IDs, actual rewards and raw evidence are in e2e-evidence.json. Only current-version runs are counted. Any non-grading snapshot differences are listed per run. Grading inputs and selected patches match; the final Oracle has no executable differences.
-
-No new model rollout, commit, push or PR update was performed in this repair. Saved Astra source is a preserved implementation control, not a fresh model run. Historical scores remain unchanged, and missing historical final code/native archives still prevent complete rollout certification. This task review does not turn fixed report checks into a claim of isolation from arbitrary native process compromise.
+Gate 1 通过；Gate 2/3 等待新镜像执行。本地修改后 push，A100 pull 同一提交，再构建、验证。所有源文件修改在本地进行。

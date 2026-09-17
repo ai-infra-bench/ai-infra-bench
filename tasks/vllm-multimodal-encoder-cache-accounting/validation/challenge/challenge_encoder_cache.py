@@ -92,6 +92,7 @@ def embedding_window(
     expected_lo: int,
     expected_hi: int,
     expected_mask: list[bool],
+    shift: int = 0,
 ):
     """Subrange mapping via GPUModelRunner's actual gather output.
 
@@ -144,7 +145,8 @@ def embedding_window(
         GPUModelRunner._execute_mm_encoder(runner, scheduler_output)
     finally:
         runner_module.group_mm_kwargs_by_modality = original
-    gathered, out_mask = GPUModelRunner._gather_mm_embeddings(runner, scheduler_output)
+    gathered, out_mask = GPUModelRunner._gather_mm_embeddings(
+        runner, scheduler_output, shift_computed_tokens=shift)
     if expected_hi > expected_lo:
         if len(gathered) != 1:
             raise AssertionError(
@@ -261,7 +263,11 @@ def challenge_windows() -> dict:
         windows.append(
             embedding_window(position, computed, scheduled, lo, hi, expected_mask)
         )
-    return {"tests": len(tests), "windows": windows}
+    shifted_windows = [embedding_window(position, computed - 1, scheduled,
+        lo, hi, expected_mask, shift=1)
+        for computed, scheduled, (lo, hi), expected_mask in tests]
+    return {"tests": len(tests), "windows": windows,
+            "shifted_windows": shifted_windows}
 
 
 def challenge_cache_lifecycle() -> dict:
@@ -273,8 +279,8 @@ def challenge_cache_lifecycle() -> dict:
     manager.allocate(first, 0)
     if manager.num_free_slots != 0:
         raise AssertionError(f"num_free_slots={manager.num_free_slots}, expected 0")
-    if first.mm_features[0].identifier not in manager.cached:
-        raise AssertionError("first identifier not in manager.cached")
+    if not manager.check_and_update_cache(first, 0):
+        raise AssertionError("first allocation cannot be reused")
 
     manager.free_encoder_input(first, 0)
     second = SparseRequest("c-second", [mask_from(30, [3, 9, 21, 28])])
@@ -283,11 +289,11 @@ def challenge_cache_lifecycle() -> dict:
     manager.allocate(second, 0)
     if manager.num_free_slots != 7:
         raise AssertionError(f"num_free_slots={manager.num_free_slots}, expected 7")
-    if second.mm_features[0].identifier not in manager.cached:
-        raise AssertionError("second identifier not in manager.cached")
+    if not manager.check_and_update_cache(second, 0):
+        raise AssertionError("replacement allocation cannot be reused")
     return {
         "free_slots": manager.num_free_slots,
-        "cached": sorted(manager.cached),
+        "cached": sorted(second.mm_features[i].identifier for i in manager.get_cached_input_ids(second)),
     }
 
 
@@ -317,7 +323,7 @@ def challenge_multi_item_zero() -> dict:
     if manager.num_free_slots != free_before_zero:
         raise AssertionError("zero-embedding item changed num_free_slots")
     return {
-        "items": len(manager.cached),
+        "items": len(manager.get_cached_input_ids(request)),
         "rows": 11 - manager.num_free_slots,
         "free_slots": manager.num_free_slots,
     }
@@ -444,6 +450,14 @@ REQUIRED_STAGE_RESULTS = {
     "windows": {
         "tests": 6,
         "windows": [
+            [1, 4, "9a784511e50d7633"],
+            [0, 2, "baf64b34145a602c"],
+            [2, 5, "9449a1d27aecac16"],
+            [4, 5, "b80b3e01cff53320"],
+            [0, 0, "96a296d224f285c6"],
+            [3, 3, "709e80c88487a241"],
+        ],
+        "shifted_windows": [
             [1, 4, "9a784511e50d7633"],
             [0, 2, "baf64b34145a602c"],
             [2, 5, "9449a1d27aecac16"],

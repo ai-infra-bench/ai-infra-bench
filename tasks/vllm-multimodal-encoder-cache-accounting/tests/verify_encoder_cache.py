@@ -3,14 +3,15 @@
 
 TRUSTED PARENT/WORKER BOUNDARY:
 This verifier runs as root. It spawns the candidate validation as a non-root
-worker (uid 65534) via subprocess, captures the worker's structured output over
-a pipe, and writes reward.txt itself. The worker never touches /logs/verifier.
+worker (uid 65534) via fork and a native authenticated socket channel. The
+root shell writes reward.txt. Only completion from the preloaded suite is
+scored; stdout is diagnostic. See completion_channel.py for the scoped threat
+boundary; this is not a sandbox against arbitrary in-process instrumentation.
 """
 
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 import traceback
 
@@ -234,20 +235,20 @@ def check_cache_lifecycle():
     manager.allocate(first, 0)
     if manager.num_free_slots != 0:
         raise AssertionError(f"num_free_slots={manager.num_free_slots}, expected 0")
-    if first.mm_features[0].identifier not in manager.cached:
-        raise AssertionError("identifier not in manager.cached")
+    if not manager.check_and_update_cache(first, 0):
+        raise AssertionError("allocated item cannot be reused")
 
     manager.free_encoder_input(first, 0)
     second = SparseRequest("second", [sparse_mask(20, [2, 7, 12, 17])])
     if not manager.can_allocate(second, 0, 4, 0):
         raise AssertionError("can_allocate returned False for second request")
-    if first.mm_features[0].identifier not in manager.freed:
-        raise AssertionError("first identifier not in manager.freed")
+    if manager.get_freed_mm_hashes() != [first.mm_features[0].identifier]:
+        raise AssertionError("eviction was not reported to the runner")
     manager.allocate(second, 0)
     if manager.num_free_slots != 4:
         raise AssertionError(f"num_free_slots={manager.num_free_slots}, expected 4")
-    if second.mm_features[0].identifier not in manager.cached:
-        raise AssertionError("second identifier not in manager.cached")
+    if not manager.check_and_update_cache(second, 0):
+        raise AssertionError("replacement item cannot be reused")
     return {"eviction": True, "free_slots": manager.num_free_slots}
 
 
@@ -474,7 +475,7 @@ def check_registry_profiles_embedding_capacity():
     return {"cases": measured}
 
 
-def main() -> None:
+def main(inputs) -> dict:
     stages = {
         "placeholder_coordinates": check_placeholder_coordinates,
         "partial_mapping": check_partial_mapping,
@@ -498,7 +499,7 @@ def main() -> None:
             }
     fresh = None
     try:
-        fresh = observe_fresh(json.load(sys.stdin))
+        fresh = observe_fresh(inputs)
     except Exception as exc:
         failures["fresh_observations"] = {"message": str(exc), "traceback": traceback.format_exc()}
     result = {
@@ -507,47 +508,26 @@ def main() -> None:
         "failures": failures,
         "stages": passed,
     }
-    # Delimit the payload: importing vllm emits Triton/CUDA log lines on stdout,
-    # so the parent must not assume stdout is pure JSON.
-    print("---WORKER-PAYLOAD-BEGIN---")
-    print(json.dumps(result, indent=2, sort_keys=True))
-    print("---WORKER-PAYLOAD-END---")
-    if failures:
-        sys.exit(1)
-    sys.exit(0)
-
-
-if __name__ == "__main__":
-    main()
+    return result
 '''
 
 
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from encoder_contract import workload, expected
-WORKER_CODE = WORKER_CODE.replace("def main() -> None:",
+WORKER_CODE = WORKER_CODE.replace("def main(inputs) -> dict:",
     Path(__file__).with_name("encoder_capacity_worker.py").read_text() + "\n" +
-    Path(__file__).with_name("encoder_fresh_worker.py").read_text() + "\n\ndef main() -> None:", 1)
+    Path(__file__).with_name("encoder_fresh_worker.py").read_text() + "\n\ndef main(inputs) -> dict:", 1)
 
 
-PAYLOAD_BEGIN = "---WORKER-PAYLOAD-BEGIN---"
-PAYLOAD_END = "---WORKER-PAYLOAD-END---"
-
-
-def extract_payload(stdout: str) -> tuple[str, str | None]:
-    """Pull the delimited JSON payload out of the worker's stdout.
-
-    Importing vllm writes Triton/CUDA notices to stdout, so the payload is
-    framed. Exactly one complete frame must be present: zero frames means the
-    worker never reached its reporting step, and more than one means an edited
-    worker emitted a partial payload before the real one.
-    """
-    begins = stdout.count(PAYLOAD_BEGIN)
-    ends = stdout.count(PAYLOAD_END)
-    if begins != 1 or ends != 1:
-        return "", "worker_payload_frame_count"
-    body = stdout.split(PAYLOAD_BEGIN, 1)[1].split(PAYLOAD_END, 1)[0]
-    return body, None
+import textwrap
+from completion_channel import execute_suite
+_SUITE_NAMESPACE = {}
+exec(compile("def run_suite(inputs, checkpoint):\n" +
+             textwrap.indent(WORKER_CODE, "    ") +
+             "\n    checkpoint(main(inputs))\n", "<encoder-behavior-suite>", "exec"),
+     _SUITE_NAMESPACE)
+RUN_SUITE = _SUITE_NAMESPACE['run_suite']
 
 
 def expected_observations():
@@ -587,146 +567,103 @@ def reject_duplicate_keys(pairs):
 
 
 def run_worker() -> dict:
-    """Spawn the validation worker as uid 65534 (nobody), capture structured output."""
+    """Grade authenticated observations from an unprivileged suite."""
     inputs = workload()
     expected_values = expected(inputs)
     try:
-        result = subprocess.run(
-            ["runuser", "-u", "nobody", "--", "python3", "-I", "-c", WORKER_CODE],
-            input=json.dumps(inputs),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=300,
-            check=False,
-            text=True,
-        )
-    except subprocess.TimeoutExpired:
-        return {
-            "verdict": "FAIL",
-            "reason": "worker_timeout",
-            "timeout_sec": 300,
-        }
+        completion = execute_suite(RUN_SUITE, inputs)
     except Exception as exc:
+        return {"verdict": "FAIL", "reason": "worker_setup_failed",
+                "error": str(exc), "traceback": traceback.format_exc()}
+    if "error" in completion:
+        return {"verdict": "FAIL", "reason": completion["error"],
+                "worker_status": completion["worker_status"],
+                "diagnostic": completion["diagnostic"]}
+    payload_text = completion["payload"]
+    try:
+        worker_output = json.loads(payload_text, object_pairs_hook=reject_duplicate_keys)
+    except ValueError as exc:
         return {
             "verdict": "FAIL",
-            "reason": "worker_spawn_failed",
+            "reason": "worker_output_invalid_json",
+            "stdout": completion["diagnostic"][:2000],
+            "stderr": completion["diagnostic"][:2000],
             "error": str(exc),
-            "traceback": traceback.format_exc(),
         }
 
-    payload_text, payload_error = extract_payload(result.stdout)
-    if payload_error is not None:
+    # Fail-closed completeness gate. A zero exit is necessary but not
+    # sufficient: the parent independently re-checks the payload shape,
+    # every required stage, and the worker's own failure map.
+    if not isinstance(worker_output, dict):
         return {
             "verdict": "FAIL",
-            "reason": payload_error,
-            "worker_exit": result.returncode,
-            "stdout": result.stdout[:2000],
-            "stderr": result.stderr[:2000],
+            "reason": "worker_output_not_object",
+            "payload_type": type(worker_output).__name__,
         }
 
-    if result.returncode == 0:
-        try:
-            worker_output = json.loads(payload_text, object_pairs_hook=reject_duplicate_keys)
-        except ValueError as exc:
-            return {
-                "verdict": "FAIL",
-                "reason": "worker_output_invalid_json",
-                "stdout": result.stdout[:2000],
-                "stderr": result.stderr[:2000],
-                "error": str(exc),
-            }
-
-        # Fail-closed completeness gate. A zero exit is necessary but not
-        # sufficient: the parent independently re-checks the payload shape,
-        # every required stage, and the worker's own failure map.
-        if not isinstance(worker_output, dict):
-            return {
-                "verdict": "FAIL",
-                "reason": "worker_output_not_object",
-                "payload_type": type(worker_output).__name__,
-            }
-
-        stages = worker_output.get("stages")
-        if not isinstance(stages, dict):
-            return {
-                "verdict": "FAIL",
-                "reason": "worker_stages_malformed",
-                "stages_type": type(stages).__name__,
-            }
-
-        failures = worker_output.get("failures")
-        if not isinstance(failures, dict):
-            return {
-                "verdict": "FAIL",
-                "reason": "worker_failures_malformed",
-                "failures_type": type(failures).__name__,
-            }
-        if failures:
-            return {
-                "verdict": "FAIL",
-                "reason": "worker_reported_failures_with_zero_exit",
-                "failures": failures,
-            }
-
-        worker_stages = set(stages.keys())
-        missing = REQUIRED_STAGES - worker_stages
-        unexpected = worker_stages - REQUIRED_STAGES
-        if missing or unexpected:
-            return {
-                "verdict": "FAIL",
-                "reason": "incomplete_stage_coverage",
-                "missing_stages": sorted(missing),
-                "unexpected_stages": sorted(unexpected),
-                "executed_stages": sorted(worker_stages),
-            }
-
-        # Every stage must have returned a structured (non-empty) result.
-        malformed = sorted(
-            name for name, value in stages.items()
-            if not isinstance(value, dict) or not value
-        )
-        if malformed:
-            return {
-                "verdict": "FAIL",
-                "reason": "stage_result_malformed",
-                "malformed_stages": malformed,
-            }
-
-        mismatched = [name for name, expected in expected_observations().items()
-                      if stages[name] != expected]
-        if mismatched:
-            return {"verdict": "FAIL", "reason": "behavioral_observation_mismatch",
-                    "mismatched_stages": sorted(mismatched)}
-
-        observations = worker_output.get("observations")
-        if observations != expected_values:
-            return {"verdict": "FAIL", "reason": "fresh_behavioral_observation_mismatch",
-                    "inputs": inputs, "observed": observations, "expected": expected_values}
+    stages = worker_output.get("stages")
+    if not isinstance(stages, dict):
         return {
-            "inputs": inputs,
-            "observations": observations,
-            "verdict": "PASS",
-            "worker_exit": 0,
-            "stages": stages,
+            "verdict": "FAIL",
+            "reason": "worker_stages_malformed",
+            "stages_type": type(stages).__name__,
         }
-    else:
-        try:
-            worker_output = json.loads(payload_text, object_pairs_hook=reject_duplicate_keys)
-            return {
-                "verdict": "FAIL",
-                "reason": "worker_stage_failures",
-                "worker_exit": result.returncode,
-                "failures": worker_output.get("failures", {}),
-                "stages": worker_output.get("stages", {}),
-            }
-        except ValueError:
-            return {
-                "verdict": "FAIL",
-                "reason": "worker_crash_or_invalid_output",
-                "worker_exit": result.returncode,
-                "stdout": result.stdout[:2000],
-                "stderr": result.stderr[:2000],
-            }
+
+    failures = worker_output.get("failures")
+    if not isinstance(failures, dict):
+        return {
+            "verdict": "FAIL",
+            "reason": "worker_failures_malformed",
+            "failures_type": type(failures).__name__,
+        }
+    if failures:
+        return {
+            "verdict": "FAIL",
+            "reason": "worker_reported_failures_with_zero_exit",
+            "failures": failures,
+        }
+
+    worker_stages = set(stages.keys())
+    missing = REQUIRED_STAGES - worker_stages
+    unexpected = worker_stages - REQUIRED_STAGES
+    if missing or unexpected:
+        return {
+            "verdict": "FAIL",
+            "reason": "incomplete_stage_coverage",
+            "missing_stages": sorted(missing),
+            "unexpected_stages": sorted(unexpected),
+            "executed_stages": sorted(worker_stages),
+        }
+
+    # Every stage must have returned a structured (non-empty) result.
+    malformed = sorted(
+        name for name, value in stages.items()
+        if not isinstance(value, dict) or not value
+    )
+    if malformed:
+        return {
+            "verdict": "FAIL",
+            "reason": "stage_result_malformed",
+            "malformed_stages": malformed,
+        }
+
+    mismatched = [name for name, expected in expected_observations().items()
+                  if stages[name] != expected]
+    if mismatched:
+        return {"verdict": "FAIL", "reason": "behavioral_observation_mismatch",
+                "mismatched_stages": sorted(mismatched)}
+
+    observations = worker_output.get("observations")
+    if observations != expected_values:
+        return {"verdict": "FAIL", "reason": "fresh_behavioral_observation_mismatch",
+                "inputs": inputs, "observed": observations, "expected": expected_values}
+    return {
+        "inputs": inputs,
+        "observations": observations,
+        "verdict": "PASS",
+        "worker_exit": 0,
+        "stages": stages,
+    }
 
 
 def main() -> None:

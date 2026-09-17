@@ -2,7 +2,7 @@ from __future__ import annotations
 
 # Curator-only runtime smoke for the CPU encoder-cache-accounting image
 # (task.toml: environment_profile = "cpu", gpus = 0, accelerator = "CPU").
-# It confirms the candidate vLLM and its native extension resolve from /app and
+# It confirms the candidate vLLM and its native extension resolve from /workspace/vllm and
 # that the image imports on CPU. This task needs no GPU, so it asserts CPU
 # semantics (CUDA is not required and not present) rather than requiring a GPU.
 
@@ -14,7 +14,7 @@ import torch
 import vllm
 
 
-root = Path("/app")
+root = Path("/workspace/vllm")
 source = Path(vllm.__file__).resolve()
 native_spec = importlib.util.find_spec("vllm._C")
 assert source.is_relative_to(root), source

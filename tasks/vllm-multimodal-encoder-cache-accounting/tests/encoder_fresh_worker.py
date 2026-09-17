@@ -66,10 +66,10 @@ def observe_fresh(inputs):
     runner.model=SimpleNamespace(embed_multimodal=lambda rows:[r.clone() for r in rows])
     old=runner_module.group_mm_kwargs_by_modality
     runner_module.group_mm_kwargs_by_modality=lambda items,**kwargs:[('image',len(items),{'rows':[item.rows for item in items]})]
-    def gather(a,b):
+    def gather(a,b,shift=0):
         state.num_computed_tokens=a
         output=SimpleNamespace(total_num_scheduled_tokens=b-a,num_scheduled_tokens={'fresh':b-a})
-        rows,mask=GPUModelRunner._gather_mm_embeddings(runner,output)
+        rows,mask=GPUModelRunner._gather_mm_embeddings(runner,output,shift_computed_tokens=shift)
         return dict(mask=mask.tolist(),rows=torch.cat(rows).tolist() if rows else [])
     chain=[]
     try:
@@ -82,6 +82,27 @@ def observe_fresh(inputs):
             chain.append(dict(schedule=[ids,count,remaining,external],free=manager.num_free_slots,**gather(a,a+count)))
             request.num_computed_tokens=state.num_computed_tokens=a+count
         cached=[gather(a,b) for a,b in inputs['cached_windows']]
+        # EAGLE consumes a shifted prompt window. Schedule the union required
+        # by target and draft, then observe both consumers of the same cache.
+        manager=scheduler.encoder_cache_manager=EncoderCacheManager(cache_size=capacity)
+        runner.encoder_cache={}
+        request.num_computed_tokens=state.num_computed_tokens=0
+        shifted_chain=[]
+        for a,b in inputs['windows']:
+            if b >= 37:
+                break  # Keep the draft window inside the supplied prompt.
+            ids,count,remaining,external=Scheduler._try_schedule_encoder_inputs(
+                scheduler,request,a,b-a,capacity,shift_computed_tokens=1)
+            for i in ids:manager.allocate(request,i)
+            output=SimpleNamespace(scheduled_encoder_inputs={'fresh':ids} if ids else {},
+                total_num_scheduled_tokens=count,num_scheduled_tokens={'fresh':count})
+            GPUModelRunner._execute_mm_encoder(runner,output)
+            shifted_chain.append(dict(schedule=[ids,count,remaining,external],
+                free=manager.num_free_slots,main=gather(a,a+count),
+                shifted=gather(a,a+count,shift=1)))
+            request.num_computed_tokens=state.num_computed_tokens=a+count
+
     finally:runner_module.group_mm_kwargs_by_modality=old
     return dict(lookahead=lookahead,allocations=allocations,empty=empty,nonempty=nonempty,profile=profile,
-                eviction=eviction,chain=chain,cached=cached)
+                eviction=eviction,chain=chain,cached=cached,shifted_chain=shifted_chain,
+                direct_profile=observe_direct_encoder_capacity())

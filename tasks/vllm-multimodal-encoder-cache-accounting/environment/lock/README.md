@@ -21,10 +21,10 @@ content-addressed pytest 9.0.3 stack (pytest, iniconfig, packaging, pluggy, and
 Pygments wheels), plus tblib 3.1.0 for the upstream test conftest; their versions and SHA-256 values are recorded in
 `environment.json`. Candidate Python source comes only from the
 verified base commit. Compiled vLLM shared objects come from the official
-v0.11.2 image, are copied into `/app/vllm`, and are ignored as generated
+v0.11.2 image, are copied into `/workspace/vllm/vllm`, and are ignored as generated
 artifacts. The generated release `_version.py` is copied by the same exact-path
 overlay; no other wheel Python source is overlaid. The Docker build checks that
-both `vllm.__file__` and `vllm._C` resolve under `/app`, while PyTorch is 2.9.x
+both `vllm.__file__` and `vllm._C` resolve under `/workspace/vllm`, while PyTorch is 2.9.x
 with CUDA 12.9. The validated official image reports PyTorch `2.9.0+cu129`.
 
 The runtime is configured offline and must additionally be launched with

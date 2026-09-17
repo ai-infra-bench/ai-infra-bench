@@ -49,9 +49,21 @@ def expected(inputs):
         seen.update(ids)
         chain.append(dict(schedule=[ids,b-a,capacity-sum(counts[i] for i in ids),[]],
                           free=capacity-sum(counts[i] for i in seen), **payload(features,a,b)))
+    shifted_chain=[]; shifted_seen=set()
+    for a,b in inputs['windows']:
+        if b >= 37:
+            break
+        ids=[i for i,f in enumerate(features) if i not in shifted_seen
+             and any(a <= f['offset']+p < b+1 for p in selected(f))]
+        shifted_seen.update(ids)
+        shifted_chain.append(dict(schedule=[ids,b-a,capacity-sum(counts[i] for i in ids),[]],
+            free=capacity-sum(counts[i] for i in shifted_seen),
+            main=payload(features,a,b),shifted=payload(features,a+1,b+1)))
     # Main-model tokens and EAGLE's shifted tokens both need encoder outputs.
     lookahead = [[[0], 2, 0, []], [[], 1, n, []], [[], 1, 0, []],
                  [[], 1, n-1, []], [[], 2, 0, []], [[0], 1, 0, []]]
     return dict(lookahead=lookahead, allocations=allocations, empty=empty, nonempty=nonempty,
                 profile={'scheduler':[max(1,n),max(1,n)], 'runner':max(1,n)}, eviction=dict(free=0, freed=['fresh-0-item-0']),
-                chain=chain, cached=[payload(features,a,b) for a,b in inputs['cached_windows']])
+                chain=chain, cached=[payload(features,a,b) for a,b in inputs['cached_windows']],
+                shifted_chain=shifted_chain,
+                direct_profile=[{'scheduler':[n,n], 'runner':n} for n in (16,48)])

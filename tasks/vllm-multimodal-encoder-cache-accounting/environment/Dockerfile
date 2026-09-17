@@ -113,14 +113,14 @@ RUN set -eu; \
       -o /tmp/vllm-source.tar.gz; \
     printf '%s  %s\n' "${VLLM_SOURCE_SHA256}" /tmp/vllm-source.tar.gz \
       | sha256sum --check --strict; \
-    mkdir -p /app; \
-    tar -xzf /tmp/vllm-source.tar.gz -C /app --strip-components=1; \
+    mkdir -p /workspace/vllm; \
+    tar -xzf /tmp/vllm-source.tar.gz -C /workspace/vllm --strip-components=1; \
     rm /tmp/vllm-source.tar.gz
 
-COPY --from=git-history /vllm-history/.git /app/.git
+COPY --from=git-history /vllm-history/.git /workspace/vllm/.git
 
 RUN set -eu; \
-    cd /app; \
+    cd /workspace/vllm; \
     test "$(git rev-parse HEAD)" = "${VLLM_BASE_SHA}"; \
     test "$(git rev-parse 'HEAD^{tree}')" = "${VLLM_BASE_TREE}"; \
     test -z "$(git remote)"; \
@@ -137,26 +137,26 @@ RUN set -eu; \
 
 # Apply only the compiled shared objects from the same official release line.
 # Their exact runtime locations are ignored without hiding any candidate Python
-# source. An executable .pth places /app before the installed wheel package.
+# source. An executable .pth places /workspace/vllm before the installed wheel package.
 RUN set -eu; \
-    cp -a /opt/vllm-native-overlay/. /app/vllm/; \
-    cd /app; \
+    cp -a /opt/vllm-native-overlay/. /workspace/vllm/vllm/; \
+    cd /workspace/vllm; \
     find /opt/vllm-native-overlay -type f -printf '/vllm/%P\n' \
       | sort >> .git/info/exclude; \
     site_dir="$(python3 -c 'import site; print(site.getsitepackages()[0])')"; \
-    printf 'import sys; sys.path.insert(0, "/app")\n' \
+    printf 'import sys; sys.path.insert(0, "/workspace/vllm")\n' \
       > "${site_dir}/vllm-candidate-source.pth"; \
     cd /tmp; \
-    python3 -I -c 'import importlib.util,pathlib,torch,vllm; root=pathlib.Path("/app"); assert pathlib.Path(vllm.__file__).resolve().is_relative_to(root); spec=importlib.util.find_spec("vllm._C"); assert spec and pathlib.Path(spec.origin).resolve().is_relative_to(root); assert torch.__version__.startswith("2.9."); assert torch.version.cuda == "12.9"'; \
-    cd /app; \
+    python3 -I -c 'import importlib.util,pathlib,torch,vllm; root=pathlib.Path("/workspace/vllm"); assert pathlib.Path(vllm.__file__).resolve().is_relative_to(root); spec=importlib.util.find_spec("vllm._C"); assert spec and pathlib.Path(spec.origin).resolve().is_relative_to(root); assert torch.__version__.startswith("2.9."); assert torch.version.cuda == "12.9"'; \
+    cd /workspace/vllm; \
     test -z "$(git status --porcelain=v1 --untracked-files=all)"
 
 RUN groupadd --gid 10001 agent \
     && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/agent agent \
-    && chown -R agent:agent /app /home/agent \
+    && chown -R agent:agent /workspace/vllm /home/agent \
     && chmod -R a-w /opt/vllm-native-overlay
 
-WORKDIR /app
+WORKDIR /workspace/vllm
 USER 10001:10001
 RUN python3 -m pytest --collect-only -q tests/v1/core/test_encoder_cache_manager.py
 ENTRYPOINT []

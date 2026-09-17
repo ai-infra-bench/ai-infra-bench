@@ -40,5 +40,28 @@ for length,indices in [(137,[3,9,23,37,52,66,81,104,129]),(53,[4,13,27,39,48]),(
  finally:
   MultiModalProfiler._get_dummy_mm_inputs=old_dummy
   worker_utils.processor_only_cache_from_config=old_cache
+# Independent direct-estimate cases: different geometry and batch floor from
+# the grader. Keep the production video estimate and downstream consumers.
+from vllm.model_executor.models.qwen3_vl import Qwen3VLProcessingInfo
+for actual_rows in (32, 80):
+ info=object.__new__(Qwen3VLProcessingInfo)
+ info.get_image_size_with_most_features=lambda: ((actual_rows // 2) * 7,112)
+ info.get_max_image_tokens=lambda: actual_rows // 2
+ info.get_num_frames_with_most_features=lambda *args,**kw: 4
+ info.get_num_video_tokens=lambda *args,**kw: actual_rows
+ processor=SimpleNamespace(info=info,allowed_mm_limits={'video':2})
+ registry=object.__new__(MultiModalRegistry)
+ registry.create_processor=lambda *args,**kw: processor
+ registry.supports_multimodal_inputs=lambda *args: True
+ old_cache=worker_utils.processor_only_cache_from_config
+ try:
+  worker_utils.processor_only_cache_from_config=lambda *args,**kw: None
+  scheduler_budget=compute_encoder_budget(model,config,registry)
+  runner_budget=MultiModalBudget(model,config,registry).get_encoder_budget()
+  rows.append({'path':'direct-video-estimate','expected_rows':actual_rows,
+      'scheduler_budget':list(scheduler_budget),'runner_budget':runner_budget,
+      'pass':scheduler_budget==(actual_rows,actual_rows) and runner_budget==actual_rows})
+ finally:
+  worker_utils.processor_only_cache_from_config=old_cache
 print(json.dumps({'cases':rows,'pass':all(r['pass'] for r in rows)},indent=2))
 raise SystemExit(0 if all(r['pass'] for r in rows) else 1)
