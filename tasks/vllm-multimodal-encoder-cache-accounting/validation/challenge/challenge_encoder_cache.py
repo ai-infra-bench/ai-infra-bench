@@ -105,7 +105,8 @@ def embedding_window(
     total_rows = int(position.is_embed.sum().item())
     compact = torch.arange(total_rows * 4, dtype=torch.float32).reshape(total_rows, 4)
     feature = MultiModalFeatureSpec(
-        data=None, modality="image", identifier="win", mm_position=position
+        data=SimpleNamespace(modality="image", rows=compact),
+        modality="image", identifier="win", mm_position=position
     )
 
     class BoolBuffer:
@@ -127,20 +128,19 @@ def embedding_window(
     runner.pin_memory = False
     # Only substitute media inputs/inference. The candidate writes its own cache
     # using the production encoder loop before its production gather reads it.
-    runner._batch_mm_kwargs_from_scheduler = lambda output: (
-        [SimpleNamespace(modality="image")], [("win", position)]
-    )
-    runner.model = SimpleNamespace(embed_multimodal=lambda **kwargs: [compact.clone()])
+    runner.model = SimpleNamespace(embed_multimodal=lambda rows: [r.clone() for r in rows])
     runner.maybe_save_ec_to_connector = lambda *args: None
     runner.is_mm_embed = BoolBuffer(max(scheduled, 1))
     runner.is_multimodal_pruning_enabled = False
     runner.uses_mrope = False
     scheduler_output = SimpleNamespace(
+        scheduled_encoder_inputs={"req": [0]},
         total_num_scheduled_tokens=scheduled,
         num_scheduled_tokens={"req": scheduled},
     )
     original = runner_module.group_mm_kwargs_by_modality
-    runner_module.group_mm_kwargs_by_modality = lambda *args, **kwargs: [("image", 1, {})]
+    runner_module.group_mm_kwargs_by_modality = lambda items, **kwargs: [
+        ("image", len(items), {"rows": [item.rows for item in items]})]
     try:
         GPUModelRunner._execute_mm_encoder(runner, scheduler_output)
     finally:

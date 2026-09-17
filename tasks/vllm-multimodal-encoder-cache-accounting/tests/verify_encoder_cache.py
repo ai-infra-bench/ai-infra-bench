@@ -140,22 +140,29 @@ def encode_into_cache(runner, features, outputs):
     """
     runner.device = torch.device("cpu")
     runner.pin_memory = False
-    runner._batch_mm_kwargs_from_scheduler = lambda output: (
-        [SimpleNamespace(modality=feature.modality) for feature in features],
-        [(feature.identifier, feature.mm_position) for feature in features],
-    )
+    # Keep batching and its return representation in candidate code. Supplying
+    # a private helper's historical (hash, position) tuples would reject a
+    # coherent refactor that returns hashes alone for a compact encoder cache.
+    request_id = next(iter(runner.requests))
+    assert runner.requests[request_id].mm_features is features
+    original_data = [feature.data for feature in features]
+    for feature, rows in zip(features, outputs):
+        feature.data = SimpleNamespace(modality=feature.modality, rows=rows)
     runner.model = SimpleNamespace(
-        embed_multimodal=lambda **kwargs: [output.clone() for output in outputs]
+        embed_multimodal=lambda rows: [output.clone() for output in rows]
     )
     runner.maybe_save_ec_to_connector = lambda *args: None
     original = runner_module.group_mm_kwargs_by_modality
-    runner_module.group_mm_kwargs_by_modality = lambda *args, **kwargs: [
-        (features[0].modality, len(features), {})
+    runner_module.group_mm_kwargs_by_modality = lambda items, **kwargs: [
+        (items[0].modality, len(items), {"rows": [item.rows for item in items]})
     ]
     try:
-        GPUModelRunner._execute_mm_encoder(runner, SimpleNamespace())
+        GPUModelRunner._execute_mm_encoder(runner, SimpleNamespace(
+            scheduled_encoder_inputs={request_id: list(range(len(features)))}))
     finally:
         runner_module.group_mm_kwargs_by_modality = original
+        for feature, data in zip(features, original_data):
+            feature.data = data
 
 
 def check_partial_mapping():
@@ -200,7 +207,7 @@ def check_partial_mapping():
         runner.is_mm_embed = BoolBuffer(max(scheduled, 1))
         runner.is_multimodal_pruning_enabled = False
         runner.uses_mrope = False
-        encode_into_cache(runner, [feature], [compact])
+        encode_into_cache(runner, runner.requests["req"].mm_features, [compact])
         scheduler_output = SimpleNamespace(
             total_num_scheduled_tokens=scheduled,
             num_scheduled_tokens={"req": scheduled},

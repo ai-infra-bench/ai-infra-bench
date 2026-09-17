@@ -9,6 +9,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import shutil
 import time
 import tomllib
 import uuid
@@ -68,10 +69,19 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--campaign',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--task',type=Path,help='Freeze a revised grading task separately from original campaign inputs')
+    parser.add_argument('--profile-probe',type=Path,help='Optional diagnostic script; never changes the reward')
     args=parser.parse_args()
     campaign=args.campaign.resolve();output=args.output.resolve()
     output.mkdir(parents=True,exist_ok=False)
     task=campaign/'task'
+    if args.task:
+        task=output/'grading-task'
+        shutil.copytree(args.task.resolve(),task)
+    probe=None
+    if args.profile_probe:
+        probe=output/'profile-probe.py'
+        shutil.copy2(args.profile_probe.resolve(),probe)
     image=tomllib.loads((task/'task.toml').read_text())['environment']['docker_image']
     trials=sorted((campaign/'jobs/flash').glob('task__*'))
     assert len(trials)==4
@@ -80,6 +90,7 @@ def main():
     for trial in trials:
         paths += list((trial/'artifacts/final-state').glob('*'))
     paths.append(Path(__file__).resolve())
+    if probe:paths.append(probe)
     hashes={str(p):sha(p) for p in paths if p.is_file()}
     (output/'pre-run.json').write_text(json.dumps(dict(image=image,started_at=time.time(),inputs=hashes,
         scope='fresh Docker test.sh and independent challenges on captured full repository state'),indent=2)+'\n')
@@ -109,6 +120,10 @@ def main():
             for name in ('cache','capacity'):
                 execute('challenge-'+name,['docker','exec','-u','nobody',container,'python3','-I',
                     '/challenge/challenge_encoder_'+name+'.py'],300)
+            if probe:
+                assert execute('upload-profile-probe',['docker','cp',str(probe),container+':/tmp/profile-probe.py'],30)==0
+                execute('profile-probe',['docker','exec','-u','nobody',container,'python3','-I',
+                    '/tmp/profile-probe.py'],300)
             execute('post-state',['docker','exec',container,'python3','-I','-S','-c',CHECK_STATE],180)
             result['reward']=int((out/'reward.txt').read_text().strip()) if (out/'reward.txt').exists() else None
         except Exception as exc:

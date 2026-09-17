@@ -50,7 +50,7 @@ async def main():
            'kwargs':{'oracle_patch':str(snapshot/'solution/oracle.patch')} if args.mode=='canary' else {'version':'2.1.238'}}
     config={'job_name':args.mode,'jobs_dir':str(output/'jobs'),'n_attempts':1 if args.mode=='canary' else 4,
             'n_concurrent_trials':1 if args.mode=='canary' else 4,'quiet':True,
-            'environment':{'type':'docker','delete':False},'agents':[agent],
+            'environment':{'type':'docker','delete':False,'kwargs':{'keep_containers':True}},'agents':[agent],
             'tasks':[{'path':str(snapshot)}],'artifacts':artifacts,'retry':{'max_retries':0}}
     (output/'job-config.json').write_text(json.dumps(config,indent=2)+'\n')
     inputs={str(p.relative_to(snapshot)):sha(p) for p in snapshot.rglob('*') if p.is_file()}
