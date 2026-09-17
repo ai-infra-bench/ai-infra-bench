@@ -24,6 +24,7 @@ def run(slot):
  (R/f'{name}-inputs.json').write_text(json.dumps(frozen,indent=2)+'\n')
  agent='capture_agent:CapturedClaude' if a.mode=='flash' else 'capture_agent:CaptureSmoke'
  cmd=[HARBOR,'run','-p',str(prepared),'-a',agent,'--override-gpus','0','--jobs-dir',str(R/'jobs'),'--job-name',name,'--n-concurrent','1','--max-retries','0']
+ if not model:cmd+=['--ak','task_dir='+str(prepared)]
  if model:cmd+=['-m',model,'--ak','version=2.1.238','--ae','DISABLE_AUTOUPDATER=1']
  start=time.time()
  with (R/f'{name}-launcher.log').open('w') as log:r=subprocess.run(cmd,stdout=log,stderr=subprocess.STDOUT)

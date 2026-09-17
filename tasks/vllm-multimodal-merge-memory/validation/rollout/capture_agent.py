@@ -6,7 +6,7 @@ from pathlib import Path
 import shlex
 
 from harbor.agents.installed.claude_code import ClaudeCode
-from harbor.agents.oracle import OracleAgent
+from harbor.agents.base import BaseAgent
 
 COLLECT = r'''
 from pathlib import Path
@@ -60,7 +60,21 @@ class CapturedClaude(CaptureMixin,ClaudeCode):
         if result.return_code:raise RuntimeError('offline Claude install failed')
         (self.logs_dir/'installed-version.txt').write_text(result.stdout or '')
 
-class CaptureSmoke(CaptureMixin,OracleAgent):
+class SmokeWork(BaseAgent):
+    def __init__(self, task_dir, *args, **kwargs):
+        self.task_dir=Path(task_dir)
+        super().__init__(*args, **kwargs)
+    @staticmethod
+    def name():return 'pr63-capture-smoke'
+    def version(self):return '1.0'
+    async def setup(self,environment):pass
+    async def run(self,instruction,environment,context):
+        await environment.upload_dir(self.task_dir/'solution','/solution')
+        result=await environment.exec(command='bash /solution/solve.sh',user='agent',timeout_sec=120)
+        (self.logs_dir/'oracle.txt').write_text((result.stdout or '')+(result.stderr or ''))
+        if result.return_code:raise RuntimeError('smoke Oracle application failed')
+
+class CaptureSmoke(CaptureMixin,SmokeWork):
     async def run(self,instruction,environment,context):
         # Add one untracked file to prove the collection path actually works.
         await environment.exec(command="printf 'collector integration sentinel\\n' > /workspace/repo/pr63-collection-smoke.txt",user='agent')
