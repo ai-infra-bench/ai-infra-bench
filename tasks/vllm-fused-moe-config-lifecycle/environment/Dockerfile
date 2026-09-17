@@ -76,7 +76,8 @@ RUN set -eu; \
     printf "import sys; sys.path.insert(0, '/workspace/repo')\n" > "${site_dir}/000_ai_infra_bench_vllm_source.pth"; \
     test ! -e /workspace/repo/.git
 
-COPY --from=git_runtime /vllm-history/.git /workspace/repo/.git
+# Keep the trailing slash: Dockerfile 1.7 treats a .git suffix as a Git URL.
+COPY --from=git_runtime /vllm-history/.git/ /workspace/repo/.git/
 
 RUN set -eu; \
     test "$(git -C /workspace/repo rev-parse HEAD)" = "${VLLM_SOURCE_COMMIT}"; \
