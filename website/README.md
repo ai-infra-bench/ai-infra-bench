@@ -23,6 +23,14 @@ and Domain filters. Only recorded results appear in the chart and table.
 Run the full website test suite with `npm run test:website` (chart geometry,
 label density and focus, task filtering/pagination, and archive statistics).
 
+## Favicon
+
+`public/favicon.svg` is the vector source. After editing it, run
+`npm run generate:favicon` and commit the generated PNGs. The page advertises
+the 192×192 PNG for search results and the SVG for browsers; the 32×32 PNG
+remains available for cached pages. The large PNG is rendered directly from
+the vector paths to keep contours sharp on high-density displays.
+
 ## Updating leaderboard results
 
 Keep full Harbor trial directories in the external archive, preserving their

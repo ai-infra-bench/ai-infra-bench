@@ -1,0 +1,13 @@
+diff --git a/vllm/v1/worker/gpu_worker.py b/vllm/v1/worker/gpu_worker.py
+--- a/vllm/v1/worker/gpu_worker.py
++++ b/vllm/v1/worker/gpu_worker.py
+@@ -584,6 +584,9 @@
+     ) -> ModelRunnerOutput | AsyncModelRunnerOutput | None:
+         intermediate_tensors = None
+         forward_pass = scheduler_output.total_num_scheduled_tokens > 0
++        if (not forward_pass and get_pp_group().is_last_rank
++                and self.model_runner.use_async_scheduling):
++            self.model_runner._pp_receive_prev_sampled_token_ids_to_input_batch()
+         num_scheduled_tokens = scheduler_output.total_num_scheduled_tokens
+         all_gather_tensors = {}
+         compilation_config = self.vllm_config.compilation_config
