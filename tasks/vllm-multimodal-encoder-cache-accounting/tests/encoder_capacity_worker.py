@@ -71,10 +71,20 @@ def observe_direct_encoder_capacity():
             max_num_batched_tokens=1,max_num_seqs=1,enable_chunked_prefill=True,
             is_multimodal_model=True,disable_chunked_mm_input=False)
         original_cache=worker_utils.processor_only_cache_from_config
+        original_inputs=MultiModalProfiler._get_dummy_mm_inputs
+        # Supply the same legal media item to implementations that profile
+        # placeholder spans separately from the analytic encoder-row estimate.
+        # Two frames, each with text wrappers surrounding its embedding run.
+        frame_mask = [False] * 11 + [True] * (rows // 2) + [False]
+        mask = torch.tensor(frame_mask * 2, dtype=torch.bool)
+        position = PlaceholderRange(0, len(mask), mask)
         try:
+            MultiModalProfiler._get_dummy_mm_inputs=lambda *args,**kwargs: {
+                "mm_placeholders": {"video": [position]}}
             worker_utils.processor_only_cache_from_config=lambda *args,**kwargs: None
             observed.append({"scheduler":list(compute_encoder_budget(model,config,registry)),
                 "runner":MultiModalBudget(model,config,registry).get_encoder_budget()})
         finally:
             worker_utils.processor_only_cache_from_config=original_cache
+            MultiModalProfiler._get_dummy_mm_inputs=original_inputs
     return observed

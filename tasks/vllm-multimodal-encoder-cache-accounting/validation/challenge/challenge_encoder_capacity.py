@@ -54,7 +54,12 @@ for actual_rows in (32, 80):
  registry.create_processor=lambda *args,**kw: processor
  registry.supports_multimodal_inputs=lambda *args: True
  old_cache=worker_utils.processor_only_cache_from_config
+ old_dummy=MultiModalProfiler._get_dummy_mm_inputs
+ frame_mask=[False]*7+[True]*(actual_rows//4)+[False]
+ mask=torch.tensor(frame_mask*4,dtype=torch.bool)
+ position=PlaceholderRange(0,len(mask),mask)
  try:
+  MultiModalProfiler._get_dummy_mm_inputs=lambda *args,**kw:{'mm_placeholders':{'video':[position]}}
   worker_utils.processor_only_cache_from_config=lambda *args,**kw: None
   scheduler_budget=compute_encoder_budget(model,config,registry)
   runner_budget=MultiModalBudget(model,config,registry).get_encoder_budget()
@@ -63,5 +68,6 @@ for actual_rows in (32, 80):
       'pass':scheduler_budget==(actual_rows,actual_rows) and runner_budget==actual_rows})
  finally:
   worker_utils.processor_only_cache_from_config=old_cache
+  MultiModalProfiler._get_dummy_mm_inputs=old_dummy
 print(json.dumps({'cases':rows,'pass':all(r['pass'] for r in rows)},indent=2))
 raise SystemExit(0 if all(r['pass'] for r in rows) else 1)
