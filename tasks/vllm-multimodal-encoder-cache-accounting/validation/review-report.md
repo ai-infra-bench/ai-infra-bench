@@ -1,3 +1,6 @@
+> Historical review for the earlier executable revision. For the completed
+> eight-attempt flash campaign and 1.3.3 verifier acceptance, see [rollout review](rollout-review.md).
+
 # PR84 verifier 修复复核 — 1.3.0
 
 结论：A100 固定镜像内的行为验收通过；Harbor 编排验收尚未运行。已评分 9/10，小计 18/18；第 10 维 U，总分待定。最终冻结快照运行 25 个评分场景，reward 全部符合预期；6 个正确实现各通过 2 套独立 challenge。Base 的两套 challenge 均失败，且确实进入目标行为路径。
