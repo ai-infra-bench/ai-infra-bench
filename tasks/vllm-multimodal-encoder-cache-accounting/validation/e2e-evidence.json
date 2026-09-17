@@ -1,8 +1,8 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "status": "pending_workspace_runtime_validation",
-  "validation_status": "prior_1.2.9_docker_results_archived",
-  "recorded_at": "2026-09-17T16:48:02.319773+00:00",
+  "status": "workspace_docker_validated_harbor_pending",
+  "validation_status": "all_25_rewards_and_12_positive_challenges_passed",
+  "recorded_at": "2026-09-17T17:09:20.796226+00:00",
   "task": "ai-infra-bench/vllm-multimodal-encoder-cache-accounting",
   "task_version": "1.3.0",
   "pr_head": "08ee4f85fabe632dd56446c12be6b5ff2d247ae6",
@@ -13,12 +13,14 @@
     "dependency_cutoff": "2025-12-16T09:37:15Z"
   },
   "image": {
-    "status": "built",
+    "status": "revalidated_on_A100",
     "planned_tag": "vllm-encoder-local:workspace-1.3.0",
     "parent_image_id": "sha256:aad47363477b6b2092e8d3ba616da14fc35a11af170bc19f8d26de7ef00bb107",
     "actual_image_id": "sha256:8d200d6c23d542fb41b456cb55bf5c984b1c467c2020e31fb0e053e120c5f852",
     "expected_image_id": "sha256:8d200d6c23d542fb41b456cb55bf5c984b1c467c2020e31fb0e053e120c5f852",
-    "build_commit": "86e7dae515f11d39343517ae2ec6ab8d6f41f049"
+    "build_commit": "86e7dae515f11d39343517ae2ec6ab8d6f41f049",
+    "workdir": "/workspace/vllm",
+    "agent_canary": "Real /workspace/vllm/vllm/__init__.py and torch2.9.0+cu129 import; 9 upstream tests collected"
   },
   "artifacts": {
     "files": {
@@ -32,7 +34,7 @@
         "sha256": "69ac86b4802062f0b278862f6718c6e6ff24bac2761da7c15a8d61c881c4db31"
       },
       "environment/image-manifest.json": {
-        "sha256": "9e92840f8803f2342e94c7d4baec092213620dc46911ef16e8130d2a983f128b"
+        "sha256": "2f9664b53b1f723fe9c0d0cfc92f40675f9182cc7794e550370d09790afb64af"
       },
       "environment/lock/environment.json": {
         "sha256": "fda410d0928fb654b66bbf4954f50e99a367cbef02c0eaec92777c6e9e720441"
@@ -124,6 +126,9 @@
       "validation/dense-cache-missing-cold-window.patch": {
         "sha256": "d219371fa660de616b9b326cf0ce13f462fa804d0fa2abebf553bcd0c939a8b7"
       },
+      "validation/docker-build.md": {
+        "sha256": "e096bcebf963aece380fad243b29db718e89fab098946e3184eaa0d3dad08389"
+      },
       "validation/early-os-exit.patch": {
         "sha256": "88dddbe37443ec1c2ef8ff542cbe4b8326278bc96ce6885422db4becd29b2567"
       },
@@ -141,6 +146,9 @@
       },
       "validation/evidence/a100-verifier-hardening-1.2.9.tar.gz": {
         "sha256": "6a6c1f47612e0e1b7e0736d9b4e89930970623702a526520eafb6f2cc3660beb"
+      },
+      "validation/evidence/a100-workspace-1.3.0.tar.gz": {
+        "sha256": "b54de87e7c873df7b6525edd79f62bd2d5a2190a0a34ac0b6b43c0fb3d31e44a"
       },
       "validation/evidence/dual-review-repair-1.2.6.tar.gz": {
         "sha256": "657c49ee51e786b28ae924a4cea061ce81a3e033d86eb537e7a71826e56bb184"
@@ -169,11 +177,20 @@
       "validation/evidence/verifier-hardening-1.2.9/patch-checks.json": {
         "sha256": "87641a28020464dae5bbca381c4cdfe1b3e3e87c4752718e185b10cbadde4ed6"
       },
+      "validation/evidence/workspace-1.3.0/build.log": {
+        "sha256": "15de3af270ff7be344aa6cb7e4daba8034f877b9cd393ae66c7325c9eebb8a7f"
+      },
+      "validation/evidence/workspace-1.3.0/image.json": {
+        "sha256": "6e247710088b108e3820c4ca2f1ac4519ef9ba41e446b93f4c038b6f23621fa2"
+      },
+      "validation/evidence/workspace-1.3.0/summary.json": {
+        "sha256": "dad004a7ba45f6c7273c144f228e3ced910e6ba55a66653369c23560c2cc19ab"
+      },
       "validation/forged-completion.patch": {
         "sha256": "18618b3f48eb29a1c4c31452d02c35d9bd9c92d4fad5524d20628d639af74e85"
       },
       "validation/local-regressions.json": {
-        "sha256": "42fe8043934d4051e312fa1d561c32f25072c936dad5a4290d0b83515946ef10"
+        "sha256": "d1b3d2ca4bfa2ff41c227e77ee9ed65093f55badb9b013cc0a5822de210da8e1"
       },
       "validation/lookahead-omission.patch": {
         "sha256": "c4d8c0d9de25f3712ccfdc52360b5b2f5c024b5cc1fe19261819446cf5279004"
@@ -207,7 +224,295 @@
       }
     }
   },
-  "runs": [],
+  "runs": [
+    {
+      "name": "base",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "worker_reported_failures_with_zero_exit",
+      "failed_stages": [
+        "cache_lifecycle",
+        "fresh_observations",
+        "multiple_items",
+        "placeholder_coordinates",
+        "scheduled_cache_lifecycle",
+        "scheduler_partial_budget"
+      ]
+    },
+    {
+      "name": "oracle",
+      "expected_reward": 1,
+      "exit_code": 0,
+      "actual_reward": 1,
+      "matches_expected": true,
+      "verifier_verdict": "PASS",
+      "reason": null,
+      "independent_cache_pass": true,
+      "independent_capacity_pass": true
+    },
+    {
+      "name": "alternate-direct-mask-count",
+      "expected_reward": 1,
+      "exit_code": 0,
+      "actual_reward": 1,
+      "matches_expected": true,
+      "verifier_verdict": "PASS",
+      "reason": null,
+      "independent_cache_pass": true,
+      "independent_capacity_pass": true
+    },
+    {
+      "name": "stale-observations",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "unauthenticated_completion"
+    },
+    {
+      "name": "runner-capacity-from-context",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "behavioral_observation_mismatch"
+    },
+    {
+      "name": "direct-completion-callback",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "worker_failed"
+    },
+    {
+      "name": "alternate-distinct-profile-accessors-video-fixed",
+      "expected_reward": 1,
+      "exit_code": 0,
+      "actual_reward": 1,
+      "matches_expected": true,
+      "verifier_verdict": "PASS",
+      "reason": null,
+      "independent_cache_pass": true,
+      "independent_capacity_pass": true
+    },
+    {
+      "name": "partial-budget-omission",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "worker_reported_failures_with_zero_exit",
+      "failed_stages": [
+        "fresh_observations",
+        "scheduled_cache_lifecycle",
+        "scheduler_partial_budget"
+      ]
+    },
+    {
+      "name": "root-python-startup",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "worker_reported_failures_with_zero_exit",
+      "failed_stages": [
+        "cache_lifecycle",
+        "fresh_observations",
+        "multiple_items",
+        "placeholder_coordinates",
+        "scheduled_cache_lifecycle",
+        "scheduler_partial_budget"
+      ]
+    },
+    {
+      "name": "alternate-dense-cache",
+      "expected_reward": 1,
+      "exit_code": 0,
+      "actual_reward": 1,
+      "matches_expected": true,
+      "verifier_verdict": "PASS",
+      "reason": null,
+      "independent_cache_pass": true,
+      "independent_capacity_pass": true
+    },
+    {
+      "name": "empty-placeholder-omission",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "worker_reported_failures_with_zero_exit",
+      "failed_stages": [
+        "fresh_observations",
+        "scheduled_cache_lifecycle"
+      ]
+    },
+    {
+      "name": "lookahead-omission",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "worker_reported_failures_with_zero_exit",
+      "failed_stages": [
+        "fresh_observations"
+      ]
+    },
+    {
+      "name": "ignore-shifted-gather",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "fresh_behavioral_observation_mismatch",
+      "mismatched_observations": [
+        "shifted_chain"
+      ]
+    },
+    {
+      "name": "early-system-exit",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "worker_failed"
+    },
+    {
+      "name": "wrong-encoder-cache-order",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "worker_reported_failures_with_zero_exit",
+      "failed_stages": [
+        "fresh_observations",
+        "model_runner_compact_gather",
+        "partial_mapping",
+        "scheduled_cache_lifecycle"
+      ]
+    },
+    {
+      "name": "alternate-request-initialized-count",
+      "expected_reward": 1,
+      "exit_code": 0,
+      "actual_reward": 1,
+      "matches_expected": true,
+      "verifier_verdict": "PASS",
+      "reason": null,
+      "independent_cache_pass": true,
+      "independent_capacity_pass": true
+    },
+    {
+      "name": "empty-window-admission",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "worker_reported_failures_with_zero_exit",
+      "failed_stages": [
+        "fresh_observations"
+      ]
+    },
+    {
+      "name": "alternate-distinct-profile-accessors",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "fresh_behavioral_observation_mismatch",
+      "mismatched_observations": [
+        "direct_profile"
+      ]
+    },
+    {
+      "name": "restore-prompt-profile",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "fresh_behavioral_observation_mismatch",
+      "mismatched_observations": [
+        "direct_profile"
+      ]
+    },
+    {
+      "name": "early-os-exit",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "unauthenticated_completion"
+    },
+    {
+      "name": "dense-cache-missing-cold-window",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "worker_reported_failures_with_zero_exit",
+      "failed_stages": [
+        "fresh_observations",
+        "scheduled_cache_lifecycle"
+      ]
+    },
+    {
+      "name": "forged-completion",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "unauthenticated_completion"
+    },
+    {
+      "name": "scheduler-capacity-from-context",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "behavioral_observation_mismatch"
+    },
+    {
+      "name": "rename-cache-internals",
+      "expected_reward": 1,
+      "exit_code": 0,
+      "actual_reward": 1,
+      "matches_expected": true,
+      "verifier_verdict": "PASS",
+      "reason": null,
+      "independent_cache_pass": true,
+      "independent_capacity_pass": true
+    },
+    {
+      "name": "dynamic-report-forgery",
+      "expected_reward": 0,
+      "exit_code": 0,
+      "actual_reward": 0,
+      "matches_expected": true,
+      "verifier_verdict": "FAIL",
+      "reason": "unauthenticated_completion"
+    }
+  ],
   "local_checks": [
     {
       "name": "completion_transport",
@@ -254,19 +559,36 @@
     }
   ],
   "pending": [
-    "Build relocated workspace image on A100 from pushed commit",
-    "Pin actual image identity locally, push and pull",
-    "Run all 25 scenarios and independent challenges against new image",
-    "Harbor orchestration smoke for publication"
+    "Harbor orchestration and host reward collection smoke for publication"
   ],
   "scope_limits": [
-    "Historical /app runs do not certify the workspace migration"
+    "Current Docker rewards verified for workspace migration; no Harbor job IDs claimed",
+    "Native completion isolation limited to tested attacks; no arbitrary in-process/native tampering claim"
   ],
-  "run_scope": "No 1.3.0 execution yet; see history for 1.2.9 results.",
+  "run_scope": "Actual test.sh in pinned A100 Docker containers from pulled commit 08e68b6; /workspace/vllm, network none, 4 CPU / 16GiB each. Not Harbor orchestration.",
   "raw_evidence": {
-    "archive": "validation/evidence/a100-verifier-hardening-1.2.9.tar.gz",
-    "sha256": "6a6c1f47612e0e1b7e0736d9b4e89930970623702a526520eafb6f2cc3660beb",
-    "initial_attempts_archive": "validation/evidence/a100-verifier-hardening-1.2.9-initial-attempts.tar.gz",
-    "note": "Initial driver ownership/patch-base errors retained, excluded from final 25-case matrix. Historical distinct-accessor video failure preserved as a negative; repaired alternative added as a positive."
+    "archive": "validation/evidence/a100-workspace-1.3.0.tar.gz",
+    "sha256": "b54de87e7c873df7b6525edd79f62bd2d5a2190a0a34ac0b6b43c0fb3d31e44a",
+    "summary": "validation/evidence/workspace-1.3.0/summary.json",
+    "build_log": "validation/evidence/workspace-1.3.0/build.log",
+    "group_layout": [
+      "smoke",
+      "group0",
+      "group1",
+      "group2",
+      "group3"
+    ],
+    "note": "Four case groups plus Base/Oracle smoke. Initial fourth-group SSH invocation did not start; it was launched after the other three completed. No duplicate scored runs or failed test results were excluded."
+  },
+  "validated_source_commit": "08e68b6090f6e9ba44c7a6e962b29f7a92daee84",
+  "independent_challenges": {
+    "positive_implementations": 6,
+    "positive_runs": 12,
+    "all_passed": true,
+    "base_negative_runs": 2,
+    "base_exit_codes": [
+      1,
+      1
+    ]
   }
 }

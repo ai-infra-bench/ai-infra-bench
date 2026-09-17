@@ -1,0 +1,62 @@
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            BuildKit is currently disabled; enable it by removing the DOCKER_BUILDKIT=0
+            environment-variable.
+
+Sending build context to Docker daemon   25.6kB
+Step 1/10 : ARG BASE_IMAGE=sha256:aad47363477b6b2092e8d3ba616da14fc35a11af170bc19f8d26de7ef00bb107
+Step 2/10 : FROM ${BASE_IMAGE}
+ ---> aad47363477b
+Step 3/10 : USER 0:0
+ ---> Running in 5f193dbb2778
+ ---> Removed intermediate container 5f193dbb2778
+ ---> 4c914edd6120
+Step 4/10 : WORKDIR /
+ ---> Running in 2af0f4ad0a68
+ ---> Removed intermediate container 2af0f4ad0a68
+ ---> 17993c111185
+Step 5/10 : RUN set -eu;     test ! -e /workspace/vllm;     mkdir -p /workspace;     chmod 755 /workspace;     mv /app /workspace/vllm;     site_dir="$(python3 -I -c 'import site; print(site.getsitepackages()[0])')";     printf 'import sys; sys.path.insert(0, "/workspace/vllm")\n'       > "${site_dir}/vllm-candidate-source.pth";     test ! -e /app;     test "$(runuser -u agent -- git -C /workspace/vllm rev-parse HEAD)" = 676db55eecf8b6d9ec38ea243cf6f35ea8378ec6;     test "$(runuser -u agent -- git -C /workspace/vllm rev-parse 'HEAD^{tree}')" = aafa39e6544cbeaf83b72985f83aaefd4e9e3456;     test -z "$(runuser -u agent -- git -C /workspace/vllm status --porcelain=v1 --untracked-files=all)"
+ ---> Running in 16bd15e2926e
+ ---> Removed intermediate container 16bd15e2926e
+ ---> c80ae246635b
+Step 6/10 : WORKDIR /workspace/vllm
+ ---> Running in c97f62e624d3
+ ---> Removed intermediate container c97f62e624d3
+ ---> b9302dfcb75e
+Step 7/10 : USER 10001:10001
+ ---> Running in 562fd69063c5
+ ---> Removed intermediate container 562fd69063c5
+ ---> 17cbfc20f5e3
+Step 8/10 : RUN python3 -I -c 'import pathlib,torch,vllm; assert pathlib.Path(vllm.__file__).resolve().is_relative_to("/workspace/vllm"); assert torch.__version__.startswith("2.9.")'     && python3 -m pytest --collect-only -q tests/v1/core/test_encoder_cache_manager.py
+ ---> Running in fb23ecf6a93e
+tests/v1/core/test_encoder_cache_manager.py::test_basic_allocate_and_reuse
+tests/v1/core/test_encoder_cache_manager.py::test_freeing_decreases_refcount_and_moves_to_freeable
+tests/v1/core/test_encoder_cache_manager.py::test_free_request_frees_all_inputs
+tests/v1/core/test_encoder_cache_manager.py::test_eviction_when_cache_is_full
+tests/v1/core/test_encoder_cache_manager.py::test_get_cached_input_ids
+tests/v1/core/test_encoder_cache_manager.py::test_has_cache_restores_from_freeable
+tests/v1/core/test_encoder_cache_manager.py::test_get_freed_mm_hashes_clears_freed_list
+tests/v1/core/test_encoder_cache_manager.py::test_schedule_request_multi_images_respect_space_limit
+tests/v1/core/test_encoder_cache_manager.py::test_schedule_request_multi_images_respect_compute_limit
+
+=============================== warnings summary ===============================
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+9 tests collected in 0.05s
+[91msys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+[0m ---> Removed intermediate container fb23ecf6a93e
+ ---> aa3333834f97
+Step 9/10 : ENTRYPOINT []
+ ---> Running in e34c9c10c913
+ ---> Removed intermediate container e34c9c10c913
+ ---> a16662de4b07
+Step 10/10 : CMD ["sleep", "infinity"]
+ ---> Running in 3e88857ce60b
+ ---> Removed intermediate container 3e88857ce60b
+ ---> 8d200d6c23d5
+Successfully built 8d200d6c23d5
+Successfully tagged vllm-encoder-local:workspace-1.3.0

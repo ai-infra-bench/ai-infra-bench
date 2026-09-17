@@ -34,3 +34,7 @@ A100 final validation used the actual pinned image, with full suite execution.
 for the direct video cases was aligned with the controlled encoder row counts.
 Raw results are archived separately from narrower local probes and earlier
 driver failures. No Harbor orchestration execution is claimed.
+
+Version 1.3.0 relocates the unchanged product boundary to /workspace/vllm.
+All 25 scored scenarios and independent challenges were rerun on the newly
+pinned image from Git-pulled source commit 08e68b6. /app is absent at runtime.

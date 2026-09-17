@@ -1,22 +1,14 @@
-# Current environment build
+# Workspace image build — 1.3.0
 
-Task 1.2.3 adds the pinned tblib 3.1.0 wheel required by the normal upstream
-pytest conftest. It does not add curator tests or solution material to the
-agent image. The Base source, official native overlay and runtime versions
-remain unchanged. Build checks collect the normal cache-manager test module
-as the agent user; a separate offline run executes its nine tests.
+A100 build used environment/Dockerfile.workspace at commit 86e7dae, with the
+immutable existing 1.2.9 Base-only image as parent. Build ran offline with
+DOCKER_BUILDKIT=0 docker build --network none -f environment/Dockerfile.workspace
+-t vllm-encoder-local:workspace-1.3.0 environment. No dependencies or target
+source were updated. The full from-source recipe environment/Dockerfile is
+also updated to the new location.
 
-The real build used the legacy Docker builder with cache enabled and a local
-git-history mirror. Exact Base/tree/history assertions ran in the Dockerfile.
-This is not described as a no-cache build. The mirror changes transport only;
-the content checks determine source provenance.
-
-Current image: `sha256:aad47363477b6b2092e8d3ba616da14fc35a11af170bc19f8d26de7ef00bb107`.
-Tag: `vllm-encoder-local:tblib-20260909T062308Z`.
-Authoritative metadata: `environment/image-manifest.json`.
-Full build command/log, image audits, self-test and final Harbor evidence:
-`validation/e2e-evidence.json` and its portable raw-evidence archive.
-
-The source/native import checks establish the declared CPU accounting boundary;
-this task does not change native code or claim full-model GPU validation.
-Historical build reports remain in `validation/history/`.
+Actual image identity, size, recipe hashes and source checks are recorded in
+environment/image-manifest.json. Build log is in
+validation/evidence/workspace-1.3.0/build.log. Runtime validation used pulled
+commit 08e68b6; final documentation/evidence changes do not alter test inputs.
+The previous build record is preserved under validation/history.
