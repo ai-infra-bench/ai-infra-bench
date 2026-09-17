@@ -3,7 +3,7 @@ import argparse,concurrent.futures,hashlib,json,os,shutil,subprocess,time
 from pathlib import Path
 import yaml
 from urllib.parse import urlsplit
-p=argparse.ArgumentParser();p.add_argument('--round',required=True);p.add_argument('--mode',choices=['smoke','flash'],required=True);p.add_argument('--root',type=Path,required=True);p.add_argument('--task',type=Path,required=True);a=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('--round',required=True);p.add_argument('--mode',choices=['smoke','flash'],required=True);p.add_argument('--root',type=Path,required=True);p.add_argument('--task',type=Path,required=True);p.add_argument('--slots',default='0,1,2,3');a=p.parse_args()
 TASK=a.task.resolve();R=a.root/a.round;R.mkdir(parents=True,exist_ok=False)
 HARBOR='/tmp/codex-pr63-hardening-20260918/harbor-venv/bin/harbor'
 os.environ['DOCKER_CONFIG']='/tmp/codex-pr63-hardening-20260918/docker-config'
@@ -11,6 +11,7 @@ os.environ['LITELLM_LOCAL_MODEL_COST_MAP']='True'
 os.environ['PYTHONDONTWRITEBYTECODE']='1'
 os.environ['PR70_CLAUDE_BINARY']='/usr/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe'
 os.environ['PYTHONPATH']=str(Path(__file__).parent)
+slots=[int(x) for x in a.slots.split(',')];assert len(slots)==4 and len(set(slots))==4
 model=os.environ.get('MODEL') if a.mode=='flash' else None
 if a.mode=='flash':assert model=='deepseek-v4-flash[1m]', 'unexpected configured model'
 def hashes(root):return {str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for f in root.rglob('*') if f.is_file()}
@@ -36,7 +37,7 @@ def run(slot):
  (R/f'{name}-summary.json').write_text(json.dumps(record,indent=2)+'\n')
  print(json.dumps(record),flush=True)
  return record
-with concurrent.futures.ThreadPoolExecutor(max_workers=meta['concurrency']) as pool:meta['trials']=list(pool.map(run,range(meta['concurrency'])))
+with concurrent.futures.ThreadPoolExecutor(max_workers=meta['concurrency']) as pool:meta['trials']=list(pool.map(run,slots[:meta['concurrency']]))
 meta['finished_unix']=time.time();meta['canonical_inputs_unchanged']=meta['task_hashes']==hashes(TASK)
 (R/'campaign.json').write_text(json.dumps(meta,indent=2)+'\n')
 assert meta['canonical_inputs_unchanged'] and all(x['inputs_unchanged'] for x in meta['trials'])
