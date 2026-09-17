@@ -7,7 +7,7 @@ import sys
 
 def cases():
     pattern = [-1., -.5, 0., .5, 1., .2, 0., -.2]
-    return [dict(name=name, shape=shape, group=group, eps=eps,
+    result = [dict(name=name, shape=shape, group=group, eps=eps,
                  values=[v * magnitude for v in pattern])
             for name, shape, group, eps, magnitude in [
                 ("subnormal-64", [3, 128], 64, 1e-45, 1e-38),
@@ -20,14 +20,33 @@ def cases():
                 ("empty-columns", [3, 0], 64, 1e-10, 1.),
                 ("empty-higher-rank", [0, 3, 256], 128, 1e-10, 1.),
             ]]
+    # Legal inputs on both sides of a launch-resource boundary. Include a group
+    # larger than the entire default shared-memory budget, not only many groups.
+    for name, shape, group, dtype in [
+        ("large-fp32-at-limit", [16, 768], 768, "float32"),
+        ("large-fp32-over-limit", [16, 1024], 1024, "float32"),
+        ("large-fp16-at-limit", [16, 1536], 1536, "float16"),
+        ("large-bf16-over-limit", [16, 2048], 2048, "bfloat16"),
+        ("single-large-fp32", [1, 16384], 16384, "float32"),
+        ("single-large-fp16", [1, 32768], 32768, "float16"),
+        ("unaligned-fp16", [2, 3, 33], 33, "float16"),
+        ("unaligned-bf16", [2, 3, 33], 33, "bfloat16"),
+        ("unaligned-fp32", [2, 3, 17], 17, "float32"),
+    ]:
+        result.append(dict(name=name, shape=shape, group=group, dtype=dtype,
+                           eps=1e-10, values=[v * 7 for v in pattern]))
+    return result
 
 
 def observe(cases, quantize):
     import torch
     result = []
     for case in cases:
-        x = torch.tensor(case["values"], device="cuda", dtype=torch.float32)
-        x = x.repeat(math.prod(case["shape"]) // len(case["values"])).reshape(case["shape"])
+        x = torch.tensor(case["values"], device="cuda",
+                         dtype=getattr(torch, case.get("dtype", "float32")))
+        numel = math.prod(case["shape"])
+        repeats = (numel + len(case["values"]) - 1) // len(case["values"])
+        x = x.repeat(repeats)[:numel].reshape(case["shape"])
         health = {}
         try:
             q, s = quantize(x, case["group"], case["eps"])

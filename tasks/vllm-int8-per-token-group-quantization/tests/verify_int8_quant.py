@@ -98,27 +98,6 @@ def replace(module, name, value):
         setattr(module, name, old)
 
 
-class _Platform:
-    """Proxy the production platform interface for the dispatch-only ROCm probe."""
-    def __init__(self, original):
-        self._original = original
-
-    def is_cuda(self):
-        return False
-
-    def is_rocm(self):
-        return True
-
-    def is_cuda_alike(self):
-        return True
-
-    def is_cpu(self):
-        return False
-
-    def __getattr__(self, name):
-        return getattr(self._original, name)
-
-
 def check_correctness() -> dict:
     """Validate CUDA operator correctness against PyTorch reference."""
     from vllm.model_executor.layers.quantization.utils import int8_utils
@@ -181,16 +160,16 @@ def check_public_dispatch() -> dict:
         assert (q.to(torch.int16) - rq.to(torch.int16)).abs().max().item() <= 1
         assert torch.allclose(s, rs, rtol=2e-4, atol=2e-5)
 
-        # Hardware remains CUDA for numerical execution. Only the production
-        # platform interface is varied to test the fallback decision.
-        with replace(int8_utils, "current_platform", _Platform(int8_utils.current_platform)):
-            with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU]) as prof:
-                fq, fs = int8_utils.per_token_group_quant_int8(x, 64)
-        assert launches, "non-CUDA dispatch did not execute the Triton fallback"
-        assert not any(event.key == "_C::per_token_group_quant_int8"
-                       for event in prof.key_averages()), "fallback called the native CUDA operator"
-    assert (fq.to(torch.int16) - rq.to(torch.int16)).abs().max().item() <= 1
-    assert torch.allclose(fs, rs, rtol=2e-4, atol=2e-5)
+    # A fresh process sets the stable platform capability before candidate import.
+    # Local aliases and import-time cached dispatch decisions remain valid.
+    import subprocess
+    proc = subprocess.run([sys.executable, "-I", "/tests/check_fallback.py"],
+                          capture_output=True, text=True, timeout=180)
+    assert proc.returncode == 0, "fallback child failed: " + proc.stderr[-4000:]
+    records = [line[len("FALLBACK="):] for line in proc.stdout.splitlines()
+               if line.startswith("FALLBACK=")]
+    assert len(records) == 1, "missing fallback completion"
+    assert json.loads(records[0]) == {"cases": 3, "triton": True, "native": False}
     return {"cuda_dispatch": "native", "non_cuda_dispatch": "triton"}
 
 

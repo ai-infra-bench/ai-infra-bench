@@ -25,15 +25,15 @@ diff --git a/csrc/quantization/compressed_tensors/int8_quant_kernels.cu b/csrc/q
  
  #include <cmath>
  
-@@ -336,3 +338,58 @@
+@@ -336,3 +338,57 @@
          }
        });
  }
 +
-+// Oversized or unaligned groups use scalar reads. One warp reduces the group
-+// and rereads it for quantization, with no shared allocation or alignment assumption.
++// Oversized groups cannot cache the entire input in shared memory. One warp
++// reduces the group and rereads it for quantization, with no shared allocation.
 +template <typename T>
-+__global__ void per_token_group_quant_int8_streaming_kernel(
++__global__ void per_token_group_quant_int8_large_kernel(
 +    const T* input, int8_t* output_q, float* output_s, int64_t group_size,
 +    float eps, float lower, float upper) {
 +  const int64_t offset = static_cast<int64_t>(blockIdx.x) * group_size;
@@ -67,13 +67,12 @@ diff --git a/csrc/quantization/compressed_tensors/int8_quant_kernels.cu b/csrc/q
 +  if (num_groups == 0) return;
 +  const size_t shared_limit =
 +      at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
-+  if (group_size % 16 != 0 ||
-+      static_cast<size_t>(group_size) * input.element_size() > shared_limit) {
++  if (static_cast<size_t>(group_size) * input.element_size() > shared_limit) {
 +    TORCH_CHECK(output_s.is_contiguous());
 +    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 +    VLLM_DISPATCH_FLOATING_TYPES(
-+        input.scalar_type(), "per_token_group_quant_int8_streaming", ([&] {
-+          per_token_group_quant_int8_streaming_kernel<scalar_t>
++        input.scalar_type(), "per_token_group_quant_int8_large", ([&] {
++          per_token_group_quant_int8_large_kernel<scalar_t>
 +              <<<num_groups, 32, 0, stream>>>(
 +                  input.data_ptr<scalar_t>(), output_q.data_ptr<int8_t>(),
 +                  output_s.data_ptr<float>(), group_size, static_cast<float>(eps),

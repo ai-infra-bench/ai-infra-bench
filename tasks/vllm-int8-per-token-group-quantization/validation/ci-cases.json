@@ -17,7 +17,7 @@
       "expected_reward": 0,
       "name": "slow-candidate-occupancy",
       "patch": "slow-candidate-occupancy.patch",
-      "patch_sha256": "bb392df7d6f14aec1827e3d48e3f659a29fa8e9f1f4d0759ad0f6ddbfb77afcc",
+      "patch_sha256": "0c44ca63e8bf0db5f59a379c7503c58f7d173e209aa3558acbe28368648cfd14",
       "note": "negative control: numerically correct but pins occupancy to 1 group/block, forfeiting the parallelism the candidate's speedup depends on; must fall below 1.5\u00d7 threshold on its own merits"
     },
     {
@@ -44,7 +44,7 @@
     {
       "name": "early-native-timing-exit",
       "patch": "early-native-timing-exit.patch",
-      "patch_sha256": "aa0bfd829a67d9af387416cdddcf2e2cb7ed3d243952ab63d05607593980b76a",
+      "patch_sha256": "0648e820415929b6fb3aa1e13778170714a0940d002ef9636670435f95e6ccd2",
       "apply_after": "oracle",
       "expected_reward": 0,
       "note": "Correctness executes normally; the native library calls std::_Exit(0) only when loaded from the trusted timing snapshot. A curator observer captures its /tmp execution marker; this marker is never used for scoring."
@@ -84,8 +84,44 @@
       "patch": "range-must-include-zero.patch",
       "apply_after": "oracle",
       "expected_reward": 0,
-      "patch_sha256": "63bc36218ae837e188eadbddd3e9c81788a0259a5af9fd08dcfbfce68ab7a673",
+      "patch_sha256": "45a7de6acc4334f72b6cce5368cc638f2b41a6de81c0f65672c443cf0a24648f",
       "note": "Otherwise correct Oracle rejects valid positive lower bounds; isolates the newly covered input restriction."
+    },
+    {
+      "name": "large-group-shared-memory",
+      "patch": "large-group-shared-memory.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "patch_sha256": "ebb5202425fcb3b586cfbcdb1b7b5ebfcf8adcd1c5144dc5843848250c39890d"
+    },
+    {
+      "name": "renamed-platform-import",
+      "patch": "renamed-platform-import.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "patch_sha256": "2e397430bf84fa316fed5d6fbd80d4a608f75db02b6d7d6505989c835c66dc96"
+    },
+    {
+      "name": "cached-platform-dispatch",
+      "patch": "cached-platform-dispatch.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "patch_sha256": "c5d5d192abc3d1cf0dd0e1b0cda26882457fa58a6c952b047096154fa2f1f64d"
+    },
+    {
+      "name": "native-without-fallback",
+      "patch": "native-without-fallback.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "patch_sha256": "87eb50da692eadb9ced7c0909e7768558f2549e30f4548e58865e025adc72459"
+    },
+    {
+      "name": "unaligned-group-native",
+      "patch": "unaligned-group-native.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "patch_sha256": "a3221590ed5712adf462541f1ba70e939132445d7ae5353c299efd6bc67fba59",
+      "note": "Intermediate large-group repair retains vectorized access for nonaligned groups; must fail on multi-block legal group 17/33 inputs."
     }
   ],
   "schema_version": "ai_infra_bench_validation_cases.v1"

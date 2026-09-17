@@ -163,3 +163,14 @@ RUN test "$(id -un)" = agent \
 
 ENTRYPOINT []
 CMD ["sleep", "infinity"]
+
+# Ordinary upstream regression tools are installed at build time. Agent and
+# verifier phases remain offline; private benchmark tests never enter this image.
+USER root
+COPY lock/test-tools.txt /tmp/test-tools.txt
+RUN PIP_NO_INDEX=0 python3 -m pip install --no-cache-dir --no-deps --require-hashes \
+        -r /tmp/test-tools.txt \
+    && rm /tmp/test-tools.txt
+USER agent
+RUN python3 -m pytest --version \
+    && python3 -m pytest tests/kernels/quantization/test_per_token_group_quant.py --collect-only -q
