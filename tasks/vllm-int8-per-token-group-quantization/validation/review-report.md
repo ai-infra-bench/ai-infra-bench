@@ -1,8 +1,8 @@
-# 1.2.7 controls validated; model campaign in progress
+# 1.2.8 build guidance prepared; model campaign in progress
 
-The repaired Oracle passes the actual Harbor verifier with reward 1 and a minimum speedup of 2.331× across all five required shapes (threshold 1.5×). The 20-case grading matrix produces every expected result. Final campaign acceptance is pending the remaining model attempts and a fresh four-attempt round.
+The 1.2.7 repaired Oracle passes the actual Harbor verifier with reward 1 and a minimum speedup of 2.331× across all five required shapes (threshold 1.5×). The 20-case grading matrix produces every expected result. Final campaign acceptance is pending the remaining model attempts and a fresh four-attempt round.
 
-The 1.2.6 Oracle and one completed Flash candidate accepted by its verifier mishandle legal contiguous views with nonzero storage offsets. Contiguity does not imply that the data pointer is vector-aligned. Version 1.2.7 checks input/output pointer alignment before entering the vectorized Oracle path and adds FP16/BF16/FP32 offset-input cases to both public and native checks. The instruction, image, performance protocol, and threshold are unchanged.
+The 1.2.6 Oracle and one completed Flash candidate accepted by its verifier mishandle legal contiguous views with nonzero storage offsets. Contiguity does not imply that the data pointer is vector-aligned. Version 1.2.7 checks input/output pointer alignment before entering the vectorized Oracle path and adds FP16/BF16/FP32 offset-input cases to both public and native checks. Version 1.2.7 left the instruction, image, performance protocol, and threshold unchanged. Version 1.2.8 clarifies only that rebuilding the existing `_C` target is sufficient and states the existing container limits/build defaults. All grader, solution, environment and control files remain byte-identical to validated 1.2.7; a fresh Harbor acceptance run for the revised task is pending.
 
 Validation on the immutable A100 image:
 

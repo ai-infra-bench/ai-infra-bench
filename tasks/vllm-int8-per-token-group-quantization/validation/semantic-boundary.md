@@ -1,4 +1,4 @@
-# Semantic boundary — 1.2.7
+# Semantic boundary — 1.2.8
 
 Contiguous FP16/BF16/FP32 tensor and public quantization parameters -> rebuilt vLLM native CUDA operator, or the public wrapper’s platform dispatch -> INT8 values, FP32 scales, and measured CUDA latency against the frozen Triton kernel.
 
@@ -8,4 +8,4 @@ The contract allows positive group sizes dividing the last dimension. Verificati
 
 Former Oracles are negative controls for resource overflow, unaligned group strides, and misaligned contiguous input addresses. Renamed platform imports and cached platform capability are positive controls; removing fallback is negative. Existing alternative, precision, range, empty-input, occupancy and early-exit controls remain. The independent curator probe uses different group sizes and geometry, checks configurable bounds against a separately derived PyTorch reference, and checks the shared FP8 path’s 24 layout/scale combinations. It is not installed in the agent image or used to grant reward.
 
-The task statement, Base, cutoff, GPU resources and performance threshold are unchanged. The environment adds only pinned ordinary test tools. Current results and their exact scope belong in e2e-evidence.json; historical 1.2.5 observations are preserved separately and do not certify this revision. No new model rollout is implied by replaying a saved implementation control.
+The numerical/performance contract, Base, cutoff, GPU resources and threshold are unchanged. Version 1.2.8 clarifies that rebuilding the existing `_C` target is sufficient and states the existing container limits and build defaults, after observed attempts unnecessarily rebuilt unrelated extensions. The environment adds only pinned ordinary test tools. Current results and their exact scope belong in e2e-evidence.json; historical 1.2.5 observations are preserved separately and do not certify this revision. No new model rollout is implied by replaying a saved implementation control.
