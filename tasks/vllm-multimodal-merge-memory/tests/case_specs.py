@@ -18,3 +18,11 @@ CASES = [
          device="cuda" if oov else "cpu")
     for oov in (False, True)
 ]
+
+# Empty outer containers take a different production branch from [empty_tensor].
+CASES += [
+    dict(name=f"counts_empty_{device}_{form}", kind="counts", device=device,
+         actual=0, expected=3, form=form)
+    for device in ("cpu", "cuda")
+    for form in ("list", "tuple", "tensor")
+]

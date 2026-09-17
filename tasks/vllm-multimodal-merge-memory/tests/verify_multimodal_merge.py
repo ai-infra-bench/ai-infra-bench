@@ -81,6 +81,12 @@ def run_suite(cases, emit):
         inputs = torch.zeros((9, 16), dtype=torch.bfloat16, device="cuda")
         mask = (torch.arange(9) < expected).to(spec["device"])
         mm = [torch.ones((actual, 16), dtype=torch.float32, device="cuda")]
+        if spec.get("form") == "list":
+            mm = []
+        elif spec.get("form") == "tuple":
+            mm = ()
+        elif spec.get("form") == "tensor":
+            mm = mm[0]
         try:
             merge(inputs, mm, mask)
         except ValueError as exc:

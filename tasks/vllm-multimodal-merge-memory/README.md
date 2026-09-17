@@ -19,3 +19,5 @@ harbor run -p tasks/vllm-multimodal-merge-memory -a nop
 ```
 
 For the recorded Harbor 0.22 Docker adapter, use `--override-gpus 0`; the task's Compose reservations supply one GPU. Record actual device assignment and provider/version with results. See the evidence index for current acceptance status rather than treating old results as final validation.
+
+Version 1.3.2 adds six empty-container count checks (32 total), based on independently reproduced false positives in flash-r03. Original rewards remain in the rollout evidence.
