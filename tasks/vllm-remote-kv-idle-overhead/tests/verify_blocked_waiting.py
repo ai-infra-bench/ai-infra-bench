@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import copy
 from concurrent.futures import Future
+import gc
 import json
 import statistics
 import sys
 import tempfile
 import time
+import tracemalloc
 import types
+import weakref
 from pathlib import Path
 
 import torch
@@ -30,6 +33,11 @@ EXPECTED_CHECKPOINTS = (
     "generation-lifecycle",
     "ready-backpressure",
     "no-connector-regression",
+    "preemption-backlog-local",
+    "preemption-backlog-remote",
+    "completion-churn",
+    "retained-memory-local",
+    "retained-memory-remote",
     "complete",
 )
 MODEL_CONFIG = {
@@ -621,6 +629,168 @@ def check_ready_backpressure(model_dir, *, use_connector=True):
         )
 
 
+def check_preemption_backlog(model_dir, *, use_connector):
+    """Real cache reset must not move an older active stream behind its backlog."""
+    for waiting_count in (3, 11):
+        scheduler = create_scheduler(model_dir, 1, use_connector=use_connector)
+        identities = ["active-first"] + [f"queued-{i}" for i in range(waiting_count)]
+        requests = create_requests(
+            len(identities), request_ids=identities,
+            token_counts=[19] + [2] * waiting_count, max_tokens=3,
+        )
+        driver = GenerationDriver(scheduler, requests)
+        scheduler.add_request(requests[0])
+        if use_connector:
+            scheduler.connector.get_num_new_matched_tokens = lambda request, count: (16, True)
+            driver.tick()
+            if scheduler.get_request_counts() != (0, 1):
+                raise AssertionError("remote stream did not wait for its transfer")
+            driver.tick(ready={identities[0]})
+            # Later recomputation is local: the remote producer has no further
+            # cache hit. No repeated transfer event is invented after a reset.
+            scheduler.connector.get_num_new_matched_tokens = lambda request, count: (0, False)
+        driver.tick()
+        if driver.observed[identities[0]] != driver.expected[identities[0]][:1]:
+            raise AssertionError("initial stream failed to generate before preemption")
+        for request in requests[1:]:
+            scheduler.add_request(request)
+        for _ in range(2):
+            if scheduler.get_request_counts() != (1, waiting_count):
+                raise AssertionError("active/backlog counts changed before cache reset")
+            if not scheduler.reset_prefix_cache(reset_running_requests=True):
+                raise AssertionError("forced cache reset did not complete")
+            if scheduler.get_request_counts() != (0, waiting_count + 1):
+                raise AssertionError("preemption lost unfinished requests")
+            resumed = driver.tick()
+            actual = list(resumed.num_scheduled_tokens)
+            if actual != [identities[0]]:
+                raise AssertionError(
+                    "preempted active stream lost FCFS position behind backlog: "
+                    f"waiting={waiting_count} connector={use_connector} actual={actual}"
+                )
+        driver.drain()
+        if driver.finished != identities:
+            raise AssertionError(f"completion order changed after repeated preemption: {driver.finished}")
+
+
+def complete_one_request(scheduler, identity, *, remote, token, prompt_tokens=None):
+    """One complete public lifecycle; return only a weak reference for telemetry."""
+    request = create_requests(
+        1, request_ids=[identity],
+        token_counts=[prompt_tokens if prompt_tokens is not None else (19 if remote else 2)],
+        max_tokens=1,
+    )[0]
+    reference = weakref.ref(request)
+    scheduler.add_request(request)
+    scheduled = scheduler.schedule()
+    if remote:
+        if scheduled.num_scheduled_tokens or scheduler.get_request_counts() != (0, 1):
+            raise AssertionError("remote request ran before its transfer completed")
+        event = copy.deepcopy(EMPTY_MODEL_RUNNER_OUTPUT)
+        event.kv_connector_output = KVConnectorOutput(finished_recving={identity})
+        scheduler.update_from_output(scheduled, event)
+        scheduled = scheduler.schedule()
+    if list(scheduled.num_scheduled_tokens) != [identity]:
+        raise AssertionError("subsequent admission lost or resurrected a request")
+    outputs = scheduler.update_from_output(scheduled, ModelRunnerOutput(
+        req_ids=[identity], req_id_to_index={identity: 0}, sampled_token_ids=[[token]],
+    ))
+    visible = [output for client in outputs.values() for output in client.outputs]
+    if (len(visible) != 1 or visible[0].request_id != identity
+            or visible[0].new_token_ids != [token] or visible[0].finish_reason is None):
+        raise AssertionError("completion churn corrupted client token/terminal output")
+    if scheduler.get_request_counts() != (0, 0):
+        raise AssertionError("completed request still counted as unfinished")
+    return reference
+
+
+def check_completion_churn(model_dir):
+    """Many lifecycles must still produce the right outputs on one live scheduler.
+
+    Object retention is diagnostic, NOT a scored zero-live-objects requirement:
+    the statement specifies neither a cache bound nor an exact GC deadline.
+    """
+    for remote in (False, True):
+        scheduler = create_scheduler(model_dir, 1, use_connector=remote)
+        if remote:
+            scheduler.connector.get_num_new_matched_tokens = lambda request, count: (16, True)
+        references = []
+        observations = []
+        for total in (16, 128, 512):
+            for index in range(len(references), total):
+                references.append(complete_one_request(
+                    scheduler, f"churn-{remote}-{index}", remote=remote,
+                    token=100 + index % 97,
+                ))
+            for _ in range(3):
+                scheduled = scheduler.schedule()
+                if scheduled.num_scheduled_tokens:
+                    raise AssertionError("finished workload reappeared on an idle tick")
+                scheduler.update_from_output(scheduled, copy.deepcopy(EMPTY_MODEL_RUNNER_OUTPUT))
+            gc.collect()
+            observations.append({
+                "completed_requests": total,
+                "retained_request_objects": sum(ref() is not None for ref in references),
+            })
+        print("RESOURCE_LIFECYCLE_DIAGNOSTIC=" + json.dumps({
+            "remote": remote, "scored": False, "observations": observations,
+            "note": "Retention alone has no scoring threshold; review for bounded/lazy reclamation.",
+        }, sort_keys=True), flush=True)
+
+
+def check_retained_memory(model_dir, *, remote):
+    """Public Python-heap budget, not a queue shape or zero-object requirement.
+
+    Measure live allocations, not transient peak or allocator RSS. The same
+    long-lived scheduler handles all requests; the driver retains no Request,
+    output, weakref list or per-request result history. Collection and normal
+    idle ticks permit cycle collection and lazy/batched cleanup.
+    """
+    scheduler = create_scheduler(model_dir, 1, use_connector=remote)
+    if remote:
+        scheduler.connector.get_num_new_matched_tokens = lambda request, count: (16, True)
+    if tracemalloc.is_tracing():
+        raise RuntimeError("retained-memory fixture requires an isolated tracing window")
+    tracemalloc.start(1)
+    try:
+        observations = []
+        count = 0
+        baseline = None
+        for total in (256, 4096, 16384):
+            while count < total:
+                # Distinct identities, with varied short payloads. Nothing
+                # requires request IDs or tokens to match a reference patch.
+                complete_one_request(
+                    scheduler, f"heap-{remote}-{count}", remote=remote,
+                    token=100 + count % 97, prompt_tokens=32 + count % 33,
+                )
+                count += 1
+            for _ in range(16):
+                scheduled = scheduler.schedule()
+                if scheduled.num_scheduled_tokens:
+                    raise AssertionError("completed history resurrected runnable work")
+                scheduler.update_from_output(scheduled, copy.deepcopy(EMPTY_MODEL_RUNNER_OUTPUT))
+            del scheduled
+            gc.collect()
+            current, _ = tracemalloc.get_traced_memory()
+            if baseline is None:
+                baseline = current
+            growth = max(0, current - baseline)
+            observations.append({"completed_requests": total, "live_python_bytes": current,
+                                 "growth_after_warmup_bytes": growth})
+        print("RETAINED_MEMORY_OBSERVATION=" + json.dumps({
+            "remote": remote, "warmup_requests": 256,
+            "budget_bytes": 32 * 1024 * 1024, "observations": observations,
+        }, sort_keys=True), flush=True)
+        if max(row["growth_after_warmup_bytes"] for row in observations) > 32 * 1024 * 1024:
+            raise AssertionError(
+                "completed-request history exceeds the published 32 MiB retained "
+                f"Python-memory growth budget: remote={remote} observations={observations}"
+            )
+    finally:
+        tracemalloc.stop()
+
+
 def run_suite(emit) -> None:
     load_candidate()
     with tempfile.TemporaryDirectory(prefix="remote-kv-model-") as tmp:
@@ -688,6 +858,17 @@ def run_suite(emit) -> None:
         emit("ready-backpressure", True)
         check_ready_backpressure(str(model_dir), use_connector=False)
         emit("no-connector-regression", True)
+
+        check_preemption_backlog(str(model_dir), use_connector=False)
+        emit("preemption-backlog-local", True)
+        check_preemption_backlog(str(model_dir), use_connector=True)
+        emit("preemption-backlog-remote", True)
+        check_completion_churn(str(model_dir))
+        emit("completion-churn", True)
+        check_retained_memory(str(model_dir), remote=False)
+        emit("retained-memory-local", True)
+        check_retained_memory(str(model_dir), remote=True)
+        emit("retained-memory-remote", True)
 
         print(
             json.dumps(
