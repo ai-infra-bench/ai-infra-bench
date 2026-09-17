@@ -242,7 +242,7 @@ diff --git a/vllm/model_executor/models/utils.py b/vllm/model_executor/models/ut
 -        raise ValueError("Error during masked scatter operation") from e
 -
 +    # Validate before assignment: a singleton RHS would otherwise broadcast.
-+    inputs_embeds[mask_cpu] = mm_embeds_flat.to(dtype=inputs_embeds.dtype)
++    inputs_embeds[mask_cpu] = mm_embeds_flat.flip(0).to(dtype=inputs_embeds.dtype)
      return inputs_embeds
  
  

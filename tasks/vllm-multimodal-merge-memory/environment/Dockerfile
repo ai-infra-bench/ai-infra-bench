@@ -2,37 +2,11 @@
 
 FROM alpine/git:2.49.1@sha256:c0280cf9572316299b08544065d3bf35db65043d5e3963982ec50647d2746e26 AS git_runtime
 
-# The accepted squash parent predates v0.19.0 by roughly two days. v0.19.0 is
-# the first official same-Torch image that contains the complete native set
-# imported by this source snapshot. All native objects come from this one
-# internally consistent image; no mixed-release object is used.
-FROM vllm/vllm-openai:v0.19.0@sha256:d9a5c1c1614c959fde8d2a4d68449db184572528a6055afdd0caf1e66fb51504
-
+FROM git_runtime AS source
 ARG VLLM_BASE_SHA=36d7f19897843c9cbdb701ba88d0f2c29954fe44
 ARG VLLM_BASE_TREE=647523aac911ae44a1dcaab79ef66d58290b478e
 ARG VLLM_REPO=https://github.com/vllm-project/vllm.git
-
-LABEL ai-infra-bench.source-commit="${VLLM_BASE_SHA}" \
-      ai-infra-bench.native-scope="v0.19.0-donor; verifier exercises Python/PyTorch merge primitive only"
-
-USER root
-
-COPY --from=git_runtime /usr/bin/git /usr/local/bin/git
-COPY --from=git_runtime /usr/libexec/git-core /usr/libexec/git-core
-COPY --from=git_runtime /usr/share/git-core /usr/share/git-core
-COPY --from=git_runtime /lib/ld-musl-x86_64.so.1 /lib/ld-musl-x86_64.so.1
-COPY --from=git_runtime /usr/lib/libpcre2-8.so.0.14.0 /usr/lib/libpcre2-8.so.0.14.0
-COPY --from=git_runtime /usr/lib/libz.so.1.3.1 /usr/lib/libz.so.1.3.1
-
-COPY lock/native.sha256 /tmp/native.sha256
-
-# Network is needed only to acquire the immutable source archive. Runtime is
-# offline. Docker proxy values are predefined build arguments and are neither
-# redeclared nor persisted in image configuration.
 RUN set -eux; \
-    ln -s libpcre2-8.so.0.14.0 /usr/lib/libpcre2-8.so.0; \
-    ln -s libz.so.1.3.1 /usr/lib/libz.so.1; \
-    git --version; \
     mkdir -p /workspace/repo; \
     git -C /workspace/repo init -q; \
     git -C /workspace/repo config core.logAllRefUpdates false; \
@@ -58,7 +32,41 @@ RUN set -eux; \
     test -z "$(git -C /workspace/repo for-each-ref --format='%(refname)' refs/remotes refs/tags)"; \
     test "$(git -C /workspace/repo rev-list --all --count)" -gt 1; \
     test ! -e /workspace/repo/.git/shallow; \
-    test -z "$(git -C /workspace/repo fsck --full --no-reflogs --unreachable --no-progress 2>/dev/null)"; \
+    test -z "$(git -C /workspace/repo fsck --full --no-reflogs --unreachable --no-progress 2>/dev/null)"
+
+# The accepted squash parent predates v0.19.0 by roughly two days. v0.19.0 is
+# the first official same-Torch image that contains the complete native set
+# imported by this source snapshot. All native objects come from this one
+# internally consistent image; no mixed-release object is used.
+FROM vllm/vllm-openai:v0.19.0@sha256:d9a5c1c1614c959fde8d2a4d68449db184572528a6055afdd0caf1e66fb51504
+
+ARG VLLM_BASE_SHA=36d7f19897843c9cbdb701ba88d0f2c29954fe44
+ARG VLLM_BASE_TREE=647523aac911ae44a1dcaab79ef66d58290b478e
+ARG VLLM_REPO=https://github.com/vllm-project/vllm.git
+
+LABEL ai-infra-bench.source-commit="${VLLM_BASE_SHA}" \
+      ai-infra-bench.native-scope="v0.19.0-donor; verifier exercises Python/PyTorch merge primitive only"
+
+USER root
+
+COPY --from=git_runtime /usr/bin/git /usr/local/bin/git
+COPY --from=git_runtime /usr/libexec/git-core /usr/libexec/git-core
+COPY --from=git_runtime /usr/share/git-core /usr/share/git-core
+COPY --from=git_runtime /lib/ld-musl-x86_64.so.1 /lib/ld-musl-x86_64.so.1
+COPY --from=git_runtime /usr/lib/libpcre2-8.so.0.14.0 /usr/lib/libpcre2-8.so.0.14.0
+COPY --from=git_runtime /usr/lib/libz.so.1.3.1 /usr/lib/libz.so.1.3.1
+
+COPY --from=source /workspace/repo /workspace/repo
+COPY lock/native.sha256 /tmp/native.sha256
+
+# The source stage owns HTTPS acquisition. Runtime Git only needs local
+# commands; its smaller library set must not be used for network fetching.
+RUN set -eux; \
+    ln -s libpcre2-8.so.0.14.0 /usr/lib/libpcre2-8.so.0; \
+    ln -s libz.so.1.3.1 /usr/lib/libz.so.1; \
+    git --version; \
+    test "$(git -C /workspace/repo rev-parse HEAD)" = "${VLLM_BASE_SHA}"; \
+    test "$(git -C /workspace/repo rev-parse 'HEAD^{tree}')" = "${VLLM_BASE_TREE}"; \
     VLLM_SITE=/usr/local/lib/python3.12/dist-packages/vllm; \
     cd "${VLLM_SITE}"; \
     sha256sum -c /tmp/native.sha256; \
@@ -88,6 +96,12 @@ RUN set -eux; \
     fi; \
     chown -R agent:agent /workspace/repo /home/agent
 
+COPY test-wheels /tmp/test-wheels
+COPY lock/test-tools.txt /tmp/test-tools.txt
+RUN python3 -m pip install --no-index --no-deps --require-hashes \
+      --find-links=/tmp/test-wheels -r /tmp/test-tools.txt \
+    && rm -rf /tmp/test-wheels /tmp/test-tools.txt
+
 ENV PYTHONPATH=/workspace/repo \
     HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1 \
@@ -100,6 +114,7 @@ USER agent
 WORKDIR /workspace/repo
 
 RUN python3 -c "import pathlib,vllm; from vllm.model_executor.models.utils import _merge_multimodal_embeddings; p=pathlib.Path(vllm.__file__).resolve(); print(p); assert str(p).startswith('/workspace/repo/vllm/')" \
+    && python3 -m pytest --version \
     && test "$(id -un)" = agent \
     && test -z "$(git remote)" \
     && test "$(git rev-list --all --count)" -gt 1 \

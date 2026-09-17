@@ -38,68 +38,86 @@ index fa59931..c42de17 100644
  
          return embed_input_ids(input_ids)
 diff --git a/vllm/model_executor/models/utils.py b/vllm/model_executor/models/utils.py
+index 8abaa55..19b0936 100644
 --- a/vllm/model_executor/models/utils.py
 +++ b/vllm/model_executor/models/utils.py
-@@ -461,35 +461,31 @@
-     Note:
-         This updates `inputs_embeds` in place.
-     """
--    if len(multimodal_embeddings) == 0:
-+    # CUDA masks require one host-visible validation step. CPU masks do not
-+    # wait for CUDA work; their cardinality and positions stay on the host.
-+    mask_cpu = is_multimodal.to(device="cpu")
-+    num_expected_tokens = int(mask_cpu.sum().item())
-+    mm_embeds_flat = (
-+        _flatten_embeddings(multimodal_embeddings)
-+        if len(multimodal_embeddings) else None
-+    )
-+    num_actual_tokens = len(mm_embeds_flat) if mm_embeds_flat is not None else 0
+@@ -467,6 +467,25 @@ def _merge_multimodal_embeddings(
+     mm_embeds_flat = _flatten_embeddings(multimodal_embeddings)
+     input_dtype = inputs_embeds.dtype
+ 
++    if is_multimodal.device != inputs_embeds.device:
++        # The placeholder mask was produced on a different device than the
++        # embeddings (during GPU serving, the mask is built on the CPU while
++        # `inputs_embeds` and `multimodal_embeddings` live on the accelerator).
++        #
++        # Resolving the placeholder positions to indices on the host lets us
++        # merge without ever moving the full request-length mask to the device.
++        # We only transfer a compact index tensor (sized by the number of
++        # placeholders, not the request length), avoid the temporary device
++        # storage that `masked_scatter_` allocates proportional to the mask,
++        # and avoid the stream synchronization that a device-side `.sum()`
++        # would trigger for validation.
++        return _merge_multimodal_embeddings_by_index(
++            inputs_embeds,
++            mm_embeds_flat.to(dtype=input_dtype),
++            is_multimodal,
++            multimodal_embeddings,
++        )
++
+     try:
+         # For debugging
+         # inputs_embeds[is_multimodal] = mm_embeds_flat.to(dtype=input_dtype)
+@@ -493,6 +512,50 @@ def _merge_multimodal_embeddings(
+     return inputs_embeds
+ 
+ 
++def _merge_multimodal_embeddings_by_index(
++    inputs_embeds: torch.Tensor,
++    mm_embeds_flat: torch.Tensor,
++    is_multimodal: torch.Tensor,
++    multimodal_embeddings: NestedTensors,
++) -> torch.Tensor:
++    """
++    Merge multimodal embeddings when the placeholder mask lives on a different
++    device than `inputs_embeds` (e.g. a CPU mask against CUDA embeddings).
++
++    The placeholder positions are resolved to indices on the mask's device
++    (typically CPU) so that only a compact index tensor is transferred to the
++    embedding device. This avoids copying the full request-length mask, avoids
++    a stream synchronization, and keeps temporary device storage proportional
++    to the number of placeholders rather than the request length.
++    """
++    # `nonzero` runs on the mask's device (CPU during GPU serving), so this
++    # does not synchronize the embedding device's stream.
++    placeholder_indices = is_multimodal.flatten().nonzero().squeeze(-1)
++
++    num_expected_tokens = placeholder_indices.numel()
++    num_actual_tokens = len(mm_embeds_flat)
 +    if num_actual_tokens != num_expected_tokens:
-+        expr = _embedding_count_expression(multimodal_embeddings) or "0"
++        expr = _embedding_count_expression(multimodal_embeddings)
 +        raise ValueError(
 +            f"Attempted to assign {expr} = {num_actual_tokens} "
 +            f"multimodal tokens to {num_expected_tokens} placeholders"
 +        )
-+    if num_actual_tokens == 0:
-         return inputs_embeds
- 
--    mm_embeds_flat = _flatten_embeddings(multimodal_embeddings)
--    input_dtype = inputs_embeds.dtype
--
--    try:
--        # For debugging
--        # inputs_embeds[is_multimodal] = mm_embeds_flat.to(dtype=input_dtype)
--
--        # NOTE: This can avoid D2H sync (#22105), but fails to
--        # raise an error if is_multimodal.sum() < len(mm_embeds_flat)
--        inputs_embeds.masked_scatter_(
--            is_multimodal.unsqueeze(-1), mm_embeds_flat.to(dtype=input_dtype)
--        )
--    except RuntimeError as e:
--        num_actual_tokens = len(mm_embeds_flat)
--        num_expected_tokens = is_multimodal.sum().item()
--
--        if num_actual_tokens != num_expected_tokens:
--            expr = _embedding_count_expression(multimodal_embeddings)
--
--            raise ValueError(
--                f"Attempted to assign {expr} = {num_actual_tokens} "
--                f"multimodal tokens to {num_expected_tokens} placeholders"
--            ) from e
--
--        raise ValueError("Error during masked scatter operation") from e
--
-+    indices = mask_cpu.nonzero(as_tuple=True)[0]
-+    if is_pin_memory_available():
-+        indices = indices.pin_memory()
-+    indices = indices.to(inputs_embeds.device, non_blocking=True)
-+    inputs_embeds.index_copy_(
-+        0, indices, mm_embeds_flat.to(dtype=inputs_embeds.dtype)
++
++    # Pin the small index tensor when possible so the host-to-device copy is
++    # truly asynchronous and does not force a stream synchronization.
++    if placeholder_indices.device.type == "cpu" and is_pin_memory_available():
++        placeholder_indices = placeholder_indices.pin_memory()
++    placeholder_indices = placeholder_indices.to(
++        inputs_embeds.device, non_blocking=True
 +    )
-     return inputs_embeds
- 
- 
-
++
++    # `index_copy_` overwrites the placeholder rows in position order, matching
++    # the row-major order that `masked_scatter_` consumes `mm_embeds_flat` in.
++    inputs_embeds.index_copy_(0, placeholder_indices, mm_embeds_flat)
++
++    return inputs_embeds
++
++
+ def isin_list(
+     elements: torch.Tensor,
+     test_elements_list: list[int],
 diff --git a/vllm/v1/worker/gpu/mm/encoder_runner.py b/vllm/v1/worker/gpu/mm/encoder_runner.py
 index fb2a21c..d6ad394 100644
 --- a/vllm/v1/worker/gpu/mm/encoder_runner.py

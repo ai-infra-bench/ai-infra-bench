@@ -192,7 +192,7 @@ index 418b75e382f3..431371c124d4 100644
 diff --git a/vllm/model_executor/models/utils.py b/vllm/model_executor/models/utils.py
 --- a/vllm/model_executor/models/utils.py
 +++ b/vllm/model_executor/models/utils.py
-@@ -461,35 +461,26 @@
+@@ -461,35 +461,27 @@
      Note:
          This updates `inputs_embeds` in place.
      """
@@ -241,6 +241,7 @@ diff --git a/vllm/model_executor/models/utils.py b/vllm/model_executor/models/ut
 -
 -        raise ValueError("Error during masked scatter operation") from e
 -
++    torch.cuda.synchronize()
 +    # Validate before assignment: a singleton RHS would otherwise broadcast.
 +    inputs_embeds[mask_cpu] = mm_embeds_flat.to(dtype=inputs_embeds.dtype)
      return inputs_embeds
