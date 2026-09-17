@@ -229,9 +229,13 @@ describe("plan contract", () => {
     const secondRun = live.session.prompt("revise", { source: "rpc" });
     await waitFor(() => live.events.filter((e: { type: string; toolName?: string }) => e.type === "tool_execution_end" && e.toolName === "plan_submit").length >= 2, "revision submitted");
     const v2 = await live.state(); expect(v2.revision).toBeGreaterThan(v1.revision);
-    oldDialog.choose("execute");
-    for (const dialog of live.dialogs.slice(1)) dialog.choose("stay");
-    await firstRun; await secondRun; await live.session.agent.waitForIdle();
+    // Handle later dialogs as they appear; selecting a stale plan may reopen review asynchronously.
+    const cleanupDialogs = setInterval(() => { for (const dialog of live.dialogs.slice(1)) dialog.choose("stay"); }, 10);
+    try {
+      oldDialog.choose("execute");
+      await firstRun; await secondRun; await live.session.agent.waitForIdle();
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    } finally { clearInterval(cleanupDialogs); }
     expect(await live.state()).toEqual(v2); expect(live.approved()).toHaveLength(0); expect(sorted(live.tools())).toEqual(sorted(restricted));
   });
   it("C16 UI Execute approves exactly the displayed plan and starts execution", async () => {
@@ -271,16 +275,21 @@ describe("plan contract", () => {
     expect(readFileSync(effect, "utf8")).toBe("approved\n");
   });
   it("C17 UI Stay and Refine retain restrictions without changing authoritative steps", async () => {
-    const live = await host({ ui: true, deferUI: true }); await live.control("enter", "interactive");
-    const restricted = live.tools();
-    live.responses([call("plan_submit", { steps: ["remain draft"] }), say("ready")]); const run = live.session.prompt("draft", { source: "interactive" });
-    const stay = await waitFor(() => live.dialogs[0], "Stay action"); const draft = await live.state(); stay.choose("stay"); await run;
-    expect(await live.state()).toEqual(draft); expect(sorted(live.tools())).toEqual(sorted(restricted));
-    live.responses([say("review it again"), say("refinement noted")]); const review = live.session.prompt("review", { source: "interactive" });
-    const refine = await waitFor(() => live.dialogs[1], "Refine action"); refine.choose("refine");
-    // A refinement may start a follow-up and display the same plan again.
-    const cleanupDialogs = setInterval(() => { for (const dialog of live.dialogs.slice(2)) dialog.choose("stay"); }, 10);
-    try { await review; await live.session.agent.waitForIdle(); } finally { clearInterval(cleanupDialogs); }
-    expect(await live.state()).toEqual(draft); expect(live.approved()).toHaveLength(0); expect(sorted(live.tools())).toEqual(sorted(restricted));
+    // Each action is tested on an explicitly submitted draft. Reopening an unchanged
+    // revision after unrelated prose is not part of the specified review contract.
+    for (const choice of ["stay", "refine"]) {
+      const live = await host({ ui: true, deferUI: true }); await live.control("enter", "interactive");
+      const restricted = live.tools();
+      live.responses([call("plan_submit", { steps: ["remain draft"] }), say("ready"), say("refinement noted")]);
+      const run = live.session.prompt("draft", { source: "interactive" });
+      const dialog = await waitFor(() => live.dialogs[0], `${choice} action`), draft = await live.state();
+      const cleanupDialogs = setInterval(() => { for (const extra of live.dialogs.slice(1)) extra.choose("stay"); }, 10);
+      try {
+        dialog.choose(choice); await run; await live.session.agent.waitForIdle();
+        if (choice === "refine") await waitFor(() => live.requests.some((request) => request.messages.some((message) => textOf(message).includes("Refine without executing"))) && live.session.isIdle, "refinement input delivered");
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(await live.state()).toEqual(draft); expect(live.approved()).toHaveLength(0); expect(sorted(live.tools())).toEqual(sorted(restricted));
+      } finally { clearInterval(cleanupDialogs); }
+    }
   });
 });

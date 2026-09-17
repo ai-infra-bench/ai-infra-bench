@@ -79,6 +79,7 @@ def main() -> None:
     evidence = {
         "schema_version": "ai_infra_bench_e2e_evidence.v1",
         "task": "ai-infra-bench/pi-plan-mode",
+        "task_version": metadata["task"]["version"],
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "base_commit": image["base_commit"],
         "dependency_cutoff": image["dependency_cutoff"],

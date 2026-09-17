@@ -1,5 +1,7 @@
 # Author validation results
 
+> Historical v0.0.2 qualification record. For the current v0.0.3 verifier repair and fresh Harbor matrix, see [verifier-v0.0.3.md](verifier-v0.0.3.md). The original acceptance evidence is retained byte-for-byte in [e2e-evidence-v0.0.2.json](e2e-evidence-v0.0.2.json).
+
 **Retain the task: local qualification passes for v0.0.2. Registry image
 publication remains pending.** All ten dimensions below are assessed (19/20);
 there are no local qualification blockers. The publication gap is unchanged.

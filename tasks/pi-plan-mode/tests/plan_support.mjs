@@ -36,7 +36,7 @@ export function submittedStates(result) {
   const texts = [textOf(result), ...(Array.isArray(result.content) ? result.content.filter((block) => block.type === "text").map((block) => block.text) : [])];
   for (const text of texts) { try { candidates.push(JSON.parse(text)); } catch {} }
   // One structured channel is sufficient; both need not duplicate the state.
-  return candidates.flatMap((candidate) => { try { return [planState(candidate)]; } catch { return []; } });
+  return candidates.flatMap((value) => [value, value?.state]).flatMap((candidate) => { try { return [planState(candidate)]; } catch { return []; } });
 }
 function hasReason(value, seen = new Set()) {
   if (typeof value === "string") return value.trim().length > 0;
@@ -155,7 +155,7 @@ export async function start(options = {}) {
       component.render(terminal.columns).forEach(showText);
     }
   });
-  const bind = { mode: options.ui ? "interactive" : "rpc", onError: (error) => errors.push(error) };
+  const bind = { mode: options.ui ? "tui" : "rpc", onError: (error) => errors.push(error) };
   if (options.ui) bind.uiContext = ui;
   await session.bindExtensions(bind);
   const live = { box, session, sessionManager, faux, requests, events, errors, dialogs, notices, uiOutput, api,
@@ -178,13 +178,13 @@ export async function start(options = {}) {
     async control(command, source = "rpc") {
       const before = live.controls().length;
       await session.prompt(`/plan-control ${command}`, { source });
-      const found = live.controls();
-      if (found.length !== before + 1) throw new Error(`Expected one plan-control-result for ${command}; got ${found.length - before}`);
+      const operation = command.trim().split(/\s+/)[0];
+      const found = live.controls().slice(before).filter((entry) => !["enter", "status", "approve"].includes(operation) || entry.operation === operation);
+      if (found.length !== 1) throw new Error(`Expected one plan-control-result for ${command}; got ${found.length}`);
       const result = found.at(-1);
       if (!result || typeof result !== "object" || !Object.hasOwn(result, "operation") || typeof result.ok !== "boolean") {
         throw new Error(`Invalid control result: ${JSON.stringify(result)}`);
       }
-      const operation = command.trim().split(/\s+/)[0];
       if (["enter", "status", "approve"].includes(operation) && result.operation !== operation) {
         throw new Error(`Control result does not identify ${operation}: ${JSON.stringify(result)}`);
       }
@@ -207,6 +207,7 @@ export async function start(options = {}) {
       for (const dialog of dialogs) dialog.answer.resolve(undefined);
       await session.abort();
       await session.agent.waitForIdle();
+      await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
       session.dispose();
       for (const widget of widgets.values()) widget.dispose?.();
       widgets.clear(); widgetTui.clear(); widgetTui.stop();

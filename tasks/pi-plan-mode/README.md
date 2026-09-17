@@ -73,7 +73,7 @@ reported attempt matches its exact pinned error. Other regressions or changed
 skips fail. See
 [`validation/baseline-environment.md`](validation/baseline-environment.md).
 
-## Validation (2026-09-17, v0.0.2)
+## Validation (2026-09-17, v0.0.3)
 
 All 14 cases completed through Harbor 0.23.0 with the retained linux/amd64 image,
 with zero errored trials and the expected reward in every case.
@@ -95,19 +95,25 @@ with zero errored trials and the expected reward in every case.
 | `drop-done-progress` | `oracle`, Base-applicable negative-control patch | 0 | 0; C12 detects a progress display that does not advance. |
 | `drop-ui-approved-request-context` | `oracle`, Base-applicable negative-control patch | 0 | 0; C16 detects omitted model context only on UI approval; RPC behavior remains correct. |
 
-All three positive cases passed the regression gate with the full 2,154-case
-inventory and 50 original skips. Oracle and the event-journal alternative each
-passed 2,104 cases without an exception. The public-output variant encountered
-only the exact pinned AuthStorage assertion; its raw failure remains recorded.
+All 14 author cases passed the full 2,154-case regression gate with 50 original
+skips and completed through Harbor 0.23.0. All six integrity self-tests passed.
+The unchanged exact AuthStorage exception remains narrowly accepted and is
+reported per run in the evidence.
 
-[`validation/ci-cases.json`](validation/ci-cases.json) pins complete patches that
-apply directly to Base; no preceding Oracle application is required for a control.
-Detailed results and negative-control rationale are in
-[`validation/author-results.md`](validation/author-results.md) and
-[`validation/wrong-controls.md`](validation/wrong-controls.md). These checks
-establish verifier acceptance and rejection behavior, not coding-agent success
-rates. Four retained agent implementations were also regraded without new model calls.
-Both Astra implementations still pass and both GPT-5.5 implementations still fail; see [`validation/candidate-rechecks.json`](validation/candidate-rechecks.json).
+The v0.0.3 revision corrects UI mode, normal shutdown, asynchronous C15 review
+handling, legal C17 Stay/Refine inputs and structured state observation. It keeps
+the original behavior inventory, scoring policy and CI control patches. See
+[`validation/verifier-v0.0.3.md`](validation/verifier-v0.0.3.md) for the contract
+basis, full fresh matrix, frozen execution hashes and limitations.
+
+Three complete saved agent answers were also regraded through Harbor without
+new model calls: Astra xhigh 1, Astra medium 1, and Sol xhigh 0 (C04/L04).
+Their historical v0.0.2 rewards remain 0. Results are in
+[`validation/saved-answer-rechecks-v0.0.3.json`](validation/saved-answer-rechecks-v0.0.3.json).
+Earlier author and candidate evidence remains explicitly historical in
+[`validation/author-results.md`](validation/author-results.md),
+[`validation/e2e-evidence-v0.0.2.json`](validation/e2e-evidence-v0.0.2.json), and
+`validation/candidate-rechecks.json`.
 
 ## Layout
 
