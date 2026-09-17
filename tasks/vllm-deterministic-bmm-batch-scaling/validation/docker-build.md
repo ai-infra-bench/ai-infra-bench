@@ -1,12 +1,16 @@
 # Docker build and A100 validation: vLLM PR #29345
 
+## Current publication image refresh
+
+Commit `c772d6572a15f0f21b10eadc9327947b2225cea2` was rebuilt on 2026-09-17 after qualifying the `.git/` source and destination as directories for Dockerfile 1.7. The isolated legacy-builder run used the local content-verified vLLM Git service and produced image `sha256:6e1c0b7bbcc2e4a683d9c799d3dc360ad058a125097fc588aed079072f52e5a0` (15,089,865,999 bytes). Repository `image-check` confirmed Base `b07555d26f4c7ad9a2d1ec45428a9d4287db612c`, the sanitized history and non-root source binding. On that image, 20 declared Harbor matrix cases, 8 independent challenges and a final Oracle all matched their expected results with zero errored trials. Raw evidence is under `/data/yinchen/pr73-pr74-image-refresh-20260917`.
+
 > Historical v1.0 validation. Task v1.1 removes the private-symbol gate and
 > changes stage/error reporting; it has not yet been rerun.
 >
 > Provenance supersession: task v1.2.1 now retains the exact upstream Base at
 > `HEAD` with sanitized parent history. Image IDs and Git assertions below are
-> historical and are not evidence for the current environment; rebuild and
-> `image-check` remain mandatory.
+> historical and are not evidence for the current environment; the current
+> publication refresh above supersedes them.
 
 ## Status
 
