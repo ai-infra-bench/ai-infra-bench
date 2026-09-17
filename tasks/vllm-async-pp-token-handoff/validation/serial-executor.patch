@@ -1,0 +1,11 @@
+--- a/vllm/v1/executor/multiproc_executor.py
++++ b/vllm/v1/executor/multiproc_executor.py
+@@ -364,6 +364,8 @@
+         if non_block:
+             future = FutureWrapper(self.futures_queue, aggregate=aggregate)
+             self.futures_queue.appendleft((future, get_response))
++            if method in ("execute_model", "sample_tokens"):
++                future.result()
+             return future
+ 
+         # First drain any pending futures in the queue.

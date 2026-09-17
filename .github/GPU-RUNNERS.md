@@ -23,7 +23,9 @@ Download and checksum-verify the Linux x64 runner distribution using GitHub's re
 
 ## Execution and cleanup
 
-`run_task_validation.sh` preserves the ordinary Docker backend for CPU tasks. For GPU tasks, each Harbor validation case runs under `gpu_pool.py`. Image builds and pulls happen before GPU acquisition. A lease is released between cases, allowing other jobs to make progress.
+`run_task_validation.sh` preserves the ordinary Docker backend and GHCR cache/publishing flow for CPU tasks. GPU tasks always run a local `docker buildx build --load`, tagged `ai-infra-bench-task-envs:<task>-<environment-key>`. The single GPU host keeps BuildKit's local layers, so unchanged layers are reused while Dockerfile and environment changes are rebuilt. The key includes the environment contents and target platform. GPU validation and main-branch jobs do not log in to GHCR, pull task images, push images or query registry digests; base-image pulls and build-time downloads still use the host's normal network configuration.
+
+For GPU tasks, each Harbor validation case runs under `gpu_pool.py`. Local image builds happen before GPU acquisition. A lease is released between cases, allowing other jobs to make progress.
 
 The pool acquires all requested GPU locks before starting Harbor. A waiter holding the admission lock blocks new allocations while active leases drain, so a four-GPU request can proceed once running cases finish. Requests are not promised strict FIFO order. A queued acquisition times out after two hours; GitHub's overall job timeout also includes builds and queue time.
 
