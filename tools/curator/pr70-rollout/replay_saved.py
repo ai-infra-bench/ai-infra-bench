@@ -48,7 +48,7 @@ cp(str(a.task/'tests')+'/.', '/tests')
 cp(str(a.task/'validation')+'/.', '/validation')
 # Existing task rebuild remains authoritative; no delivered shared library is substituted.
 with (a.output/'entrypoint.log').open('w') as log:
-    r = subprocess.run(['docker','exec',a.container,'bash','/tests/test.sh'], stdout=log, stderr=subprocess.STDOUT, timeout=3600)
+    r = subprocess.run(['docker','exec','-u','root',a.container,'bash','/tests/test.sh'], stdout=log, stderr=subprocess.STDOUT, timeout=3600)
 record['entrypoint_exit'] = r.returncode
 run(['docker','cp',a.container+':/logs/verifier',str(a.output/'verifier')])
 record['reward'] = float((a.output/'verifier/reward.txt').read_text())
