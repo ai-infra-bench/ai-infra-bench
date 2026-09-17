@@ -92,3 +92,7 @@ and base/oracle on the canonical amd64 image (0 / 1). See `e2e-evidence.json`
 Real-submission control (added 2026-09-16): `alt-grok-0.0.2-sigterm-listener.patch`, the unmodified grok-4.6 rollout 3 submission on the 0.0.2 wording, expected 0: contract 15/15 and PASS_TO_PASS pass, lifecycle 2/3 because its signal handlers stop the managed processes and then neither re-raise nor exit, so pi never terminates after `SIGTERM`.
 
 Real-submission control (added 2026-09-16): `alt-opus-0.0.3-defer-and-reload.patch`, the unmodified claude-opus-5 rollout 4 submission on the 0.0.3 wording, expected 0: contract 14/15 (the auto-backgrounded `bash` command returns a tool error after a reload because the override checks `instanceof` against a re-loaded class) and lifecycle 2/3 (the signal handler defers to other listeners, so a headless pi never exits after `SIGTERM`).
+
+Real-submission alternative (added 2026-09-17): `alt-grok-0.0.4-vitest-guard.patch`, the unmodified grok-4.6 rollout 5 submission on the 0.0.4 wording, expected 1: a second independently written correct implementation (contract 15/15, lifecycle 3/3 once the harness stopped leaking VITEST into the child pi).
+
+Real-submission alternative (added 2026-09-17): `alt-grok-0.0.4-clean-pass.patch`, the unmodified grok-4.6 rollout 6 submission on the 0.0.4 wording, expected 1: passes every layer with no environment guard (re-raises the signal unconditionally).

@@ -39,8 +39,10 @@ afterEach(async () => {
 });
 
 function childEnv() {
+	// The child is a real pi process, not a test: keep the runner's own variables (VITEST*) out of it.
+	const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("VITEST")));
 	return {
-		...process.env,
+		...inherited,
 		PI_WORKSPACE: WORKSPACE,
 		PI_VERIFIER_FIXTURES: FIXTURES,
 		PI_OFFLINE: "1",
