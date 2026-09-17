@@ -33,6 +33,12 @@ EXPECTED_CHECKPOINTS = (
     "runner-eager-lifecycle",
     "runner-graph-lifecycle",
     "runner-non-dcp-lifecycle",
+    "real-backend-eager",
+    "real-backend-decode-graph",
+    "real-backend-non-dcp",
+    "eagle-non-dcp-compatibility",
+    "flashinfer-local-eager",
+    "flashinfer-local-graph",
     "complete",
 )
 
@@ -72,7 +78,7 @@ def configure_group(module, dcp_size: int, dcp_rank: int) -> None:
 
 
 def construct_runner(*, dcp_size: int, dcp_rank: int, interleave: int,
-                     block_size: int, graph=False):
+                     block_size: int, graph=False, real_backend=False):
     from vllm.config import (
         CacheConfig, CompilationConfig, ModelConfig, ParallelConfig,
         SchedulerConfig, VllmConfig,
@@ -116,7 +122,10 @@ def construct_runner(*, dcp_size: int, dcp_rank: int, interleave: int,
             ),
             compilation_config=CompilationConfig(
                 mode=0,
-                cudagraph_mode=CUDAGraphMode.FULL if graph else CUDAGraphMode.NONE,
+                cudagraph_mode=(
+                    CUDAGraphMode.FULL_DECODE_ONLY if graph and real_backend
+                    else CUDAGraphMode.FULL if graph else CUDAGraphMode.NONE
+                ),
                 cudagraph_capture_sizes=[1, 2, 4, 8, 16],
             ),
         )
@@ -124,7 +133,7 @@ def construct_runner(*, dcp_size: int, dcp_rank: int, interleave: int,
     # group. DCP does not support hybrid groups at this Base. Different block
     # sizes are separate deployments, not an invented multi-group layout.
     layer_specs = {
-        f"layer{index}": FullAttentionSpec(
+        (f"model.layers.{index}.self_attn.attn" if real_backend else f"layer{index}"): FullAttentionSpec(
             block_size=block_size, num_kv_heads=1, head_size=32,
             dtype=torch.float16,
         ) for index in range(2)
@@ -147,6 +156,23 @@ def construct_runner(*, dcp_size: int, dcp_rank: int, interleave: int,
     # Model weights and an attention consumer are deterministic substitutes.
     # Real request state, input buffers, runner and graph manager own all DCP
     # wiring. No candidate-added names/signatures are inspected or supplied.
+    if real_backend:
+        from vllm.config import set_current_vllm_config
+        from vllm.model_executor.layers.attention import Attention
+        from vllm.v1.attention.backends.flash_attn import FlashAttentionBackend
+
+        with set_current_vllm_config(vllm_config):
+            for layer_name in layer_specs:
+                Attention(
+                    num_heads=4 // dcp_size, head_size=32, scale=32 ** -0.5,
+                    num_kv_heads=1, cache_config=vllm_config.cache_config,
+                    prefix=layer_name, attn_backend=FlashAttentionBackend,
+                )
+            runner = model_runner_module.GPUModelRunner(
+                vllm_config, torch.device("cuda")
+            )
+            runner.initialize_kv_cache(cache_config)
+        return runner
     with (
         patch.object(model_runner_module, "init_attn_backend",
                      return_value=({}, [ConsumerBuilder() for _ in groups])),
@@ -305,7 +331,7 @@ def check_graph_replay(module, *, block_size: int) -> None:
 
 
 def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool,
-                           block_size: int) -> None:
+                           block_size: int, real_backend=False) -> None:
     """Scheduler messages -> real runner/graphs/sampler -> per-request tokens.
 
     A deterministic model consumes the same CommonAttentionMetadata and slot
@@ -321,36 +347,75 @@ def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool,
     interleave = 2
     runner = construct_runner(
         dcp_size=dcp_size, dcp_rank=dcp_rank, interleave=interleave,
-        block_size=block_size, graph=graph,
+        block_size=block_size, graph=graph, real_backend=real_backend,
     )
 
     class MetadataConsumer(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            if real_backend:
+                self.keys = torch.zeros((256, block_size, 1, 32),
+                                        dtype=torch.float16, device="cuda")
+                slots = torch.arange(256 * block_size, device="cuda")
+                self.values = (slots.remainder(127).float() / 128).to(torch.float16)
+                self.values = self.values.view(256, block_size, 1, 1).expand(-1, -1, 1, 32).contiguous()
+
         def forward(self, input_ids, positions, **kwargs):
             context = get_forward_context()
-            common = context.attn_metadata["layer0"]
-            lengths = (
-                common.dcp_local_seq_lens
-                if dcp_size > 1 and common.dcp_local_seq_lens is not None
-                else common.seq_lens
-            )
+            names = ([f"model.layers.{i}.self_attn.attn" for i in range(2)]
+                     if real_backend else ["layer0", "layer1"])
+            common = context.attn_metadata[names[0]]
+            if real_backend:
+                lengths = (common.dcp_context_kv_lens if dcp_size > 1
+                           else common.seq_lens)
+            else:
+                lengths = (
+                    common.dcp_local_seq_lens
+                    if dcp_size > 1 and common.dcp_local_seq_lens is not None
+                    else common.seq_lens
+                )
             rows = torch.bucketize(
                 torch.arange(input_ids.shape[0], device=input_ids.device),
                 common.query_start_loc[1:], right=True,
             ).clamp(max=lengths.shape[0] - 1)
             fingerprint = (
                 input_ids.to(torch.int64) + 3 * positions
-                + 5 * context.slot_mapping["layer0"]
-                + 12 * context.slot_mapping["layer1"]
+                + 5 * context.slot_mapping[names[0]]
+                + 12 * context.slot_mapping[names[1]]
                 + 7 * lengths[rows]
             )
-            return fingerprint.remainder(256).unsqueeze(1).float()
+            fingerprint = fingerprint.remainder(256).unsqueeze(1).float()
+            if not real_backend:
+                return fingerprint
+            # Real paged-attention CUDA math consumes real backend metadata.
+            # Uniform attention over a deterministic cache has an independent
+            # arithmetic reference; no model weights or cross-rank collective
+            # are needed for this local-rank context-consumption boundary.
+            from vllm.v1.attention.backends.fa_utils import (
+                flash_attn_varlen_func, get_flash_attn_version,
+            )
+            query = torch.zeros((input_ids.shape[0], 4 // dcp_size, 32),
+                                dtype=torch.float16, device=input_ids.device)
+            attended = flash_attn_varlen_func(
+                q=query, k=self.keys, v=self.values,
+                cu_seqlens_q=common.query_start_loc,
+                max_seqlen_q=common.max_query_len, seqused_k=lengths,
+                max_seqlen_k=(common.max_dcp_context_kv_len if dcp_size > 1
+                              else common.max_seq_len),
+                softmax_scale=32 ** -0.5, causal=False,
+                block_table=common.block_table,
+                fa_version=get_flash_attn_version(), num_splits=1,
+            )
+            return torch.cat((fingerprint, attended.float().mean(dim=(1, 2)).unsqueeze(1)), dim=1)
 
         def compute_logits(self, hidden_states):
+            if real_backend:
+                self.observed_attention = hidden_states[:, 1].detach().clone()
             logits = torch.full(
                 (hidden_states.shape[0], 256), -100.0,
                 device=hidden_states.device,
             )
-            return logits.scatter_(1, hidden_states.long(), 100.0)
+            return logits.scatter_(1, hidden_states[:, :1].long(), 100.0)
 
     runner.model = MetadataConsumer().cuda()
 
@@ -399,6 +464,7 @@ def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool,
         output.num_scheduled_tokens = counts
         output.total_num_scheduled_tokens = sum(counts.values())
         expected = {}
+        expected_attention = {}
         for req_id, count in counts.items():
             new = req_id not in state
             if new:
@@ -445,13 +511,20 @@ def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool,
                 )[0]
                 for group, size in enumerate((block_size,))
             ]
+            context_end = end - count if real_backend and dcp_size > 1 else end
             local_length = sum(
-                (p // interleave) % dcp_size == dcp_rank for p in range(end)
+                (p // interleave) % dcp_size == dcp_rank for p in range(context_end)
             )
             expected[req_id] = (
                 record["tokens"][position] + 3 * position
                 + 5 * slots[0] + 12 * slots[0] + 7 * local_length
             ) % 256
+            if real_backend:
+                expected_attention[req_id] = (
+                    sum(((record["blocks"][0][p // block_size] * block_size
+                          + p % block_size) % 127) / 128 for p in range(local_length))
+                    / local_length if local_length else 0.0
+                )
         runner.execute_model(output)
         if not counts:
             continue
@@ -460,6 +533,15 @@ def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool,
             sampled = sampled.get_output()
         observed = dict(zip(sampled.req_ids, sampled.sampled_token_ids))
         wanted = {req_id: [token] for req_id, token in expected.items()}
+        if real_backend:
+            observed_attention = runner.model.observed_attention.cpu().tolist()
+            for req_id, actual in zip(sampled.req_ids, observed_attention):
+                target = expected_attention[req_id]
+                if not abs(actual - target) < 0.002:
+                    raise AssertionError(
+                        f"real paged-attention mismatch step={step} request={req_id} "
+                        f"DCP={dcp_size}/{dcp_rank} graph={graph}: {actual} != {target}"
+                    )
         if observed != wanted:
             raise AssertionError(
                 f"runner lifecycle step={step} graph={graph} DCP={dcp_size}/"
@@ -506,6 +588,38 @@ def run_suite(emit) -> None:
         check_runner_lifecycle(dcp_size=1, dcp_rank=0, graph=True,
                                block_size=block_size)
     emit("runner-non-dcp-lifecycle", True)
+    for block_size in (16, 32):
+        for rank in (0, 1):
+            check_runner_lifecycle(dcp_size=2, dcp_rank=rank, graph=False,
+                                   block_size=block_size, real_backend=True)
+    emit("real-backend-eager", True)
+    for block_size in (16, 32):
+        for rank in (0, 1):
+            check_runner_lifecycle(dcp_size=2, dcp_rank=rank, graph=True,
+                                   block_size=block_size, real_backend=True)
+    emit("real-backend-decode-graph", True)
+    for block_size in (16, 32):
+        for graph in (False, True):
+            check_runner_lifecycle(dcp_size=1, dcp_rank=0, graph=graph,
+                                   block_size=block_size, real_backend=True)
+    emit("real-backend-non-dcp", True)
+    import importlib.util
+    eagle_spec = importlib.util.spec_from_file_location(
+        "eagle_compatibility", Path(__file__).with_name("verify_eagle_nondcp.py")
+    )
+    eagle_check = importlib.util.module_from_spec(eagle_spec)
+    eagle_spec.loader.exec_module(eagle_check)
+    eagle_check.check_eagle_nondcp()
+    emit("eagle-non-dcp-compatibility", True)
+    fi_spec = importlib.util.spec_from_file_location(
+        "flashinfer_compatibility", Path(__file__).with_name("verify_flashinfer_dcp.py")
+    )
+    fi_check = importlib.util.module_from_spec(fi_spec)
+    fi_spec.loader.exec_module(fi_check)
+    fi_check.run_group(False)
+    emit("flashinfer-local-eager", True)
+    fi_check.run_group(True)
+    emit("flashinfer-local-graph", True)
     print(
         "PASS: production slot mapping handles non-DCP, held-out DCP ranks, "
         "interleaving, supported block sizes, requests, CUDA graph replay, "

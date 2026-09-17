@@ -20,6 +20,8 @@ trap 'rm -rf -- "$trusted_dir"' EXIT
 install -o root -g root -m 0644 /tests/supervise_verifier.py "$trusted_dir/supervise_verifier.py"
 install -o root -g root -m 0644 /tests/checkpoint.c "$trusted_dir/checkpoint.c"
 install -o root -g root -m 0644 /tests/verify_dcp_slot_mapping.py "$trusted_dir/worker.py"
+install -o root -g root -m 0644 /tests/verify_eagle_nondcp.py "$trusted_dir/verify_eagle_nondcp.py"
+install -o root -g root -m 0644 /tests/verify_flashinfer_dcp.py "$trusted_dir/verify_flashinfer_dcp.py"
 python_include="$("$python_bin" -I -c 'import sysconfig; print(sysconfig.get_path("include"))')"
 compiler="$(command -v cc || command -v gcc)"
 "$compiler" -O2 -shared -fPIC -fvisibility=hidden -I"$python_include" \

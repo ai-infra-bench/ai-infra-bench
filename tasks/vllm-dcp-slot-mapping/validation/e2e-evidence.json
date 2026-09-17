@@ -1,43 +1,337 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "recorded_at": "2026-09-17T02:00:22.677576+00:00",
-  "status": "repair-controls-validated-final-review-and-fresh-rollouts-pending",
+  "task_version": "1.7.0",
+  "recorded_at": "2026-09-17",
+  "status": "v170-functional-controls-validated-fresh-rollouts-and-trust-review-pending",
   "source": {
     "repository": "vllm-project/vllm",
     "base_commit": "be3af2d29e2507f32b2190fe015cd6609b348caa"
   },
+  "image": {
+    "id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3"
+  },
   "e2e_boundary": {
-    "path": "SchedulerOutput -> real GPUModelRunner execute_model -> forward-context consumer -> real sampler -> per-request tokens; eager and CUDA graph",
-    "substitution": "Deterministic model arithmetic and attention consumer, empty KV storage allocation, and local-rank group metadata replace weights, attention math, and multiprocess collectives. Real request state, input buffers, slot kernels, graph capture/replay and sampling remain active.",
-    "preserved_semantics": "SchedulerOutput -> real GPUModelRunner execute_model -> forward-context consumer -> real sampler -> per-request tokens; eager and CUDA graph"
+    "path": "Existing runner/sampler/FlashAttention and non-DCP Eagle paths; FlashInfer DCP CommonAttentionMetadata -> real native paged decode and CUDA replay",
+    "substitution": "Deterministic model and cache values, local rank metadata; no FI DCP KV writes, full Impl.forward or NCCL collectives",
+    "preserved_semantics": "Local cache ownership, lengths, page growth, row remapping, request replacement, graph replay and non-DCP regression"
   },
-  "latest_verifier_replay": {
-    "task_version": "1.5.0",
-    "image_id": "sha256:dee094a5fca85bb9d08b507d3d23b12b51d89c31b268bc9431800efed3c961d3",
-    "results_file": "validation/repair-calibration-2026-09-17.json",
-    "rewards": {
-      "base": 0.0,
-      "oracle": 1.0,
-      "deepseek-explicit-capture-implementation": 1.0,
-      "deepseek-input-buffers-implementation": 1.0,
-      "alternative-agent-implementation": 1.0,
-      "incomplete-agent-implementation": 0.0
+  "final_acceptance": false,
+  "publication": {
+    "scope": "Evidence consolidation only; instruction, task metadata, environment, solution, verifier and control patch bytes unchanged from the backed-up working tree.",
+    "prior_published_commit": "9515aae923e68eb11c7537a6eff2444687f69fae",
+    "archived_original_evidence": "history/curation-history.zip",
+    "current_raw_evidence": "evidence.zip",
+    "raw_results_member": "flashinfer-v170-results.json",
+    "provenance_note": "Raw reports inside archives retain their original paths, timestamps and run hashes. Publication hashes are not substituted for execution-time hashes. This packaging step is not a new behavioral run.",
+    "historical_opus_artifact": {
+      "url": "https://github.com/xuanzhengdu-eng/ai-infra-bench/blob/9515aae923e68eb11c7537a6eff2444687f69fae/tasks/vllm-dcp-slot-mapping/validation/opus-5-run-artifacts.zip",
+      "sha256": "2d4855cc6d417898ce72bd27d7435dc9c4f9096fbc89e37bf5eb38ad234d6458",
+      "bytes": 3221625,
+      "scope": "Historical version only; not current acceptance"
+    }
+  },
+  "current_controls": [
+    {
+      "case": "oracle",
+      "expected_reward": 1,
+      "observed_rewards": [
+        1.0
+      ],
+      "harness_errors": 0,
+      "completed": 1,
+      "exit_code": 0,
+      "verdict": {
+        "completed": 17,
+        "failure_count": 0,
+        "required": 17,
+        "reward": 1,
+        "worker_exit_status": 0
+      },
+      "started": "2026-09-17T12:13:56.281089+00:00",
+      "finished": "2026-09-17T12:17:17.419425+00:00",
+      "trial": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/pr60-flashinfer-repair-20260917/final-oracle-normalized/harbor/pr60-final-oracle-normalized-oracle/oracle__pevnXB4",
+      "valid": true,
+      "inputs_unchanged": true
     },
-    "fresh_agent_results": "not-started"
+    {
+      "case": "deepseek-input-buffers-implementation",
+      "expected_reward": 1,
+      "observed_rewards": [
+        1.0
+      ],
+      "harness_errors": 0,
+      "completed": 1,
+      "exit_code": 0,
+      "verdict": {
+        "completed": 17,
+        "failure_count": 0,
+        "required": 17,
+        "reward": 1,
+        "worker_exit_status": 0
+      },
+      "started": "2026-09-17T12:15:02.470183+00:00",
+      "finished": "2026-09-17T12:18:24.410363+00:00",
+      "trial": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/pr60-flashinfer-repair-20260917/final-v170/harbor/pr60-final-v170-deepseek-input-buffers-implementation/deepseek-input-buffers-implement__JeNX8K4",
+      "valid": true,
+      "inputs_unchanged": true
+    },
+    {
+      "case": "historical-oracle-no-flashinfer",
+      "expected_reward": 0,
+      "observed_rewards": [
+        0.0
+      ],
+      "harness_errors": 0,
+      "completed": 1,
+      "exit_code": 0,
+      "verdict": {
+        "completed": 14,
+        "failure_count": 2,
+        "required": 17,
+        "reward": 0,
+        "worker_exit_status": 256
+      },
+      "started": "2026-09-17T12:18:24.436445+00:00",
+      "finished": "2026-09-17T12:21:22.608912+00:00",
+      "trial": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/pr60-flashinfer-repair-20260917/final-v170/harbor/pr60-final-v170-historical-oracle-no-flashinfer/historical-oracle-no-flashinfer__NBRSBz7",
+      "valid": true,
+      "inputs_unchanged": true
+    },
+    {
+      "case": "flashinfer-wrong-interleave",
+      "expected_reward": 0,
+      "observed_rewards": [
+        0.0
+      ],
+      "harness_errors": 0,
+      "completed": 1,
+      "exit_code": 0,
+      "verdict": {
+        "completed": 14,
+        "failure_count": 2,
+        "required": 17,
+        "reward": 0,
+        "worker_exit_status": 256
+      },
+      "started": "2026-09-17T12:21:22.634886+00:00",
+      "finished": "2026-09-17T12:24:22.307760+00:00",
+      "trial": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/pr60-flashinfer-repair-20260917/final-v170/harbor/pr60-final-v170-flashinfer-wrong-interleave/flashinfer-wrong-interleave__yDkJmyZ",
+      "valid": true,
+      "inputs_unchanged": true
+    },
+    {
+      "case": "alternative-agent-implementation",
+      "expected_reward": 0,
+      "observed_rewards": [
+        0.0
+      ],
+      "harness_errors": 0,
+      "completed": 1,
+      "exit_code": 0,
+      "verdict": {
+        "completed": 11,
+        "failure_count": 2,
+        "required": 17,
+        "reward": 0,
+        "worker_exit_status": 256
+      },
+      "started": "2026-09-17T12:24:22.338389+00:00",
+      "finished": "2026-09-17T12:26:29.728066+00:00",
+      "trial": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/pr60-flashinfer-repair-20260917/final-v170/harbor/pr60-final-v170-alternative-agent-implementation/alternative-agent-implementation__xaV59hd",
+      "valid": true,
+      "inputs_unchanged": true
+    },
+    {
+      "case": "incomplete-agent-implementation",
+      "expected_reward": 0,
+      "observed_rewards": [
+        0.0
+      ],
+      "harness_errors": 0,
+      "completed": 1,
+      "exit_code": 0,
+      "verdict": {
+        "completed": 2,
+        "failure_count": 2,
+        "required": 17,
+        "reward": 0,
+        "worker_exit_status": 256
+      },
+      "started": "2026-09-17T12:26:29.754262+00:00",
+      "finished": "2026-09-17T12:27:56.580879+00:00",
+      "trial": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/pr60-flashinfer-repair-20260917/final-v170/harbor/pr60-final-v170-incomplete-agent-implementation/incomplete-agent-implementation__DuVEYdr",
+      "valid": true,
+      "inputs_unchanged": true
+    },
+    {
+      "case": "non-dcp-eagle-regression",
+      "expected_reward": 0,
+      "observed_rewards": [
+        0.0
+      ],
+      "harness_errors": 0,
+      "completed": 1,
+      "exit_code": 0,
+      "verdict": {
+        "completed": 13,
+        "failure_count": 2,
+        "required": 17,
+        "reward": 0,
+        "worker_exit_status": 256
+      },
+      "started": "2026-09-17T12:27:56.606245+00:00",
+      "finished": "2026-09-17T12:30:46.592315+00:00",
+      "trial": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/pr60-flashinfer-repair-20260917/final-v170/harbor/pr60-final-v170-non-dcp-eagle-regression/non-dcp-eagle-regression__QEKW7ox",
+      "valid": true,
+      "inputs_unchanged": true
+    },
+    {
+      "case": "base",
+      "expected_reward": 0,
+      "observed_rewards": [
+        0.0
+      ],
+      "harness_errors": 0,
+      "completed": 1,
+      "exit_code": 0,
+      "verdict": {
+        "completed": 2,
+        "failure_count": 2,
+        "required": 17,
+        "reward": 0,
+        "worker_exit_status": 256
+      },
+      "started": "2026-09-17T12:11:38.893148+00:00",
+      "finished": "2026-09-17T12:13:10.140471+00:00",
+      "trial": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/pr60-flashinfer-repair-20260917/final-v170/harbor/pr60-final-v170-base/base__EXjtLtE",
+      "valid": true,
+      "inputs_unchanged": true
+    },
+    {
+      "case": "persistent-backend-buffer-r01",
+      "expected_reward": 1,
+      "observed_rewards": [
+        1.0
+      ],
+      "harness_errors": 0,
+      "completed": 1,
+      "exit_code": 0,
+      "verdict": {
+        "completed": 17,
+        "failure_count": 0,
+        "required": 17,
+        "reward": 1,
+        "worker_exit_status": 0
+      },
+      "started": "2026-09-17T12:13:10.428222+00:00",
+      "finished": "2026-09-17T12:16:34.647553+00:00",
+      "trial": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/pr60-flashinfer-repair-20260917/final-v170/harbor/pr60-final-v170-persistent-backend-buffer-r01/persistent-backend-buffer-r01__QxBZm3V",
+      "valid": true,
+      "inputs_unchanged": true
+    },
+    {
+      "case": "flashinfer-global-pages",
+      "expected_reward": 0,
+      "observed_rewards": [
+        0.0
+      ],
+      "harness_errors": 0,
+      "completed": 1,
+      "exit_code": 0,
+      "verdict": {
+        "completed": 14,
+        "failure_count": 2,
+        "required": 17,
+        "reward": 0,
+        "worker_exit_status": 256
+      },
+      "started": "2026-09-17T12:16:34.707188+00:00",
+      "finished": "2026-09-17T12:19:32.331369+00:00",
+      "trial": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/pr60-flashinfer-repair-20260917/final-v170/harbor/pr60-final-v170-flashinfer-global-pages/flashinfer-global-pages__g9zYnwF",
+      "valid": true,
+      "inputs_unchanged": true
+    },
+    {
+      "case": "backend-context-buffer-r03",
+      "expected_reward": 0,
+      "observed_rewards": [
+        0.0
+      ],
+      "harness_errors": 0,
+      "completed": 1,
+      "exit_code": 0,
+      "verdict": {
+        "completed": 14,
+        "failure_count": 2,
+        "required": 17,
+        "reward": 0,
+        "worker_exit_status": 256
+      },
+      "started": "2026-09-17T12:19:32.357460+00:00",
+      "finished": "2026-09-17T12:22:30.542959+00:00",
+      "trial": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/pr60-flashinfer-repair-20260917/final-v170/harbor/pr60-final-v170-backend-context-buffer-r03/backend-context-buffer-r03__ugSkM9Z",
+      "valid": true,
+      "inputs_unchanged": true
+    },
+    {
+      "case": "deepseek-explicit-capture-implementation",
+      "expected_reward": 0,
+      "observed_rewards": [
+        0.0
+      ],
+      "harness_errors": 0,
+      "completed": 1,
+      "exit_code": 0,
+      "verdict": {
+        "completed": 11,
+        "failure_count": 2,
+        "required": 17,
+        "reward": 0,
+        "worker_exit_status": 256
+      },
+      "started": "2026-09-17T12:22:30.569878+00:00",
+      "finished": "2026-09-17T12:24:38.963320+00:00",
+      "trial": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/pr60-flashinfer-repair-20260917/final-v170/harbor/pr60-final-v170-deepseek-explicit-capture-implementation/deepseek-explicit-capture-implem__qzcMTeo",
+      "valid": true,
+      "inputs_unchanged": true
+    },
+    {
+      "case": "historical-oracle-stale-backend",
+      "expected_reward": 0,
+      "observed_rewards": [
+        0.0
+      ],
+      "harness_errors": 0,
+      "completed": 1,
+      "exit_code": 0,
+      "verdict": {
+        "completed": 11,
+        "failure_count": 2,
+        "required": 17,
+        "reward": 0,
+        "worker_exit_status": 256
+      },
+      "started": "2026-09-17T12:24:38.989999+00:00",
+      "finished": "2026-09-17T12:26:51.647515+00:00",
+      "trial": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/pr60-flashinfer-repair-20260917/final-v170/harbor/pr60-final-v170-historical-oracle-stale-backend/historical-oracle-stale-backend__S6oNuuC",
+      "valid": true,
+      "inputs_unchanged": true
+    }
+  ],
+  "fresh_agent_results": {
+    "status": "Separate v1.7.0 r4 campaign; in-flight at publication preparation, no results claimed here."
   },
-  "validation": {
-    "task_version": "1.5.0",
-    "results_file": "validation/repair-calibration-2026-09-17.json",
-    "final_acceptance": false,
-    "unresolved": [
-      "grading-trust review incomplete",
-      "fresh model campaign not run"
-    ]
-  },
+  "limitations": [
+    "Shared H20, not A100 validated",
+    "Local rank metadata substituted; no NCCL or full model/HTTP generation",
+    "FI DCP uses metadata builder and native decode, not full Impl.forward or KV writes",
+    "Scoring-security audit incomplete; no restricted probe reruns"
+  ],
   "artifacts": {
     "files": {
       ".dockerignore": "914c87fd58ee5c87f0f8e48b891a5dc3d24f662b7e083e1d6c99b3ac0e477514",
-      "README.md": "d6234c7b08cd5406217d692d1f52c58e5784e93d59fd0b5e39e398b8f9ae9a37",
+      ".gitattributes": "af25ef820bba1398a8b084a68fe8c6d5f68d7948e1b6dddf1580e105bdc5cdd4",
+      "README.md": "effde8dda50762ca71aa7dcd48ef50ea3ec326a2f33ebc993a73343e33950c1f",
       "environment/Dockerfile": "b2eb2d3e05c2315c26e09835b07dd29bd7eb191dc579ea40553b42caa82c4fdc",
       "environment/docker-compose.yaml": "2a8ebdb1c56b1d74ce13762d408a6efac3cd46c9b4277c669dbac6580db3b523",
       "environment/image-manifest.json": "9111d993a42ad932e7fcbcaeab21da0611204ab9b6fb0ba04e505806eb729e5b",
@@ -45,48 +339,38 @@
       "environment/lock/manifest.json": "a8224e5a129a4afb573c2021ddc6226e0489f3ef04357af4ba3726d5b104647b",
       "environment/lock/native-donor.json": "6bb55f559541246bcbd7c078369dcbaaa8cf25b83b19a524d6a76a1c4f36f311",
       "environment/lock/requirements.txt": "d66b1c0ec910a2220a1a5cd871df5864031c51e6df814f4be58c0caeda873eaf",
-      "instruction.md": "9e927685943caf09779b50c0fc7602025467386380a72c9df7994ef763a54ee5",
-      "solution/oracle.patch": "10fccf7b1cffcdbb62b57984e164a11de7199108e60ee5ee4729ea7b61f0dcce",
+      "instruction.md": "35cf89cd720f67022400ab4c34c63bd399308b5a0bf7807dc4af70fbade9819b",
+      "solution/oracle.patch": "7ea34328939615d0c2dd0fc062131b9d9e55330712cc70be89f2fbf2e869a6c3",
       "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
-      "task.toml": "d2f731d873e8493968a0956426ae1e111a07c13c7982684b982972f27e022040",
+      "task.toml": "cc6402518adff01ce61154efa0c0c7b91e43ca0172feca58ba6dde2feda90d87",
       "tests/checkpoint.c": "ebc9028bb2e4d0d0d347b5b2e60524708b37e41136edf9459da4db8fff422f9b",
       "tests/docker-compose.yaml": "597e3b182f1714efc87b877f5ac9af369aae9a54beba9debf65eca7d7ac7af23",
       "tests/supervise_verifier.py": "65523f24fc12b84c0a1114079bca93c380872fd147714d2d0743399c6323eb28",
-      "tests/test.sh": "d3f04db96cda4c8f2cf00059aebcfdaf156ca8a6104dd667d27c9eeac781c473",
-      "tests/verify_dcp_slot_mapping.py": "86ca633d5500aeb33a04274a882e36a0c2216d937d16e40e60ca6e0ce73d041c",
+      "tests/test.sh": "566af636478098a8f75b75f9871a1cda50bf923a6df193b3de39ae667894552c",
+      "tests/verify_dcp_slot_mapping.py": "5efc54e652f40d01f3d8376504eb6c30c261375dedc7ee9b4b460c0a7cbc223f",
+      "tests/verify_eagle_nondcp.py": "ca37a1f4e9495a2ec3217c6831ce27150eef04a186e092ee406eee14ac8756df",
+      "tests/verify_flashinfer_dcp.py": "eab5e98cca18f1e974936fa3865bed3837cb637cf24b0663f824ccdb3389363a",
       "validation/alternative-agent-implementation.patch": "73c959f3cbaa63664824c2c1f872318dd0b05edf80d108f34771d56a91f0ec77",
-      "validation/ci-cases.json": "c8cb5675ff559bab0810b82e916d9c6ce04241a7c4c5947767d193f3a0262d55",
+      "validation/backend-context-buffer-r03.patch": "a3c9d756f123a9eccc76d6df364dbfd4bfad982ccc7d807c9f7d13dcf5a8c363",
+      "validation/ci-cases.json": "b86ebc81381fea562aad461a0b8f318007602970f71acd3d293a7fcc8c9632b8",
       "validation/deepseek-explicit-capture-implementation.patch": "04a823593866a88f04c14bc96fd930b609b017d322f880cd54ffdea1df553f8c",
       "validation/deepseek-input-buffers-implementation.patch": "49ed6e577db494a156a704fd1151d8cd6578efeb957a40f179c5253559c2cd5a",
-      "validation/deepseek-v4-flash-rollouts.md": "2f95d2a6de5fdf5b76955a7e8187ab03a7f9e1c34260153fe3f17e71687ce4c6",
-      "validation/docker-build.md": "9ec1ac1ff7609180bb49f52353042803d97a765634d10dd873a4a86963b0e97d",
       "validation/early-exit-os-exit.patch": "7e8264005f8d1cbc83bbe2fe6d9195e6ff06c117600fa08b5d41c620294c4d46",
       "validation/early-exit-systemexit.patch": "80f7fd0dce410eb62373fa96daeb380acaf16d0de85b03872956c1a0e142a2fe",
-      "validation/environment-hardening-2026-09-17.md": "2b015eef56b7385b26e282da1d6976a7d2246e41e8766e787653c33bcdf9e19f",
+      "validation/evidence.zip": "98b14ad46a03624173f3cef07d07fe805c2e3484f9e27219e4f629d5d7688dfd",
+      "validation/flashinfer-global-pages.patch": "fa79b79f50d5691132caf78912153125bdaf92e59fc921ae2432f46b3fb150dc",
+      "validation/flashinfer-wrong-interleave.patch": "2faf3465fdf727cbd8275ec42f86769056cab049f5b7b8c473bad7fc96dae25f",
       "validation/forged-callback.patch": "27f04aacfe875ecfe1ba9126f2a3d484886cddbe7cd934bfe2e39fc851d4de63",
       "validation/forged-checkpoint.patch": "362f0182ff3632399d3a616f0f1a00a4c1eb8c11852f749ae18208e1452d1d44",
       "validation/forged-success-output.patch": "e1907a5c2890bb35e95cabcb18bb390a418f4ca65241875d5627bebea120e448",
+      "validation/historical-oracle-no-flashinfer.patch": "c3002c1cdc0454b7cb7804146e4d230c3789389b7b59e110b2d9d8a09ef5bf27",
+      "validation/historical-oracle-stale-backend.patch": "10fccf7b1cffcdbb62b57984e164a11de7199108e60ee5ee4729ea7b61f0dcce",
+      "validation/history/curation-history.zip": "fb7b2b6745bb6544f15c926d4a29c05b5afa53ffab9690415b87c1acb22c9bed",
       "validation/incomplete-agent-implementation.patch": "a55bb0124c30c608b920ead0bc2a903efa247361a239de65a9997d34bb3db44b",
-      "validation/instruction-e2e-results.json": "1d1a9d4e5abec60bae574125eb83939a9010c37fe74a4ffbda6cc777c3b9cbdc",
-      "validation/instruction-e2e-review-2026-09-16.md": "8d0abf6115d3a221a98c3def5304beb44fae3de8fe8a681c0abe155424a01d28",
-      "validation/isolated-image-calibration-2026-09-17.json": "6f27bd149f6e11cedccd3f04cb48f45520c5cc14f0bda6ba371712e231925334",
-      "validation/opus-5-run-artifacts.zip": "2d4855cc6d417898ce72bd27d7435dc9c4f9096fbc89e37bf5eb38ad234d6458",
-      "validation/remediation-matrix.md": "f756bdfd493dac4f7d1e4ac376b0144155a05f776d9a6970bd3894a61e9bd3b2",
-      "validation/repair-calibration-2026-09-17.json": "1b4c075219a03a7ca5fdae1cf1521140c6ba719ae726750bf1995a5d602a6ce0",
-      "validation/repair-control-logs/alternative-agent-implementation/reward.json": "d77f8a5987ecd401c1ff80d541f9d703051ffb17ee67107d96b4a4bf97d0f17d",
-      "validation/repair-control-logs/alternative-agent-implementation/test-stdout.txt": "90d01ef7ae9e35ae282776f9c711635b02c6e55c9b22391b3f10538503312012",
-      "validation/repair-control-logs/base/reward.json": "016c89c08f48607aa99377933625dcf78facd1792a4f59a9a2281d72c2b6ebf2",
-      "validation/repair-control-logs/base/test-stdout.txt": "e01d5ac540c99767e9efa26355b183e8ab99ac6af1fb64985179e7b395c5aded",
-      "validation/repair-control-logs/deepseek-explicit-capture-implementation/reward.json": "d77f8a5987ecd401c1ff80d541f9d703051ffb17ee67107d96b4a4bf97d0f17d",
-      "validation/repair-control-logs/deepseek-explicit-capture-implementation/test-stdout.txt": "2d9c6ff889391391d09a691d258a52f11c982ae8755e926b619ab93e1ff1a336",
-      "validation/repair-control-logs/deepseek-input-buffers-implementation/reward.json": "d77f8a5987ecd401c1ff80d541f9d703051ffb17ee67107d96b4a4bf97d0f17d",
-      "validation/repair-control-logs/deepseek-input-buffers-implementation/test-stdout.txt": "faf33a9ad923e1d941d03743bdeba6f73c7593dd52f23e7c252f37668effc1df",
-      "validation/repair-control-logs/incomplete-agent-implementation/reward.json": "016c89c08f48607aa99377933625dcf78facd1792a4f59a9a2281d72c2b6ebf2",
-      "validation/repair-control-logs/incomplete-agent-implementation/test-stdout.txt": "7df69513597632ccfee3170f90fd1b87231dcaf52fb9f458ee0509cad92d3910",
-      "validation/repair-control-logs/oracle/reward.json": "d77f8a5987ecd401c1ff80d541f9d703051ffb17ee67107d96b4a4bf97d0f17d",
-      "validation/repair-control-logs/oracle/test-stdout.txt": "17c8ee806ebf28ee0cfbe2e6ceec65e7be035d24eb801e32b7e724ccd11abaee",
-      "validation/repair-review-2026-09-17.md": "714044dc367809023bf5b226060f8a64b69791a267f2cb5d2e66ef8c14dfac38",
-      "validation/task-review-2026-09-14.md": "37f78c2184cc11a42f268efe578d6d00d954d860276606ae9b9250e1cce122fc"
+      "validation/non-dcp-eagle-regression.patch": "eddfbc59328044df67c0f6413058243ec1039ba19db2162ed86be34d87311ebb",
+      "validation/persistent-backend-buffer-r01.patch": "33de745f3d8653a894d48e11fd4b56d20eb07743b05c613e2311df706182094d",
+      "validation/remediation-matrix.md": "6ca3cc77ff7a857de4d66c29d2b83b611c216a06c70180dcf4a014cc560fab35",
+      "validation/review-report.md": "c3b1979aa36b6e157b8f0872b156e7793871ef6f8280b55c6adb0eb003e62fcc"
     }
   }
 }

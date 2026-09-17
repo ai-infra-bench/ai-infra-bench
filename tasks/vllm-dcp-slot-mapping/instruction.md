@@ -8,4 +8,4 @@ I am moving a text-generation deployment from the original GPU model runner to M
 }
 ```
 
-The traffic is ordinary batched generation: a short request may finish while a longer one keeps decoding, and a new prompt can join the next batch. V2 does not yet handle this DCP setup correctly. Please make it work with supported paged-KV-cache layouts, in both eager and CUDA-graph execution, so each request keeps producing the correct result as the batch changes and generation crosses cache-block boundaries. Deployments without DCP should continue to work as before.
+The traffic is ordinary batched generation: a short request may finish while a longer one keeps decoding, and a new prompt can join the next batch. V2 does not yet handle this DCP setup correctly. I use FlashAttention or FlashInfer depending on the deployment. Please make DCP work with their supported paged-KV-cache layouts, in both eager and CUDA-graph execution, so each request keeps producing the correct result as the batch changes and generation crosses cache-block boundaries. Deployments without DCP should continue to work as before.
