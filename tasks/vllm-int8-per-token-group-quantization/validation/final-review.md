@@ -1,3 +1,5 @@
-# 1.2.7 validation pending
+# Acceptance pending the model campaign
 
-A legal contiguous FP16 view with storage_offset=1 triggers a CUDA misaligned-address error in the 1.2.6 Oracle. The old verifier accepted that Oracle. A pointer-alignment guard and three offset-input regressions are prepared but not yet validated. Round-one Flash experiments retain their frozen 1.2.6 inputs. Historical full results are preserved under history/.
+Version 1.2.7 has passed its Oracle Harbor run and all 20 expected control outcomes. The confirmed contiguous-offset coverage gap is repaired. See [validation results](review-report.md).
+
+The user-requested iterative campaign is not complete: two first-round Flash attempts are still running, their final states require review, and a fresh frozen four-attempt round remains. Original rewards are preserved separately from diagnostic and full-verifier replays. This file does not certify final acceptance.

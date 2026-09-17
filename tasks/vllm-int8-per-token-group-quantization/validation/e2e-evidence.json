@@ -2,15 +2,14 @@
   "schema_version": "vllm_harbor_task_validation.v1",
   "task": "ai-infra-bench/vllm-int8-per-token-group-quantization",
   "version": "1.2.7",
-  "status": "validation_pending",
-  "recorded_at": "2026-09-17T17:55:46.208189+00:00",
+  "status": "controls_validated_model_campaign_in_progress",
+  "recorded_at": "2026-09-17T20:17:50.157704+00:00",
   "revision": {
-    "worktree": "/Users/yaoyaoyao/Documents/Codex/2026-09-17/qing-2/work/pr70-review",
-    "head": "524816e35fbeeafb2a6b388a8403376d73ba2ec6",
-    "branch": "pr70-review",
-    "state": "uncommitted 1.2.7 preparation; not yet validated",
+    "source_revision": "d8ba35c",
+    "validation_harness_revision": "05cfe06",
     "base_commit": "14bf19e39f601163265b7c7d58d972b8a83d8896",
-    "dependency_cutoff": "2025-07-23T18:29:36Z"
+    "dependency_cutoff": "2025-07-23T18:29:36Z",
+    "state": "runtime inputs and controls frozen before runs; model campaign still in progress"
   },
   "review_skill": {
     "worktree": "/Users/yaoyaoyao/Documents/Codex/2026-09-17/qing-2/work/pr70-review",
@@ -72,45 +71,777 @@
       "validation/challenge/offset_input_probe.py": "ef38af53b42b6cb90fb2a5aa6ecd015dbce0240c9ab0beb06e2833313ecf08f1"
     }
   },
-  "semantic_boundary": "contiguous tensor and public parameters -> real native CUDA/public platform dispatch/Triton fallback -> INT8 values, FP32 scales and measured CUDA latency",
-  "environment_validation": {
-    "image_check": "passed",
-    "offline_agent_pytest": "2 passed, 1344 deselected",
-    "upstream_collection": "24 per-token-group FP8 tests collected"
+  "raw_evidence": {
+    "validation-127-review.tar.gz": {
+      "path": "validation/evidence/1.2.7/validation-127-review.tar.gz",
+      "sha256": "46b595424117e6f5c1475347201700cf75cbffb5e4072d48212bc9639c57834e"
+    },
+    "oracle-127-harbor-review.tar.gz": {
+      "path": "validation/evidence/1.2.7/oracle-127-harbor-review.tar.gz",
+      "sha256": "6a34bbb9eca2101f4a15ca0b910dd2d9edc25e99a9fdc64eb3ba0894923a533c"
+    }
   },
-  "tooling": {
-    "collect_evidence.py": "36357575f8730d8abcc8e33923536e1d69cb178271c8bb42fc9655a5156204c0",
-    "final_oracle_gate.py": "5b3be1756eff94432d10f01dca768e325800c76fe69fa7a19783ee53d0600a5b",
-    "independent_probe.py": "0c2b8424469b34e5481ec8a92bfe66f27bb0913b0b71ae1c1d4535f3c4a42d51",
-    "run_harbor.py": "2593f4feae03293b6bbbdca342d91de5cd892207a89c9b03d760d6a57d3f6e77",
-    "run_harbor_initial.py": "8bee191443cc42152bee92aad43e8c2141cb4063eeade1ed920b65171f1d0d88",
-    "run_matrix.py": "2cdad55a7c333ba3bb4913183908265b1f85fea5ff227b28fb4b8cfe39f86ae2",
-    "seed_compiler_cache.py": "ff3c4e181b73c5c77daccf22b4b77a2ac0a684d27015622069f5f1e42396e0cf",
-    "external_run_case.py": "7f6375ab68bbaa4583576d0c63bf46854797dc3be5c3e5f6d3948bdd10ccf52e",
-    "external_local_nvidia_docker.py": "d09075b76e78c4be8a0cc4e9f5781ba685536c9a6a9bce827f13e9d2ed0994e1",
-    "external_docker_compose": "837fd1d35bf6a494f41b5b5988269a7be79de337cf1a1a6ff0e45ab51bb4e9be"
+  "matrix": {
+    "entrypoint": "bash /tests/test.sh",
+    "kind": "direct grading, not Harbor trials",
+    "inputs_unchanged": true,
+    "cases": [
+      {
+        "case": "alternate-native-kernel",
+        "expected_reward": 1,
+        "reward": 1.0,
+        "matched": true,
+        "entrypoint_exit": 0,
+        "native_sha256": "e3e0cb76a3c8326b5484710297d8c1208f9372e8c84924150c8496ab4166e84c",
+        "independent_probe_exit": 0,
+        "offset_probes": [
+          {
+            "dtype": "float16",
+            "offset": 0,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-float16-0-public.log"
+          },
+          {
+            "dtype": "float16",
+            "offset": 0,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-float16-0-native.log"
+          },
+          {
+            "dtype": "float16",
+            "offset": 1,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-float16-1-public.log"
+          },
+          {
+            "dtype": "float16",
+            "offset": 1,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-float16-1-native.log"
+          },
+          {
+            "dtype": "float16",
+            "offset": 3,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-float16-3-public.log"
+          },
+          {
+            "dtype": "float16",
+            "offset": 3,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-float16-3-native.log"
+          },
+          {
+            "dtype": "bfloat16",
+            "offset": 0,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-bfloat16-0-public.log"
+          },
+          {
+            "dtype": "bfloat16",
+            "offset": 0,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-bfloat16-0-native.log"
+          },
+          {
+            "dtype": "bfloat16",
+            "offset": 1,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-bfloat16-1-public.log"
+          },
+          {
+            "dtype": "bfloat16",
+            "offset": 1,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-bfloat16-1-native.log"
+          },
+          {
+            "dtype": "bfloat16",
+            "offset": 3,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-bfloat16-3-public.log"
+          },
+          {
+            "dtype": "bfloat16",
+            "offset": 3,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-bfloat16-3-native.log"
+          },
+          {
+            "dtype": "float32",
+            "offset": 0,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-float32-0-public.log"
+          },
+          {
+            "dtype": "float32",
+            "offset": 0,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-float32-0-native.log"
+          },
+          {
+            "dtype": "float32",
+            "offset": 1,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-float32-1-public.log"
+          },
+          {
+            "dtype": "float32",
+            "offset": 1,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-float32-1-native.log"
+          },
+          {
+            "dtype": "float32",
+            "offset": 3,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-float32-3-public.log"
+          },
+          {
+            "dtype": "float32",
+            "offset": 3,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-float32-3-native.log"
+          }
+        ],
+        "record": "a/alternate-native-kernel/record.json"
+      },
+      {
+        "case": "base",
+        "expected_reward": 0,
+        "reward": 0.0,
+        "matched": true,
+        "entrypoint_exit": 1,
+        "native_sha256": "926e4ed63d09e41140a2a0f134c8ad557f2d76b17c65bd2d6e8c289812737a46",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "a/base/record.json"
+      },
+      {
+        "case": "oracle",
+        "expected_reward": 1,
+        "reward": 1.0,
+        "matched": true,
+        "entrypoint_exit": 0,
+        "native_sha256": "0eafa8fe12df28a79d4c018ae24d195b971c874d96f4f40cad2ef7c618c49ddc",
+        "independent_probe_exit": 0,
+        "offset_probes": [
+          {
+            "dtype": "float16",
+            "offset": 0,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-float16-0-public.log"
+          },
+          {
+            "dtype": "float16",
+            "offset": 0,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-float16-0-native.log"
+          },
+          {
+            "dtype": "float16",
+            "offset": 1,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-float16-1-public.log"
+          },
+          {
+            "dtype": "float16",
+            "offset": 1,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-float16-1-native.log"
+          },
+          {
+            "dtype": "float16",
+            "offset": 3,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-float16-3-public.log"
+          },
+          {
+            "dtype": "float16",
+            "offset": 3,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-float16-3-native.log"
+          },
+          {
+            "dtype": "bfloat16",
+            "offset": 0,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-bfloat16-0-public.log"
+          },
+          {
+            "dtype": "bfloat16",
+            "offset": 0,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-bfloat16-0-native.log"
+          },
+          {
+            "dtype": "bfloat16",
+            "offset": 1,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-bfloat16-1-public.log"
+          },
+          {
+            "dtype": "bfloat16",
+            "offset": 1,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-bfloat16-1-native.log"
+          },
+          {
+            "dtype": "bfloat16",
+            "offset": 3,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-bfloat16-3-public.log"
+          },
+          {
+            "dtype": "bfloat16",
+            "offset": 3,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-bfloat16-3-native.log"
+          },
+          {
+            "dtype": "float32",
+            "offset": 0,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-float32-0-public.log"
+          },
+          {
+            "dtype": "float32",
+            "offset": 0,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-float32-0-native.log"
+          },
+          {
+            "dtype": "float32",
+            "offset": 1,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-float32-1-public.log"
+          },
+          {
+            "dtype": "float32",
+            "offset": 1,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-float32-1-native.log"
+          },
+          {
+            "dtype": "float32",
+            "offset": 3,
+            "mode": "public",
+            "exit_code": 0,
+            "log": "offset-float32-3-public.log"
+          },
+          {
+            "dtype": "float32",
+            "offset": 3,
+            "mode": "native",
+            "exit_code": 0,
+            "log": "offset-float32-3-native.log"
+          }
+        ],
+        "record": "a/oracle/record.json"
+      },
+      {
+        "case": "positive-lower-bound-rejected",
+        "expected_reward": 0,
+        "reward": 0.0,
+        "matched": true,
+        "entrypoint_exit": 1,
+        "native_sha256": "a3d9934e573dfad20f6ca98caf239fe358fd95dfba61e0d66d73dd8b3b8018d5",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "a/positive-lower-bound-rejected/record.json"
+      },
+      {
+        "case": "range-must-include-zero",
+        "expected_reward": 0,
+        "reward": 0.0,
+        "matched": true,
+        "entrypoint_exit": 1,
+        "native_sha256": "91d31f87cd8f39af96c106cdd72a404ea0b56b47daaa8b14d21ab2ff153902aa",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "a/range-must-include-zero/record.json"
+      },
+      {
+        "case": "reciprocal-overflow",
+        "expected_reward": 0,
+        "reward": 0.0,
+        "matched": true,
+        "entrypoint_exit": 1,
+        "native_sha256": "c15058e831140b9d516ce3d19be5edf5e9881957d05b7d9f12eb7bc9d419de54",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "a/reciprocal-overflow/record.json"
+      },
+      {
+        "case": "wrong-public-operator-name",
+        "expected_reward": 0,
+        "reward": 0.0,
+        "matched": true,
+        "entrypoint_exit": 1,
+        "native_sha256": "9cd10e11d3ce9650e88a005f3a43cf22cd62b1904815e880ce6c29e166ee91ba",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "a/wrong-public-operator-name/record.json"
+      },
+      {
+        "case": "compatible-operator-alias",
+        "expected_reward": 1,
+        "reward": 1.0,
+        "matched": true,
+        "entrypoint_exit": 0,
+        "native_sha256": "9c32b394d08011f2a1ca8082f973cefa245669e89bc28dd48df7a729b5464981",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "b/compatible-operator-alias/record.json"
+      },
+      {
+        "case": "empty-batch-launch",
+        "expected_reward": 0,
+        "reward": 0.0,
+        "matched": true,
+        "entrypoint_exit": 1,
+        "native_sha256": "192a6c7e3024be9382a8d8257ebdbd7daba6a7b50cb3889328bb7b0cfe838f50",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "b/empty-batch-launch/record.json"
+      },
+      {
+        "case": "large-group-shared-memory",
+        "expected_reward": 0,
+        "reward": 0.0,
+        "matched": true,
+        "entrypoint_exit": 1,
+        "native_sha256": "5c8755f70013762062cbdbf2889c5f5714d56dd0d2cecb3ba2958d36b3316e3c",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "b/large-group-shared-memory/record.json"
+      },
+      {
+        "case": "offset-contiguous-input",
+        "expected_reward": 0,
+        "reward": 0.0,
+        "matched": true,
+        "entrypoint_exit": 1,
+        "native_sha256": "2feaae85d695a0ebd326d8109abecbaf57a920ecdf543e6314f7c675014b0fbf",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "b/offset-contiguous-input/record.json"
+      },
+      {
+        "case": "renamed-private-triton-helper",
+        "expected_reward": 1,
+        "reward": 1.0,
+        "matched": true,
+        "entrypoint_exit": 0,
+        "native_sha256": "6df4948e249ee462df9856432f25b62a94d541b4630515b46da08f04b61dce1b",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "b/renamed-private-triton-helper/record.json"
+      },
+      {
+        "case": "slow-candidate-occupancy",
+        "expected_reward": 0,
+        "reward": 0.0,
+        "matched": true,
+        "entrypoint_exit": 1,
+        "native_sha256": "1d6574116ab67d0074264fa2d64f30ad20888965b30ed339d47bb80ffc6883e9",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "b/slow-candidate-occupancy/record.json"
+      },
+      {
+        "case": "unaligned-group-native",
+        "expected_reward": 0,
+        "reward": 0.0,
+        "matched": true,
+        "entrypoint_exit": 1,
+        "native_sha256": "4b4cfb0e7cf18a9ea20d265e0a4e76d20fc3a8efa95a1ce3ae3b119ac735a285",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "b/unaligned-group-native/record.json"
+      },
+      {
+        "case": "cached-platform-dispatch",
+        "expected_reward": 1,
+        "reward": 1.0,
+        "matched": true,
+        "entrypoint_exit": 0,
+        "native_sha256": "88592997823cc6a14a909b393fcfcb6b6462fc0d02aa9831b41c51ed5c648e5f",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "c/cached-platform-dispatch/record.json"
+      },
+      {
+        "case": "early-native-timing-exit",
+        "expected_reward": 0,
+        "reward": 0.0,
+        "matched": true,
+        "entrypoint_exit": 1,
+        "native_sha256": "883631e9e5cdeebba46b9e86c032424e890caa900f0ed0de79cd0b09cd696289",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "c/early-native-timing-exit/record.json"
+      },
+      {
+        "case": "early-os-exit",
+        "expected_reward": 0,
+        "reward": 0.0,
+        "matched": true,
+        "entrypoint_exit": 1,
+        "native_sha256": "88592997823cc6a14a909b393fcfcb6b6462fc0d02aa9831b41c51ed5c648e5f",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "c/early-os-exit/record.json"
+      },
+      {
+        "case": "early-system-exit",
+        "expected_reward": 0,
+        "reward": 0.0,
+        "matched": true,
+        "entrypoint_exit": 1,
+        "native_sha256": "88592997823cc6a14a909b393fcfcb6b6462fc0d02aa9831b41c51ed5c648e5f",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "c/early-system-exit/record.json"
+      },
+      {
+        "case": "native-without-fallback",
+        "expected_reward": 0,
+        "reward": 0.0,
+        "matched": true,
+        "entrypoint_exit": 1,
+        "native_sha256": "88592997823cc6a14a909b393fcfcb6b6462fc0d02aa9831b41c51ed5c648e5f",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "c/native-without-fallback/record.json"
+      },
+      {
+        "case": "renamed-platform-import",
+        "expected_reward": 1,
+        "reward": 1.0,
+        "matched": true,
+        "entrypoint_exit": 0,
+        "native_sha256": "88592997823cc6a14a909b393fcfcb6b6462fc0d02aa9831b41c51ed5c648e5f",
+        "independent_probe_exit": null,
+        "offset_probes": null,
+        "record": "c/renamed-platform-import/record.json"
+      }
+    ],
+    "passed_expected_outcomes": 20,
+    "total": 20
   },
-  "input_checksum_note": "Harbor checksums identify the staged task before final evidence writes. Historical and remediation documents were not staged; every frozen executable hash matches. Evidence-only updates do not change executable results.",
-  "compiler_cache_note": "Direct grading reused ccache, never a native library or build directory. Fresh Harbor containers received complete content-checked cache entries only after agent completion and verifier startup. The unchanged test.sh/build backend rebuilt each candidate; source/compiler/include hashes determine cache hits. Cache provenance and native hashes are retained. Final runs are not claimed as cold builds.",
-  "superseded_validation": {
-    "path": "validation/evidence/1.2.6/superseded-single-block-runs.tar.gz",
-    "sha256": "a8742f8e62770bbd66200cc0464cb5695570dc4b4a9a19a0c1389a928603d06d",
-    "summary": "validation/evidence/1.2.6/superseded-single-block-summary.json",
-    "note": "The first matrix unexpectedly accepted the unaligned-group negative control because its test shapes used one block. The formal cases were strengthened to FP16/BF16 (2,3,33) group 33 and FP32 (2,3,17) group 17. That first matrix and its four Harbor runs are preserved but superseded by all current runs."
+  "harbor_oracle": {
+    "harbor_version": "0.22.0",
+    "summary": {
+      "slot": 3,
+      "command": [
+        "/tmp/codex-pr63-hardening-20260918/harbor-venv/bin/harbor",
+        "run",
+        "-p",
+        "/data/codex-pr70-rollouts-20260918/oracle-127-harbor/inputs/oracle-127-harbor-gpu3",
+        "-a",
+        "capture_agent:CaptureSmoke",
+        "--override-gpus",
+        "0",
+        "--jobs-dir",
+        "/data/codex-pr70-rollouts-20260918/oracle-127-harbor/jobs",
+        "--job-name",
+        "oracle-127-harbor-gpu3",
+        "--n-concurrent",
+        "1",
+        "--max-retries",
+        "0",
+        "--no-delete",
+        "--ek",
+        "keep_containers=true",
+        "--ak",
+        "task_dir=/data/codex-pr70-rollouts-20260918/oracle-127-harbor/inputs/oracle-127-harbor-gpu3"
+      ],
+      "exit_code": 0,
+      "seconds": 585.391,
+      "results": [
+        {
+          "result_path": "/data/codex-pr70-rollouts-20260918/oracle-127-harbor/jobs/oracle-127-harbor-gpu3/oracle-127-harbor-gpu3__G6aXUkF/result.json",
+          "trial_id": "4cabce7e-b02b-4ee8-b2cc-cd4f36c2e986",
+          "reward": {
+            "reward": 1.0
+          },
+          "exception": null,
+          "task_checksum": "1c11d97b8bfaa223402822c0fdb7dfa3ec6f5b83f59e08e6e4d80362ed09b50c"
+        }
+      ],
+      "inputs_unchanged": true
+    },
+    "verdict": "PASS",
+    "performance": {
+      "timing": [
+        {
+          "shape": [
+            1024,
+            4096
+          ],
+          "group_size": 128,
+          "candidate_observation": {
+            "shape": [
+              1024,
+              4096
+            ],
+            "group_size": 128,
+            "samples_ms": [
+              0.01970944046974182,
+              0.019760639667510987,
+              0.019665919542312622,
+              0.019814399480819703,
+              0.01963520050048828
+            ],
+            "warmup": 40,
+            "iterations": 400,
+            "repeats": 5,
+            "native_sha256": "093f5e37914a943888b762d0da9af430d94d09e307d7d7e7a4a0e57ec89bb982",
+            "input_sha256": "7b9fa69c1275e14ca7477f159e9526a1c8cfb9aef34718f9eb2adfeefd5cd081",
+            "actual_uid": 65534
+          },
+          "candidate_cuda_ms": 0.019709,
+          "frozen_triton_ms": 0.046031,
+          "speedup": 2.335,
+          "input_snapshot_sha256": "7b9fa69c1275e14ca7477f159e9526a1c8cfb9aef34718f9eb2adfeefd5cd081"
+        },
+        {
+          "shape": [
+            4096,
+            4096
+          ],
+          "group_size": 128,
+          "candidate_observation": {
+            "shape": [
+              4096,
+              4096
+            ],
+            "group_size": 128,
+            "samples_ms": [
+              0.05592576026916504,
+              0.05597184181213379,
+              0.0567526388168335,
+              0.05597184181213379,
+              0.055961599349975584
+            ],
+            "warmup": 40,
+            "iterations": 400,
+            "repeats": 5,
+            "native_sha256": "093f5e37914a943888b762d0da9af430d94d09e307d7d7e7a4a0e57ec89bb982",
+            "input_sha256": "983124ac8ffe6035ae1b71c64f482c8a9014d15f89a2cc1fa8e4f9c1bc135b2b",
+            "actual_uid": 65534
+          },
+          "candidate_cuda_ms": 0.055972,
+          "frozen_triton_ms": 0.130455,
+          "speedup": 2.331,
+          "input_snapshot_sha256": "983124ac8ffe6035ae1b71c64f482c8a9014d15f89a2cc1fa8e4f9c1bc135b2b"
+        },
+        {
+          "shape": [
+            2048,
+            4096
+          ],
+          "group_size": 64,
+          "candidate_observation": {
+            "shape": [
+              2048,
+              4096
+            ],
+            "group_size": 64,
+            "samples_ms": [
+              0.04829951763153076,
+              0.04827904224395752,
+              0.04828159809112549,
+              0.048276481628417967,
+              0.04872960090637207
+            ],
+            "warmup": 40,
+            "iterations": 400,
+            "repeats": 5,
+            "native_sha256": "093f5e37914a943888b762d0da9af430d94d09e307d7d7e7a4a0e57ec89bb982",
+            "input_sha256": "023e75913e9341db7d5883a751c60f51e90226b161e804245fb8a3cd79cc1c16",
+            "actual_uid": 65534
+          },
+          "candidate_cuda_ms": 0.048282,
+          "frozen_triton_ms": 0.129167,
+          "speedup": 2.675,
+          "input_snapshot_sha256": "023e75913e9341db7d5883a751c60f51e90226b161e804245fb8a3cd79cc1c16"
+        },
+        {
+          "shape": [
+            16,
+            256,
+            4096
+          ],
+          "group_size": 128,
+          "candidate_observation": {
+            "shape": [
+              16,
+              256,
+              4096
+            ],
+            "group_size": 128,
+            "samples_ms": [
+              0.05554687976837158,
+              0.05552896022796631,
+              0.05552896022796631,
+              0.0566707181930542,
+              0.05583104133605957
+            ],
+            "warmup": 40,
+            "iterations": 400,
+            "repeats": 5,
+            "native_sha256": "093f5e37914a943888b762d0da9af430d94d09e307d7d7e7a4a0e57ec89bb982",
+            "input_sha256": "3712faa8caa5c32f836524b293c3faca207f8230e1d92c1b7edb7a26ee0d3830",
+            "actual_uid": 65534
+          },
+          "candidate_cuda_ms": 0.055547,
+          "frozen_triton_ms": 0.130186,
+          "speedup": 2.344,
+          "input_snapshot_sha256": "3712faa8caa5c32f836524b293c3faca207f8230e1d92c1b7edb7a26ee0d3830"
+        },
+        {
+          "shape": [
+            4096,
+            4096
+          ],
+          "group_size": 64,
+          "candidate_observation": {
+            "shape": [
+              4096,
+              4096
+            ],
+            "group_size": 64,
+            "samples_ms": [
+              0.09447168350219727,
+              0.09487615585327148,
+              0.09447680473327637,
+              0.09446144104003906,
+              0.09447680473327637
+            ],
+            "warmup": 40,
+            "iterations": 400,
+            "repeats": 5,
+            "native_sha256": "093f5e37914a943888b762d0da9af430d94d09e307d7d7e7a4a0e57ec89bb982",
+            "input_sha256": "2be86c4df8e5313ea6a73b2e50fbb25b1e1507eee7655800140c42702d2fcb59",
+            "actual_uid": 65534
+          },
+          "candidate_cuda_ms": 0.094477,
+          "frozen_triton_ms": 0.254723,
+          "speedup": 2.696,
+          "input_snapshot_sha256": "2be86c4df8e5313ea6a73b2e50fbb25b1e1507eee7655800140c42702d2fcb59"
+        }
+      ],
+      "min_speedup": 2.331,
+      "threshold": 1.5,
+      "performance_pass": true,
+      "frozen_reference_verified": {
+        "pre_timing": {
+          "reference_int8_utils.py": "36406a44b95e54cf99988105d0fe9a69645a0d2fcbfe2e60b1982d3ac9fdcff3",
+          "frozen_reference_loader.py": "cbe0ace52fb119b73270d87573fab94ca7d85a0d4ac7d376aafd014d3ac546e3"
+        },
+        "post_timing": {
+          "reference_int8_utils.py": "36406a44b95e54cf99988105d0fe9a69645a0d2fcbfe2e60b1982d3ac9fdcff3",
+          "frozen_reference_loader.py": "cbe0ace52fb119b73270d87573fab94ca7d85a0d4ac7d376aafd014d3ac546e3"
+        }
+      }
+    },
+    "stages": {
+      "ordinary_correctness": 4,
+      "configurable_arguments": 2,
+      "configured_ranges": 18,
+      "boundary_public": 21,
+      "boundary_native": 21,
+      "operator_surface": "PASS",
+      "public_dispatch": {
+        "cuda_dispatch": "native",
+        "non_cuda_dispatch": "triton"
+      }
+    },
+    "frozen_baseline_integrity": {
+      "pre_worker": {
+        "reference_int8_utils.py": "36406a44b95e54cf99988105d0fe9a69645a0d2fcbfe2e60b1982d3ac9fdcff3",
+        "frozen_reference_loader.py": "cbe0ace52fb119b73270d87573fab94ca7d85a0d4ac7d376aafd014d3ac546e3"
+      },
+      "post_worker": {
+        "reference_int8_utils.py": "36406a44b95e54cf99988105d0fe9a69645a0d2fcbfe2e60b1982d3ac9fdcff3",
+        "frozen_reference_loader.py": "cbe0ace52fb119b73270d87573fab94ca7d85a0d4ac7d376aafd014d3ac546e3"
+      }
+    }
   },
-  "historical_evidence": {
-    "path": "validation/history/1.2.5-before-shared-memory-fix.json.gz",
-    "sha256": "ec0fe016eb81e891b9ba4359b8ff42b24872dab8195c05d394fcfc4cc902745e",
-    "note": "Historical runs and scores are preserved, not counted for this revision."
+  "independent_checks": {
+    "implementations": [
+      "Oracle",
+      "alternate-native-kernel"
+    ],
+    "each": {
+      "int8": 54,
+      "native_fp8": 24,
+      "offset_input": 18
+    },
+    "all_passed": true,
+    "scope": "Development probes, separate from scored suite"
   },
+  "model_campaign": {
+    "status": "round one incomplete; second frozen round not started",
+    "model": "deepseek-v4-flash[1m]",
+    "requested_parallelism": 4,
+    "round_one_task_version": "1.2.6",
+    "original_rewards_preserved": true,
+    "completed_model_attempts": 2,
+    "running_model_attempts": 2,
+    "startup_failure_without_model": 1,
+    "completed_full_snapshot_replays_against_1_2_7": {
+      "gpu5": 0,
+      "replacement_gpu7": 0
+    },
+    "confirmed_old_verifier_false_positive": "gpu5 original reward 1; legal offset view causes misaligned-address error"
+  },
+  "compiler_cache": "Direct grading reused ccache, never a native library or build directory. Fresh Harbor containers received complete content-checked cache entries only after agent completion and verifier startup. The unchanged test.sh/build backend rebuilt each candidate; source/compiler/include hashes determine cache hits. Cache provenance and native hashes are retained. Final runs are not claimed as cold builds.",
   "limitations": [
-    "Fallback checks simulate stable platform capability before import and execute real Triton on CUDA; actual ROCm hardware/code generation was not tested.",
-    "The original upstream FP8 Triton-reference test fails on A100 because fp8e4nv is unsupported on sm80. This reproduces on Base; independent real-native FP8 checks cover all 24 layout/scale combinations against PyTorch instead.",
-    "No fresh model rollout or certification of historical rollout completeness was performed.",
-    "Raw native libraries remain on the validation host; the task archive retains their hashes and logs.",
-    "These checks do not certify isolation against arbitrary native process compromise."
+    "No final task/campaign acceptance yet: two round-one model attempts and the fresh revised round remain.",
+    "Whole repository including ignored files and .git is captured before grading. Whole root filesystem is not captured; external writes are reviewed from trajectories.",
+    "No immutable gateway model revision was recorded. Effective high effort appears in raw Claude session records; launch did not explicitly override effort.",
+    "Fallback checks simulate stable platform capability before import and execute real Triton on CUDA; actual ROCm hardware was not tested.",
+    "Upstream FP8 Triton reference cannot compile fp8e4nv on sm80. Independent native FP8 checks use PyTorch for 24 combinations.",
+    "Native libraries remain on A100 with recorded hashes. Compiler caches were used in curator grading phases; no cold-build claim.",
+    "This does not certify isolation against arbitrary native process compromise."
   ],
-  "pending_reason": "Independent legal contiguous offset input reproduces misaligned address in the 1.2.6 Oracle. New inputs and Oracle fix require fresh validation; all prior results are historical.",
   "historical_1_2_6_evidence": "validation/history/1.2.6-before-offset-fix-e2e-evidence.json.gz",
   "prior_1_2_6_raw_evidence": {
     "path": "validation/evidence/1.2.6/raw-runs.tar.gz",
