@@ -44,25 +44,45 @@ def check_numerics(cases, expected_count, workload):
         torch.testing.assert_close(actual, nearest, rtol=0.03, atol=0.5)
 
 EXPECTED_STAGES = ['compatibility_no_warning','active_owner_workspace_provenance','numerical_path_unchanged','flashinfer_consumer_follows_owner','lora_factory_follows_owner','functional_no_global_dependency','flashinfer_prepare_expert_finalize']
-def check(raw, workload):
-    # Standard Triton workspace geometry from the frozen backend: two routed
-    # intermediates plus output. The task preserves the 16K routing bound.
+def check_stages(raw, workload):
+    """Yield a stage only after its trusted behavioral assertions finish."""
+    assert not any('Current vLLM config is not set' in x for x in raw['warnings'])
+    yield 'compatibility_no_warning'
+
+    # Keep the same acceptance predicates, grouped by the behavior they check.
     prescribed = workload['numerics'][0]
     hidden = len(prescribed['x'][0])
     projected = len(prescribed['w1'][0])
     topk = len(prescribed['ids'][0])
     worst_case_bytes = 16384 * topk * max(projected, hidden) * 2
-    for field in ['dp_workspace_bytes', 'dp_consumer_workspace_bytes', 'lora_dp_workspace_bytes']:
-        assert raw[field] >= worst_case_bytes, (field, raw[field], worst_case_bytes)
-    for field in ['ordinary_workspace_bytes', 'ordinary_consumer_workspace_bytes', 'lora_ordinary_workspace_bytes', 'functional_workspace_bytes']:
-        assert 0 < raw[field] < worst_case_bytes, (field, raw[field], worst_case_bytes)
 
-    assert not any('Current vLLM config is not set' in x for x in raw['warnings'])
-    assert raw['dp_workspace_bytes'] > raw['ordinary_workspace_bytes'] > 0
-    assert raw['dp_consumer_workspace_bytes'] > raw['ordinary_consumer_workspace_bytes'] > 0
-    assert raw['lora_dp_workspace_bytes'] > raw['lora_ordinary_workspace_bytes'] > 0
-    assert raw['functional_workspace_bytes'] == raw['ordinary_workspace_bytes']
+    def check_workspace(dp_field, ordinary_field):
+        assert raw[dp_field] >= worst_case_bytes, (dp_field, raw[dp_field], worst_case_bytes)
+        assert 0 < raw[ordinary_field] < worst_case_bytes, (ordinary_field, raw[ordinary_field], worst_case_bytes)
+        assert raw[dp_field] > raw[ordinary_field] > 0
+
+    check_workspace('dp_workspace_bytes', 'ordinary_workspace_bytes')
+    yield 'active_owner_workspace_provenance'
+
     check_numerics(raw['numerics'], 8, workload)
+    yield 'numerical_path_unchanged'
+
+    check_workspace('dp_consumer_workspace_bytes', 'ordinary_consumer_workspace_bytes')
+    yield 'flashinfer_consumer_follows_owner'
+
+    check_workspace('lora_dp_workspace_bytes', 'lora_ordinary_workspace_bytes')
+    yield 'lora_factory_follows_owner'
+
+    field = 'functional_workspace_bytes'
+    assert 0 < raw[field] < worst_case_bytes, (field, raw[field], worst_case_bytes)
+    assert raw[field] == raw['ordinary_workspace_bytes']
+    yield 'functional_no_global_dependency'
+
     from pipeline_contract import check_pipeline
     check_pipeline(raw['flashinfer_pipeline'], workload['flashinfer_pipeline'])
-    return EXPECTED_STAGES
+    yield 'flashinfer_prepare_expert_finalize'
+
+
+def check(raw, workload):
+    """Compatibility entrypoint for callers that only need all-or-nothing checks."""
+    return list(check_stages(raw, workload))

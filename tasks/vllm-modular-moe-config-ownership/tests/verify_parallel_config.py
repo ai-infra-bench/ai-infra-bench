@@ -10,7 +10,7 @@ import os
 import sys
 from types import SimpleNamespace
 
-sys.path.insert(0, "/workspace/repo")
+sys.path.insert(0, "/workspace/vllm")
 
 import torch
 from workload import load_workload

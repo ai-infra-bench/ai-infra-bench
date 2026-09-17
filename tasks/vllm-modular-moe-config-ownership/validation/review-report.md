@@ -1,3 +1,9 @@
+> v1.2.10 FlashAttention import and offline Ruff follow-up: see `flashattn-ruff.md` and current `e2e-evidence.json`. Earlier results below retain their original revision.
+
+> v1.2.9 test-tooling and per-stage reporting follow-up: see `test-tooling-reporting.md` and current `e2e-evidence.json`. Earlier reviews retain their original scope and results.
+
+> Historical v1.2.7 review. The workspace migration in v1.2.8 changes the image and executable hashes. Current migration validation is recorded in `workspace-migration.md` and `e2e-evidence.json`; the original evidence is preserved in `history/before-workspace-migration-20260917.json`.
+
 # Modular MoE task hardening review
 
 Task 可保留；本轮修复后通过指定 ai-infra-bench-task-review 的三道审核。#71 Streaming 未在本轮修改。本地 task 版本为 1.2.7，未提交、推送或更新 PR。

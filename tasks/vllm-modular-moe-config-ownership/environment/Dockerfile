@@ -97,35 +97,35 @@ RUN set -eux; \
         "https://codeload.github.com/vllm-project/vllm/tar.gz/${VLLM_BASE_SHA}" \
         -o /tmp/vllm-source.tar.gz; \
     echo "${VLLM_SOURCE_SHA256}  /tmp/vllm-source.tar.gz" | sha256sum -c -; \
-    mkdir -p /workspace/repo; \
-    tar -xzf /tmp/vllm-source.tar.gz --strip-components=1 -C /workspace/repo; \
+    mkdir -p /workspace/vllm; \
+    tar -xzf /tmp/vllm-source.tar.gz --strip-components=1 -C /workspace/vllm; \
     rm -f /tmp/vllm-source.tar.gz
 
-COPY --from=git-history /vllm-history/.git /workspace/repo/.git
+COPY --from=git-history /vllm-history/.git /workspace/vllm/.git
 
 RUN set -eux; \
-    test "$(git -C /workspace/repo rev-parse HEAD)" = "${VLLM_BASE_SHA}"; \
-    test "$(git -C /workspace/repo rev-parse 'HEAD^{tree}')" = "${VLLM_BASE_TREE}"; \
-    test -z "$(git -C /workspace/repo remote)"; \
-    test -z "$(git -C /workspace/repo for-each-ref --format='%(refname)' refs/remotes refs/tags)"; \
-    test ! -e /workspace/repo/.git/logs; \
-    test ! -e /workspace/repo/.git/FETCH_HEAD; \
-    test ! -e /workspace/repo/.git/ORIG_HEAD; \
-    test ! -e /workspace/repo/.git/shallow; \
-    test "$(git -C /workspace/repo rev-list --count HEAD)" -gt 1; \
-    test -z "$(git -C /workspace/repo rev-list --all --not "${VLLM_BASE_SHA}")"; \
-    test -z "$(git -C /workspace/repo fsck --full --no-reflogs --unreachable --no-progress 2>/dev/null)"; \
-    ! git -C /workspace/repo cat-file -e "${VLLM_ORACLE_SHA}^{commit}" 2>/dev/null; \
-    test -z "$(git -C /workspace/repo status --porcelain=v1 --untracked-files=all)"; \
+    test "$(git -C /workspace/vllm rev-parse HEAD)" = "${VLLM_BASE_SHA}"; \
+    test "$(git -C /workspace/vllm rev-parse 'HEAD^{tree}')" = "${VLLM_BASE_TREE}"; \
+    test -z "$(git -C /workspace/vllm remote)"; \
+    test -z "$(git -C /workspace/vllm for-each-ref --format='%(refname)' refs/remotes refs/tags)"; \
+    test ! -e /workspace/vllm/.git/logs; \
+    test ! -e /workspace/vllm/.git/FETCH_HEAD; \
+    test ! -e /workspace/vllm/.git/ORIG_HEAD; \
+    test ! -e /workspace/vllm/.git/shallow; \
+    test "$(git -C /workspace/vllm rev-list --count HEAD)" -gt 1; \
+    test -z "$(git -C /workspace/vllm rev-list --all --not "${VLLM_BASE_SHA}")"; \
+    test -z "$(git -C /workspace/vllm fsck --full --no-reflogs --unreachable --no-progress 2>/dev/null)"; \
+    ! git -C /workspace/vllm cat-file -e "${VLLM_ORACLE_SHA}^{commit}" 2>/dev/null; \
+    test -z "$(git -C /workspace/vllm status --porcelain=v1 --untracked-files=all)"; \
     VLLM_SITE="$(python3 -c 'import pathlib, vllm; print(pathlib.Path(vllm.__file__).parent)')"; \
     test "$(find /opt/vllm-native -type f | wc -l)" = 7; \
     test -z "$(find /opt/vllm-native ! -type d ! -type f -print -quit)"; \
-    cp -a "${VLLM_SITE}/_version.py" /workspace/repo/vllm/_version.py; \
+    cp -a "${VLLM_SITE}/_version.py" /workspace/vllm/vllm/_version.py; \
     find /opt/vllm-native -type f -name '*.so' \
-        -exec sh -c 'for src do rel="${src#"$0"/}"; dst="/workspace/repo/vllm/$rel"; mkdir -p "$(dirname "$dst")"; cp -a "$src" "$dst"; done' /opt/vllm-native {} +; \
+        -exec sh -c 'for src do rel="${src#"$0"/}"; dst="/workspace/vllm/vllm/$rel"; mkdir -p "$(dirname "$dst")"; cp -a "$src" "$dst"; done' /opt/vllm-native {} +; \
     rm -rf /opt/vllm-native; \
     test ! -e /opt/vllm-native; \
-    test -z "$(git -C /workspace/repo status --porcelain=v1 --untracked-files=all)"; \
+    test -z "$(git -C /workspace/vllm status --porcelain=v1 --untracked-files=all)"; \
     rm -f /root/.bash_history
 
 RUN set -eux; \
@@ -135,12 +135,40 @@ RUN set -eux; \
     chown -R agent:agent /workspace; \
     rm -f /home/agent/.bash_history
 
-ENV PYTHONPATH=/workspace/repo \
+ENV PYTHONPATH=/workspace/vllm \
     HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1 \
     TRITON_CACHE_DIR=/home/agent/.cache/triton
 
+# Reproducible upstream test tooling, without resolving or upgrading runtime dependencies.
+ARG PIP_INDEX_URL=https://pypi.org/simple
+COPY lock/test-requirements.txt /tmp/test-requirements.txt
+RUN python3 -m pip install --no-cache-dir --no-deps --require-hashes -r /tmp/test-requirements.txt \
+    && python3 -m pytest --version \
+    && ruff --version \
+    && rm /tmp/test-requirements.txt
+
+# Restore the Python package installed alongside FlashAttention's native modules.
+# These files come from the existing digest-pinned base, never the newer donor.
+COPY lock/flash-attn-python.sha256 /tmp/flash-attn-python.sha256
+RUN set -eux; \
+    FLASH_ATTN_SITE="$(python3 -c 'import importlib.metadata as m; print(m.distribution("vllm").locate_file("vllm/vllm_flash_attn"))')"; \
+    cd "${FLASH_ATTN_SITE}"; \
+    test "$(wc -l < /tmp/flash-attn-python.sha256)" = 7; \
+    sha256sum -c /tmp/flash-attn-python.sha256; \
+    while read -r expected rel; do \
+        case "${rel}" in *.py) ;; *) exit 1 ;; esac; \
+        case "${rel}" in /*|../*|*/../*) exit 1 ;; esac; \
+        test -f "${rel}"; \
+        test ! -L "${rel}"; \
+        install -D -m 0644 "${rel}" "/workspace/vllm/vllm/vllm_flash_attn/${rel}"; \
+    done < /tmp/flash-attn-python.sha256; \
+    cd /workspace/vllm/vllm/vllm_flash_attn; \
+    sha256sum -c /tmp/flash-attn-python.sha256; \
+    test -z "$(git -C /workspace/vllm -c safe.directory=/workspace/vllm status --porcelain=v1 --untracked-files=all)"; \
+    rm /tmp/flash-attn-python.sha256
+
 USER agent
-WORKDIR /workspace/repo
+WORKDIR /workspace/vllm
 ENTRYPOINT []
 CMD ["sleep", "infinity"]

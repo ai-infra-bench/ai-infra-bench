@@ -12,7 +12,7 @@ import tempfile
 import traceback
 
 sys.path.insert(0, "/tests")
-from check_behavior import EXPECTED_STAGES, check
+from check_behavior import EXPECTED_STAGES, check_stages
 from workload import make_workload
 
 
@@ -50,11 +50,12 @@ def main():
     # as agent, so place that cache in its writable per-run directory.
     env["FLASHINFER_WORKSPACE_BASE"] = str(obs_dir)
     # Paths are added explicitly; site .pth and sitecustomize are never run.
-    bootstrap = "import runpy,sys; sys.path.extend(" + repr(["/workspace/repo","/tests",sysconfig.get_path("purelib"),sysconfig.get_path("platlib")]) + "); runpy.run_path(sys.argv[1],run_name='__main__')"
+    bootstrap = "import runpy,sys; sys.path.extend(" + repr(["/workspace/vllm","/tests",sysconfig.get_path("purelib"),sysconfig.get_path("platlib")]) + "); runpy.run_path(sys.argv[1],run_name='__main__')"
     result = subprocess.run([sys.executable, "-I", "-S", "-c", bootstrap, sys.argv[1]],
-                            env=env, cwd="/workspace/repo", preexec_fn=unprivileged,
+                            env=env, cwd="/workspace/vllm", preexec_fn=unprivileged,
                             timeout=1050)
     passed, failures = [], []
+    failed_stage = None
     try:
         if result.returncode != 0:
             raise RuntimeError(f"candidate worker exit {result.returncode}")
@@ -64,13 +65,21 @@ def main():
         (log / "observations.json").write_text(json.dumps(raw))
         # Only installed, root-owned numerical dependencies are loaded here.
         sys.path.extend([sysconfig.get_path("purelib"), sysconfig.get_path("platlib")])
-        passed = check(raw, workload)
-        assert set(passed) == set(EXPECTED_STAGES) and len(passed) == len(EXPECTED_STAGES)
+        stages = iter(check_stages(raw, workload))
+        for expected in EXPECTED_STAGES:
+            failed_stage = expected
+            assert next(stages) == expected, 'unexpected or incomplete scoring stage'
+            passed.append(expected)
+            failed_stage = None
+        assert next(stages, None) is None, 'unexpected extra scoring stage'
     except Exception:
         failures.append(traceback.format_exc())
         print(failures[-1], flush=True)
     report = {"schema_version": "trusted_behavior_report.v1", "completed": not failures,
               "expected_stages": EXPECTED_STAGES, "stages_passed": passed,
+              "failed_stage": failed_stage,
+              "stages_not_run": [stage for stage in EXPECTED_STAGES
+                                 if stage not in passed and stage != failed_stage],
               "failures": failures, "worker_exit_code": result.returncode,
               "worker_uid": account.pw_uid, "scorer_uid": os.getuid()}
     (log / "report.json").write_text(json.dumps(report, indent=2)+"\n")
