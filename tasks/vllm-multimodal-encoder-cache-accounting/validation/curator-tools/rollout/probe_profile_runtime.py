@@ -2,10 +2,13 @@
 
 Not a scored test. Both encoder-cache writers and profile_run remain production
 code. Replace only media preprocessing/inference and downstream decoder work.
-Cache layout is unrestricted: observe unique backing tensor storage bytes.
+Cache layout is unrestricted: observe live tensor allocations with weak references.
+Require coverage, not exact equality: conservative preallocation is allowed.
 """
 import json
-from collections.abc import Mapping
+import weakref
+from torch.utils._python_dispatch import TorchDispatchMode
+from torch.utils._pytree import tree_leaves
 from types import SimpleNamespace
 import torch
 from vllm.config import SchedulerConfig
@@ -18,18 +21,35 @@ import vllm.v1.worker.gpu_model_runner as runner_module
 import vllm.v1.worker.utils as worker_utils
 
 
-def storage_bytes(value):
-    storages={}
-    def visit(item):
-        if isinstance(item,torch.Tensor):
-            storage=item.untyped_storage()
-            storages[storage.data_ptr()]=storage.nbytes()
-        elif isinstance(item,Mapping):
-            for child in item.values():visit(child)
-        elif isinstance(item,(tuple,list)):
-            for child in item:visit(child)
-    visit(value)
-    return sum(storages.values())
+class TensorAllocationObserver(TorchDispatchMode):
+    """Observe live tensor storage without reading candidate cache internals.
+
+    Weak references do not extend tensor lifetimes. Shared backing allocations
+    count once; input storage already present before the workload is excluded.
+    This measures payload storage on CPU, not CUDA allocator rounding or peaks.
+    """
+    def __init__(self, inputs):
+        super().__init__()
+        self.excluded = {t.untyped_storage().data_ptr() for t in inputs}
+        self.outputs = []
+
+    def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+        result = func(*args, **(kwargs or {}))
+        for value in tree_leaves(result):
+            if isinstance(value, torch.Tensor):
+                self.outputs.append(weakref.ref(value))
+        return result
+
+    def live_bytes(self):
+        storages = {}
+        for reference in self.outputs:
+            value = reference()
+            if value is not None:
+                storage = value.untyped_storage()
+                address = storage.data_ptr()
+                if address not in self.excluded:
+                    storages[address] = storage.nbytes()
+        return sum(storages.values())
 
 
 def observe(length,indices,width):
@@ -65,26 +85,30 @@ def observe(length,indices,width):
         runner.model=SimpleNamespace(embed_multimodal=lambda rows:[r.clone() for r in rows])
         runner_module.group_mm_kwargs_by_modality=lambda items,**kw:[
             ('image',len(items),{'rows':[item.rows for item in items]})]
-        GPUModelRunner._execute_mm_encoder(runner,SimpleNamespace(scheduled_encoder_inputs={'req':[0]}))
-        live=storage_bytes(runner.encoder_cache)
+        live_observer=TensorAllocationObserver([payload,mask])
+        with live_observer:
+            GPUModelRunner._execute_mm_encoder(runner,SimpleNamespace(scheduled_encoder_inputs={'req':[0]}))
+        live=live_observer.live_bytes()
         runner.encoder_cache.clear()
         produced=[];profiled=[]
         def dummy_batch(modality,count):
             assert modality=='image'
             produced.append(count)
-            return {'rows':[payload.clone() for _ in range(count)]}
+            return {'rows':[payload for _ in range(count)]}
         def decoder(*args,**kwargs):
-            profiled.append(storage_bytes(runner.encoder_cache))
+            profiled.append(profile_observer.live_bytes())
             return torch.zeros((1,width)),torch.zeros((1,width))
         runner._get_mm_dummy_batch=dummy_batch
         runner._dummy_run=decoder;runner._sync_device=lambda:None
         runner_module.get_pp_group=lambda:SimpleNamespace(is_last_rank=False)
-        GPUModelRunner.profile_run(runner)
+        profile_observer=TensorAllocationObserver([payload,mask])
+        with profile_observer:
+            GPUModelRunner.profile_run(runner)
         assert len(produced)==len(profiled)==1 and produced[0]>0
         return dict(length=length,encoder_rows=len(indices),width=width,
             live_cache_bytes_per_item=live,profile_items=produced[0],
             profiled_cache_bytes=profiled[0],
-            same_storage_for_same_maximal_output=profiled[0]==live*produced[0])
+            profile_covers_runtime_storage=profiled[0]>=live*produced[0])
     finally:
         MultiModalProfiler._get_dummy_mm_inputs=old_dummy
         worker_utils.processor_only_cache_from_config=old_cache
@@ -95,4 +119,4 @@ def observe(length,indices,width):
 if __name__=='__main__':
     cases=[observe(37,[3,12,19,30],3),observe(61,[2,9,18,31,48,59],5)]
     print(json.dumps({'diagnostic_only':True,'cases':cases},indent=2))
-    raise SystemExit(0 if all(c['same_storage_for_same_maximal_output'] for c in cases) else 1)
+    raise SystemExit(0 if all(c['profile_covers_runtime_storage'] for c in cases) else 1)
