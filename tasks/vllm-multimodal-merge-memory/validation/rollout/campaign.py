@@ -2,6 +2,7 @@
 import argparse,concurrent.futures,hashlib,json,os,shutil,subprocess,time
 from pathlib import Path
 import yaml
+from urllib.parse import urlsplit
 p=argparse.ArgumentParser();p.add_argument('--round',required=True);p.add_argument('--mode',choices=['smoke','flash'],required=True);p.add_argument('--root',type=Path,required=True);a=p.parse_args()
 TASK=Path(__file__).resolve().parents[2];R=a.root/a.round;R.mkdir(parents=True,exist_ok=False)
 HARBOR='/tmp/codex-pr63-hardening-20260918/harbor-venv/bin/harbor'
@@ -25,7 +26,7 @@ def run(slot):
  agent='capture_agent:CapturedClaude' if a.mode=='flash' else 'capture_agent:CaptureSmoke'
  cmd=[HARBOR,'run','-p',str(prepared),'-a',agent,'--override-gpus','0','--jobs-dir',str(R/'jobs'),'--job-name',name,'--n-concurrent','1','--max-retries','0']
  if not model:cmd+=['--ak','task_dir='+str(prepared)]
- if model:cmd+=['-m',model,'--ak','version=2.1.238','--ae','DISABLE_AUTOUPDATER=1']
+ if model:cmd+=['--allow-agent-host',urlsplit(os.environ['ANTHROPIC_BASE_URL']).hostname,'-m',model,'--ak','version=2.1.238','--ae','DISABLE_AUTOUPDATER=1']
  start=time.time()
  with (R/f'{name}-launcher.log').open('w') as log:r=subprocess.run(cmd,stdout=log,stderr=subprocess.STDOUT)
  rows=[]
