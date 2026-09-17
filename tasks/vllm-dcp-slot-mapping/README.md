@@ -1,43 +1,49 @@
 # vLLM DCP slot mapping
 
-## What the Agent does
+## Task and environment
 
-Repair Model Runner V2 behavior for deployments using Decode Context Parallelism. The user-facing contract is in [instruction.md](instruction.md).
+Repair Model Runner V2 for ordinary DCP generation with FlashAttention or FlashInfer. The developer request is in [instruction.md](instruction.md).
 
-## Environment
+Version 1.8.2 provides two GPUs, 2 GiB shared memory, exact Base source, a digest-pinned offline image, and a small random-weight Qwen3 model/tokenizer at `/opt/models/tiny-qwen3`. This ordinary development resource contains no reproducer or repair hints and does not measure language quality. The Agent budget remains ten hours.
 
-A digest-pinned vLLM CUDA image with the exact Base source, one A100-class GPU, an offline runtime, and a 10-hour Agent budget.
+The repository runner schema declares A100 ×2; local calibration uses shared H20 ×2. A100 validation is still pending and is not inferred from H20 results.
 
 ## Verifier
 
-The separate hidden verifier exercises production Model Runner initialization, paged-KV slot mapping, DCP layouts, and CUDA graph replay. Block sizes 16 and 32 are separate supported deployments: real cache configuration generation groups two full-attention layers together, and the production scheduler KV manager accepts the resulting configuration. It also drives eight successive scheduler messages through the real runner and sampler: prefill, reordered decode, block growth, finishing requests, adding a prompt, reusing request capacity, and an empty final tick. Each block size uses a prompt just below its logical block boundary. Per-request generated token IDs are checked against an independent deterministic consumer model, in eager, graph, and non-DCP graph modes. The suite retains real FlashAttention metadata/cache initialization and paged-attention CUDA computation through those runner lifecycles, plus non-DCP two-step Eagle preservation using real FlashInfer planning and decode computation. Version 1.7.0 adds 12 configurations with five successive real FlashInfer native decode steps each: rank-local cache means, page growth, reordered/replaced requests, and graph replay. Full credit requires seventeen checkpoints and is written to `/logs/verifier/reward.txt`.
+The separate hidden verifier requires twenty-one checkpoints:
 
-This is composed subsystem coverage, not HTTP, NCCL multi-rank generation, or model-accuracy benchmarking. The original synthetic-consumer checks remain; the real-backend checks keep backend metadata construction and CUDA attention arithmetic real. Deterministic Q/K/V and local group metadata replace weights and communications, allowing an independent uniform-attention reference. The new FlashInfer DCP checks start at backend metadata planning with an already populated cache: they do not execute KV writes, full FlashInferImpl.forward, or cross-rank collectives. DCP real-backend graphs use the supported decode-only mode; no new mixed-prefill-graph performance requirement is imposed. No candidate-added argument or helper name is inspected or supplied. Validation uses shared H20 GPUs; the declared A100 environment remains unverified. See [the FlashInfer repair and calibration record](validation/review-report.md). This is a repair proposal, not final task acceptance; fresh model trials and grading-trust review remain separate gates.
+- Production runner/cache initialization, DCP slot mapping, supported block sizes 16/32, different ranks/interleaving, graph input updates, block replacement and non-DCP preservation.
+- Real runner/sampler request lifecycles with independent deterministic consumers, complemented by real FlashAttention CUDA arithmetic and graph replay.
+- Non-DCP Eagle preservation and sixty local FlashInfer decode steps covering growth, replacement, reordering and graph replay.
+- Full-engine TP2/DCP2 generation for both FlashAttention and FlashInfer, each in eager and decode-graph modes, explicitly selecting both NHD and HND in fresh processes (eight combinations). Three requests have different completion times; a new request joins while an earlier one is still decoding across cache-block boundaries. Real model weights, KV writes, attention, independent worker processes and collectives run. All 256 output log probabilities at each of nineteen generated tokens per combination are compared with a separate CPU Transformers implementation using the same model weights.
+
+The older component tests still use local rank metadata and deterministic inputs where documented. In v1.8.1 the synthetic consumer checks request/token/position/slot association without requiring runner-populated optional local-length metadata; real attention and full-engine tests validate that length conversion actually works, wherever implemented. The engine tests do not replace groups or prepopulate caches. They use the normal `LLMEngine` admission/step interface, not candidate-added helpers or field names. Numerical tolerances allow FP16 GPU versus FP32 CPU rounding and near-tied greedy choices.
+
+This is generation-engine coverage, not HTTP, production-model quality or a throughput benchmark. Model calls and passing rewards alone do not establish grading integrity; that separate review remains open.
+
+The v1.8.2 layout matrix addresses a demonstrated false positive: the earlier Oracle passed the default-layout suite but generated incorrect results with FlashInfer HND. Its unchanged patch is retained as a negative control. The repaired Oracle keeps the paged-cache layout separate from the token-major uncached K/V input layout. A saved, independently produced GPT answer is the current alternative positive control; the verifier checks outputs, not this implementation choice.
+
+The full-engine FlashAttention graph cases use `flash_attn_max_num_splits_for_cuda_graph=1`, also disclosed in the instruction. Larger split limits trigger a separate FA3 scheduler-metadata startup incompatibility in this image, reproduced on unmodified Base with the original runner. The task does not require fixing that unrelated compatibility issue. Real graph capture/replay and collectives remain enabled; no backend is substituted to bypass it.
 
 ## Layout
 
-- `instruction.md`: user-facing behavioral request.
-- `task.toml`: Harbor metadata, resources, isolation, and artifact paths.
-- `environment/`: exact Base source image and dependency provenance.
-- `solution/`: Oracle patch and application script, hidden from the Agent.
-- `tests/`: separate-verifier entrypoint and behavioral checks.
-- `validation/`: control manifest and evidence for the frozen snapshot.
+- `instruction.md`: Agent-visible developer request.
+- `task.toml`: Harbor resources, isolation and collection metadata.
+- `environment/`: image recipe, pinned dependencies and ordinary model-resource provenance.
+- `solution/`: curator-only reference patch.
+- `tests/`: hidden separate-verifier entrypoint and checks.
+- `validation/`: control patches, current review/index and compact evidence archives.
 
-## Validation evidence
+## Evidence and running
 
-- [Current review](validation/review-report.md) and [remediation matrix](validation/remediation-matrix.md): scope, controls and unresolved gates.
-- [Evidence index](validation/e2e-evidence.json): image identity, execution provenance, results and current artifact hashes.
-- [Current evidence ZIP](validation/evidence.zip): original calibration results and scoring outputs; not full model trajectories.
-- [Historical evidence ZIP](validation/history/curation-history.zip): superseded reports and calibration records, not current model scores.
-- `validation/ci-cases.json` and `validation/*.patch`: executable control definitions; unexecuted security controls remain explicitly pending.
+See [review-report.md](validation/review-report.md), [remediation-matrix.md](validation/remediation-matrix.md) and [e2e-evidence.json](validation/e2e-evidence.json). The evidence index is authoritative about which task version each run covers. Earlier results must not be presented as v1.8.2 results. Original model scores remain unchanged; regrading a saved answer is not a new model attempt. Previous positive controls without current-layout validation are preserved under `validation/history/v181-positive-controls/`, not silently treated as current acceptance evidence.
 
-The evidence index links the historical Opus trajectory archive at its immutable Git commit. Extract ZIPs into a separate directory; original paths inside reports refer to their recorded campaigns. Runtime inputs are unchanged by consolidation.
+`validation/evidence.zip` contains scoring/calibration records, not full model trajectories. Historical records are in `validation/history/curation-history.zip`. Extract archives separately; paths in original reports refer to their original campaigns.
 
-## Running
-
-Run with the pinned image available to the selected Docker daemon; the documented validation limitations remain open:
+Run with the pinned image and two available GPUs:
 
 ```bash
 harbor run -p tasks/vllm-dcp-slot-mapping -a oracle
-harbor run -p tasks/vllm-dcp-slot-mapping -a terminus-2 -m anthropic/claude-opus-4-8
 ```
+
+For a local shared host, bind an explicitly selected GPU pair in a frozen run copy's Compose files and record that binding. Harbor 0.22 deployments that do not advertise GPU allocation require the explicit Compose reservation; metadata alone is not sufficient.

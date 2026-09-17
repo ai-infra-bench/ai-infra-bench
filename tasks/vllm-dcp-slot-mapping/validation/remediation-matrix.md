@@ -1,13 +1,17 @@
-# Current remediation matrix — v1.7.0
+# Current remediation matrix — v1.8.2
 
-| Concern | Current evidence / remediation | Status |
+| Concern | Current remediation / evidence | Status |
 |---|---|---|
-| Real backend behavior missing from substituted consumers | FlashAttention metadata/native CUDA/graph, non-DCP Eagle, FlashInfer 12 configurations × 5 decode steps | 13 ordinary Harbor controls match expected rewards |
-| Oracle missing FlashInfer DCP behavior | Local page planning, current interleave and shared-input preservation | Oracle and two alternative implementations each 17/17 |
-| Hidden contract and implementation dependence | Backend deployment scope public; observable slot/token/numerical outputs; no new helper-name assertions | Versioned v1.7.0; no retroactive relabeling |
-| Publication clutter | One review/index, current evidence ZIP, historical ZIP and immutable old Opus archive link | Executable and control bytes preserved |
-| Hardware / E2E scope | Shared H20; local FlashInfer builder/native CUDA, not full forward/KV writes/NCCL/HTTP | A100 validation remains open |
-| Grading integrity | Five security controls retained but not newly executed or certified | Separate trust review remains open |
-| Fresh model evidence | Separate frozen r4 campaign | No result claimed by this packaging change |
+| Two-GPU instruction but one-GPU environment | Two GPUs, shm2GiB, ordinary offline model/tokenizer retained from v1.8.1 | Environment unchanged this revision; no public reproducer |
+| Layout coverage depended on defaults | Explicit FA/FI × NHD/HND × eager/graph, normal TP2/DCP2 engine, independent CPU full-vocabulary reference | Eight combinations, twenty-one required checkpoints |
+| Historical Oracle accepted despite HND output corruption | Separate paged-cache layout from token-major uncached K/V layout; old Oracle retained unchanged as a negative control | Repaired Oracle21/21, saved GPT21/21; historical Oracle0 at19/21 due real FI HND logprob corruption |
+| Implementation-dependent local-length check | Keep v1.8.1 removal of optional runner-populated metadata from synthetic consumers; real numerical checks retained | Saved GPT backend-local implementation used as complete alternative control |
+| New coverage must reject real defects | Base, unchanged historical HND Oracle, stale FA graph, missing FI repair, non-DCP Eagle regression | All five score0 for actual behavior defects; all seven Harbor trials complete without harness error |
+| Historical positives not validated on layout matrix | Three patches and original case identities moved to history/v181-positive-controls | Preserved, not represented as current positives |
+| Experimental provenance | Frozen inputs before execution; prepared-input hashes after execution; saved GPT tracked/untracked files compared | No new model calls; original rewards unchanged |
+| FA3 graph fixture startup incompatibility | Single-split supported setting already disclosed in instruction | Real graph remains enabled; unrelated kernel fix not required |
+| Hardware / dependency scope | Shared H20 x2, same pinned image and cutoff disclosure | A100 and dependency limitations remain open |
+| Grading integrity | Security controls retained but not rerun or newly certified | Separate trust review remains open |
+| Publication | Calibrated v1.8.2 revision and attributable evidence; subsequently authorized for existing PR60 | Calibration itself made no commit/push; publication identity is in Git history |
 
-See [review-report.md](review-report.md) for the qualified scorecard and [e2e-evidence.json](e2e-evidence.json) for run identities and hashes. Publication checks do not constitute a new behavioral calibration or final merge approval.
+See [review-report.md](review-report.md) and [e2e-evidence.json](e2e-evidence.json). Documentation and image checks do not replace executed behavioral calibration or constitute unconditional merge approval.

@@ -1,4 +1,5 @@
 ARG BASE_IMAGE=vllm/vllm-openai:v0.17.0@sha256:14ea8b431aaaf75eb873c46c8ebfbad2b4b0790d30c66126d789d8cb9bd0aab9
+ARG RUNTIME_SOURCE=prepared
 FROM ${BASE_IMAGE} AS prepared
 
 ARG VLLM_BASE_SHA=be3af2d29e2507f32b2190fe015cd6609b348caa
@@ -100,9 +101,20 @@ RUN test -f /usr/local/lib/python3.12/dist-packages/vllm/v1/worker/gpu/model_run
  && ln -s /workspace/repo/vllm /usr/local/lib/python3.12/dist-packages/vllm \
  && python3 -c 'import pathlib,vllm; assert pathlib.Path(vllm.__file__).resolve().is_relative_to("/workspace/repo")'
 
+# Ordinary offline model and tokenizer resources, not a task reproducer.
+# Generated with the pinned runtime from a small architecture supported at Base.
+# RUNTIME_SOURCE may reuse an independently verified sanitized runtime; the
+# image manifest must record its immutable image ID and the build argument.
+FROM ${RUNTIME_SOURCE} AS with_model
+USER root
+COPY lock/tiny-qwen3-config.json /tmp/tiny-qwen3-config.json
+COPY lock/build-development-model.py /tmp/build-development-model.py
+RUN python3 /tmp/build-development-model.py \
+ && rm /tmp/build-development-model.py /tmp/tiny-qwen3-config.json
+
 # Export only the sanitized filesystem; donor source cannot survive in layers.
 FROM scratch
-COPY --from=prepared / /
+COPY --from=with_model / /
 ENV PATH="/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ENV NVARCH="x86_64"
 ENV NVIDIA_REQUIRE_CUDA="cuda>=12.9 brand=unknown,driver>=535,driver<536 brand=grid,driver>=535,driver<536 brand=tesla,driver>=535,driver<536 brand=nvidia,driver>=535,driver<536 brand=quadro,driver>=535,driver<536 brand=quadrortx,driver>=535,driver<536 brand=nvidiartx,driver>=535,driver<536 brand=vapps,driver>=535,driver<536 brand=vpc,driver>=535,driver<536 brand=vcs,driver>=535,driver<536 brand=vws,driver>=535,driver<536 brand=cloudgaming,driver>=535,driver<536 brand=unknown,driver>=550,driver<551 brand=grid,driver>=550,driver<551 brand=tesla,driver>=550,driver<551 brand=nvidia,driver>=550,driver<551 brand=quadro,driver>=550,driver<551 brand=quadrortx,driver>=550,driver<551 brand=nvidiartx,driver>=550,driver<551 brand=vapps,driver>=550,driver<551 brand=vpc,driver>=550,driver<551 brand=vcs,driver>=550,driver<551 brand=vws,driver>=550,driver<551 brand=cloudgaming,driver>=550,driver<551 brand=unknown,driver>=560,driver<561 brand=grid,driver>=560,driver<561 brand=tesla,driver>=560,driver<561 brand=nvidia,driver>=560,driver<561 brand=quadro,driver>=560,driver<561 brand=quadrortx,driver>=560,driver<561 brand=nvidiartx,driver>=560,driver<561 brand=vapps,driver>=560,driver<561 brand=vpc,driver>=560,driver<561 brand=vcs,driver>=560,driver<561 brand=vws,driver>=560,driver<561 brand=cloudgaming,driver>=560,driver<561 brand=unknown,driver>=565,driver<566 brand=grid,driver>=565,driver<566 brand=tesla,driver>=565,driver<566 brand=nvidia,driver>=565,driver<566 brand=quadro,driver>=565,driver<566 brand=quadrortx,driver>=565,driver<566 brand=nvidiartx,driver>=565,driver<566 brand=vapps,driver>=565,driver<566 brand=vpc,driver>=565,driver<566 brand=vcs,driver>=565,driver<566 brand=vws,driver>=565,driver<566 brand=cloudgaming,driver>=565,driver<566 brand=unknown,driver>=570,driver<571 brand=grid,driver>=570,driver<571 brand=tesla,driver>=570,driver<571 brand=nvidia,driver>=570,driver<571 brand=quadro,driver>=570,driver<571 brand=quadrortx,driver>=570,driver<571 brand=nvidiartx,driver>=570,driver<571 brand=vapps,driver>=570,driver<571 brand=vpc,driver>=570,driver<571 brand=vcs,driver>=570,driver<571 brand=vws,driver>=570,driver<571 brand=cloudgaming,driver>=570,driver<571"

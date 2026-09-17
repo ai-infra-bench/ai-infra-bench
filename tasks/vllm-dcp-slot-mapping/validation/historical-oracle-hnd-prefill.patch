@@ -34,19 +34,7 @@ diff --git a/vllm/v1/attention/backends/flashinfer.py b/vllm/v1/attention/backen
 index 26d372c113..d32fdac24a 100755
 --- a/vllm/v1/attention/backends/flashinfer.py
 +++ b/vllm/v1/attention/backends/flashinfer.py
-@@ -174,8 +174,10 @@ class BatchDCPPrefillWrapper:
-         self._context = BatchPrefillWithPagedKVCacheWrapper(
-             workspace_buffer, get_kv_cache_layout()
-         )
-+        # Uncached K/V inputs are token-major even when the paged cache
-+        # uses HND. Do not interpret them using the paged-cache layout.
-         self._new_tokens = BatchPrefillWithRaggedKVCacheWrapper(
--            workspace_buffer, get_kv_cache_layout()
-+            workspace_buffer, "NHD"
-         )
- 
-     def plan(
-@@ -542,7 +544,7 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+@@ -542,7 +542,7 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
              self.dcp_world_size = get_dcp_group().world_size
              self.dcp_rank = get_dcp_group().rank_in_group
              self.dcp_kv_cache_interleave_size = (
@@ -55,7 +43,7 @@ index 26d372c113..d32fdac24a 100755
              )
          except AssertionError:
              # DCP might not be initialized in testing
-@@ -920,16 +922,12 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+@@ -920,16 +920,12 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
          # and can be expensive to retrieve in async mode.
          needs_seq_lens_cpu = self.use_dcp or use_cascade or not is_only_trtllm_decode
          seq_lens_cpu = common_attn_metadata.seq_lens_cpu if needs_seq_lens_cpu else None
@@ -75,7 +63,7 @@ index 26d372c113..d32fdac24a 100755
              if num_prefills > 0:
                  qo_indptr_prefill_cpu = (
                      qo_indptr_cpu[num_decodes:] - qo_indptr_cpu[num_decodes]
-@@ -948,6 +946,14 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+@@ -948,6 +944,14 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
                  self.dcp_kv_cache_interleave_size,
              )
 

@@ -39,6 +39,10 @@ EXPECTED_CHECKPOINTS = (
     "eagle-non-dcp-compatibility",
     "flashinfer-local-eager",
     "flashinfer-local-graph",
+    "distributed-flash-attention-generation",
+    "distributed-flashinfer-generation",
+    "distributed-flash-attention-hnd-generation",
+    "distributed-flashinfer-hnd-generation",
     "complete",
 )
 
@@ -334,10 +338,11 @@ def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool,
                            block_size: int, real_backend=False) -> None:
     """Scheduler messages -> real runner/graphs/sampler -> per-request tokens.
 
-    A deterministic model consumes the same CommonAttentionMetadata and slot
-    mapping boundary as attention backends. Its output makes stale positions,
-    rank ownership, block IDs or local sequence lengths externally observable.
-    We substitute model arithmetic, not runner preparation or graph wiring.
+    The synthetic consumer tests token/position/slot association and lifecycle,
+    not a prescribed intermediate representation of rank-local lengths. Real
+    attention cases and full-engine generation check that length conversion is
+    performed somewhere in the actual execution path. We substitute model
+    arithmetic, not runner preparation or graph wiring.
     """
     from vllm.forward_context import get_forward_context
     from vllm.sampling_params import SamplingParams
@@ -365,25 +370,22 @@ def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool,
             names = ([f"model.layers.{i}.self_attn.attn" for i in range(2)]
                      if real_backend else ["layer0", "layer1"])
             common = context.attn_metadata[names[0]]
-            if real_backend:
-                lengths = (common.dcp_context_kv_lens if dcp_size > 1
-                           else common.seq_lens)
-            else:
-                lengths = (
-                    common.dcp_local_seq_lens
-                    if dcp_size > 1 and common.dcp_local_seq_lens is not None
-                    else common.seq_lens
-                )
-            rows = torch.bucketize(
-                torch.arange(input_ids.shape[0], device=input_ids.device),
-                common.query_start_loc[1:], right=True,
-            ).clamp(max=lengths.shape[0] - 1)
             fingerprint = (
                 input_ids.to(torch.int64) + 3 * positions
                 + 5 * context.slot_mapping[names[0]]
                 + 12 * context.slot_mapping[names[1]]
-                + 7 * lengths[rows]
             )
+            if real_backend:
+                # Observe the actual backend's consumed lengths; do not require
+                # the runner to populate an optional CommonAttentionMetadata
+                # field which these real backends need not consume.
+                lengths = (common.dcp_context_kv_lens if dcp_size > 1
+                           else common.seq_lens)
+                rows = torch.bucketize(
+                    torch.arange(input_ids.shape[0], device=input_ids.device),
+                    common.query_start_loc[1:], right=True,
+                ).clamp(max=lengths.shape[0] - 1)
+                fingerprint = fingerprint + 7 * lengths[rows]
             fingerprint = fingerprint.remainder(256).unsqueeze(1).float()
             if not real_backend:
                 return fingerprint
@@ -517,7 +519,8 @@ def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool,
             )
             expected[req_id] = (
                 record["tokens"][position] + 3 * position
-                + 5 * slots[0] + 12 * slots[0] + 7 * local_length
+                + 5 * slots[0] + 12 * slots[0]
+                + (7 * local_length if real_backend else 0)
             ) % 256
             if real_backend:
                 expected_attention[req_id] = (
@@ -620,6 +623,19 @@ def run_suite(emit) -> None:
     emit("flashinfer-local-eager", True)
     fi_check.run_group(True)
     emit("flashinfer-local-graph", True)
+    distributed_spec = importlib.util.spec_from_file_location(
+        "distributed_generation", Path(__file__).with_name("verify_distributed_generation.py")
+    )
+    distributed_check = importlib.util.module_from_spec(distributed_spec)
+    distributed_spec.loader.exec_module(distributed_check)
+    distributed_check.run_group("FLASH_ATTN", "NHD")
+    emit("distributed-flash-attention-generation", True)
+    distributed_check.run_group("FLASHINFER", "NHD")
+    emit("distributed-flashinfer-generation", True)
+    distributed_check.run_group("FLASH_ATTN", "HND")
+    emit("distributed-flash-attention-hnd-generation", True)
+    distributed_check.run_group("FLASHINFER", "HND")
+    emit("distributed-flashinfer-hnd-generation", True)
     print(
         "PASS: production slot mapping handles non-DCP, held-out DCP ranks, "
         "interleaving, supported block sizes, requests, CUDA graph replay, "
