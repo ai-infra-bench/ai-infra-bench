@@ -71,7 +71,9 @@ def main():
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--task',type=Path,help='Freeze a revised grading task separately from original campaign inputs')
     parser.add_argument('--profile-probe',type=Path,help='Optional diagnostic script; never changes the reward')
+    parser.add_argument('--probe-only',action='store_true',help='Run only the diagnostic on restored states')
     args=parser.parse_args()
+    assert not args.probe_only or args.profile_probe
     campaign=args.campaign.resolve();output=args.output.resolve()
     output.mkdir(parents=True,exist_ok=False)
     task=campaign/'task'
@@ -116,10 +118,11 @@ def main():
             command += [image,'infinity']
             assert execute('start',command,60)==0
             assert execute('restore',['docker','exec',container,'python3','-I','-S','-c',RESTORE],180)==0
-            execute('full-verifier',['docker','exec',container,'bash','/tests/test.sh'])
-            for name in ('cache','capacity'):
-                execute('challenge-'+name,['docker','exec','-u','nobody',container,'python3','-I',
-                    '/challenge/challenge_encoder_'+name+'.py'],300)
+            if not args.probe_only:
+                execute('full-verifier',['docker','exec',container,'bash','/tests/test.sh'])
+                for name in ('cache','capacity'):
+                    execute('challenge-'+name,['docker','exec','-u','nobody',container,'python3','-I',
+                        '/challenge/challenge_encoder_'+name+'.py'],300)
             if probe:
                 assert execute('upload-profile-probe',['docker','cp',str(probe),container+':/tmp/profile-probe.py'],30)==0
                 execute('profile-probe',['docker','exec','-u','nobody',container,'python3','-I',

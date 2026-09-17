@@ -57,6 +57,7 @@ def observe(length,indices,width):
         runner.supports_mm_inputs=True;runner.model_config=model_config
         runner.mm_budget=budget;runner.max_num_tokens=1
         runner.device=torch.device('cpu');runner.pin_memory=False
+        runner.is_multimodal_pruning_enabled=False;runner.uses_mrope=False
         runner.encoder_cache={};runner.maybe_save_ec_to_connector=lambda *args:None
         feature=MultiModalFeatureSpec(data=SimpleNamespace(modality='image',rows=payload),
             modality='image',identifier='profile-consistency',mm_position=position)
