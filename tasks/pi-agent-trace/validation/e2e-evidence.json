@@ -923,37 +923,6 @@
     },
     {
       "run": 10,
-      "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1, agent timeout multiplier 0.15",
-      "task_version_seen": "0.0.6 (contract-only + shutdown attribute sentence)",
-      "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.15--20260916-133523",
-      "started_at": "2026-09-16T05:35:23Z",
-      "finished_at": "2026-09-16T06:19:00Z",
-      "salvaged": true,
-      "reward": 0,
-      "reward_json": {
-        "reward": 0,
-        "command_exit_code": 1,
-        "contract_exit_code": 1,
-        "contract_integrity_exit_code": 1,
-        "lifecycle_exit_code": 0,
-        "lifecycle_integrity_exit_code": 0,
-        "pass_to_pass_exit_code": 1,
-        "pass_to_pass_check_exit_code": 0
-      },
-      "layers": {
-        "contract": "13/15",
-        "lifecycle": "2/2",
-        "pass-to-pass": "2168/2171"
-      },
-      "failures": [
-        "contract: agent-trace contract > reload appends to the same file with the same trace id and no duplicate spans",
-        "contract: agent-trace contract > concurrent tool calls of one assistant message get one overlapping span each with its own status and entry"
-      ],
-      "assessment": "task 0.0.6, second rollout, agent timeout multiplier 0.15, SALVAGED: Claude Code killed the chain wrapper (host memory pressure) 37 min into the agent phase; the grok agent kept running in its orphaned container (05:36Z-06:17Z, 41 min, no 401s) and the verifier was run by hand in that container (tests copied in, proxy variables unset, docker network disconnect attempted but not confirmed; the suite is offline by construction), so there is no Harbor result.json and no watchdog for this run. Reward 0, contract 13/15, lifecycle 2/2, P2P pass; both failures reproduced from agent-changes.patch in the task image (~/ai-infra-scratch/repro-run8/repro10.log): (1) concurrent tool calls: same class as run 8, true end times but end lines written in pi's persistence order (300 ms call on line 7, 100 ms call on line 8, endTimeUnixNano decreased); (2) reload: after /reload the new process resolves entry ids from the start of the branch, so the new run claims the first prompt's user entry (ad77ab3a) again and the new chat references the first chat entry (76f0e94b) again while the new entries stay unreferenced; the used-entry bookkeeping does not survive the reload. Judge correct (expected 0)",
-      "label": "grok run 9"
-    },
-    {
-      "run": 11,
       "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1",
       "task_version_seen": "0.0.6 (contract-only + shutdown attribute sentence)",
       "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.1--20260916-105659",
@@ -984,6 +953,37 @@
         "lifecycle: a later pi process appends to the same trace with the same trace id and its own process id"
       ],
       "assessment": "task 0.0.6 (contract-only + shutdown attribute sentence), first rollout: agent finished in 34 min, no 401s, P2P pass; contract 10/15, lifecycle 1/2. All six failures reproduced locally from agent-changes.patch in the task image (~/ai-infra-scratch/repro-run8/repro9.log) and trace back to three genuine defects, none a judge issue: (a) four cases (manual/threshold, failed compaction, overflow, lifecycle reload) fail because every compaction is exported twice: onCompact first runs ingest(), which sees the persisted compaction entry and closes the open pi.compaction span with its entry id, then finds this.compaction empty, starts a second span and closes it with the same entry id (2 ns apart), so one entry is referenced by two spans; (b) the shutdown case now carries pi.run.turn_count and the run's entry id (the 0.0.6 sentence had its effect) but the streaming chat is closed with pendingChat.endTimeUnixNano, a placeholder initialised to the span's start time and only updated at message_end, so its close lands 300 ms before the verifier's dispose() window (instruction: timestamps come from the clock at the moment of the event); (c) the concurrent case writes tool end lines in persistence order and keeps endTimeUnixNano non-decreasing by clamping (endNano: nano <= lastEnd -> lastEnd + 1), so the 100 ms call's end time is rewritten to the 300 ms call's end + 1 ns and its duration becomes 306 ms (the mirror image of run 8, which kept true times but wrote out of order; the oracle buffers until turn_end and writes in end order with true times). Judge correct (expected 0)",
+      "label": "grok run 9"
+    },
+    {
+      "run": 11,
+      "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1, agent timeout multiplier 0.15",
+      "task_version_seen": "0.0.6 (contract-only + shutdown attribute sentence)",
+      "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.15--20260916-133523",
+      "started_at": "2026-09-16T05:35:23Z",
+      "finished_at": "2026-09-16T06:19:00Z",
+      "salvaged": true,
+      "reward": 0,
+      "reward_json": {
+        "reward": 0,
+        "command_exit_code": 1,
+        "contract_exit_code": 1,
+        "contract_integrity_exit_code": 1,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0
+      },
+      "layers": {
+        "contract": "13/15",
+        "lifecycle": "2/2",
+        "pass-to-pass": "2168/2171"
+      },
+      "failures": [
+        "contract: agent-trace contract > reload appends to the same file with the same trace id and no duplicate spans",
+        "contract: agent-trace contract > concurrent tool calls of one assistant message get one overlapping span each with its own status and entry"
+      ],
+      "assessment": "task 0.0.6, second rollout, agent timeout multiplier 0.15, SALVAGED: Claude Code killed the chain wrapper (host memory pressure) 37 min into the agent phase; the grok agent kept running in its orphaned container (05:36Z-06:17Z, 41 min, no 401s) and the verifier was run by hand in that container (tests copied in, proxy variables unset, docker network disconnect attempted but not confirmed; the suite is offline by construction), so there is no Harbor result.json and no watchdog for this run. Reward 0, contract 13/15, lifecycle 2/2, P2P pass; both failures reproduced from agent-changes.patch in the task image (~/ai-infra-scratch/repro-run8/repro10.log): (1) concurrent tool calls: same class as run 8, true end times but end lines written in pi's persistence order (300 ms call on line 7, 100 ms call on line 8, endTimeUnixNano decreased); (2) reload: after /reload the new process resolves entry ids from the start of the branch, so the new run claims the first prompt's user entry (ad77ab3a) again and the new chat references the first chat entry (76f0e94b) again while the new entries stay unreferenced; the used-entry bookkeeping does not survive the reload. Judge correct (expected 0)",
       "label": "grok run 10"
     },
     {
@@ -1098,7 +1098,8 @@
       "validation/control-wakeup-as-prompt.patch": "81571621c837afaa2608b0ddcb84be2cfb88cab8462c1745a1be992181eb3a5e",
       "validation/control-write-failure-throws.patch": "ef4b99cdba0ee7f108e3d112feb697c4182b5250c8c33597ba5cc2a57accdbd0",
       "validation/controls-plan.md": "76a4d583451fd878cd7fc6fc6e86e936926cbac99400bee9c905a5bd1eeb1403",
-      "validation/make_controls.py": "86f014a4a2580adbff3864c277ff16520ca43ac29af702a3b0eb752c4492800a"
+      "validation/make_controls.py": "86f014a4a2580adbff3864c277ff16520ca43ac29af702a3b0eb752c4492800a",
+      "validation/rollout-review-2026-09-17.md": "9087e16bb9d4f91233497b3818206d5c60b017d1723f7e370ece830c4a61bbc6"
     }
   }
 }
