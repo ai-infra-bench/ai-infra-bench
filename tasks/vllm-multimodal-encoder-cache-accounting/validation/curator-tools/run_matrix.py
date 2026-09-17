@@ -1,6 +1,7 @@
 """Run actual test.sh in disposable offline containers; not a Harbor run.
 Usage: python run_matrix.py TASK_DIR OUTPUT_DIR [--image IMAGE] [--cases NAME...]
-Default image must exist locally. Rebuilt images are explicitly noncanonical.
+The configured image comes from task.toml and must exist locally. Override
+images are recorded and compared with the configured immutable image ID.
 """
 import argparse
 from datetime import datetime, timezone
