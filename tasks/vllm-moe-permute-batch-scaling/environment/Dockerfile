@@ -22,10 +22,20 @@ RUN tar -czf /git-runtime.tar \
 RUN set -eux; \
     git init -q /vllm-history; \
     git -C /vllm-history config core.logAllRefUpdates false; \
+    git -C /vllm-history config http.version HTTP/1.1; \
     git -C /vllm-history config user.name "AI Infra Bench"; \
     git -C /vllm-history config user.email "noreply@ai-infra-bench.local"; \
     git -C /vllm-history remote add origin "${VLLM_REPOSITORY}"; \
-    git -C /vllm-history fetch --no-tags origin "${VLLM_BASE_SHA}"; \
+    fetch_step() { \
+      for attempt in 1 2 3; do \
+        git -C /vllm-history fetch "$@" && return 0; \
+      done; \
+      return 1; \
+    }; \
+    fetch_step --depth=2000 --no-tags origin "${VLLM_BASE_SHA}"; \
+    while test -e /vllm-history/.git/shallow; do \
+      fetch_step --deepen=2000 --no-tags origin "${VLLM_BASE_SHA}"; \
+    done; \
     git -C /vllm-history checkout -q -b benchmark-base "${VLLM_BASE_SHA}"; \
     test "$(git -C /vllm-history rev-parse HEAD)" = "${VLLM_BASE_SHA}"; \
     test "$(git -C /vllm-history rev-parse 'HEAD^{tree}')" = "${VLLM_BASE_TREE}"; \
