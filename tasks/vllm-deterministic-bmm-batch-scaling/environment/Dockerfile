@@ -81,7 +81,8 @@ RUN set -eu; \
 
 ENV PIP_NO_INDEX=1
 
-COPY --from=git_runtime /vllm-history/.git /workspace/repo/.git
+# Keep the trailing slash: Dockerfile 1.7 treats a .git suffix as a Git URL.
+COPY --from=git_runtime /vllm-history/.git/ /workspace/repo/.git/
 
 # Bind the byte-locked source tree to the exact upstream Base history. The
 # wheel contributes only ignored native/generated runtime files.
