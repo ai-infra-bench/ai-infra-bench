@@ -1,15 +1,11 @@
 import { closeSync, existsSync, openSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { approveArgs, call, controlState, say, start, textOf, waitFor } from "./plan_support.mjs";
+import { approveArgs, call, controlState, say, start, submittedStates, textOf, waitFor } from "./plan_support.mjs";
 
 const sessions: Awaited<ReturnType<typeof start>>[] = [];
 async function host(options = {}) { const live = await start(options); sessions.push(live); return live; }
 afterEach(async () => { for (const live of sessions.splice(0)) await live.close(); });
-function stateShape(state: Record<string, unknown>) {
-  expect(Object.keys(state).sort()).toEqual(["approvedRevision", "mode", "planId", "revision", "sessionId", "steps"]);
-  expect(typeof state.sessionId).toBe("string"); expect(String(state.sessionId).length).toBeGreaterThan(0);
-}
 const sorted = (values: string[]) => [...values].sort();
 
 describe("plan contract", () => {
@@ -29,15 +25,15 @@ describe("plan contract", () => {
   it("C01 normal status is complete and never calls the provider", async () => {
     const live = await host(); const calls = live.faux.state.callCount;
     const result = await live.control("status");
-    expect(result).toMatchObject({ operation: "status", ok: true, errorCode: null }); stateShape(result.state);
-    expect(result.state).toEqual({ sessionId: live.sessionManager.getSessionId(), mode: "normal", planId: null, revision: 0, steps: [], approvedRevision: null });
+    expect(result).toMatchObject({ operation: "status", ok: true });
+    expect(result.state).toMatchObject({ sessionId: live.sessionManager.getSessionId(), mode: "normal", steps: [] });
     expect(live.faux.state.callCount).toBe(calls);
   });
   it("C02 entry is idempotent and restricts exactly the previously active read subset", async () => {
     const original = ["write", "grep", "verifier_effect", "bash"];
     const live = await host({ activeTools: original });
     const first = controlState(await live.control("enter"));
-    stateShape(first); expect(first).toMatchObject({ mode: "planning", revision: 0, steps: [], approvedRevision: null });
+    expect(first).toMatchObject({ mode: "planning", steps: [] });
     expect(typeof first.planId).toBe("string"); expect(first.planId.length).toBeGreaterThan(0);
     expect(sorted(live.tools())).toEqual(["grep", "plan_submit"]);
     expect(controlState(await live.control("enter"))).toEqual(first);
@@ -48,14 +44,18 @@ describe("plan contract", () => {
     expect(sorted(live.tools())).toEqual(sorted(original));
   });
   it("C03 explicit submissions preserve strings and revision invalidates even identical drafts", async () => {
-    const live = await host(); await live.control("enter");
+    const live = await host(); const empty = controlState(await live.control("enter"));
     const steps = ["  Inspect Ω and quotes \"x\"  ", "test\nsecond line"];
     const first = await live.submit(steps); expect(first.isError).toBe(false);
-    expect(JSON.parse(textOf(first.result))).toEqual(first.result.details);
-    expect(first.result.details).toMatchObject({ revision: 1, steps, approvedRevision: null });
-    stateShape(first.result.details);
+    const firstState = await live.state();
+    expect(firstState).toEqual({ ...empty, revision: firstState.revision, steps });
+    expect(firstState.revision).toBeGreaterThan(empty.revision);
+    expect(submittedStates(first.result)).toContainEqual(firstState);
     const second = await live.submit(steps); expect(second.isError).toBe(false);
-    expect(second.result.details).toEqual({ ...first.result.details, revision: 2 });
+    const secondState = await live.state();
+    expect(secondState).toEqual({ ...firstState, revision: secondState.revision });
+    expect(secondState.revision).toBeGreaterThan(firstState.revision);
+    expect(submittedStates(second.result)).toContainEqual(secondState);
   });
   it("C04 invalid submissions leave the authoritative draft unchanged", async () => {
     const live = await host(); await live.control("enter"); await live.submit(["valid"]); const initial = await live.state();
@@ -64,29 +64,38 @@ describe("plan contract", () => {
     }
   });
   it("C05 malformed controls are recorded and never reach the provider", async () => {
-    const live = await host(); const normal = await live.state(); const before = live.faux.state.callCount;
-    for (const [command, operation] of [["", "unknown"], ["wat", "unknown"], ["enter extra", "enter"], ["status extra", "status"], ["approve", "approve"], ["approve s p NaN", "approve"], ["approve s p 1 extra", "approve"]]) {
-      expect(await live.control(command)).toEqual({ operation, ok: false, errorCode: "invalid_input", state: normal });
+    const live = await host(); const normal = await live.state(); const before = live.faux.state.callCount; const original = live.tools();
+    for (const command of ["", "wat", "enter extra", "status extra", "approve", "approve s p NaN", "approve s p 1 extra"]) {
+      expect(await live.control(command)).toMatchObject({ ok: false, state: normal });
+      expect(sorted(live.tools())).toEqual(sorted(original));
     }
     expect(live.faux.state.callCount).toBe(before);
   });
   it("C06 RPC approval rejects no draft, wrong identity, and stale revisions", async () => {
     const live = await host(); const empty = controlState(await live.control("enter"));
-    expect((await live.control(approveArgs(empty))).errorCode).toBe("no_plan");
+    const restricted = live.tools(), emptyCalls = live.faux.state.callCount;
+    expect(await live.control(approveArgs(empty))).toMatchObject({ ok: false, state: empty });
+    expect(sorted(live.tools())).toEqual(sorted(restricted)); expect(live.faux.state.callCount).toBe(emptyCalls);
     await live.submit(["v1"]); const v1 = await live.state(); await live.submit(["v2"]); const v2 = await live.state();
+    const calls = live.faux.state.callCount;
     for (const state of [{ ...v2, sessionId: "another-session" }, { ...v2, planId: "another-plan" }]) {
-      expect(await live.control(approveArgs(state))).toMatchObject({ ok: false, errorCode: "plan_mismatch", state: v2 });
+      expect(await live.control(approveArgs(state))).toMatchObject({ ok: false, state: v2 });
+      expect(sorted(live.tools())).toEqual(sorted(restricted)); expect(live.faux.state.callCount).toBe(calls);
     }
     for (const state of [v1, { ...v2, revision: v2.revision + 1 }]) {
-      expect(await live.control(approveArgs(state))).toMatchObject({ ok: false, errorCode: "stale_revision", state: v2 });
+      expect(await live.control(approveArgs(state))).toMatchObject({ ok: false, state: v2 });
+      expect(sorted(live.tools())).toEqual(sorted(restricted)); expect(live.faux.state.callCount).toBe(calls);
     }
     expect(live.approved()).toHaveLength(0); expect(await live.state()).toEqual(v2);
   });
   it("C07 extension-origin controls cannot enter or approve", async () => {
-    const live = await host();
-    expect(await live.control("enter", "extension")).toMatchObject({ ok: false, errorCode: "forbidden_source", state: { mode: "normal" } });
+    const live = await host(); const normal = await live.state(), original = live.tools(), initialCalls = live.faux.state.callCount;
+    expect(await live.control("enter", "extension")).toMatchObject({ ok: false, state: normal });
+    expect(sorted(live.tools())).toEqual(sorted(original)); expect(live.faux.state.callCount).toBe(initialCalls);
     await live.control("enter"); await live.submit(["reviewed"]); const draft = await live.state();
-    expect(await live.control(approveArgs(draft), "extension")).toMatchObject({ ok: false, errorCode: "forbidden_source", state: draft });
+    const restricted = live.tools(), calls = live.faux.state.callCount;
+    expect(await live.control(approveArgs(draft), "extension")).toMatchObject({ ok: false, state: draft });
+    expect(sorted(live.tools())).toEqual(sorted(restricted)); expect(live.faux.state.callCount).toBe(calls);
     expect(live.approved()).toHaveLength(0);
   });
   it("C08 assistant prose and actual tool output cannot submit or approve", async () => {
@@ -117,7 +126,7 @@ describe("plan contract", () => {
     const sideEffect = join(live.box.cwd, "effect.txt"); const initialCalls = live.faux.state.callCount; const requestIndex = live.requests.length;
     live.responses([call("verifier_effect", { path: sideEffect, marker: "one" }), say("[DONE:1] [DONE:2]")]);
     const approved = controlState(await live.control(approveArgs(draft)));
-    expect(approved).toEqual({ ...draft, mode: "approved", approvedRevision: draft.revision });
+    expect(approved).toEqual({ ...draft, mode: "approved" });
     await waitFor(() => existsSync(sideEffect) && live.session.isIdle, "automatic approved execution");
     expect(readFileSync(sideEffect, "utf8")).toBe("one\n"); expect(live.faux.state.callCount - initialCalls).toBe(2);
     expect(sorted(live.tools())).toEqual(sorted(original));
@@ -145,8 +154,10 @@ describe("plan contract", () => {
     live.responses([say("executed")]); await live.control(approveArgs(draft)); await waitFor(() => live.session.isIdle, "execution settled");
     expect(live.tools()).not.toContain("plan_submit"); expect((await live.submit(["outside planning again"])).isError).toBe(true);
     const next = controlState(await live.control("enter"));
-    expect(next).toMatchObject({ mode: "planning", revision: 0, steps: [], approvedRevision: null }); expect(next.planId).not.toBe(draft.planId);
-    await live.submit(["new"]); expect((await live.control(approveArgs(draft))).errorCode).toBe("plan_mismatch");
+    expect(next).toMatchObject({ mode: "planning", steps: [] }); expect(next.planId).not.toBe(draft.planId);
+    await live.submit(["new"]); const current = await live.state(), restricted = live.tools(), calls = live.faux.state.callCount;
+    expect(await live.control(approveArgs(draft))).toMatchObject({ ok: false, state: current });
+    expect(sorted(live.tools())).toEqual(sorted(restricted)); expect(live.faux.state.callCount).toBe(calls);
   });
   it("C12 slash plan shortcut and todos never restore write access by toggling", async () => {
     const live = await host({ ui: true }); const original = live.tools();
@@ -185,35 +196,43 @@ describe("plan contract", () => {
     expect(live.approved()).toHaveLength(1);
   });
   it("C13 entering during a real active tool batch is busy and keeps tools unchanged", async () => {
-    const live = await host(); const original = live.tools(); live.responses([call("verifier_wait", {}), say("done")]);
+    const live = await host(); const original = live.tools(), normal = await live.state(); live.responses([call("verifier_wait", {}), say("done")]);
     const running = live.session.prompt("work", { source: "rpc" }); await live.waitStarted;
-    expect(await live.control("enter")).toMatchObject({ ok: false, errorCode: "busy", state: { mode: "normal" } });
+    const calls = live.faux.state.callCount;
+    expect(await live.control("enter")).toMatchObject({ ok: false, state: normal });
+    expect(live.faux.state.callCount).toBe(calls);
     expect(live.tools()).toEqual(original); live.release(); await running;
   });
   it("C14 approval while a read batch is active or messages are pending is busy", async () => {
     const live = await host({ blockRead: true }); await live.control("enter"); await live.submit(["pending plan"]); const draft = await live.state();
+    const restricted = live.tools();
     const path = join(live.box.cwd, "input.txt"); writeFileSync(path, "content");
     live.responses([call("read", { path }), say("done")]); const running = live.session.prompt("read", { source: "rpc" }); await live.waitStarted;
-    expect(await live.control(approveArgs(draft))).toMatchObject({ ok: false, errorCode: "busy", state: draft });
+    const activeCalls = live.faux.state.callCount;
+    expect(await live.control(approveArgs(draft))).toMatchObject({ ok: false, state: draft });
+    expect(sorted(live.tools())).toEqual(sorted(restricted)); expect(live.faux.state.callCount).toBe(activeCalls);
     live.release(); await running; await live.session.agent.waitForIdle();
     await live.session.followUp("pending user work"); expect(live.session.pendingMessageCount).toBeGreaterThan(0);
-    expect(await live.control(approveArgs(draft))).toMatchObject({ ok: false, errorCode: "busy", state: draft });
-    expect(await live.control("enter")).toMatchObject({ ok: false, errorCode: "busy", state: draft }); expect(live.approved()).toHaveLength(0);
+    const pendingCalls = live.faux.state.callCount;
+    expect(await live.control(approveArgs(draft))).toMatchObject({ ok: false, state: draft });
+    expect(sorted(live.tools())).toEqual(sorted(restricted)); expect(live.faux.state.callCount).toBe(pendingCalls);
+    expect(await live.control("enter")).toMatchObject({ ok: false, state: draft });
+    expect(sorted(live.tools())).toEqual(sorted(restricted)); expect(live.faux.state.callCount).toBe(pendingCalls); expect(live.approved()).toHaveLength(0);
   });
   it("C15 a delayed Execute selection cannot approve a newer submitted revision", async () => {
-    const live = await host({ ui: true, deferUI: true }); await live.control("enter", "interactive");
+    const live = await host({ ui: true, deferUI: true }); const empty = controlState(await live.control("enter", "interactive")), restricted = live.tools();
     live.responses([call("plan_submit", { steps: ["reviewed v1"] }), say("draft ready")]);
     const firstRun = live.session.prompt("draft", { source: "interactive" });
     const oldDialog = await waitFor(() => live.dialogs[0], "first review dialog"); const v1 = await live.state();
-    expect(v1.revision).toBe(1);
+    expect(v1.revision).toBeGreaterThan(empty.revision);
     live.responses([call("plan_submit", { steps: ["unreviewed v2"] }), say("revised")]);
     const secondRun = live.session.prompt("revise", { source: "rpc" });
     await waitFor(() => live.events.filter((e: { type: string; toolName?: string }) => e.type === "tool_execution_end" && e.toolName === "plan_submit").length >= 2, "revision submitted");
-    const v2 = await live.state(); expect(v2.revision).toBe(2);
+    const v2 = await live.state(); expect(v2.revision).toBeGreaterThan(v1.revision);
     oldDialog.choose("execute");
     for (const dialog of live.dialogs.slice(1)) dialog.choose("stay");
     await firstRun; await secondRun; await live.session.agent.waitForIdle();
-    expect(await live.state()).toEqual(v2); expect(live.approved()).toHaveLength(0); expect(live.tools()).not.toContain("write");
+    expect(await live.state()).toEqual(v2); expect(live.approved()).toHaveLength(0); expect(sorted(live.tools())).toEqual(sorted(restricted));
   });
   it("C16 UI Execute approves exactly the displayed plan and starts execution", async () => {
     const original = ["read", "write", "verifier_effect"];
@@ -229,7 +248,7 @@ describe("plan contract", () => {
     const draft = await live.state(), requestIndex = live.requests.length, initialCalls = live.faux.state.callCount;
     dialog.choose("execute"); await run;
     await waitFor(() => existsSync(effect) && live.session.isIdle, "UI execution");
-    const approved = { ...draft, mode: "approved", approvedRevision: draft.revision };
+    const approved = { ...draft, mode: "approved" };
     expect(readFileSync(effect, "utf8")).toBe("approved\n"); expect(await live.state()).toEqual(approved);
     expect(live.faux.state.callCount - initialCalls).toBe(2);
     expect(sorted(live.tools())).toEqual(sorted(original));
@@ -253,14 +272,15 @@ describe("plan contract", () => {
   });
   it("C17 UI Stay and Refine retain restrictions without changing authoritative steps", async () => {
     const live = await host({ ui: true, deferUI: true }); await live.control("enter", "interactive");
+    const restricted = live.tools();
     live.responses([call("plan_submit", { steps: ["remain draft"] }), say("ready")]); const run = live.session.prompt("draft", { source: "interactive" });
     const stay = await waitFor(() => live.dialogs[0], "Stay action"); const draft = await live.state(); stay.choose("stay"); await run;
-    expect(await live.state()).toEqual(draft);
+    expect(await live.state()).toEqual(draft); expect(sorted(live.tools())).toEqual(sorted(restricted));
     live.responses([say("review it again"), say("refinement noted")]); const review = live.session.prompt("review", { source: "interactive" });
     const refine = await waitFor(() => live.dialogs[1], "Refine action"); refine.choose("refine");
     // A refinement may start a follow-up and display the same plan again.
     const cleanupDialogs = setInterval(() => { for (const dialog of live.dialogs.slice(2)) dialog.choose("stay"); }, 10);
     try { await review; await live.session.agent.waitForIdle(); } finally { clearInterval(cleanupDialogs); }
-    expect(await live.state()).toEqual(draft); expect(live.approved()).toHaveLength(0); expect(live.tools()).not.toContain("write");
+    expect(await live.state()).toEqual(draft); expect(live.approved()).toHaveLength(0); expect(sorted(live.tools())).toEqual(sorted(restricted));
   });
 });

@@ -28,7 +28,7 @@ describe("plan lifecycle", () => {
     expect(resumed.pid).not.toBe(seeded.pid); expect(resumed.state).toEqual(seeded.state);
     expect([...resumed.tools].sort()).toEqual(["grep", "plan_submit"]);
     expect(resumed.callsAtOpen).toBe(0); expect(resumed.calls).toBe(0); expect(resumed.approval.ok).toBe(true);
-    expect(resumed.afterState).toEqual({ ...seeded.state, mode: "approved", approvedRevision: seeded.state.revision });
+    expect(resumed.afterState).toEqual({ ...seeded.state, mode: "approved" });
     expect([...resumed.afterTools].sort()).toEqual(["grep", "verifier_effect", "write"]); expect(resumed.executions).toBe("once\n");
   });
   it("L02 approved resume ignores plan flag and never replays execution", () => {
@@ -43,10 +43,10 @@ describe("plan lifecycle", () => {
     const value = box(); const seeded = run({ box: value, mode: "seed-approved" });
     const fresh = run({ box: value, mode: "fresh", seedEntries: seeded.entries.filter((entry: { type: string }) => entry.type === "custom") });
     expect(fresh.state.sessionId).not.toBe(seeded.state.sessionId);
-    expect(fresh.state).toEqual({ sessionId: fresh.state.sessionId, mode: "normal", planId: null, revision: 0, steps: [], approvedRevision: null });
+    expect(fresh.state).toMatchObject({ sessionId: fresh.state.sessionId, mode: "normal", steps: [] });
     expect(fresh.calls).toBe(0); expect(fresh.approvedCount).toBe(0);
     const flagged = run({ box: value, mode: "fresh", flag: true });
-    expect(flagged.state.mode).toBe("planning"); expect(flagged.state.revision).toBe(0); expect(flagged.state.steps).toEqual([]); expect(flagged.state.approvedRevision).toBeNull();
+    expect(flagged.state.mode).toBe("planning"); expect(flagged.state.steps).toEqual([]);
     expect(flagged.state.planId).not.toBe(seeded.state.planId); expect(flagged.tools).not.toContain("write"); expect(flagged.calls).toBe(0);
   });
   it("L04 a persisted normal session ignores plan flag on cross process resume", () => {

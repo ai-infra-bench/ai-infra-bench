@@ -2,7 +2,7 @@
 
 **Status: locally validated; image publication pending.** Validated through the
 Harbor entrypoint on a retained linux/amd64 image: Base 0, Oracle 1, one correct
-alternative 1, and ten negative controls 0. Recorded results are in
+alternative 1, one public-output variant 1, and ten negative controls 0. Recorded results are in
 [`validation/e2e-evidence.json`](validation/e2e-evidence.json).
 
 ## What the agent does
@@ -73,9 +73,9 @@ reported attempt matches its exact pinned error. Other regressions or changed
 skips fail. See
 [`validation/baseline-environment.md`](validation/baseline-environment.md).
 
-## Validation (2026-09-15)
+## Validation (2026-09-17, v0.0.2)
 
-All 13 cases completed through Harbor 0.23.0 with the retained linux/amd64 image,
+All 14 cases completed through Harbor 0.23.0 with the retained linux/amd64 image,
 with zero errored trials and the expected reward in every case.
 
 | Case | Agent / implementation | Expected reward | Result |
@@ -83,6 +83,7 @@ with zero errored trials and the expected reward in every case.
 | `base` | `nop`, unchanged Base | 0 | 0; scope and PASS_TO_PASS pass; 17 behavior checks and 4 lifecycle checks fail because the requested behavior is absent. |
 | `oracle` | `oracle`, reference patch | 1 | 1; all layers pass, including 18/18 contract and 4/4 lifecycle cases. |
 | `alternative-event-journal` | `oracle`, independent event-journal patch applied to Base | 1 | 1; all layers pass, including 18/18 contract and 4/4 lifecycle cases. |
+| `minimal-public-state` | `oracle`, reference-derived public-output variant | 1 | 1; all layers pass without `approvedRevision`, with extra diagnostics, details-only submission output and free-text rejection reasons. |
 | `accept-stale-revision` | `oracle`, Base-applicable negative-control patch | 0 | 0; C06, C15 detect acceptance of stale approvals. |
 | `accept-extension-control` | `oracle`, Base-applicable negative-control patch | 0 | 0; C07 detects extension-origin controls. |
 | `replay-duplicate-approval` | `oracle`, Base-applicable negative-control patch | 0 | 0; C10, C16 detect duplicate execution. |
@@ -94,8 +95,10 @@ with zero errored trials and the expected reward in every case.
 | `drop-done-progress` | `oracle`, Base-applicable negative-control patch | 0 | 0; C12 detects a progress display that does not advance. |
 | `drop-ui-approved-request-context` | `oracle`, Base-applicable negative-control patch | 0 | 0; C16 detects omitted model context only on UI approval; RPC behavior remains correct. |
 
-Both correct implementations passed 2,104 regression cases and retained the 50
-original skips, without using the AuthStorage exception.
+All three positive cases passed the regression gate with the full 2,154-case
+inventory and 50 original skips. Oracle and the event-journal alternative each
+passed 2,104 cases without an exception. The public-output variant encountered
+only the exact pinned AuthStorage assertion; its raw failure remains recorded.
 
 [`validation/ci-cases.json`](validation/ci-cases.json) pins complete patches that
 apply directly to Base; no preceding Oracle application is required for a control.
@@ -103,8 +106,8 @@ Detailed results and negative-control rationale are in
 [`validation/author-results.md`](validation/author-results.md) and
 [`validation/wrong-controls.md`](validation/wrong-controls.md). These checks
 establish verifier acceptance and rejection behavior, not coding-agent success
-rates. Four retained agent implementations were also regraded with the revised
-verifier; see [`validation/candidate-rechecks.json`](validation/candidate-rechecks.json).
+rates. Four retained agent implementations were also regraded without new model calls.
+Both Astra implementations still pass and both GPT-5.5 implementations still fail; see [`validation/candidate-rechecks.json`](validation/candidate-rechecks.json).
 
 ## Layout
 
@@ -125,6 +128,7 @@ pi-plan-mode/
 └── validation/                          # Correct alternative, controls, evidence
     ├── ci-cases.json
     ├── alternative-event-journal.patch
+    ├── minimal-public-state.patch
     ├── behavior-map.md
     ├── author-results.md
     ├── e2e-evidence.json

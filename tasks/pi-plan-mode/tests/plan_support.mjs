@@ -15,6 +15,35 @@ export const DEFAULT_TOOLS = ["read", "write", "bash", "edit", "grep", "find", "
 export const say = (text) => fauxAssistantMessage(text);
 export const call = (name, args, id = randomUUID()) => fauxAssistantMessage(fauxToolCall(name, args, { id }), { stopReason: "toolUse" });
 export const textOf = (message) => typeof message.content === "string" ? message.content : (message.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+export function planState(state) {
+  const fields = ["sessionId", "mode", "planId", "revision", "steps"];
+  if (!state || typeof state !== "object" || Array.isArray(state) || fields.some((field) => !Object.hasOwn(state, field))) {
+    throw new Error("Plan state must expose sessionId, mode, planId, revision and steps");
+  }
+  if (typeof state.sessionId !== "string" || !state.sessionId.length || !["normal", "planning", "approved"].includes(state.mode) ||
+      !Array.isArray(state.steps) || state.steps.some((step) => typeof step !== "string")) {
+    throw new Error(`Invalid public plan state: ${JSON.stringify(state)}`);
+  }
+  // An inactive state's identity/revision sentinels are presentation choices.
+  if (state.mode === "normal" ? state.steps.length !== 0 :
+      typeof state.planId !== "string" || !state.planId.length || typeof state.revision !== "number" || !Number.isFinite(state.revision)) {
+    throw new Error(`Invalid active plan identity or normal draft: ${JSON.stringify(state)}`);
+  }
+  return Object.fromEntries(fields.map((field) => [field, state[field]]));
+}
+export function submittedStates(result) {
+  const candidates = [result.details];
+  const texts = [textOf(result), ...(Array.isArray(result.content) ? result.content.filter((block) => block.type === "text").map((block) => block.text) : [])];
+  for (const text of texts) { try { candidates.push(JSON.parse(text)); } catch {} }
+  // One structured channel is sufficient; both need not duplicate the state.
+  return candidates.flatMap((candidate) => { try { return [planState(candidate)]; } catch { return []; } });
+}
+function hasReason(value, seen = new Set()) {
+  if (typeof value === "string") return value.trim().length > 0;
+  if (!value || typeof value !== "object" || seen.has(value)) return false;
+  seen.add(value);
+  return Object.values(value).some((item) => hasReason(item, seen));
+}
 export function deferred() {
   let resolve;
   const promise = new Promise((r) => { resolve = r; });
@@ -151,9 +180,21 @@ export async function start(options = {}) {
       await session.prompt(`/plan-control ${command}`, { source });
       const found = live.controls();
       if (found.length !== before + 1) throw new Error(`Expected one plan-control-result for ${command}; got ${found.length - before}`);
-      return found.at(-1);
+      const result = found.at(-1);
+      if (!result || typeof result !== "object" || !Object.hasOwn(result, "operation") || typeof result.ok !== "boolean") {
+        throw new Error(`Invalid control result: ${JSON.stringify(result)}`);
+      }
+      const operation = command.trim().split(/\s+/)[0];
+      if (["enter", "status", "approve"].includes(operation) && result.operation !== operation) {
+        throw new Error(`Control result does not identify ${operation}: ${JSON.stringify(result)}`);
+      }
+      const state = planState(result.state);
+      if (state.sessionId !== sessionManager.getSessionId()) throw new Error("Control state does not identify the current Pi session");
+      const metadata = Object.fromEntries(Object.entries(result).filter(([key]) => !["operation", "ok", "state"].includes(key)));
+      if (!result.ok && !hasReason(metadata)) throw new Error(`Rejected control has no reason: ${JSON.stringify(result)}`);
+      return { ...result, state };
     },
-    async state() { return (await live.control("status")).state; },
+    async state() { return controlState(await live.control("status")); },
     async submit(steps) {
       const id = randomUUID();
       await live.prompt([call("plan_submit", { steps }, id), say("Draft ready")]);
