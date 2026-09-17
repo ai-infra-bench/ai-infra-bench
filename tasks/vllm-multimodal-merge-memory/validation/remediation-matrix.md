@@ -34,4 +34,8 @@ First GPU matrix exposed a further gap: PyTorch sync-debug did not reject explic
 
 Oracle three runs and alternative two runs have identical observed maximum peak ratios: 1.00274658203125. The 4× threshold is a broad regression bound, not a throughput or universal optimality claim. Every candidate ran in a fresh offline container; cases inside a suite recreate their tensors.
 
-Integrity protection is bounded: native memory tampering and arbitrary mutation of in-process observers are not claimed solved. Full Qwen serving and fresh model-agent rollouts were not run. No paid model API is required for the deterministic control matrix.
+Integrity protection is bounded: native memory tampering and arbitrary mutation of in-process observers are not claimed solved. At this historical v1.3.0 checkpoint, full Qwen serving and fresh model-agent rollouts were not run. No paid model API is required for the deterministic control matrix.
+
+## Subsequent rollout remediation (v1.3.2)
+
+The historical 26-case matrix above is not a v1.3.2 rerun. Flash rollouts exposed the CPU-mask OOV scope extension (corrected in v1.3.1) and missing empty-outer count checks (six added in v1.3.2). Current Oracle/alternative are 32/32; Base/forged-success-exit are zero. Twelve effective model attempts were reviewed and completely replayed, plus four preserved infrastructure failures. See [rollout-review.md](rollout-review.md) and [rollout-attempts.json](rollout-attempts.json).
