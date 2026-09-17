@@ -47,7 +47,7 @@ async def main():
             if os.environ.get(key):env[key]='${'+key+'}'
     agent={'import_path':'campaign_agents:CollectionCanary' if args.mode=='canary' else 'campaign_agents:OfflineClaude',
            'model_name':model,'env':env,'extra_allowed_hosts':hosts,
-           'kwargs':{} if args.mode=='canary' else {'version':'2.1.238'}}
+           'kwargs':{'oracle_patch':str(snapshot/'solution/oracle.patch')} if args.mode=='canary' else {'version':'2.1.238'}}
     config={'job_name':args.mode,'jobs_dir':str(output/'jobs'),'n_attempts':1 if args.mode=='canary' else 4,
             'n_concurrent_trials':1 if args.mode=='canary' else 4,'quiet':True,
             'environment':{'type':'docker','delete':False},'agents':[agent],
