@@ -27,6 +27,7 @@ REQUIRED_STAGES = {
     "model_runner_compact_gather",
     "registry_capacity",
     "scheduled_cache_lifecycle",
+    "profile_runtime_coverage",
 }
 
 
@@ -492,6 +493,7 @@ def main(inputs) -> dict:
         "model_runner_compact_gather": check_model_runner_compact_gather,
         "registry_capacity": check_registry_profiles_embedding_capacity,
         "scheduled_cache_lifecycle": check_scheduled_cache_lifecycle,
+        "profile_runtime_coverage": check_profile_runtime_coverage,
     }
     passed = {}
     failures = {}
@@ -524,6 +526,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from encoder_contract import workload, expected
 WORKER_CODE = WORKER_CODE.replace("def main(inputs) -> dict:",
     Path(__file__).with_name("encoder_capacity_worker.py").read_text() + "\n" +
+    Path(__file__).with_name("encoder_profile_worker.py").read_text() + "\n" +
     Path(__file__).with_name("encoder_fresh_worker.py").read_text() + "\n\ndef main(inputs) -> dict:", 1)
 
 
@@ -545,6 +548,7 @@ def expected_observations():
         for start in range(5) for end in range(start + 1, 6)
     ]
     return {
+        "profile_runtime_coverage": {"cases": 2, "profile_covers_runtime_storage": True},
         "scheduled_cache_lifecycle": {"windows": 12, "items": 5,
             "encoded_rows": 7, "selected_rows": 7,
             "charges": [0, 2, 0, 0, 0, 3, 0, 0, 2, 0, 0, 0]},
