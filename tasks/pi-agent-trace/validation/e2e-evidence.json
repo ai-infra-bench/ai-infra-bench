@@ -1059,6 +1059,37 @@
       "failures": [],
       "assessment": "task 0.0.6 (contract-only + shutdown sentence, revised verifier), claude-opus-5 through Harbor's claude-code agent (fresh setup-token, multiplier 0.15): passes every layer unmodified in 28 min (contract 15/15, lifecycle 2/2, P2P pass), 156 turns, 62 Bash calls, no rate-limit pressure (5-hour window at 1%). The first non-curated pass of the contract-only instruction: it resolves entry ids by scanning the branch backwards from its end, lists steering entries per turn, and closes spans on session_shutdown with their attributes. Kept as validation/alt-opus-run1.patch (expected 1) Post-hoc scrutiny (2026-09-16): trajectory reviewed (only the extension directory, its README, the examples README and one new test file were written; the agent ran pi's own suite, tsgo and biome itself; no verifier or node_modules access), traces dumped for the hard cases (true end times, end order kept, shutdown closes carry the run attributes). Repeating the shutdown case locally exposed a verifier over-precision: the submission's hrtime-anchored clock reads up to 1 ms behind Date.now(), and the verifier's window lower bound was exact to the nanosecond, so the case failed 2 of 8 local repeats by 16 us. Fixed in verifier revision 2 (1 ms slack); after the fix 10/10 repeats and 3 full-suite runs pass. The Harbor pass stands, but under revision 1 it carried roughly a one-in-four chance of a spurious 0",
       "label": "opus 2 (0.0.6)"
+    },
+    {
+      "run": 14,
+      "label": "grok run 12",
+      "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1, agent timeout multiplier 0.15, agent user node",
+      "task_version_seen": "0.0.6 (harness revision 3, non-root agent)",
+      "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.15--20260918-013035",
+      "started_at": "2026-09-18T01:33:35Z",
+      "finished_at": "2026-09-18T02:18:29Z",
+      "reward": 0,
+      "reward_json": {
+        "reward": 0,
+        "command_exit_code": 1,
+        "contract_exit_code": 1,
+        "contract_integrity_exit_code": 1,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0,
+        "scope_exit_code": 0
+      },
+      "layers": {
+        "contract": "13/15",
+        "lifecycle": "2/2",
+        "pass-to-pass": "pass"
+      },
+      "failures": [
+        "contract: a prompt with a tool call exports run, turn, chat and tool spans in OTLP/JSON tied to session entries",
+        "contract: concurrent tool calls of one assistant message get one overlapping span each with its own status and entry"
+      ],
+      "assessment": "task 0.0.6, harness revision 3 (non-root agent user), grok-4.6, 45 min: reward 0, contract 13/15, lifecycle 2/2, P2P pass, scope_exit_code 0 (only the extension directory and a new test touched; the scope check did not fire). A genuine agent defect on the contract-only instruction, not a hardening artefact: the two failing cases are the basic 'a prompt with a tool call exports run/turn/chat/tool spans tied to session entries' and 'concurrent tool calls' (the recurring parallel-order defect). Confirms the non-root agent runs a full rollout (grok authenticated as node, no auth errors) and that a correct submission is unaffected (the bg rollout of the same batch scored 1)."
     }
   ],
   "artifacts": {
