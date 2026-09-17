@@ -85,6 +85,28 @@ These produced two of the four judge defects found by real rollouts.
   submission as an expected-1 control, repeat the verifier against it eight to
   ten times in the task image; a control that flakes is worse than none.
 
+## 2b. Scoring trust in the shared container
+
+Harbor runs the verifier in the container the agent just used. Whatever the agent
+could write, the verifier will execute: with a root agent, replacing
+`node_modules/vitest/vitest.mjs` with a script that parses the `it(...)` titles of the
+files it is asked to run and emits a passing JUnit report earned reward 1 on Base for
+both pi tasks (task review of 2026-09-17). An exact JUnit inventory, a forged-report
+control and an early-exit control do not cover a replaced runner.
+
+- Run the agent as the image's unprivileged user (`[agent].user = "node"`, a native
+  Harbor field) and leave `node_modules`, `node`, `python3` and `bash` root-owned and
+  read-only for it; give vite writable `node_modules/.vite-temp` and `.vite` dirs and
+  add `git config --system safe.directory` for root's git. Check the agent can still
+  run the project's tests, `git apply` and type-check before relying on it.
+- In `test.sh`, reject submissions that changed project source or the build/test
+  toolchain (test configs, manifests, scripts) before running any suite; a tracked
+  `vitest.config.ts` is loaded by the verifier's own run. Keep the check narrow so a
+  stray scratch file does not fail a correct extension. Remove vite's transient
+  bundles before running.
+- Keep a control that edits the test config on top of the Oracle (expected 0) so the
+  scope check is itself validated.
+
 ## 3. pi facts: what the contract states and what the solver discovers
 
 Write the instruction in two parts: **requirements** stated as outcomes (what
