@@ -15,7 +15,7 @@ model=os.environ.get('MODEL') if a.mode=='flash' else None
 if a.mode=='flash':assert model=='deepseek-v4-flash[1m]', 'unexpected configured model'
 def hashes(root):return {str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for f in root.rglob('*') if f.is_file()}
 commit=subprocess.check_output(['git','-C',str(TASK),'rev-parse','HEAD'],text=True).strip()
-meta={'commit':commit,'mode':a.mode,'model':model,'model_revision':'not provided by gateway','harbor':'0.22.0','claude_code':'2.1.238','reasoning_effort':'CLI/provider default (no override)','concurrency':4 if a.mode=='flash' else 1,'harness_hashes':hashes(Path(__file__).parent),'task_hashes':hashes(TASK),'started_unix':time.time(),'trials':[]}
+meta={'commit':commit,'mode':a.mode,'model':model,'model_revision':'not provided by gateway','harbor':'0.22.0','claude_code':'2.1.238','reasoning_effort':'CLI/provider default (no override)','concurrency':4 if a.mode=='flash' else 1,'docker_host':os.environ.get('DOCKER_HOST','default'),'docker_root':subprocess.check_output(['docker','info','--format','{{.DockerRootDir}}'],text=True).strip(),'cli_sha256':hashlib.sha256(Path(os.environ['PR70_CLAUDE_BINARY']).read_bytes()).hexdigest(),'harness_hashes':hashes(Path(__file__).parent),'task_hashes':hashes(TASK),'started_unix':time.time(),'trials':[]}
 (R/'campaign.json').write_text(json.dumps(meta,indent=2)+'\n')
 def run(slot):
  name=f'{a.round}-gpu{slot}';prepared=R/'inputs'/name;shutil.copytree(TASK,prepared)
