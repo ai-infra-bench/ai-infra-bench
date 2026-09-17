@@ -17,18 +17,15 @@ index 97a247d..207291e 100644
 diff --git a/csrc/quantization/compressed_tensors/int8_quant_kernels.cu b/csrc/quantization/compressed_tensors/int8_quant_kernels.cu
 --- a/csrc/quantization/compressed_tensors/int8_quant_kernels.cu
 +++ b/csrc/quantization/compressed_tensors/int8_quant_kernels.cu
-@@ -1,7 +1,10 @@
+@@ -1,5 +1,7 @@
  #include <ATen/cuda/CUDAContext.h>
  #include <torch/all.h>
- 
-+#include "../per_token_group_quant_8bit.h"
 +
- #include <cmath>
-+#include <cstdint>
++#include "../per_token_group_quant_8bit.h"
  
- #include "../../dispatch_utils.h"
- #include "../vectorization_utils.cuh"
-@@ -336,3 +339,61 @@
+ #include <cmath>
+ 
+@@ -336,3 +338,58 @@
          }
        });
  }
@@ -70,10 +67,7 @@ diff --git a/csrc/quantization/compressed_tensors/int8_quant_kernels.cu b/csrc/q
 +  if (num_groups == 0) return;
 +  const size_t shared_limit =
 +      at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
-+  // Contiguous views can still start at a byte-unaligned storage offset.
-+  if (reinterpret_cast<std::uintptr_t>(input.data_ptr()) % 16 != 0 ||
-+      reinterpret_cast<std::uintptr_t>(output_q.data_ptr()) % 16 != 0 ||
-+      group_size % 16 != 0 ||
++  if (group_size % 16 != 0 ||
 +      static_cast<size_t>(group_size) * input.element_size() > shared_limit) {
 +    TORCH_CHECK(output_s.is_contiguous());
 +    cudaStream_t stream = at::cuda::getCurrentCUDAStream();

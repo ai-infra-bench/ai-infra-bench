@@ -35,6 +35,10 @@ def cases():
     ]:
         result.append(dict(name=name, shape=shape, group=group, dtype=dtype,
                            eps=1e-10, values=[v * 7 for v in pattern]))
+    for dtype in ("float16", "bfloat16", "float32"):
+        result.append(dict(name="offset-contiguous-" + dtype, shape=[2, 3, 128],
+                           group=64, dtype=dtype, eps=1e-10, offset=1,
+                           values=[v * 7 for v in pattern]))
     return result
 
 
@@ -47,6 +51,12 @@ def observe(cases, quantize):
         numel = math.prod(case["shape"])
         repeats = (numel + len(case["values"]) - 1) // len(case["values"])
         x = x.repeat(repeats)[:numel].reshape(case["shape"])
+        if case.get("offset", 0):
+            backing = torch.empty(numel + case["offset"], device=x.device, dtype=x.dtype)
+            view = backing[case["offset"]:]
+            view.copy_(x.reshape(-1))
+            x = view.reshape(case["shape"])
+            assert x.is_contiguous()
         health = {}
         try:
             q, s = quantize(x, case["group"], case["eps"])
