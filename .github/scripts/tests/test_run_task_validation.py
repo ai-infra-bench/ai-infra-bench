@@ -56,6 +56,12 @@ elif name == "docker":
     elif args[:2] == ["buildx", "build"]:
         with open(os.environ["MOCK_LOG"], "a") as stream:
             stream.write(json.dumps(["buildx_config", os.environ.get("BUILDX_CONFIG")]) + "\n")
+        attempt_path = Path(os.environ["MOCK_BUILD_ATTEMPT"])
+        attempt = int(attempt_path.read_text()) + 1 if attempt_path.exists() else 1
+        attempt_path.write_text(str(attempt))
+        if attempt <= int(os.environ["MOCK_BUILD_FAILURES"]):
+            print(os.environ["MOCK_BUILD_ERROR"], file=sys.stderr)
+            sys.exit(1)
         ready.touch()
     elif args[:3] == ["buildx", "imagetools", "inspect"]:
         print(json.dumps(os.environ["MOCK_DIGEST"]))
@@ -75,13 +81,18 @@ elif name == "harbor":
         "n_completed_trials": 1, "n_errored_trials": 0,
         "evals": {"test": {"reward_stats": {"reward": {reward: ["trial"]}}}},
     }}))
+elif name == "sleep":
+    pass
 else:
     raise AssertionError(name)
 '''
 
 
 class ValidationImageTests(unittest.TestCase):
-    def run_validation(self, *, gpus, cache_hit, publish, harbor_fail=False, docker_image=True):
+    def run_validation(
+        self, *, gpus, cache_hit, publish, harbor_fail=False, docker_image=True,
+        build_failures=0, build_error="", expect_failure=False,
+    ):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             scripts = root / ".github/scripts"
@@ -114,10 +125,12 @@ class ValidationImageTests(unittest.TestCase):
                 ], cwd=root, env=dict(os.environ, PYTHONPATH=str(scripts)),
                     check=True, capture_output=True, text=True)
                 self.assertEqual(json.loads(result.stdout)["accelerator"], accelerator)
+                expected_proxy = "http://127.0.0.1:7892" if gpus else ""
+                self.assertEqual(json.loads(result.stdout)["data_proxy_url"], expected_proxy)
 
             bin_dir = root / "bin"
             bin_dir.mkdir()
-            for name in ("python3", "docker", "harbor"):
+            for name in ("python3", "docker", "harbor", "sleep"):
                 executable = bin_dir / name
                 executable.write_text(f"#!{sys.executable}\n" + textwrap.dedent(FAKE_COMMAND))
                 executable.chmod(0o755)
@@ -134,6 +147,9 @@ class ValidationImageTests(unittest.TestCase):
                 "AI_INFRA_GPU_POOL_CONFIG": str(root / "pool.json"),
                 "MOCK_LOG": str(root / "commands.jsonl"),
                 "MOCK_IMAGE_READY": str(root / "image-ready"),
+                "MOCK_BUILD_ATTEMPT": str(root / "build-attempt"),
+                "MOCK_BUILD_FAILURES": str(build_failures),
+                "MOCK_BUILD_ERROR": build_error,
                 "MOCK_CACHE_HIT": str(cache_hit).lower(),
                 "MOCK_HARBOR_FAIL": str(harbor_fail).lower(),
                 "MOCK_REGISTRY": REGISTRY, "MOCK_DIGEST": DIGEST,
@@ -147,7 +163,7 @@ class ValidationImageTests(unittest.TestCase):
             )
             commands = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()]
             summary = root / "jobs/example/ci-summary.json"
-            if harbor_fail:
+            if harbor_fail or expect_failure:
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(summary.exists())
                 return None, commands
@@ -155,17 +171,19 @@ class ValidationImageTests(unittest.TestCase):
             summary = json.loads(summary.read_text())
             self.assertEqual(summary["cache_hit"], cache_hit if not gpus else False)
             builds = [cmd for cmd in commands if cmd[:3] == ["docker", "buildx", "build"]]
-            self.assertEqual(len(builds), 1 if gpus else int(not cache_hit))
+            expected_builds = 0 if not gpus and cache_hit else build_failures + 1
+            self.assertEqual(len(builds), expected_builds)
             if builds:
                 self.assertEqual(builds[0][builds[0].index("--tag") + 1], summary["image"])
                 self.assertIn("--load", builds[0])
                 buildx_configs = [cmd[1] for cmd in commands if cmd[0] == "buildx_config"]
-                self.assertEqual(len(buildx_configs), 1)
+                self.assertEqual(len(buildx_configs), len(builds))
                 if gpus:
                     self.assertTrue(buildx_configs[0].startswith(str(root / "ai-infra-buildx.")))
                     self.assertTrue(Path(buildx_configs[0]).is_dir())
+                    self.assertTrue(all(path == buildx_configs[0] for path in buildx_configs))
                 else:
-                    self.assertIsNone(buildx_configs[0])
+                    self.assertTrue(all(path is None for path in buildx_configs))
             harbor = [cmd for cmd in commands if cmd[0] == "harbor"]
             self.assertEqual(len(harbor), 2)
             expected_env = "ci_gpu_docker:LeasedGpuDockerEnvironment" if gpus else "docker"
@@ -216,6 +234,32 @@ class ValidationImageTests(unittest.TestCase):
         self.assertTrue(summary["image"].startswith("ai-infra-bench-task-envs:example-"))
         self.assertEqual(len([cmd for cmd in commands if cmd[:3] == ["docker", "buildx", "build"]]), 1)
         self.assertFalse(any(cmd[:2] == ["docker", "pull"] for cmd in commands))
+
+    def test_build_retries_transient_network_failures(self):
+        errors = (
+            "error: RPC failed; curl 56 GnuTLS recv error (-110)",
+            "OpenSSL SSL_read: SSL_ERROR_SYSCALL, errno 0",
+            "SSL routines::unexpected eof while reading",
+        )
+        for error in errors:
+            with self.subTest(error=error):
+                _, commands = self.run_validation(
+                    gpus=1, cache_hit=False, publish=False,
+                    build_failures=2, build_error=error,
+                )
+                builds = [
+                    cmd for cmd in commands
+                    if cmd[:3] == ["docker", "buildx", "build"]
+                ]
+                self.assertEqual(len(builds), 3)
+
+    def test_build_does_not_retry_non_network_failures(self):
+        _, commands = self.run_validation(
+            gpus=1, cache_hit=False, publish=False, build_failures=1,
+            build_error="compiler error", expect_failure=True,
+        )
+        builds = [cmd for cmd in commands if cmd[:3] == ["docker", "buildx", "build"]]
+        self.assertEqual(len(builds), 1)
 
 
 if __name__ == "__main__":
