@@ -46,7 +46,7 @@ The evaluated agent must not receive `solution/`, task verifier files, validatio
 
 ## Review and harden a task
 
-After the Harbor task exists, use the repository-specific [`ai-infra-bench-task-review` Skill](.agents/skills/ai-infra-bench-task-review/SKILL.md). In Codex, invoke it as `$ai-infra-bench-task-review`. The Skill links to the full [review rubric](.agents/skills/ai-infra-bench-task-review/references/review-rubric.md) and [validation playbook](.agents/skills/ai-infra-bench-task-review/references/validation-playbook.md).
+After the Harbor task exists, use the repository-specific [`ai-infra-bench-task-review` Skill](.agents/skills/ai-infra-bench-task-review/SKILL.md). In Codex, invoke it as `$ai-infra-bench-task-review`. The Skill links to the complete [review rubric](.agents/skills/ai-infra-bench-task-review/references/review-rubric.md), which contains the fourteen-step review process, acceptance and validation rules, and ten-dimension scorecard.
 
 Review and hardening are separate stages:
 

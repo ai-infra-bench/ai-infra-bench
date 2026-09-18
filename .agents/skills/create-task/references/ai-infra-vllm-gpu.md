@@ -22,11 +22,7 @@ Before using evaluated-agent outcomes to make design decisions, record the
 target repository, exact Base commit and tree, task scope, and Oracle source.
 Derive the behavioral contract from a realistic user or developer scenario.
 
-For tasks inspired by upstream PRs or issues, record the relevant sources and
-inspect subsequent fixes, regressions, reverts, or replacements that materially
-affect the proposed Oracle. A merged patch is not automatically a correct
-reference implementation. Resolve relevant contradictory evidence before using
-it as the Oracle.
+Follow [the upstream-history procedure](upstream-history.md) before accepting the Oracle and freezing the instruction and verifier. Record related reports, including unresolved and closed-but-unmerged fixes, and determine which defects can occur at Base within the proposed scope. Resolve relevant contradictory evidence through code inspection and behavioral checks; a merged patch is not automatically a correct reference implementation.
 
 The task may adapt, combine, or extend upstream mechanisms into a realistic
 independent scenario. It need not reproduce an entire PR or a named slice.
