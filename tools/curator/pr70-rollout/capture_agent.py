@@ -1,4 +1,4 @@
-"""Campaign-only Harbor agents: stock Claude behavior plus pre-verifier capture."""
+"""Campaign-only Harbor agents: stock Claude/Codex behavior plus pre-verifier capture."""
 import hashlib
 import json
 import os
@@ -6,6 +6,7 @@ from pathlib import Path
 import shlex
 
 from harbor.agents.installed.claude_code import ClaudeCode
+from harbor.agents.installed.codex import Codex
 from harbor.agents.base import BaseAgent
 
 COLLECT = r'''
@@ -79,3 +80,15 @@ class CaptureSmoke(CaptureMixin,SmokeWork):
         # Add one untracked file to prove the collection path actually works.
         await environment.exec(command="printf 'collector integration sentinel\\n' > /workspace/repo/pr70-collection-smoke.txt",user='agent')
         await super().run(instruction,environment,context)
+
+
+class CapturedCodex(CaptureMixin, Codex):
+    async def install(self, environment):
+        executable = Path(os.environ['PR70_CODEX_BINARY'])
+        await environment.upload_file(executable, '/tmp/pr70-codex')
+        result = await environment.exec(
+            command='install -m 0755 /tmp/pr70-codex /usr/local/bin/codex && rm /tmp/pr70-codex && codex --version',
+            user='root', timeout_sec=120)
+        if result.return_code:
+            raise RuntimeError('offline Codex install failed')
+        (self.logs_dir / 'installed-version.txt').write_text(result.stdout or '')
