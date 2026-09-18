@@ -86,8 +86,9 @@ class CapturedCodex(CaptureMixin, Codex):
     async def install(self, environment):
         executable = Path(os.environ['PR70_CODEX_BINARY'])
         await environment.upload_file(executable, '/tmp/pr70-codex')
+        await environment.upload_file(executable.with_name('codex-code-mode-host'), '/tmp/pr70-codex-code-mode-host')
         result = await environment.exec(
-            command='install -m 0755 /tmp/pr70-codex /usr/local/bin/codex && rm /tmp/pr70-codex && codex --version',
+            command='install -m 0755 /tmp/pr70-codex /usr/local/bin/codex && install -m 0755 /tmp/pr70-codex-code-mode-host /usr/local/bin/codex-code-mode-host && rm /tmp/pr70-codex /tmp/pr70-codex-code-mode-host && codex --version',
             user='root', timeout_sec=120)
         if result.return_code:
             raise RuntimeError('offline Codex install failed')
