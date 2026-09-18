@@ -1,0 +1,1890 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-12T05:58:54.626463+00:00",
+  "status": "validated",
+  "task": "ai-infra-bench/vllm-modular-moe-config-ownership",
+  "source": {
+    "repository": "vllm-project/vllm",
+    "base_commit": "e2ed238885be6af358be1851cd43105b7d036c49",
+    "dependency_cutoff": "2025-12-15T00:33:41Z",
+    "reference_oracle_commit": "3778673ea81bf5241f40e9c5e90f989bde377acf"
+  },
+  "image": {
+    "base_commit": "e2ed238885be6af358be1851cd43105b7d036c49",
+    "base_image": "vllm/vllm-openai:v0.12.0@sha256:6766ce0c459e24b76f3e9ba14ffc0442131ef4248c904efdcbf0d89e38be01fe",
+    "build_context": "environment",
+    "build_notes": "Built on the isolated bench daemon (unix:///data/docker-bench/docker.sock) with the legacy builder (DOCKER_BUILDKIT=0, --network host). VLLM_REPOSITORY was overridden to a local git-daemon (git://127.0.0.1:9418/vllm-hist.git) serving the full, content-verified upstream vLLM history, because the bench host's only github egress (proxy) EOFs on the large history pack. Provenance is asserted by content in-image (HEAD==base_commit, tree match, rev-list>1, not shallow, oracle absent, clean tree) and verified post-build via task_ci.py image-check. codeload + files.pythonhosted.org fetched directly.",
+    "created": "2026-09-05T02:37:33.598745925+08:00",
+    "dependency_cutoff": "2025-12-15T00:33:41Z",
+    "dependency_lock_manifest_sha256": "a437238733ed24d3121a1b45f13516a667666e84dfe3c7cb89372e0b0648920c",
+    "dependency_lock_sha256": "ec8da2ba7874ab76016998f20ba4a9e20280af7c0e8937e7e049f150a863727e",
+    "dockerfile_sha256": "149fd9f3e5a4c048e3e9d556aa1edc50f877300a3d28221957b689a18a603fdf",
+    "image_check": "passed",
+    "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+    "image_tag": "ai-infra-bench/vllm-pr-30282:remediate-20260904T173714Z",
+    "repo_digests": [],
+    "schema_version": "vllm_harbor_image.v1",
+    "size_bytes": 10677311185,
+    "status": "built",
+    "task": "ai-infra-bench/vllm-modular-moe-config-ownership"
+  },
+  "skill": {
+    "head": "b989bc67e2b945c3be00d548ca25b1f73519f478",
+    "branch": "main",
+    "status": "",
+    "hashes": {
+      ".agents/skills/ai-infra-bench-task-review/SKILL.md": "d95343d9408abd45190c0061eca41abf66ed6be3ca5471e2039e5759d5c7bacb",
+      ".agents/skills/ai-infra-bench-task-review/agents/openai.yaml": "c41c9dce93178e680e81e5f4506c197ad8c1b9e72b178fb6eb179ad17fe24614",
+      ".agents/skills/ai-infra-bench-task-review/references/review-rubric.md": "c4413205916752c5fc793e26c74a20d15e2538b7043fe612c1741e7fa9901167",
+      ".agents/skills/ai-infra-bench-task-review/references/validation-playbook.md": "803fc8d1b120753003db681b20f1990d697f01ae52952e121255071af86a342e",
+      ".agents/skills/ai-infra-bench-task-review/scripts/audit_task_artifacts.py": "3c4f882ed2aa3542ddbb2d2c51522819be17dc22a12f2cd492076bd882190022"
+    }
+  },
+  "worktree": {
+    "path": "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular",
+    "task_path": "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership",
+    "head": "e70161eb3d9d7e0e952b1a042220070a5e628f19",
+    "branch": "tasks/vllm-modular-moe-config-ownership-opus5-review",
+    "state": "local uncommitted hardening; no commit, push or PR update"
+  },
+  "review": {
+    "gates": {
+      "task_statement": "pass",
+      "environment": "pass within documented single-device CUDA and external ABI scope",
+      "verification": "pass"
+    },
+    "findings": [
+      {
+        "id": "P1-flashinfer-prepare-owner",
+        "priority": "P1",
+        "status": "resolved",
+        "evidence": "validation/history/before-prepare-hardening-20260912.json",
+        "resolution": "Real prepare/expert/finalize behavior is checked. Oracle propagates active full config before prepare and expert selection. Prior incomplete positives are preserved as negatives."
+      }
+    ],
+    "scope": "Authorized task hardening using the requested task-review skill. Saved Astra production patch replayed; no fresh model rollout.",
+    "changes": {
+      "task.toml": {
+        "before": "819c2c6ed47a6edfef47dded058a42eeff149ccbf701cb695b66c2bfc6b33567",
+        "after": "498e45fdc230bcf9aae8a3ce0c03eb47a2dc05bf1aec4e51f0357502f770befa"
+      },
+      "solution/oracle.patch": {
+        "before": "79dad8bb3dd45055c10890263d1cfbdc47161d64c191c119bd20fb8ce5340662",
+        "after": "a8819cf4bb2ad7849e4010e80f853b1ac5b6c673e772a552ebded0567c4dbb54"
+      },
+      "tests/verify_parallel_config.py": {
+        "before": "59d774ed6b5b4b107b0c84b1d7fb9e20761d54b3d449a033ed65996636d223a2",
+        "after": "ac27a948ad17fffb1ed34102ca708d4b88ad061d4c0cd3a9e56f2d444c224ecd"
+      },
+      "tests/trusted_score.py": {
+        "before": "9b97c3756a9347af2e491633ed885ebf18d683b76dfd864617f0b5fde7b7af06",
+        "after": "063d52849ba38b43957b48bb0c08c4ce0e8c4d7385e460033720a587a00d32b7"
+      },
+      "tests/check_behavior.py": {
+        "before": "816b45fc09a867388054eea089933b3568079d9f694391bf5ebe6414544fa8f2",
+        "after": "800574b28305e562bd097cb2851a6be1794ca9e8df79af16b7352c39ebeba608"
+      },
+      "tests/workload.py": {
+        "before": "aaa7655e3c1b5026fe957f52368a5bd93640b3f81119b9c81acf4a5a6c47479e",
+        "after": "346cb53a5f2f17faca0d79d6cfdc26d626cdd197929c15f7c9d8dcddd33a3327"
+      },
+      "tests/pipeline_workload.py": {
+        "before": null,
+        "after": "530116bce1b12056316c594bcaf455add34b0eccfd7fef0091fbb7e415565f66"
+      },
+      "tests/flashinfer_pipeline.py": {
+        "before": null,
+        "after": "040cf34acf51559b04b5ce529912f6870b302cb66f00f81b169c861a2461579f"
+      },
+      "tests/pipeline_contract.py": {
+        "before": null,
+        "after": "e9624a80199fa2f9e36c498fa3bff5c557b95d40afaf61ccb67499d98d544f39"
+      },
+      "validation/ci-cases.json": {
+        "before": "cdabbbbf09cd98de8bf3dd2e59081d3fb0bcbd2f41b19f19095fc2fe90cb4839",
+        "after": "9d313e51c634b31d23d40751764d1efe033670d6c6b4d6a9641bc384b2a767aa"
+      },
+      "validation/incomplete-flashinfer-pipeline.patch": {
+        "before": null,
+        "after": "79dad8bb3dd45055c10890263d1cfbdc47161d64c191c119bd20fb8ce5340662"
+      },
+      "validation/alternate-consumer-full-pipeline.patch": {
+        "before": null,
+        "after": "74f41f100bce26d247b9e742d0505fa2677385a3841432a1a5c469aa58e356da"
+      },
+      "validation/missing-expert-parallel-config.patch": {
+        "before": null,
+        "after": "924e76b15e6c81de0073a025e0d605b22784504c997e993a5bc11db46b4ee421"
+      },
+      "validation/incorrect-finalize-rank-slice.patch": {
+        "before": null,
+        "after": "536aade220e6b917f446d353371013ba6487adb2c787eec315a5482b92c9495e"
+      },
+      "validation/alternate-layer-owned-method.patch": {
+        "before": null,
+        "after": "995ac93f5459d5cec7a569c00f7e2f4fe057372d3beb7135cfc1a0633382576d"
+      },
+      "validation/alternate-workspace-full-pipeline.patch": {
+        "before": null,
+        "after": "538d8d6b964d251e0de940c2d328eace27e9c509dfb761740f29f79ba63af21c"
+      },
+      "validation/challenge/challenge_full_pipeline.py": {
+        "before": null,
+        "after": "3f8f82b511aa300bed81910d6ad2d80754b46d7091f6151425ca8ea6f52a5a2a"
+      }
+    }
+  },
+  "semantic_boundary": "# Review contract\n\nActive layer plus conflicting ambient/legacy configuration -> real modular factory and backend configuration resolution -> owner-dependent workspace reservation, rank-ordered preparation, expert execution with the active TP/EP configuration, and finalized local results. Unowned functional construction stays non-DP+EP, and existing single-rank Triton numerical behavior remains unchanged.\n\n## Real components and allowed substitutions\n\nThe verifier composes two paths. The existing profile/numerical path executes real modular construction, CUDA workspace allocation, LoRA injection through modular construction, and production Triton expert arithmetic. Its FlashInfer-to-Triton adapter is retained specifically for workspace and single-rank arithmetic coverage; that adapter is not evidence of real FlashInfer preparation or expert selection.\n\nThe added path enters `flashinfer_cutlass_moe_fp8` and executes the real preparation builder, expert selector, modular forward, FlashInfer prepare, `FlashInferExperts.apply`, and finalize. Only group transport and the external FlashInfer arithmetic leaf are substituted. Transport consumes the actual local payload, concatenates distinct rank payloads in order, and returns the local slice of the summed virtual-rank output. The leaf uses a deterministic identity transform while recording the actual external kernel ABI. The parent independently checks payloads, routing, TP/EP arguments, and final CUDA output against its own inputs. These substitutions retain the ownership distinction; they do not replace any component that decides which configuration governs preparation or execution.\n\nThis is composed single-device CUDA validation of configuration ownership, not an NCCL multi-process or FlashInfer FP8 numerical benchmark. Real Triton arithmetic supplies the promised single-rank numerical regression coverage. Network timing and FlashInfer arithmetic implementation are outside this task's ownership contract.\n\n## Contract-to-check mapping\n\n| Public behavior | Observation |\n|---|---|\n| Layer ownership survives conflicting ambient and legacy state | Production factory, FlashInfer helper and LoRA-owned modular kernels reserve workspace for their active layer |\n| Compatibility construction works without global state | Real unowned construction and functional CUTLASS call path execute without the global-config warning |\n| DP+EP profiling reserves worst-case capacity | Real CUDA logical temporary/view extent meets the frozen 16,384-row bound; ordinary owners avoid the worst-case reservation |\n| Single-rank Triton numerics stay unchanged | Eight forwards against references derived from parent-owned random operands |\n| Downstream preparation follows the active layer | Real gather consumes local inputs and produces rank-ordered hidden states, expert IDs and weights |\n| Expert execution follows current TP/EP ownership | Real expert apply passes the active rank and group dimensions to its external arithmetic boundary |\n| Finalization follows active DP ownership | Real finalize reduces and returns the correct local rank slice; non-DP remains local |\n\nSix new cases combine absent and stale optional configuration, DP=1/2, flattened TP/EP groups up to four, both EP states, nonzero TP/DP ranks, and unequal rank sizes of three/five. A fresh parent-generated workload changes values and routing on each run. Expert execution may be chunked; no exact number of expert calls, private field name, config identity, or allocation helper is required.\n\nThe independent curator challenge uses different code, twelve experts, hidden width 256, rank sizes two/four/seven, DP up to three and flattened TP/EP up to six. It runs the same real lifecycle and verifies a different leaf transform. It imports no verifier workload generator, observer or checker. The separate independent workspace challenge also changes geometry and owner combinations.\n\n## Controls and evidence discipline\n\nThe previous Oracle and three previously mislabeled positive controls are preserved byte-for-byte as negative controls. Their numerical/profile success did not establish downstream ownership. Correct controls now include active full-config forwarding, lazy owner derivation with complete downstream propagation, a layer-owned method implementation, and extra workspace shape queries with complete propagation. Reading the full `layer.moe_config` remains a valid interface; its `moe_parallel_config` view refers to the same production owner.\n\nAdditional isolated negatives omit only expert TP/EP propagation or replace finalization with the first rank's unreduced slice. Existing wrong-owner, undersized workspace, constant-output, warning, early exit, direct report, and observation replay controls remain. They must fail through the real grading entrypoint; static audit or process isolation alone is not proof of correct scoring.\n\nThe grading parent retains authoritative random inputs before importing candidate code. Its result checks do not trust candidate-provided input descriptions. FlashInfer's standard `FLASHINFER_WORKSPACE_BASE` setting points its cache to the worker's writable per-run directory; interpreter startup policy is unchanged by this repair.\n\nWorkspace scoring still observes logical CUDA temporary/view extents through real allocation, excluding input-owned storage. Existing numerical coefficients remain rtol=0.03 and atol=0.5, with FP32 accumulation error propagated through BF16/FP16 rounding intervals. No numerical tolerance, profiling bound, timeout, or hardware requirement is relaxed.\n\nHistorical rewards and review failures retain their original identity. Setup-only diagnostic failures are recorded separately and do not count as behavioral rejection. The final evidence records image identity, executable hashes, actual commands, job/trial IDs, exit status, raw artifacts, independent challenges, and the final frozen Harbor Oracle run. No fresh model rollout is implied by replaying the saved Astra production patch.\n",
+  "harbor": {
+    "version": "0.22.0",
+    "verifier_environment_mode": "separate",
+    "base": {
+      "case": "base",
+      "expected_reward": 0,
+      "actual_reward": 0,
+      "job_id": "7321b902-4b06-4d14-91e2-a3b04b927412",
+      "trial_id": "b740976e-8540-4ad2-b76c-8bf3f0a6286b",
+      "task_checksum": "ee51d4e560bf54501ad9b52b9b18aac4b53d55416e7d08bbe8f4ad6c29ab7473",
+      "harbor_errors": 0,
+      "exception_info": null,
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuids": [
+        "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+      ],
+      "worker_exit_code": 1,
+      "completed": false,
+      "stages_passed": [],
+      "failures": [
+        "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 60, in main\n    raise RuntimeError(f\"candidate worker exit {result.returncode}\")\nRuntimeError: candidate worker exit 1\n"
+      ],
+      "boundary_marker": null,
+      "command": [
+        "harbor",
+        "run",
+        "--config",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/harbor-config.json",
+        "-y"
+      ],
+      "raw_artifacts": {
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/run-record.json": "b527ef13e4d407b00c39bc1518a69516f33df1e0f5d6f0ef3521613cfb8ef64d",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/harbor-config.json": "78fea445916204a20dff3bda8a3ba39c6b3c646d2b3fe490ed5644c5ec4b0460",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/harbor.log": "ee4f3379685473c10ee24007c3187518003f8c6c19389baf5c0db61c77a4ea83",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__HmbYoQw/result.json": "14402c29a8a601d8325000a812a630e5c1472841f6dada207ea848cfcc636aaf",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/jobs/vllm-modular-moe-config-ownership--base/result.json": "ec04f225cfe22ada1b429daa22efafca200fea1951cd44d6315392ecdab6e74f",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__HmbYoQw/verifier/test-stdout.txt": "fd129787e2b079baddcd35ca3ff8e400f2a1e2c63da0c24ca11cd7a3b0d19b71",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__HmbYoQw/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__HmbYoQw/verifier/workload.json": "0f1fd4755b3eb3b2370cc7f99c9afb6c0144b4bb50c14e79962fb477648cd64e",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__HmbYoQw/verifier/report.json": "d9e397dd908ddb5f14f19179ad7ce95853cdf238d2d6e161f899fe7ce6866e28",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__HmbYoQw/verifier/reward.json": "c0d75be2f1846a75d2f6b8c99837c8d15ef7f135a2a99361211dd3b381f70b7f"
+      }
+    },
+    "oracle": {
+      "case": "final-oracle",
+      "expected_reward": 1,
+      "actual_reward": 1,
+      "job_id": "72458c66-267b-438b-be6c-7697437b03b9",
+      "trial_id": "7303d3c3-bef0-4abb-8a12-1c1dfb22c019",
+      "task_checksum": "8d26690dc0ce14221d0cd5704e1fb472a70614177ee5bfeaad369b782427a42b",
+      "harbor_errors": 0,
+      "exception_info": null,
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuids": [
+        "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+      ],
+      "worker_exit_code": 0,
+      "completed": true,
+      "stages_passed": [
+        "compatibility_no_warning",
+        "active_owner_workspace_provenance",
+        "numerical_path_unchanged",
+        "flashinfer_consumer_follows_owner",
+        "lora_factory_follows_owner",
+        "functional_no_global_dependency",
+        "flashinfer_prepare_expert_finalize"
+      ],
+      "failures": [],
+      "boundary_marker": null,
+      "command": [
+        "harbor",
+        "run",
+        "--config",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/harbor-config.json",
+        "-y"
+      ],
+      "raw_artifacts": {
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/run-record.json": "ea66e169e5b61b756dd018ec7ee007cb7acc80d1d860c1bf8ab7184a4db1765f",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/harbor-config.json": "3a2647cd438708d84db934a467f793768294cc7e17c0868e1de775e4e9753956",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/harbor.log": "a7d16de7824c3ae7cebceecfae07e194ce729c593ce8dc90f68c87858618dbf6",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RKTsVes/result.json": "b407ebb93d7b58b7e5c89b25730a4edfb27463f5cc0fdf8d6b1475e9c14e1388",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/jobs/vllm-modular-moe-config-ownership--oracle/result.json": "4380d7a7fcd308b060b924c4f011c28ccee0399b7b4ea9d567bfa84b67129def",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RKTsVes/verifier/test-stdout.txt": "bc079e3738a352e27e1868dd64234edc06f96855980c716d590c6a47d24270b3",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RKTsVes/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RKTsVes/verifier/workload.json": "e9636743c3beef2a3bf0e86dda95ca8151350f00df7588be55504cc70e07986f",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RKTsVes/verifier/observations.json": "f76ab9f0c3fa710d80c838b6473598ad6e1537267e7bd119c83ca51a2185346b",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RKTsVes/verifier/report.json": "92709596b44a5e93bb47e59582349bd4a10fed8e53aeeef705ca4a9fa175d9ad",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RKTsVes/verifier/reward.json": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+      }
+    },
+    "matrix": [
+      {
+        "case": "base",
+        "expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "7321b902-4b06-4d14-91e2-a3b04b927412",
+        "trial_id": "b740976e-8540-4ad2-b76c-8bf3f0a6286b",
+        "task_checksum": "ee51d4e560bf54501ad9b52b9b18aac4b53d55416e7d08bbe8f4ad6c29ab7473",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 1,
+        "completed": false,
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 60, in main\n    raise RuntimeError(f\"candidate worker exit {result.returncode}\")\nRuntimeError: candidate worker exit 1\n"
+        ],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/run-record.json": "b527ef13e4d407b00c39bc1518a69516f33df1e0f5d6f0ef3521613cfb8ef64d",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/harbor-config.json": "78fea445916204a20dff3bda8a3ba39c6b3c646d2b3fe490ed5644c5ec4b0460",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/harbor.log": "ee4f3379685473c10ee24007c3187518003f8c6c19389baf5c0db61c77a4ea83",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__HmbYoQw/result.json": "14402c29a8a601d8325000a812a630e5c1472841f6dada207ea848cfcc636aaf",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/jobs/vllm-modular-moe-config-ownership--base/result.json": "ec04f225cfe22ada1b429daa22efafca200fea1951cd44d6315392ecdab6e74f",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__HmbYoQw/verifier/test-stdout.txt": "fd129787e2b079baddcd35ca3ff8e400f2a1e2c63da0c24ca11cd7a3b0d19b71",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__HmbYoQw/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__HmbYoQw/verifier/workload.json": "0f1fd4755b3eb3b2370cc7f99c9afb6c0144b4bb50c14e79962fb477648cd64e",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__HmbYoQw/verifier/report.json": "d9e397dd908ddb5f14f19179ad7ce95853cdf238d2d6e161f899fe7ce6866e28",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__HmbYoQw/verifier/reward.json": "c0d75be2f1846a75d2f6b8c99837c8d15ef7f135a2a99361211dd3b381f70b7f"
+        }
+      },
+      {
+        "case": "oracle",
+        "expected_reward": 1,
+        "actual_reward": 1,
+        "job_id": "8a62e173-37c3-4a7b-9e12-667d200effa6",
+        "trial_id": "ba067857-b7d5-48e0-ac61-3f8b19b62a25",
+        "task_checksum": "ee51d4e560bf54501ad9b52b9b18aac4b53d55416e7d08bbe8f4ad6c29ab7473",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3884436a-fd17-98d2-5dad-4ef79dd14589"
+        ],
+        "worker_exit_code": 0,
+        "completed": true,
+        "stages_passed": [
+          "compatibility_no_warning",
+          "active_owner_workspace_provenance",
+          "numerical_path_unchanged",
+          "flashinfer_consumer_follows_owner",
+          "lora_factory_follows_owner",
+          "functional_no_global_dependency",
+          "flashinfer_prepare_expert_finalize"
+        ],
+        "failures": [],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/oracle/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/oracle/run-record.json": "83bc00721bf058f882cebed02cf148d866701dd36f918d3bb927369d679ed273",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/oracle/harbor-config.json": "0de11122e74ac121256efc1352b77bb41499c8dacc8e807df68339636d7a97d7",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/oracle/harbor.log": "86767caeaa9a69e2a7db640dea99115f2e544fdac99c69f63ce35e593960c87c",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__4DvJF2x/result.json": "b24660b4f6bf01ce2498ee7e6b9c24a6922c2428e9bc85bc267715bc2b77c5b5",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/oracle/jobs/vllm-modular-moe-config-ownership--oracle/result.json": "aeaf83b7b549aa3872b8f05021223d17a7757950df2ce5dd625e8538dc11d7d7",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__4DvJF2x/verifier/test-stdout.txt": "60f6232599055aade387d8c702ba889afc9c4950c16806435b27cf356f8c2aa3",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__4DvJF2x/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__4DvJF2x/verifier/workload.json": "ed29173523dbb62e39bac06917d93d8bfc227782a632161ff4399eba75aacc79",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__4DvJF2x/verifier/observations.json": "d3b12916f14ee22822e9ea6b2625c7857788c57bcd3c095138aff334b2a9f4af",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__4DvJF2x/verifier/report.json": "92709596b44a5e93bb47e59582349bd4a10fed8e53aeeef705ca4a9fa175d9ad",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__4DvJF2x/verifier/reward.json": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+        }
+      },
+      {
+        "case": "alternate-consumer-boundary-ownership",
+        "expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "3a2f77fd-d1e7-4c85-979f-26c02df63814",
+        "trial_id": "8b69f60d-574b-4cf7-b5d2-e4bc851286d0",
+        "task_checksum": "73cc15a15df51a98bb475d7b2503cd6c51bcd7e26ecaa2c4ec4d448d078eb7cc",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-80425545-47ae-bd24-9051-ba17a38ce9f8"
+        ],
+        "worker_exit_code": 0,
+        "completed": false,
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 67, in main\n    passed = check(raw, workload)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/tests/check_behavior.py\", line 67, in check\n    check_pipeline(raw['flashinfer_pipeline'], workload['flashinfer_pipeline'])\n  File \"/tests/pipeline_contract.py\", line 15, in check_pipeline\n    assert kinds[0] == 'gather' and kinds[-1] == 'reduce_scatter', kinds\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ['expert']\n"
+        ],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-boundary-ownership/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-boundary-ownership/run-record.json": "3a1dfe172312b8bdd3c69598d03890f1b975916a4da25039a968d502c3a1e2b5",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-boundary-ownership/harbor-config.json": "cef85bda6248da2edebe3394a69746fb65aba003e17091a06cde5e45cabe8858",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-boundary-ownership/harbor.log": "80527c75b66d885d466a8320412881e51295a0b75fb4e7537b14e35a485ea2dc",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-boundary-ownership/jobs/vllm-modular-moe-config-ownership--alternate-consumer-boundary-ownership/vllm-modular-moe-config-ownershi__S2P3gxz/result.json": "9836de1f4a71a6fc14e8c17b9327ae7aebf0ffbe64418df55efb7556b6e5fcc0",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-boundary-ownership/jobs/vllm-modular-moe-config-ownership--alternate-consumer-boundary-ownership/result.json": "fa4780561d8873e7a23ea8d92ebe0329aee4b1d255d3fc2c43005da07ab9b67e",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-boundary-ownership/jobs/vllm-modular-moe-config-ownership--alternate-consumer-boundary-ownership/vllm-modular-moe-config-ownershi__S2P3gxz/verifier/test-stdout.txt": "139ae70c66e39a5eab9a6cc84c42bde69ebc29d5977005256d61db3b1d225c25",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-boundary-ownership/jobs/vllm-modular-moe-config-ownership--alternate-consumer-boundary-ownership/vllm-modular-moe-config-ownershi__S2P3gxz/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-boundary-ownership/jobs/vllm-modular-moe-config-ownership--alternate-consumer-boundary-ownership/vllm-modular-moe-config-ownershi__S2P3gxz/verifier/workload.json": "cc50dd3f3ce4f63ccaae7f75e0286f0bd38c15d558006f4f15a689ba0116c1e9",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-boundary-ownership/jobs/vllm-modular-moe-config-ownership--alternate-consumer-boundary-ownership/vllm-modular-moe-config-ownershi__S2P3gxz/verifier/observations.json": "88e133021d2252e4d6709a2c922bbbc37eed74860afb85ce7a3b11b2abbfc2f5",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-boundary-ownership/jobs/vllm-modular-moe-config-ownership--alternate-consumer-boundary-ownership/vllm-modular-moe-config-ownershi__S2P3gxz/verifier/report.json": "abc662c082438894e9f7a280c0f08654592bb4c1f3c911ab2beeeb07209310b7",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-boundary-ownership/jobs/vllm-modular-moe-config-ownership--alternate-consumer-boundary-ownership/vllm-modular-moe-config-ownershi__S2P3gxz/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "early-exit-os-exit",
+        "expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "b35db066-8cf5-48c0-86be-5901298613e8",
+        "trial_id": "749ecc5c-62b7-45ce-979d-f92a178d2013",
+        "task_checksum": "837ecb37161ce5a32c2fd1a49510346dbc900095f5ad46c2d2753ac8f441dd5b",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 0,
+        "completed": false,
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 61, in main\n    if obs.stat().st_size > 100_000_000:\n       ^^^^^^^^^^\n  File \"/usr/lib/python3.12/pathlib.py\", line 840, in stat\n    return os.stat(self, follow_symlinks=follow_symlinks)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: '/tmp/behavior-observations-pe67e00o/observations.json'\n"
+        ],
+        "boundary_marker": "EARLY_OS_EXIT_REACHED",
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-os-exit/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-os-exit/run-record.json": "0758e28299f819bb303f39ef0ec90511e6a7acb68e364c4282ee67a5bf8dc618",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-os-exit/harbor-config.json": "899c28abacd3cc40c9ae2a6fe8128895fa26b5d146d52d6250b5d8cfe563e7f5",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-os-exit/harbor.log": "d3b78f5762f4bf385797089fe1e1d18d714291ca4424f7dc25f641471d720273",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-os-exit/jobs/vllm-modular-moe-config-ownership--early-exit-os-exit/vllm-modular-moe-config-ownershi__qfsGumL/result.json": "caf26299e8f2715d7ef2beb3ca0e954d14597208871a51c500023d71dc3ba6fc",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-os-exit/jobs/vllm-modular-moe-config-ownership--early-exit-os-exit/result.json": "438aef64343c63f561fed11d6753d99b96d48a4c75e20323198d8e99f6b0d47f",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-os-exit/jobs/vllm-modular-moe-config-ownership--early-exit-os-exit/vllm-modular-moe-config-ownershi__qfsGumL/verifier/test-stdout.txt": "aecbfb96aad69343e5112f698690ac7aae3d037c03ce8e0e82291558c49af53e",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-os-exit/jobs/vllm-modular-moe-config-ownership--early-exit-os-exit/vllm-modular-moe-config-ownershi__qfsGumL/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-os-exit/jobs/vllm-modular-moe-config-ownership--early-exit-os-exit/vllm-modular-moe-config-ownershi__qfsGumL/verifier/workload.json": "62d5cad87fd3ff31d1570701bfe053f8e19b719a39fc2577481af19b9ef5a289",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-os-exit/jobs/vllm-modular-moe-config-ownership--early-exit-os-exit/vllm-modular-moe-config-ownershi__qfsGumL/verifier/report.json": "7834b1131dc1f2984184a2c358ed38950768245b8f4b921173e9c3d979e7d3c0",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-os-exit/jobs/vllm-modular-moe-config-ownership--early-exit-os-exit/vllm-modular-moe-config-ownershi__qfsGumL/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "early-exit-system-exit",
+        "expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "ed331003-b132-47b8-86e4-a6ac0eda3999",
+        "trial_id": "a3da23d4-fd28-4623-9b9e-ca06ede2a170",
+        "task_checksum": "b20bb00136d8196c13daf67ebe1edb9e159033058730c5d62e3e532634fef117",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3884436a-fd17-98d2-5dad-4ef79dd14589"
+        ],
+        "worker_exit_code": 0,
+        "completed": false,
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 61, in main\n    if obs.stat().st_size > 100_000_000:\n       ^^^^^^^^^^\n  File \"/usr/lib/python3.12/pathlib.py\", line 840, in stat\n    return os.stat(self, follow_symlinks=follow_symlinks)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: '/tmp/behavior-observations-rxi6ish4/observations.json'\n"
+        ],
+        "boundary_marker": "EARLY_SYSTEM_EXIT_REACHED",
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-system-exit/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-system-exit/run-record.json": "b14ad020052df5abceda21ef3acb299462a8f1145e7e7a2bcc1f9ed6f0a5970f",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-system-exit/harbor-config.json": "1279b37f080924b0dc118433af45c3b10b1ec066ccbf1d12db3851bd6611dbb9",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-system-exit/harbor.log": "26eb2376d9ceddc0c93602a6ed446b009b64daf2f638cff5648f0509ec25cc26",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-system-exit/jobs/vllm-modular-moe-config-ownership--early-exit-system-exit/vllm-modular-moe-config-ownershi__fgiZop9/result.json": "bd60fc9685009cbaae2e639ac69a9673d8b68edb3429ce8d0acaf9e90c5f27d2",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-system-exit/jobs/vllm-modular-moe-config-ownership--early-exit-system-exit/result.json": "895471cba6747de79ebc82d6eee2dd35722d1c26dbc54ab8017e10bf223704ef",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-system-exit/jobs/vllm-modular-moe-config-ownership--early-exit-system-exit/vllm-modular-moe-config-ownershi__fgiZop9/verifier/test-stdout.txt": "3b7e5c52142a775c5429b6b7321b5f8af6870c82ab4dd01ca7aead6ad80db11c",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-system-exit/jobs/vllm-modular-moe-config-ownership--early-exit-system-exit/vllm-modular-moe-config-ownershi__fgiZop9/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-system-exit/jobs/vllm-modular-moe-config-ownership--early-exit-system-exit/vllm-modular-moe-config-ownershi__fgiZop9/verifier/workload.json": "0d36f25b27be92ccfe8c821df0ef82649715518aba38bac09fb89f9c0d9cb332",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-system-exit/jobs/vllm-modular-moe-config-ownership--early-exit-system-exit/vllm-modular-moe-config-ownershi__fgiZop9/verifier/report.json": "4640b31777d3e26d5e26484cbd3c3f9a5c375833d7878ed7dd215e362edb906e",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/early-exit-system-exit/jobs/vllm-modular-moe-config-ownership--early-exit-system-exit/vllm-modular-moe-config-ownershi__fgiZop9/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "wrong-legacy-owner",
+        "expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "9f9b34cf-1dff-4379-a4c4-a608cad872ed",
+        "trial_id": "7ab25e33-8cea-4dc2-ba09-b732d5c22cca",
+        "task_checksum": "241ba15e01f40d418c2d3f751913494aeb25883ea7bc82657b81559c40663ab7",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-80425545-47ae-bd24-9051-ba17a38ce9f8"
+        ],
+        "worker_exit_code": 1,
+        "completed": false,
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 60, in main\n    raise RuntimeError(f\"candidate worker exit {result.returncode}\")\nRuntimeError: candidate worker exit 1\n"
+        ],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/wrong-legacy-owner/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/wrong-legacy-owner/run-record.json": "bdf7c07bae25b261487cc1e2daf8f7a2981321bbdf7b97556d1372a42569c871",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/wrong-legacy-owner/harbor-config.json": "e0e94c5607c0717f82d0e9d584e99fe99f8c5cdebe0cc083a79673bb299b32e5",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/wrong-legacy-owner/harbor.log": "1551ee5103b7c0addecb0a686ed8820afe8d393247dfed0c71904899000dc242",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/wrong-legacy-owner/jobs/vllm-modular-moe-config-ownership--wrong-legacy-owner/vllm-modular-moe-config-ownershi__zMXw77f/result.json": "0f1abd544828578233d5641b63316dc3eb86c7a07d74560799a6610b1473f09d",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/wrong-legacy-owner/jobs/vllm-modular-moe-config-ownership--wrong-legacy-owner/result.json": "f46ca9fd1d3fa0a05acca1657dcdb18a4f24580b8900fd22c437de8577bfb87a",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/wrong-legacy-owner/jobs/vllm-modular-moe-config-ownership--wrong-legacy-owner/vllm-modular-moe-config-ownershi__zMXw77f/verifier/test-stdout.txt": "527ea7f40db35e5da5ac775ecf393379f73f4b7c24450b78e0baa57c6d7b753d",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/wrong-legacy-owner/jobs/vllm-modular-moe-config-ownership--wrong-legacy-owner/vllm-modular-moe-config-ownershi__zMXw77f/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/wrong-legacy-owner/jobs/vllm-modular-moe-config-ownership--wrong-legacy-owner/vllm-modular-moe-config-ownershi__zMXw77f/verifier/workload.json": "785437501be001732564a0c52ac759c8970b1779246abe06b0f545e17b812cc0",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/wrong-legacy-owner/jobs/vllm-modular-moe-config-ownership--wrong-legacy-owner/vllm-modular-moe-config-ownershi__zMXw77f/verifier/report.json": "d9e397dd908ddb5f14f19179ad7ce95853cdf238d2d6e161f899fe7ce6866e28",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/wrong-legacy-owner/jobs/vllm-modular-moe-config-ownership--wrong-legacy-owner/vllm-modular-moe-config-ownershi__zMXw77f/verifier/reward.json": "c0d75be2f1846a75d2f6b8c99837c8d15ef7f135a2a99361211dd3b381f70b7f"
+        }
+      },
+      {
+        "case": "forged-report-exit",
+        "expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "21acf32d-a56d-49c7-82e5-12c5388ccb22",
+        "trial_id": "dbc8c9c3-f6ba-476f-b445-f1f577459563",
+        "task_checksum": "9b64ba264c58c8ce4e40e572c5171f907f02571c446b2fef892350469dbec7cf",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 0,
+        "completed": false,
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 61, in main\n    if obs.stat().st_size > 100_000_000:\n       ^^^^^^^^^^\n  File \"/usr/lib/python3.12/pathlib.py\", line 840, in stat\n    return os.stat(self, follow_symlinks=follow_symlinks)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: '/tmp/behavior-observations-zry46fd8/observations.json'\n"
+        ],
+        "boundary_marker": "FORGED_REPORT_CONTROL_REACHED",
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/forged-report-exit/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/forged-report-exit/run-record.json": "963c6ff658fcdebd4d8bad2265c8ae47f7ff5d3c6f26f1cbe6394a8c95e6a62b",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/forged-report-exit/harbor-config.json": "7b53c692d182bfa8a4043da99fbab7fa0d491278c21b8069498afc00c6d79245",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/forged-report-exit/harbor.log": "e768a2ee3d32f40c19ec3c725b63fad0e1d66a4b40d7500c7e0fa5cae11e7900",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/forged-report-exit/jobs/vllm-modular-moe-config-ownership--forged-report-exit/vllm-modular-moe-config-ownershi__ACGZq7T/result.json": "75f0c55c085a7b48b50484014d976784969bf05917fbb0f0e61eeff118ba41b7",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/forged-report-exit/jobs/vllm-modular-moe-config-ownership--forged-report-exit/result.json": "1604b354beaa4a0d0bb1bbefcf3cbfb94ca9479c027d284b561050f19bb9d142",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/forged-report-exit/jobs/vllm-modular-moe-config-ownership--forged-report-exit/vllm-modular-moe-config-ownershi__ACGZq7T/verifier/test-stdout.txt": "e619af68fba1978e01391c49a22420aced6977bc85f441128c2a98d2c52e0a1b",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/forged-report-exit/jobs/vllm-modular-moe-config-ownership--forged-report-exit/vllm-modular-moe-config-ownershi__ACGZq7T/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/forged-report-exit/jobs/vllm-modular-moe-config-ownership--forged-report-exit/vllm-modular-moe-config-ownershi__ACGZq7T/verifier/workload.json": "49d67e3d899773d579aa81973a028b643325bcdc0f47805b5522a7aee6b419d5",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/forged-report-exit/jobs/vllm-modular-moe-config-ownership--forged-report-exit/vllm-modular-moe-config-ownershi__ACGZq7T/verifier/report.json": "1e76ac6f40ad908dc983f76eb1dda478e92c7f1a9f18c6eb74dcd41efc7f130d",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/forged-report-exit/jobs/vllm-modular-moe-config-ownership--forged-report-exit/vllm-modular-moe-config-ownershi__ACGZq7T/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "constant-numerical-output",
+        "expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "159be367-94cc-49f0-a971-5878e3a62b18",
+        "trial_id": "841550fb-9ed0-4ab5-89b1-13446a4b37d2",
+        "task_checksum": "585e0190c92abc3bf9258dcb43224e1f42060182ac91003fbf7bcac9aca869ed",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3884436a-fd17-98d2-5dad-4ef79dd14589"
+        ],
+        "worker_exit_code": 0,
+        "completed": false,
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 67, in main\n    passed = check(raw, workload)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/tests/check_behavior.py\", line 65, in check\n    check_numerics(raw['numerics'], 8, workload)\n  File \"/tests/check_behavior.py\", line 44, in check_numerics\n    torch.testing.assert_close(actual, nearest, rtol=0.03, atol=0.5)\n  File \"/usr/local/lib/python3.12/dist-packages/torch/testing/_comparison.py\", line 1589, in assert_close\n    raise error_metas[0].to_error(msg)\nAssertionError: Tensor-likes are not close!\n\nMismatched elements: 1520 / 1520 (100.0%)\nGreatest absolute difference: 2001.0 at index (5, 11) (up to 0.5 allowed)\nGreatest relative difference: 3.0 at index (17, 33) (up to 0.03 allowed)\n"
+        ],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/constant-numerical-output/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/constant-numerical-output/run-record.json": "6bca6f270c733ee7cff28288c0d2706454fbea2c530310ba0a440bc8044b169e",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/constant-numerical-output/harbor-config.json": "a84786c877ee8af6f968a95b48f302ec86193603020ca6281c585036b4b0e382",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/constant-numerical-output/harbor.log": "1e3332080264970e6bd3068e9fb3220614aba3251d17b2551cc63f380218e43a",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/constant-numerical-output/jobs/vllm-modular-moe-config-ownership--constant-numerical-output/vllm-modular-moe-config-ownershi__xyyrk8w/result.json": "3af3da07a635f458168a99b1489fdaaff455304e8073bb616f385f83aa90f2e8",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/constant-numerical-output/jobs/vllm-modular-moe-config-ownership--constant-numerical-output/result.json": "f28e73912fadf95bc320b288a8680033278cb16d705fad5e6e8da238f92053dd",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/constant-numerical-output/jobs/vllm-modular-moe-config-ownership--constant-numerical-output/vllm-modular-moe-config-ownershi__xyyrk8w/verifier/test-stdout.txt": "f06223a64b51b71effb178be121ad43343c5e3b8dc6b9c4e2b087c670b0dc0de",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/constant-numerical-output/jobs/vllm-modular-moe-config-ownership--constant-numerical-output/vllm-modular-moe-config-ownershi__xyyrk8w/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/constant-numerical-output/jobs/vllm-modular-moe-config-ownership--constant-numerical-output/vllm-modular-moe-config-ownershi__xyyrk8w/verifier/workload.json": "36d303c93e27131d4d9160fdf24a4cb480113b7b3bfe52d942c469bd1033f347",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/constant-numerical-output/jobs/vllm-modular-moe-config-ownership--constant-numerical-output/vllm-modular-moe-config-ownershi__xyyrk8w/verifier/observations.json": "220c1a9e840d21779df2ed0da8c44e6d1078967b1bace32544d4cc83708c26a4",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/constant-numerical-output/jobs/vllm-modular-moe-config-ownership--constant-numerical-output/vllm-modular-moe-config-ownershi__xyyrk8w/verifier/report.json": "c2673effde78fd387facf0925092054339aa8b5a22b80f4022015ffdc09ac1cb",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/constant-numerical-output/jobs/vllm-modular-moe-config-ownership--constant-numerical-output/vllm-modular-moe-config-ownershi__xyyrk8w/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "replay-observations",
+        "expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "c703de8a-2169-4466-b860-dcca5de912e0",
+        "trial_id": "e263156a-a4f5-4675-a80d-6a3693f73d67",
+        "task_checksum": "d9eff439eda0719865ab153dcc0474ad276a872aeafdf6d7351e24e53ea6d929",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-80425545-47ae-bd24-9051-ba17a38ce9f8"
+        ],
+        "worker_exit_code": 0,
+        "completed": false,
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 67, in main\n    passed = check(raw, workload)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/tests/check_behavior.py\", line 56, in check\n    assert raw[field] >= worst_case_bytes, (field, raw[field], worst_case_bytes)\n           ~~~^^^^^^^\nKeyError: 'dp_workspace_bytes'\n"
+        ],
+        "boundary_marker": "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS",
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/replay-observations/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/replay-observations/run-record.json": "da6e71e2b9b8bd2160eef4eeb32fc7ec6be039c7b076ec349f50e4257b80e8c5",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/replay-observations/harbor-config.json": "842a47d5edba080d703386da65ea4b0786020fe96eaf9239679e6f0ddec708c9",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/replay-observations/harbor.log": "2abe6806fd4d445c057af3366bcf43121bc4794cb35dde7f08431b95f3de2c8e",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/replay-observations/jobs/vllm-modular-moe-config-ownership--replay-observations/vllm-modular-moe-config-ownershi__CwXRA8p/result.json": "fe0976f1a36d01e98c5ab91aad9007623fbc1e37f3bdfdacd1df2108e124e1d9",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/replay-observations/jobs/vllm-modular-moe-config-ownership--replay-observations/result.json": "6f8cee3fb38eebc8a5bcf06e6c5a6fb7493c09fe34a876ed9fe39e5d1f44e575",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/replay-observations/jobs/vllm-modular-moe-config-ownership--replay-observations/vllm-modular-moe-config-ownershi__CwXRA8p/verifier/test-stdout.txt": "5d3e9687418b1057e30ad18433c07781acd68c3a4261a8461f7ad44c1126c15a",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/replay-observations/jobs/vllm-modular-moe-config-ownership--replay-observations/vllm-modular-moe-config-ownershi__CwXRA8p/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/replay-observations/jobs/vllm-modular-moe-config-ownership--replay-observations/vllm-modular-moe-config-ownershi__CwXRA8p/verifier/workload.json": "2c48a9e2bc019933c60117a39635bb4755062e39fd88af06c9aa388385f06768",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/replay-observations/jobs/vllm-modular-moe-config-ownership--replay-observations/vllm-modular-moe-config-ownershi__CwXRA8p/verifier/observations.json": "72b061b45a24e3234dd53c5dbdaa113d1b07dbde71b2cfa4af7b4792b46cd244",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/replay-observations/jobs/vllm-modular-moe-config-ownership--replay-observations/vllm-modular-moe-config-ownershi__CwXRA8p/verifier/report.json": "2306b30f993a9f218862b037fb81f1571fe2f4c56e2fea3d01c61e96a5ae631c",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/replay-observations/jobs/vllm-modular-moe-config-ownership--replay-observations/vllm-modular-moe-config-ownershi__CwXRA8p/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "compatibility-global-warning",
+        "expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "385dc6b6-77de-48e1-9078-d155a11d77e1",
+        "trial_id": "bc770a9c-deea-404f-ae97-3ad36b1d687b",
+        "task_checksum": "13bae611486ad37bf26abd1ace01e1aeff570f602466db8dd1200dd21ba4edca",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 1,
+        "completed": false,
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 60, in main\n    raise RuntimeError(f\"candidate worker exit {result.returncode}\")\nRuntimeError: candidate worker exit 1\n"
+        ],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/compatibility-global-warning/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/compatibility-global-warning/run-record.json": "f881347b191e15ef0277aff4fe1fc57d2e2600a6ad1f3c230007b654fe26d9ba",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/compatibility-global-warning/harbor-config.json": "62faed2c08c4137932d30e12c30a2fcf64b32fb598b00ba812f643efe3a27d2a",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/compatibility-global-warning/harbor.log": "2e28b8a12017d1fa9cb63f46a47f9d33e9c60c06b0da07b4238965170e9481ef",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/compatibility-global-warning/jobs/vllm-modular-moe-config-ownership--compatibility-global-warning/vllm-modular-moe-config-ownershi__8DXpazg/result.json": "4b095ca5d75cf50cf5952b9e304964eb281b8ebb9aff0070dd5a1b367bb7d583",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/compatibility-global-warning/jobs/vllm-modular-moe-config-ownership--compatibility-global-warning/result.json": "afb3170026e09da7345f9cd2954c9dcbfd8f4efd4ee92732657f2ef26d2ff3f9",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/compatibility-global-warning/jobs/vllm-modular-moe-config-ownership--compatibility-global-warning/vllm-modular-moe-config-ownershi__8DXpazg/verifier/test-stdout.txt": "0b7e9def109a86d422237ed176b9e30ff4c62daf128d7b610bea758cbdefa452",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/compatibility-global-warning/jobs/vllm-modular-moe-config-ownership--compatibility-global-warning/vllm-modular-moe-config-ownershi__8DXpazg/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/compatibility-global-warning/jobs/vllm-modular-moe-config-ownership--compatibility-global-warning/vllm-modular-moe-config-ownershi__8DXpazg/verifier/workload.json": "8f9ff0d71758310005d573bbdb28623643e1a45fd2884f90338635df1889d80e",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/compatibility-global-warning/jobs/vllm-modular-moe-config-ownership--compatibility-global-warning/vllm-modular-moe-config-ownershi__8DXpazg/verifier/report.json": "d9e397dd908ddb5f14f19179ad7ce95853cdf238d2d6e161f899fe7ce6866e28",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/compatibility-global-warning/jobs/vllm-modular-moe-config-ownership--compatibility-global-warning/vllm-modular-moe-config-ownershi__8DXpazg/verifier/reward.json": "c0d75be2f1846a75d2f6b8c99837c8d15ef7f135a2a99361211dd3b381f70b7f"
+        }
+      },
+      {
+        "case": "alternate-workspace-diagnostic",
+        "expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "986d6a7b-f5c3-412f-9940-62f8797154cf",
+        "trial_id": "628725c0-1b01-4bb6-a349-72124d962be6",
+        "task_checksum": "4f42dac9fce3df65ed1f4dfa13e263b4f9267c3d56aad31f49fd3f752da410ef",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3884436a-fd17-98d2-5dad-4ef79dd14589"
+        ],
+        "worker_exit_code": 0,
+        "completed": false,
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 67, in main\n    passed = check(raw, workload)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/tests/check_behavior.py\", line 67, in check\n    check_pipeline(raw['flashinfer_pipeline'], workload['flashinfer_pipeline'])\n  File \"/tests/pipeline_contract.py\", line 15, in check_pipeline\n    assert kinds[0] == 'gather' and kinds[-1] == 'reduce_scatter', kinds\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ['expert']\n"
+        ],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-diagnostic/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-diagnostic/run-record.json": "2427b161dee112776dba7b88591c72e94bfba256ad2b3436e3c4d32b0f7f03b1",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-diagnostic/harbor-config.json": "7044c01cdb4b969261863d38422a37c83d6b5f893b2947889e33410017d90488",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-diagnostic/harbor.log": "a2d2e70fe401e82a1dc5b684187273a4c03a2145533b3bbd9c05af9ff716d0dd",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-diagnostic/jobs/vllm-modular-moe-config-ownership--alternate-workspace-diagnostic/vllm-modular-moe-config-ownershi__nZ5aiNL/result.json": "5e017a6c49cb7819cc172f788c311dd82af2acc579e228130d38393bef714a4b",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-diagnostic/jobs/vllm-modular-moe-config-ownership--alternate-workspace-diagnostic/result.json": "27f59f0c4328791b1608c6ab5d61fa00ee8c194e91b49beb12ed9e5632bf5429",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-diagnostic/jobs/vllm-modular-moe-config-ownership--alternate-workspace-diagnostic/vllm-modular-moe-config-ownershi__nZ5aiNL/verifier/test-stdout.txt": "dbf3638dfa4f83280131145afc878ecf9d7246f002f6b83b194f99c4c68ff591",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-diagnostic/jobs/vllm-modular-moe-config-ownership--alternate-workspace-diagnostic/vllm-modular-moe-config-ownershi__nZ5aiNL/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-diagnostic/jobs/vllm-modular-moe-config-ownership--alternate-workspace-diagnostic/vllm-modular-moe-config-ownershi__nZ5aiNL/verifier/workload.json": "6e4040e0605482a82479591b3791e145dff482b026625f35077e100dd355601a",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-diagnostic/jobs/vllm-modular-moe-config-ownership--alternate-workspace-diagnostic/vllm-modular-moe-config-ownershi__nZ5aiNL/verifier/observations.json": "3f33f4cd3d47a5adbc85d9cd23a4aafcef69adb8a73bd3c7aa6cd4cf31f0f194",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-diagnostic/jobs/vllm-modular-moe-config-ownership--alternate-workspace-diagnostic/vllm-modular-moe-config-ownershi__nZ5aiNL/verifier/report.json": "abc662c082438894e9f7a280c0f08654592bb4c1f3c911ab2beeeb07209310b7",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-diagnostic/jobs/vllm-modular-moe-config-ownership--alternate-workspace-diagnostic/vllm-modular-moe-config-ownershi__nZ5aiNL/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "undersized-profile-workspace",
+        "expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "ee74c5ec-f3ed-4f1e-80ed-94712337a6eb",
+        "trial_id": "5e9f3e4d-0e7d-4aa2-9076-fcee0bb4e426",
+        "task_checksum": "d32b876a0b4d37de815dfa0ca705feaa8cdcdb5fdf39734dd35b425fb914f0f6",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-80425545-47ae-bd24-9051-ba17a38ce9f8"
+        ],
+        "worker_exit_code": 0,
+        "completed": false,
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 67, in main\n    passed = check(raw, workload)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/tests/check_behavior.py\", line 56, in check\n    assert raw[field] >= worst_case_bytes, (field, raw[field], worst_case_bytes)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ('dp_workspace_bytes', 120832, 18874368)\n"
+        ],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/undersized-profile-workspace/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/undersized-profile-workspace/run-record.json": "d9ce7db242a5f833e57ea9d0a3ace209da82d791a63ea6520c8664ade7ea736c",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/undersized-profile-workspace/harbor-config.json": "94c17e1ef24a1f769d0c4d18684905e42c6cefc75347aadfd4daa0b18babfd6f",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/undersized-profile-workspace/harbor.log": "80d292e62b44d69a3e3c5046d96acb27db1ac0fea273ff83d835160441157305",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/undersized-profile-workspace/jobs/vllm-modular-moe-config-ownership--undersized-profile-workspace/vllm-modular-moe-config-ownershi__kaTWJ6M/result.json": "2b9e61a3aee9205115e64ebb37a51d26a6c77c328dc4db3d6d280fee68fa1985",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/undersized-profile-workspace/jobs/vllm-modular-moe-config-ownership--undersized-profile-workspace/result.json": "6ac1f54995c3266826134e7ba3966b8a18041cda8dbc913dd960c4de6a3a1173",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/undersized-profile-workspace/jobs/vllm-modular-moe-config-ownership--undersized-profile-workspace/vllm-modular-moe-config-ownershi__kaTWJ6M/verifier/test-stdout.txt": "f6166494cd6a543365c18176bfbbf899a052e186d4df48ba363030a4d01633d7",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/undersized-profile-workspace/jobs/vllm-modular-moe-config-ownership--undersized-profile-workspace/vllm-modular-moe-config-ownershi__kaTWJ6M/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/undersized-profile-workspace/jobs/vllm-modular-moe-config-ownership--undersized-profile-workspace/vllm-modular-moe-config-ownershi__kaTWJ6M/verifier/workload.json": "41039d2661e68fd2bca6cbea4befec25c440bcf9d1c3a97adc5ea7d9884bc958",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/undersized-profile-workspace/jobs/vllm-modular-moe-config-ownership--undersized-profile-workspace/vllm-modular-moe-config-ownershi__kaTWJ6M/verifier/observations.json": "fd7ce0fe2fd6eead9abb972092df6362a852dc4a9ffa81c1ff98379e8d05cd53",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/undersized-profile-workspace/jobs/vllm-modular-moe-config-ownership--undersized-profile-workspace/vllm-modular-moe-config-ownershi__kaTWJ6M/verifier/report.json": "7bb622a15efd05c2026116b318af6db18c1bc561538f009b8e5112686963ab6a",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/undersized-profile-workspace/jobs/vllm-modular-moe-config-ownership--undersized-profile-workspace/vllm-modular-moe-config-ownershi__kaTWJ6M/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "alternate-layer-config-view",
+        "expected_reward": 1,
+        "actual_reward": 1,
+        "job_id": "d88973e4-501f-4a75-9405-4ddbb5ce3b1a",
+        "trial_id": "5d552d98-0983-432e-af49-2904c3ad031c",
+        "task_checksum": "ca91a0e4bf8e72dcb46c7639848c0c5e001d45143571c10dfcca12cbd3ba47cc",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 0,
+        "completed": true,
+        "stages_passed": [
+          "compatibility_no_warning",
+          "active_owner_workspace_provenance",
+          "numerical_path_unchanged",
+          "flashinfer_consumer_follows_owner",
+          "lora_factory_follows_owner",
+          "functional_no_global_dependency",
+          "flashinfer_prepare_expert_finalize"
+        ],
+        "failures": [],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-config-view/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-config-view/run-record.json": "ef5eef0d4df0ef1405fc5a7c26bf9b4af8348959b66d13e138e86e9865a668af",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-config-view/harbor-config.json": "17c0c729bfd71f1fbeee171165f65391dad04ca944d7ac68e8afc3bbcd7f21b8",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-config-view/harbor.log": "fdb64bcb9f63c19a044b852bcaca7881dcb0f5298c8708d61a658fdb0b1eef77",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-config-view/jobs/vllm-modular-moe-config-ownership--alternate-layer-config-view/vllm-modular-moe-config-ownershi__moqwnzG/result.json": "55ab3ceb83e6b7ece2662cf73bb9ff91f8d3862223c3ddf0825478efbbf14941",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-config-view/jobs/vllm-modular-moe-config-ownership--alternate-layer-config-view/result.json": "d0ae2bbf8d00c553488025eb34b405a3e46245003f2cff16bd552ed37601fe60",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-config-view/jobs/vllm-modular-moe-config-ownership--alternate-layer-config-view/vllm-modular-moe-config-ownershi__moqwnzG/verifier/test-stdout.txt": "4bf358e062fa341680c9bbc42e70041b37246ddd9f13a4c974f603e53d83e0b3",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-config-view/jobs/vllm-modular-moe-config-ownership--alternate-layer-config-view/vllm-modular-moe-config-ownershi__moqwnzG/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-config-view/jobs/vllm-modular-moe-config-ownership--alternate-layer-config-view/vllm-modular-moe-config-ownershi__moqwnzG/verifier/workload.json": "903dcd7d0973ec6242cf656b456690f6efa2a97c93989ea2d42f457d7956e04a",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-config-view/jobs/vllm-modular-moe-config-ownership--alternate-layer-config-view/vllm-modular-moe-config-ownershi__moqwnzG/verifier/observations.json": "777d67956b7a8de7f77db4907ec2fe9aec77b2439dca81e608a21e6ed6f63604",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-config-view/jobs/vllm-modular-moe-config-ownership--alternate-layer-config-view/vllm-modular-moe-config-ownershi__moqwnzG/verifier/report.json": "92709596b44a5e93bb47e59582349bd4a10fed8e53aeeef705ca4a9fa175d9ad",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-config-view/jobs/vllm-modular-moe-config-ownership--alternate-layer-config-view/vllm-modular-moe-config-ownershi__moqwnzG/verifier/reward.json": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+        }
+      },
+      {
+        "case": "missing-flashinfer-owner",
+        "expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "130e8e35-b18c-4ebe-8a21-7c664c9aed9f",
+        "trial_id": "40ba9f93-5d36-43b4-a251-fb62b8dac120",
+        "task_checksum": "24b785f3987c879fd68bda3f9b5a334fd809412b722542c9b5f088213f03e957",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3884436a-fd17-98d2-5dad-4ef79dd14589"
+        ],
+        "worker_exit_code": 1,
+        "completed": false,
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 60, in main\n    raise RuntimeError(f\"candidate worker exit {result.returncode}\")\nRuntimeError: candidate worker exit 1\n"
+        ],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-flashinfer-owner/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-flashinfer-owner/run-record.json": "1f08a8f075e642d98d42b059c246158c742c33654d367f23f6eeb3ba564ae104",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-flashinfer-owner/harbor-config.json": "c79b3297f261443d8b5292664da65c29b480df840faf4fc9718119d0f18bffd7",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-flashinfer-owner/harbor.log": "92564e93a3cc334f65138b21c328e0c6e1ae8d26b488fe4382ade511ca0baea9",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-flashinfer-owner/jobs/vllm-modular-moe-config-ownership--missing-flashinfer-owner/vllm-modular-moe-config-ownershi__knr62e8/result.json": "fd4bdcb0eabf1bc6e7c487d0b8a0e82c8dc1262f4e3b701f313d9e0363e8f838",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-flashinfer-owner/jobs/vllm-modular-moe-config-ownership--missing-flashinfer-owner/result.json": "9a1139df3417e40f53fac56db5c398e99339413418a4044061466ac28d28d92a",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-flashinfer-owner/jobs/vllm-modular-moe-config-ownership--missing-flashinfer-owner/vllm-modular-moe-config-ownershi__knr62e8/verifier/test-stdout.txt": "b90d85f43d327d80aa8a2abc31b4673fa6eeaa246a581dfad6f03d3da6ae146a",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-flashinfer-owner/jobs/vllm-modular-moe-config-ownership--missing-flashinfer-owner/vllm-modular-moe-config-ownershi__knr62e8/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-flashinfer-owner/jobs/vllm-modular-moe-config-ownership--missing-flashinfer-owner/vllm-modular-moe-config-ownershi__knr62e8/verifier/workload.json": "c0b167bc20a18d0cf41ce75419a5ce690d923f5ea3f6a8e381520040b544b0d1",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-flashinfer-owner/jobs/vllm-modular-moe-config-ownership--missing-flashinfer-owner/vllm-modular-moe-config-ownershi__knr62e8/verifier/report.json": "d9e397dd908ddb5f14f19179ad7ce95853cdf238d2d6e161f899fe7ce6866e28",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-flashinfer-owner/jobs/vllm-modular-moe-config-ownership--missing-flashinfer-owner/vllm-modular-moe-config-ownershi__knr62e8/verifier/reward.json": "c0d75be2f1846a75d2f6b8c99837c8d15ef7f135a2a99361211dd3b381f70b7f"
+        }
+      },
+      {
+        "case": "alternate-full-config-owner",
+        "expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "f168f444-dc56-41f2-88d3-1f690d7d17cd",
+        "trial_id": "d909d485-f126-4838-98c2-b2e26d5b3c1e",
+        "task_checksum": "842d0e01c26a5f307fe1c26f98377c351ac9f78c107c39d2e45216d63dc35484",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-80425545-47ae-bd24-9051-ba17a38ce9f8"
+        ],
+        "worker_exit_code": 0,
+        "completed": false,
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 67, in main\n    passed = check(raw, workload)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/tests/check_behavior.py\", line 67, in check\n    check_pipeline(raw['flashinfer_pipeline'], workload['flashinfer_pipeline'])\n  File \"/tests/pipeline_contract.py\", line 15, in check_pipeline\n    assert kinds[0] == 'gather' and kinds[-1] == 'reduce_scatter', kinds\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ['expert']\n"
+        ],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-full-config-owner/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-full-config-owner/run-record.json": "0a73ba6f0d951b350c6cb079d7f47a25a2573b1bd0b04839812ac2683be1a44f",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-full-config-owner/harbor-config.json": "67e5783fcbc5eb8b1f7eb90672320dd03cc4abbc69f296821d9ea2c8cf20e83f",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-full-config-owner/harbor.log": "5889e5494741b2fe921be8a969310fe19faa843a64911a5f5a421b6e2ec67876",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-full-config-owner/jobs/vllm-modular-moe-config-ownership--alternate-full-config-owner/vllm-modular-moe-config-ownershi__rgA5GSa/result.json": "ded7b5b80e0aebf1c8dded51b141ac832a11b64fb1c8a85faba8299ac5d78af4",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-full-config-owner/jobs/vllm-modular-moe-config-ownership--alternate-full-config-owner/result.json": "391be6497b96b4c4bebd1d33620f80d1b707f956dee516a76f30d03f8baf8674",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-full-config-owner/jobs/vllm-modular-moe-config-ownership--alternate-full-config-owner/vllm-modular-moe-config-ownershi__rgA5GSa/verifier/test-stdout.txt": "d7a7daf9fc7ab91fbbd1f39b89785df75c9b01bcc030c5fd963c606ba0730731",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-full-config-owner/jobs/vllm-modular-moe-config-ownership--alternate-full-config-owner/vllm-modular-moe-config-ownershi__rgA5GSa/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-full-config-owner/jobs/vllm-modular-moe-config-ownership--alternate-full-config-owner/vllm-modular-moe-config-ownershi__rgA5GSa/verifier/workload.json": "73befe437287e6feae3503d83ccfcff883872757b2d2de8e5c0d8856f7d7116b",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-full-config-owner/jobs/vllm-modular-moe-config-ownership--alternate-full-config-owner/vllm-modular-moe-config-ownershi__rgA5GSa/verifier/observations.json": "bd0ca7a9a37b7530bbb4e2add4d86d99f03946853d8045553642a14720a7449c",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-full-config-owner/jobs/vllm-modular-moe-config-ownership--alternate-full-config-owner/vllm-modular-moe-config-ownershi__rgA5GSa/verifier/report.json": "abc662c082438894e9f7a280c0f08654592bb4c1f3c911ab2beeeb07209310b7",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-full-config-owner/jobs/vllm-modular-moe-config-ownership--alternate-full-config-owner/vllm-modular-moe-config-ownershi__rgA5GSa/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "incomplete-flashinfer-pipeline",
+        "expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "f8bb3f89-8d43-4e5b-9857-491bef137ba0",
+        "trial_id": "af44450b-7847-4a7c-97d1-5ca810b07dab",
+        "task_checksum": "2515108ee36e67bc2138f206b02fb773c73dbe56b45fba95093ad0c40663e565",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 0,
+        "completed": false,
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 67, in main\n    passed = check(raw, workload)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/tests/check_behavior.py\", line 67, in check\n    check_pipeline(raw['flashinfer_pipeline'], workload['flashinfer_pipeline'])\n  File \"/tests/pipeline_contract.py\", line 15, in check_pipeline\n    assert kinds[0] == 'gather' and kinds[-1] == 'reduce_scatter', kinds\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ['expert']\n"
+        ],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incomplete-flashinfer-pipeline/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incomplete-flashinfer-pipeline/run-record.json": "db11c2788983a911e700a90ac5612de6206447258f53042663b22dc08b849bc3",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incomplete-flashinfer-pipeline/harbor-config.json": "2751799494673423f369c12178c2d05890ec478ae5ec309b847794b62c30e74b",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incomplete-flashinfer-pipeline/harbor.log": "a983319803bcc7b54e647bbe79841adf5b0122fb91ed020ce6785f177473e280",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incomplete-flashinfer-pipeline/jobs/vllm-modular-moe-config-ownership--incomplete-flashinfer-pipeline/vllm-modular-moe-config-ownershi__8zQZuvG/result.json": "ce22d14bdea7cabe3f5de812a51b3ef92ace8f8b0ed5b7d7e8aac87d884c2e7f",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incomplete-flashinfer-pipeline/jobs/vllm-modular-moe-config-ownership--incomplete-flashinfer-pipeline/result.json": "e552014b8c17e8eff12f7c88ee8800d5e513d79dd70ce5be53c887559a396c14",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incomplete-flashinfer-pipeline/jobs/vllm-modular-moe-config-ownership--incomplete-flashinfer-pipeline/vllm-modular-moe-config-ownershi__8zQZuvG/verifier/test-stdout.txt": "890ca877356922627413e256f20abcaf58739234309dfe63e87eb1c5e71ba6b4",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incomplete-flashinfer-pipeline/jobs/vllm-modular-moe-config-ownership--incomplete-flashinfer-pipeline/vllm-modular-moe-config-ownershi__8zQZuvG/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incomplete-flashinfer-pipeline/jobs/vllm-modular-moe-config-ownership--incomplete-flashinfer-pipeline/vllm-modular-moe-config-ownershi__8zQZuvG/verifier/workload.json": "9ee783de476a39ccebd1045d769cf705129a90abe86c4fb82ace16aaefcf574d",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incomplete-flashinfer-pipeline/jobs/vllm-modular-moe-config-ownership--incomplete-flashinfer-pipeline/vllm-modular-moe-config-ownershi__8zQZuvG/verifier/observations.json": "70aaf9aa645ebcb7ab4668f47bc48eb044d32ef536d9459cd0f962b87a90d719",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incomplete-flashinfer-pipeline/jobs/vllm-modular-moe-config-ownership--incomplete-flashinfer-pipeline/vllm-modular-moe-config-ownershi__8zQZuvG/verifier/report.json": "abc662c082438894e9f7a280c0f08654592bb4c1f3c911ab2beeeb07209310b7",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incomplete-flashinfer-pipeline/jobs/vllm-modular-moe-config-ownership--incomplete-flashinfer-pipeline/vllm-modular-moe-config-ownershi__8zQZuvG/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "alternate-consumer-full-pipeline",
+        "expected_reward": 1,
+        "actual_reward": 1,
+        "job_id": "6625d111-d404-4a5c-958f-7bd54cb90899",
+        "trial_id": "71b9e5cd-5f8d-4fe9-9dae-fbc2815ee442",
+        "task_checksum": "aae6502b5e4b93ebdfa68f799c4d3828b5b7bc70c58fdc01f2b2b2eb7d92c747",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3884436a-fd17-98d2-5dad-4ef79dd14589"
+        ],
+        "worker_exit_code": 0,
+        "completed": true,
+        "stages_passed": [
+          "compatibility_no_warning",
+          "active_owner_workspace_provenance",
+          "numerical_path_unchanged",
+          "flashinfer_consumer_follows_owner",
+          "lora_factory_follows_owner",
+          "functional_no_global_dependency",
+          "flashinfer_prepare_expert_finalize"
+        ],
+        "failures": [],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-full-pipeline/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-full-pipeline/run-record.json": "6ecca13173e5e96ac624448cfb1136e4be6057f732b10bb648ade659e0946d88",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-full-pipeline/harbor-config.json": "5508f26e1e8ff8a79af4bdead63f7c8f54cae722cebaf2f868a8df8f424b283e",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-full-pipeline/harbor.log": "9ed1b956cdcf934ee924688086af3829bfe9e26409cf8e99a247324fe8546f31",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-full-pipeline/jobs/vllm-modular-moe-config-ownership--alternate-consumer-full-pipeline/vllm-modular-moe-config-ownershi__PSDTBsN/result.json": "347d7cdd61ed609a4d6f7703461c44945cf1f35f988d4cb2339c38b5a210e2ab",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-full-pipeline/jobs/vllm-modular-moe-config-ownership--alternate-consumer-full-pipeline/result.json": "cff127a887b517df88b429413bbaeb457f56614c542f6e9fd62dc35b2a692590",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-full-pipeline/jobs/vllm-modular-moe-config-ownership--alternate-consumer-full-pipeline/vllm-modular-moe-config-ownershi__PSDTBsN/verifier/test-stdout.txt": "63ac13fc7e3d10480fb26eb9f0c1736629011066006b30e5a662dcb554b02b73",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-full-pipeline/jobs/vllm-modular-moe-config-ownership--alternate-consumer-full-pipeline/vllm-modular-moe-config-ownershi__PSDTBsN/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-full-pipeline/jobs/vllm-modular-moe-config-ownership--alternate-consumer-full-pipeline/vllm-modular-moe-config-ownershi__PSDTBsN/verifier/workload.json": "16f8778f0b88fdc33b35c46f71bcb750e1671a25d69ba8011a8d614ef0dbb95c",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-full-pipeline/jobs/vllm-modular-moe-config-ownership--alternate-consumer-full-pipeline/vllm-modular-moe-config-ownershi__PSDTBsN/verifier/observations.json": "75cbae636ab56d48972dab27917647d4e1622c723f2a2c7d017030aad43b737d",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-full-pipeline/jobs/vllm-modular-moe-config-ownership--alternate-consumer-full-pipeline/vllm-modular-moe-config-ownershi__PSDTBsN/verifier/report.json": "92709596b44a5e93bb47e59582349bd4a10fed8e53aeeef705ca4a9fa175d9ad",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-consumer-full-pipeline/jobs/vllm-modular-moe-config-ownership--alternate-consumer-full-pipeline/vllm-modular-moe-config-ownershi__PSDTBsN/verifier/reward.json": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+        }
+      },
+      {
+        "case": "missing-expert-parallel-config",
+        "expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "f54e2296-a183-4766-93d7-200844b4bbbe",
+        "trial_id": "1d048683-0248-4894-a108-525ac892b5b8",
+        "task_checksum": "88d5940b55498719e3e3fcdb2132b9f2b16381c57ced410ce6e21e1aefded528",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-80425545-47ae-bd24-9051-ba17a38ce9f8"
+        ],
+        "worker_exit_code": 0,
+        "completed": false,
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 67, in main\n    passed = check(raw, workload)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/tests/check_behavior.py\", line 67, in check\n    check_pipeline(raw['flashinfer_pipeline'], workload['flashinfer_pipeline'])\n  File \"/tests/pipeline_contract.py\", line 21, in check_pipeline\n    assert expert['parallel'] == {k: owner[k] for k in ('ep_size', 'ep_rank', 'tp_size', 'tp_rank')}, 'expert execution followed stale TP/EP config'\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: expert execution followed stale TP/EP config\n"
+        ],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-expert-parallel-config/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-expert-parallel-config/run-record.json": "d402d0f67172510ccfadd192ed8152062272d9774ca0452ada76163e9f9266de",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-expert-parallel-config/harbor-config.json": "5ec0a7d9db6224407c491c1f0794d96c9c22e11f2fb3590bd2194abb2f99b8c4",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-expert-parallel-config/harbor.log": "2cf6094437f6bbc2710d7593673b8aac5bb58eb0a2f4e51e84aed37f0421ff09",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-expert-parallel-config/jobs/vllm-modular-moe-config-ownership--missing-expert-parallel-config/vllm-modular-moe-config-ownershi__LwZ22a5/result.json": "b07068c149b9cc50138e73376bb397b98b2e3e2b587a3a2407b7458b7cef1df8",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-expert-parallel-config/jobs/vllm-modular-moe-config-ownership--missing-expert-parallel-config/result.json": "51d135cb98ef02e0f52a3250f475aef31f544383f7f9b26a2dd9e7ed6e7276c5",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-expert-parallel-config/jobs/vllm-modular-moe-config-ownership--missing-expert-parallel-config/vllm-modular-moe-config-ownershi__LwZ22a5/verifier/test-stdout.txt": "32a0d31b00562556841014b29faf67a9e2c6a67472da4cd82cf95ab1534f66d1",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-expert-parallel-config/jobs/vllm-modular-moe-config-ownership--missing-expert-parallel-config/vllm-modular-moe-config-ownershi__LwZ22a5/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-expert-parallel-config/jobs/vllm-modular-moe-config-ownership--missing-expert-parallel-config/vllm-modular-moe-config-ownershi__LwZ22a5/verifier/workload.json": "f423fe031de3d426d25a0941b6fa2b1d4f472d98e427b61bb478dd02e77a3830",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-expert-parallel-config/jobs/vllm-modular-moe-config-ownership--missing-expert-parallel-config/vllm-modular-moe-config-ownershi__LwZ22a5/verifier/observations.json": "13e3657e27aa28e656530185b4ec404e887e5a4ee8dbb4d422d6c4999c21febf",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-expert-parallel-config/jobs/vllm-modular-moe-config-ownership--missing-expert-parallel-config/vllm-modular-moe-config-ownershi__LwZ22a5/verifier/report.json": "a1d0602d08ff7892beb5c76b9bcff364fdd4a16f9a6ec2c48c95a50c3b7b76e3",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/missing-expert-parallel-config/jobs/vllm-modular-moe-config-ownership--missing-expert-parallel-config/vllm-modular-moe-config-ownershi__LwZ22a5/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "incorrect-finalize-rank-slice",
+        "expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "c4a172bd-135e-4f8c-b0ce-23b98d2dd0ac",
+        "trial_id": "504f9ba2-5861-4911-81a9-7024b9da1d08",
+        "task_checksum": "691df4c17e1c908acce33a3793844cebcd16f7fceff13d6bced4c4f0d5dcb854",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 0,
+        "completed": false,
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 67, in main\n    passed = check(raw, workload)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/tests/check_behavior.py\", line 67, in check\n    check_pipeline(raw['flashinfer_pipeline'], workload['flashinfer_pipeline'])\n  File \"/tests/pipeline_contract.py\", line 15, in check_pipeline\n    assert kinds[0] == 'gather' and kinds[-1] == 'reduce_scatter', kinds\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ['gather', 'expert']\n"
+        ],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incorrect-finalize-rank-slice/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incorrect-finalize-rank-slice/run-record.json": "8ff99ba16caa8302cae112c8a4a345851754a305d8bf90315420f3c527fc990a",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incorrect-finalize-rank-slice/harbor-config.json": "ec68d7328ade4183796fa31f7453dcc4115e8e74926eb17a39b34a5a613b76c1",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incorrect-finalize-rank-slice/harbor.log": "019fa27df14b44d99e4e18b33ce162ee1003c8b5c8e019b30046a8c2e70dc994",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incorrect-finalize-rank-slice/jobs/vllm-modular-moe-config-ownership--incorrect-finalize-rank-slice/vllm-modular-moe-config-ownershi__NLxFGjE/result.json": "628f595a6bc798724b40a15e421bc11d5405f831a06ebdee4bbe1ede5ce8156d",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incorrect-finalize-rank-slice/jobs/vllm-modular-moe-config-ownership--incorrect-finalize-rank-slice/result.json": "d6ad1d9663cc25cc9e23d72d0cdaf245fcc98e377c88942da6d87bb541fba029",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incorrect-finalize-rank-slice/jobs/vllm-modular-moe-config-ownership--incorrect-finalize-rank-slice/vllm-modular-moe-config-ownershi__NLxFGjE/verifier/test-stdout.txt": "2c860144fd1ba1f5a419837a2b3e553842aa2ca55fe59882b942d993fe0a6256",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incorrect-finalize-rank-slice/jobs/vllm-modular-moe-config-ownership--incorrect-finalize-rank-slice/vllm-modular-moe-config-ownershi__NLxFGjE/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incorrect-finalize-rank-slice/jobs/vllm-modular-moe-config-ownership--incorrect-finalize-rank-slice/vllm-modular-moe-config-ownershi__NLxFGjE/verifier/workload.json": "95ea4ef67aabe32c1a74f4c44ff6c326110b0d5232ba3e5015d4ed1855132043",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incorrect-finalize-rank-slice/jobs/vllm-modular-moe-config-ownership--incorrect-finalize-rank-slice/vllm-modular-moe-config-ownershi__NLxFGjE/verifier/observations.json": "8145f1ab44be3e6359a4b03d3a907a8c0c86b90c5f75add6a4af42d7a3f12d78",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incorrect-finalize-rank-slice/jobs/vllm-modular-moe-config-ownership--incorrect-finalize-rank-slice/vllm-modular-moe-config-ownershi__NLxFGjE/verifier/report.json": "6be29f417c0018ea0902b1a0a4709b5bda496c8732cebad5a710aa3f2c3f86a4",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/incorrect-finalize-rank-slice/jobs/vllm-modular-moe-config-ownership--incorrect-finalize-rank-slice/vllm-modular-moe-config-ownershi__NLxFGjE/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "alternate-layer-owned-method",
+        "expected_reward": 1,
+        "actual_reward": 1,
+        "job_id": "88a7f070-4119-4213-a282-a2e456147626",
+        "trial_id": "3df715c0-9bf2-478c-95db-5e4dbc75f2c7",
+        "task_checksum": "003e36616ace26d438f2c21c650b6fce73df9f323c2900f2e0f95b88e09c723a",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3884436a-fd17-98d2-5dad-4ef79dd14589"
+        ],
+        "worker_exit_code": 0,
+        "completed": true,
+        "stages_passed": [
+          "compatibility_no_warning",
+          "active_owner_workspace_provenance",
+          "numerical_path_unchanged",
+          "flashinfer_consumer_follows_owner",
+          "lora_factory_follows_owner",
+          "functional_no_global_dependency",
+          "flashinfer_prepare_expert_finalize"
+        ],
+        "failures": [],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-owned-method/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-owned-method/run-record.json": "a5832a19e5f4bcc5c93ae74dacb1cab023da3627c8b076773b96931f2879f970",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-owned-method/harbor-config.json": "522dc0b7d1134e40efd1560dffcabc7f9fcf5c235a3a457cad780fe426842ed5",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-owned-method/harbor.log": "e9c6f535e577e2ccb859bdd5b459656294fc5d792e3a5739a027931cdf98c618",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-owned-method/jobs/vllm-modular-moe-config-ownership--alternate-layer-owned-method/vllm-modular-moe-config-ownershi__okXmsWp/result.json": "d3a2b86024c66fcb2544d0325c95d7c56bcc6827224cab5d12c24f9b14492d69",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-owned-method/jobs/vllm-modular-moe-config-ownership--alternate-layer-owned-method/result.json": "218b97dd30b392582cd4199ef04018914581234651de8f0a2c48d86e4462862a",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-owned-method/jobs/vllm-modular-moe-config-ownership--alternate-layer-owned-method/vllm-modular-moe-config-ownershi__okXmsWp/verifier/test-stdout.txt": "41cd375332822107c177383b7a8c03dbdd5a972780bc1c438e4ad06df1993b46",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-owned-method/jobs/vllm-modular-moe-config-ownership--alternate-layer-owned-method/vllm-modular-moe-config-ownershi__okXmsWp/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-owned-method/jobs/vllm-modular-moe-config-ownership--alternate-layer-owned-method/vllm-modular-moe-config-ownershi__okXmsWp/verifier/workload.json": "a55a4898e06b444730e71924b8fd8253259af503e0bade42124509aeb663766c",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-owned-method/jobs/vllm-modular-moe-config-ownership--alternate-layer-owned-method/vllm-modular-moe-config-ownershi__okXmsWp/verifier/observations.json": "2dd7c05cdfc1bb86905b9ba5a09957f0fd79756574601eeead3c46f28d71b105",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-owned-method/jobs/vllm-modular-moe-config-ownership--alternate-layer-owned-method/vllm-modular-moe-config-ownershi__okXmsWp/verifier/report.json": "92709596b44a5e93bb47e59582349bd4a10fed8e53aeeef705ca4a9fa175d9ad",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-layer-owned-method/jobs/vllm-modular-moe-config-ownership--alternate-layer-owned-method/vllm-modular-moe-config-ownershi__okXmsWp/verifier/reward.json": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+        }
+      },
+      {
+        "case": "alternate-workspace-full-pipeline",
+        "expected_reward": 1,
+        "actual_reward": 1,
+        "job_id": "42d68d25-150e-4ebd-8f3b-e9008abbf4f0",
+        "trial_id": "0a6d5eb0-743f-4425-ad96-4178c863d96d",
+        "task_checksum": "28d00d334a5216fe2087eef990f67d9126bd19cd9747927d702a680f71e278dc",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-80425545-47ae-bd24-9051-ba17a38ce9f8"
+        ],
+        "worker_exit_code": 0,
+        "completed": true,
+        "stages_passed": [
+          "compatibility_no_warning",
+          "active_owner_workspace_provenance",
+          "numerical_path_unchanged",
+          "flashinfer_consumer_follows_owner",
+          "lora_factory_follows_owner",
+          "functional_no_global_dependency",
+          "flashinfer_prepare_expert_finalize"
+        ],
+        "failures": [],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-full-pipeline/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-full-pipeline/run-record.json": "03cae85ceb74dbb91427a84028743e56448022d05dd8232ece3ae22803c89f86",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-full-pipeline/harbor-config.json": "0b010b9d3265f85e3076c07b55bc023ff0e213ff79e78129e82fe9cfdd979960",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-full-pipeline/harbor.log": "1e6086c4bd6345aa72d1595b9d9bff52bb10d974b35f7658d7bc220409163b33",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-full-pipeline/jobs/vllm-modular-moe-config-ownership--alternate-workspace-full-pipeline/vllm-modular-moe-config-ownershi__DVWic4S/result.json": "c98610548e789749fbb00c2bb63a923902ced98c30726186c3ccae2cd02e03c1",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-full-pipeline/jobs/vllm-modular-moe-config-ownership--alternate-workspace-full-pipeline/result.json": "744b312c3058289338462f951f2a4fb7c78457a2aa0453d552dc20d114501288",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-full-pipeline/jobs/vllm-modular-moe-config-ownership--alternate-workspace-full-pipeline/vllm-modular-moe-config-ownershi__DVWic4S/verifier/test-stdout.txt": "14790ec4c8c6ee7f7cd3109f95a65651ec60d03502c37ecf582aa45e9d9c3325",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-full-pipeline/jobs/vllm-modular-moe-config-ownership--alternate-workspace-full-pipeline/vllm-modular-moe-config-ownershi__DVWic4S/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-full-pipeline/jobs/vllm-modular-moe-config-ownership--alternate-workspace-full-pipeline/vllm-modular-moe-config-ownershi__DVWic4S/verifier/workload.json": "e5d5b83b6fe606d09d47df5b3c6d1df5b218042e524dfe0a4e5a22c33127b0a3",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-full-pipeline/jobs/vllm-modular-moe-config-ownership--alternate-workspace-full-pipeline/vllm-modular-moe-config-ownershi__DVWic4S/verifier/observations.json": "a57f46943608f94866d9caade4fe31bb9603e6b2e7a4a8cbdbf650a9a96b34b1",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-full-pipeline/jobs/vllm-modular-moe-config-ownership--alternate-workspace-full-pipeline/vllm-modular-moe-config-ownershi__DVWic4S/verifier/report.json": "92709596b44a5e93bb47e59582349bd4a10fed8e53aeeef705ca4a9fa175d9ad",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/harbor/alternate-workspace-full-pipeline/jobs/vllm-modular-moe-config-ownership--alternate-workspace-full-pipeline/vllm-modular-moe-config-ownershi__DVWic4S/verifier/reward.json": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+        }
+      },
+      {
+        "case": "final-oracle",
+        "expected_reward": 1,
+        "actual_reward": 1,
+        "job_id": "72458c66-267b-438b-be6c-7697437b03b9",
+        "trial_id": "7303d3c3-bef0-4abb-8a12-1c1dfb22c019",
+        "task_checksum": "8d26690dc0ce14221d0cd5704e1fb472a70614177ee5bfeaad369b782427a42b",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 0,
+        "completed": true,
+        "stages_passed": [
+          "compatibility_no_warning",
+          "active_owner_workspace_provenance",
+          "numerical_path_unchanged",
+          "flashinfer_consumer_follows_owner",
+          "lora_factory_follows_owner",
+          "functional_no_global_dependency",
+          "flashinfer_prepare_expert_finalize"
+        ],
+        "failures": [],
+        "boundary_marker": null,
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/run-record.json": "ea66e169e5b61b756dd018ec7ee007cb7acc80d1d860c1bf8ab7184a4db1765f",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/harbor-config.json": "3a2647cd438708d84db934a467f793768294cc7e17c0868e1de775e4e9753956",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/harbor.log": "a7d16de7824c3ae7cebceecfae07e194ce729c593ce8dc90f68c87858618dbf6",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RKTsVes/result.json": "b407ebb93d7b58b7e5c89b25730a4edfb27463f5cc0fdf8d6b1475e9c14e1388",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/jobs/vllm-modular-moe-config-ownership--oracle/result.json": "4380d7a7fcd308b060b924c4f011c28ccee0399b7b4ea9d567bfa84b67129def",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RKTsVes/verifier/test-stdout.txt": "bc079e3738a352e27e1868dd64234edc06f96855980c716d590c6a47d24270b3",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RKTsVes/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RKTsVes/verifier/workload.json": "e9636743c3beef2a3bf0e86dda95ca8151350f00df7588be55504cc70e07986f",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RKTsVes/verifier/observations.json": "f76ab9f0c3fa710d80c838b6473598ad6e1537267e7bd119c83ca51a2185346b",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RKTsVes/verifier/report.json": "92709596b44a5e93bb47e59582349bd4a10fed8e53aeeef705ca4a9fa175d9ad",
+          "/data/yinchen/modular-prepare-hardening-20260912T053849Z/final-oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RKTsVes/verifier/reward.json": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+        }
+      }
+    ],
+    "fresh_run_count": 22,
+    "all_expectations_matched": true
+  },
+  "independent_challenges": [
+    {
+      "case": "base",
+      "scope": "pipeline",
+      "expected_pass": false,
+      "passed": false,
+      "exit_code": 1,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--gpus",
+        "device=GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z:/new-challenge:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/review-challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "python3 /new-challenge/challenge_full_pipeline.py\n"
+      ],
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuid": "GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+      "log": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenges/pipeline-base.log",
+      "log_sha256": "bef5c61df62ebae3922641540bd4c6c0537f6bdba7d84dfd3a26da6d23adcf5c",
+      "patch_sha256": null,
+      "script": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenge_full_pipeline.py",
+      "script_sha256": "3f8f82b511aa300bed81910d6ad2d80754b46d7091f6151425ca8ea6f52a5a2a"
+    },
+    {
+      "case": "oracle",
+      "scope": "pipeline",
+      "expected_pass": true,
+      "passed": true,
+      "exit_code": 0,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--gpus",
+        "device=GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z:/new-challenge:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/review-challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/solution/oracle.patch\npython3 /new-challenge/challenge_full_pipeline.py\n"
+      ],
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuid": "GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+      "log": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenges/pipeline-oracle.log",
+      "log_sha256": "91bdde6121104d58e2e75a0738ae5f4383748f340be243b63621cb6a55b70f2d",
+      "patch_sha256": "a8819cf4bb2ad7849e4010e80f853b1ac5b6c673e772a552ebded0567c4dbb54",
+      "script": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenge_full_pipeline.py",
+      "script_sha256": "3f8f82b511aa300bed81910d6ad2d80754b46d7091f6151425ca8ea6f52a5a2a"
+    },
+    {
+      "case": "incomplete-flashinfer-pipeline",
+      "scope": "pipeline",
+      "expected_pass": false,
+      "passed": false,
+      "exit_code": 1,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--gpus",
+        "device=GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z:/new-challenge:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/review-challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/incomplete-flashinfer-pipeline.patch\npython3 /new-challenge/challenge_full_pipeline.py\n"
+      ],
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuid": "GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+      "log": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenges/pipeline-incomplete-flashinfer-pipeline.log",
+      "log_sha256": "ed75c332125d8cb76f641f3f0d22e7c4258f8e0d17fa736a25c538eab36a0f22",
+      "patch_sha256": "79dad8bb3dd45055c10890263d1cfbdc47161d64c191c119bd20fb8ce5340662",
+      "script": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenge_full_pipeline.py",
+      "script_sha256": "3f8f82b511aa300bed81910d6ad2d80754b46d7091f6151425ca8ea6f52a5a2a"
+    },
+    {
+      "case": "alternate-consumer-boundary-ownership",
+      "scope": "pipeline",
+      "expected_pass": false,
+      "passed": false,
+      "exit_code": 1,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--gpus",
+        "device=GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z:/new-challenge:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/review-challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/alternate-consumer-boundary-ownership.patch\npython3 /new-challenge/challenge_full_pipeline.py\n"
+      ],
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuid": "GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+      "log": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenges/pipeline-alternate-consumer-boundary-ownership.log",
+      "log_sha256": "0ff64851389b19ec235e27422852ec9c8f173ca1dec67ab8031bd9619fd11035",
+      "patch_sha256": "e8879a3ccc7b3dc8d6038f8b56e6687056298c753e7786d2e4c725315fdecf28",
+      "script": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenge_full_pipeline.py",
+      "script_sha256": "3f8f82b511aa300bed81910d6ad2d80754b46d7091f6151425ca8ea6f52a5a2a"
+    },
+    {
+      "case": "alternate-workspace-diagnostic",
+      "scope": "pipeline",
+      "expected_pass": false,
+      "passed": false,
+      "exit_code": 1,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--gpus",
+        "device=GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z:/new-challenge:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/review-challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/alternate-workspace-diagnostic.patch\npython3 /new-challenge/challenge_full_pipeline.py\n"
+      ],
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuid": "GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+      "log": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenges/pipeline-alternate-workspace-diagnostic.log",
+      "log_sha256": "f43be5f61c4d4c9618e0378e8b5b87ec7b12c8367c7f6be4750b867d9acb7682",
+      "patch_sha256": "0b929554847b8a5c6a3ced6c1c6b4c5bbefb8ab9a742f396e24e38b72174c144",
+      "script": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenge_full_pipeline.py",
+      "script_sha256": "3f8f82b511aa300bed81910d6ad2d80754b46d7091f6151425ca8ea6f52a5a2a"
+    },
+    {
+      "case": "alternate-full-config-owner",
+      "scope": "pipeline",
+      "expected_pass": false,
+      "passed": false,
+      "exit_code": 1,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--gpus",
+        "device=GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z:/new-challenge:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/review-challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/alternate-full-config-owner.patch\npython3 /new-challenge/challenge_full_pipeline.py\n"
+      ],
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuid": "GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+      "log": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenges/pipeline-alternate-full-config-owner.log",
+      "log_sha256": "3423f6ae41ea071a03234fb9c639ed3580458f4797631551f03b343491d4902a",
+      "patch_sha256": "4c87fba17d3c020608c769f67988c5c4e8cd466bb109e51b734ee7f983e06e5e",
+      "script": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenge_full_pipeline.py",
+      "script_sha256": "3f8f82b511aa300bed81910d6ad2d80754b46d7091f6151425ca8ea6f52a5a2a"
+    },
+    {
+      "case": "alternate-consumer-full-pipeline",
+      "scope": "pipeline",
+      "expected_pass": true,
+      "passed": true,
+      "exit_code": 0,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--gpus",
+        "device=GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z:/new-challenge:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/review-challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/alternate-consumer-full-pipeline.patch\npython3 /new-challenge/challenge_full_pipeline.py\n"
+      ],
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuid": "GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+      "log": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenges/pipeline-alternate-consumer-full-pipeline.log",
+      "log_sha256": "928ad9f12219ec65e311917d66a5908416e6d4ff847c32d1a9d135b2aa05ad1b",
+      "patch_sha256": "74f41f100bce26d247b9e742d0505fa2677385a3841432a1a5c469aa58e356da",
+      "script": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenge_full_pipeline.py",
+      "script_sha256": "3f8f82b511aa300bed81910d6ad2d80754b46d7091f6151425ca8ea6f52a5a2a"
+    },
+    {
+      "case": "alternate-layer-config-view",
+      "scope": "pipeline",
+      "expected_pass": true,
+      "passed": true,
+      "exit_code": 0,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--gpus",
+        "device=GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z:/new-challenge:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/review-challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/alternate-layer-config-view.patch\npython3 /new-challenge/challenge_full_pipeline.py\n"
+      ],
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuid": "GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+      "log": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenges/pipeline-alternate-layer-config-view.log",
+      "log_sha256": "9be5977f8abbce1c96907498d3df07c22a2d43a0fa3b97ef4cdff2a02892cdbb",
+      "patch_sha256": "1312bcd6471951bb829afea984249e7c1cdd218fad3ab5ea8ad183f3945f41bd",
+      "script": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenge_full_pipeline.py",
+      "script_sha256": "3f8f82b511aa300bed81910d6ad2d80754b46d7091f6151425ca8ea6f52a5a2a"
+    },
+    {
+      "case": "alternate-layer-owned-method",
+      "scope": "pipeline",
+      "expected_pass": true,
+      "passed": true,
+      "exit_code": 0,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--gpus",
+        "device=GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z:/new-challenge:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/review-challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/alternate-layer-owned-method.patch\npython3 /new-challenge/challenge_full_pipeline.py\n"
+      ],
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuid": "GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+      "log": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenges/pipeline-alternate-layer-owned-method.log",
+      "log_sha256": "2490826e66dc7d2357c84fbd97ffd73ebedb2c910c544c5eeb67e46aaff44a5a",
+      "patch_sha256": "995ac93f5459d5cec7a569c00f7e2f4fe057372d3beb7135cfc1a0633382576d",
+      "script": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenge_full_pipeline.py",
+      "script_sha256": "3f8f82b511aa300bed81910d6ad2d80754b46d7091f6151425ca8ea6f52a5a2a"
+    },
+    {
+      "case": "alternate-workspace-full-pipeline",
+      "scope": "pipeline",
+      "expected_pass": true,
+      "passed": true,
+      "exit_code": 0,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--gpus",
+        "device=GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z:/new-challenge:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/review-challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/alternate-workspace-full-pipeline.patch\npython3 /new-challenge/challenge_full_pipeline.py\n"
+      ],
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuid": "GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+      "log": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenges/pipeline-alternate-workspace-full-pipeline.log",
+      "log_sha256": "faebb271ce702d987a1ba6e538a2c573ed965b4923e4a74b046870626bc411a9",
+      "patch_sha256": "538d8d6b964d251e0de940c2d328eace27e9c509dfb761740f29f79ba63af21c",
+      "script": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenge_full_pipeline.py",
+      "script_sha256": "3f8f82b511aa300bed81910d6ad2d80754b46d7091f6151425ca8ea6f52a5a2a"
+    },
+    {
+      "case": "missing-expert-parallel-config",
+      "scope": "pipeline",
+      "expected_pass": false,
+      "passed": false,
+      "exit_code": 1,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--gpus",
+        "device=GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z:/new-challenge:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/review-challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/missing-expert-parallel-config.patch\npython3 /new-challenge/challenge_full_pipeline.py\n"
+      ],
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuid": "GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+      "log": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenges/pipeline-missing-expert-parallel-config.log",
+      "log_sha256": "ed7abcc4ee3c5e7b1827c43c8628b9d0b887bfff3471c8a2f4b5a964333e9a88",
+      "patch_sha256": "924e76b15e6c81de0073a025e0d605b22784504c997e993a5bc11db46b4ee421",
+      "script": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenge_full_pipeline.py",
+      "script_sha256": "3f8f82b511aa300bed81910d6ad2d80754b46d7091f6151425ca8ea6f52a5a2a"
+    },
+    {
+      "case": "incorrect-finalize-rank-slice",
+      "scope": "pipeline",
+      "expected_pass": false,
+      "passed": false,
+      "exit_code": 1,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--gpus",
+        "device=GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z:/new-challenge:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/review-challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/incorrect-finalize-rank-slice.patch\npython3 /new-challenge/challenge_full_pipeline.py\n"
+      ],
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuid": "GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+      "log": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenges/pipeline-incorrect-finalize-rank-slice.log",
+      "log_sha256": "ad12d4b5c7b3bfc81c3a28de3041dc7039da5d1a66a7a4c9f8d5291c96d7ebac",
+      "patch_sha256": "536aade220e6b917f446d353371013ba6487adb2c787eec315a5482b92c9495e",
+      "script": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenge_full_pipeline.py",
+      "script_sha256": "3f8f82b511aa300bed81910d6ad2d80754b46d7091f6151425ca8ea6f52a5a2a"
+    },
+    {
+      "case": "base",
+      "scope": "workspace",
+      "expected_pass": false,
+      "passed": false,
+      "exit_code": 1,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--gpus",
+        "device=GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z:/new-challenge:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/review-challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "python3 /review-challenge/modular.py\n"
+      ],
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuid": "GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+      "log": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenges/workspace-base.log",
+      "log_sha256": "9a910a3ea67302d216d3c8df07433dcc91cc61c451c7da8475b3439f5fb7158e",
+      "patch_sha256": null,
+      "script": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/modular.py",
+      "script_sha256": "c28e6ed1ae017c0235f7ef7642f5c44c5dfb9999a9b6c94726f32057ceb5c945"
+    },
+    {
+      "case": "oracle",
+      "scope": "workspace",
+      "expected_pass": true,
+      "passed": true,
+      "exit_code": 0,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--gpus",
+        "device=GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z:/new-challenge:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/review-challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/solution/oracle.patch\npython3 /review-challenge/modular.py\n"
+      ],
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuid": "GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+      "log": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenges/workspace-oracle.log",
+      "log_sha256": "deaef0d93e514f3f6ecea9084161c2eb75c6026e512fa92113a140f4e6bd7c8e",
+      "patch_sha256": "a8819cf4bb2ad7849e4010e80f853b1ac5b6c673e772a552ebded0567c4dbb54",
+      "script": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/modular.py",
+      "script_sha256": "c28e6ed1ae017c0235f7ef7642f5c44c5dfb9999a9b6c94726f32057ceb5c945"
+    },
+    {
+      "case": "alternate-consumer-full-pipeline",
+      "scope": "workspace",
+      "expected_pass": true,
+      "passed": true,
+      "exit_code": 0,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--gpus",
+        "device=GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/modular-prepare-hardening-20260912T053849Z:/new-challenge:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/review-challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/alternate-consumer-full-pipeline.patch\npython3 /review-challenge/modular.py\n"
+      ],
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuid": "GPU-8380fa1c-d192-a7e4-ec39-ab836d0f4fd8",
+      "log": "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenges/workspace-alternate-consumer-full-pipeline.log",
+      "log_sha256": "5b098b12013d6850898f060f6a8a31515b5b0dc6389ae5d7bbf71eb0753375aa",
+      "patch_sha256": "74f41f100bce26d247b9e742d0505fa2677385a3841432a1a5c469aa58e356da",
+      "script": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/modular.py",
+      "script_sha256": "c28e6ed1ae017c0235f7ef7642f5c44c5dfb9999a9b6c94726f32057ceb5c945"
+    }
+  ],
+  "stability": {
+    "oracle_full_harbor_rewards": [
+      1,
+      1
+    ],
+    "inputs": "Independent random parent workloads in each run",
+    "correct_alternatives": [
+      "alternate-layer-config-view",
+      "alternate-consumer-full-pipeline",
+      "alternate-layer-owned-method",
+      "alternate-workspace-full-pipeline"
+    ]
+  },
+  "artifacts": {
+    "files": {
+      ".dockerignore": "fe57c1ef2dcfcb5ceaa20f0582985984061600f14d404fd7f1ef5de91a710cc8",
+      "task.toml": "498e45fdc230bcf9aae8a3ce0c03eb47a2dc05bf1aec4e51f0357502f770befa",
+      "environment/Dockerfile": "149fd9f3e5a4c048e3e9d556aa1edc50f877300a3d28221957b689a18a603fdf",
+      "environment/image-manifest.json": "064d5827e431895424612b645a411694bdc32e5c8ad48a51c24d7a5d21fb275a",
+      "environment/lock/native-v0.13.0.sha256": "002e775b78e8a05921352660246bf82633e5a89e1c88ac0168e045a8759340f0",
+      "environment/lock/requirements.txt": "ec8da2ba7874ab76016998f20ba4a9e20280af7c0e8937e7e049f150a863727e",
+      "environment/lock/manifest.json": "a437238733ed24d3121a1b45f13516a667666e84dfe3c7cb89372e0b0648920c",
+      "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+      "solution/oracle.patch": "a8819cf4bb2ad7849e4010e80f853b1ac5b6c673e772a552ebded0567c4dbb54",
+      "tests/test.sh": "f0bdedfc67f3e3e217364dfb98258e39570725578ae3b9a1456a591316387433",
+      "tests/verify_parallel_config.py": "ac27a948ad17fffb1ed34102ca708d4b88ad061d4c0cd3a9e56f2d444c224ecd",
+      "tests/trusted_score.py": "063d52849ba38b43957b48bb0c08c4ce0e8c4d7385e460033720a587a00d32b7",
+      "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+      "tests/check_behavior.py": "800574b28305e562bd097cb2851a6be1794ca9e8df79af16b7352c39ebeba608",
+      "tests/workload.py": "346cb53a5f2f17faca0d79d6cfdc26d626cdd197929c15f7c9d8dcddd33a3327",
+      "tests/pipeline_workload.py": "530116bce1b12056316c594bcaf455add34b0eccfd7fef0091fbb7e415565f66",
+      "tests/flashinfer_pipeline.py": "040cf34acf51559b04b5ce529912f6870b302cb66f00f81b169c861a2461579f",
+      "tests/pipeline_contract.py": "e9624a80199fa2f9e36c498fa3bff5c557b95d40afaf61ccb67499d98d544f39",
+      "validation/ci-cases.json": "9d313e51c634b31d23d40751764d1efe033670d6c6b4d6a9641bc384b2a767aa",
+      "validation/wrong-legacy-owner.patch": "02b96f88f9d9e73030d08c6773da5c50a8d5e75df8ea45fb9f8dfca689ec84bb",
+      "validation/early-exit-os-exit.patch": "c34a59bcee96cc2e599e1dbfda9a2e849e507191a1c5ab748d52078427e69033",
+      "validation/early-exit-system-exit.patch": "a953b6d100d29bc5a85b4794337a9291ce829c2ba75d3e1cc57804a89f7d7100",
+      "validation/alternate-consumer-boundary-ownership.patch": "e8879a3ccc7b3dc8d6038f8b56e6687056298c753e7786d2e4c725315fdecf28",
+      "validation/forged-report-exit.patch": "5d9e304321097bcb6ed7dc89d74fdb462a2c45b59b62b4668fc212a28750a529",
+      "validation/constant-numerical-output.patch": "cd791421d519ee3987e6678a614edd6bc2a41e40b0c3ae80f923d62629e08e10",
+      "validation/replay-observations.patch": "e493a512287104a1bda591ebe42fa1ca92d37306168d3decec4d284a04b0278c",
+      "validation/compatibility-global-warning.patch": "ad919eea0f892b89df457b9aee4bcce7435ee69728c8e2be4558d42a8addf013",
+      "validation/alternate-workspace-diagnostic.patch": "0b929554847b8a5c6a3ced6c1c6b4c5bbefb8ab9a742f396e24e38b72174c144",
+      "validation/undersized-profile-workspace.patch": "2dcadf10ba9d718529ca86ee9d7a43209a9533a5b883f7a449aeb9adeb14f16f",
+      "validation/alternate-layer-config-view.patch": "1312bcd6471951bb829afea984249e7c1cdd218fad3ab5ea8ad183f3945f41bd",
+      "validation/missing-flashinfer-owner.patch": "dc40452518006c9d83a26c44b3010ca0fa4d66cbc7f025b47f5f409fd57eea96",
+      "validation/alternate-full-config-owner.patch": "4c87fba17d3c020608c769f67988c5c4e8cd466bb109e51b734ee7f983e06e5e",
+      "validation/incomplete-flashinfer-pipeline.patch": "79dad8bb3dd45055c10890263d1cfbdc47161d64c191c119bd20fb8ce5340662",
+      "validation/alternate-consumer-full-pipeline.patch": "74f41f100bce26d247b9e742d0505fa2677385a3841432a1a5c469aa58e356da",
+      "validation/missing-expert-parallel-config.patch": "924e76b15e6c81de0073a025e0d605b22784504c997e993a5bc11db46b4ee421",
+      "validation/incorrect-finalize-rank-slice.patch": "536aade220e6b917f446d353371013ba6487adb2c787eec315a5482b92c9495e",
+      "validation/alternate-layer-owned-method.patch": "995ac93f5459d5cec7a569c00f7e2f4fe057372d3beb7135cfc1a0633382576d",
+      "validation/alternate-workspace-full-pipeline.patch": "538d8d6b964d251e0de940c2d328eace27e9c509dfb761740f29f79ba63af21c",
+      "validation/challenge/challenge_config_ownership.py": "2a69ad7b659958e3537741cf77d38bf11d02cc7342ad285347c59a9ff35f6038",
+      "validation/challenge/challenge_full_pipeline.py": "3f8f82b511aa300bed81910d6ad2d80754b46d7091f6151425ca8ea6f52a5a2a",
+      "validation/evidence/native-source-equivalence.json": "f24acccfba2e96e3eb1e11b792ab8d8386b069d6cde8c459783afd2b108f81b6",
+      "validation/evidence/jit-compilation.json": "673a37a4b700a9d0cdbccd2350bc6aac6534cf2d9b77a862a4105a667b72f67a",
+      "validation/evidence/environment-review.json": "66fc8350be87ee51e9be2febd0ef5dbb25589e92fb75edcd4841e1940dc2fe3b",
+      "validation/evidence/fairness-environment-modular-20260909.tar.gz": "7d1cf452a80fac8427469532e37bd9b95bdd19680551212ebb60b360ed32dd21",
+      "instruction.md": "414ac8c35f0614b51608148035b90011f5e392daab55a79bb78fcb26ae2468ed"
+    }
+  },
+  "freeze": {
+    "files": {
+      ".dockerignore": "fe57c1ef2dcfcb5ceaa20f0582985984061600f14d404fd7f1ef5de91a710cc8",
+      "task.toml": "498e45fdc230bcf9aae8a3ce0c03eb47a2dc05bf1aec4e51f0357502f770befa",
+      "environment/Dockerfile": "149fd9f3e5a4c048e3e9d556aa1edc50f877300a3d28221957b689a18a603fdf",
+      "environment/image-manifest.json": "064d5827e431895424612b645a411694bdc32e5c8ad48a51c24d7a5d21fb275a",
+      "environment/lock/native-v0.13.0.sha256": "002e775b78e8a05921352660246bf82633e5a89e1c88ac0168e045a8759340f0",
+      "environment/lock/requirements.txt": "ec8da2ba7874ab76016998f20ba4a9e20280af7c0e8937e7e049f150a863727e",
+      "environment/lock/manifest.json": "a437238733ed24d3121a1b45f13516a667666e84dfe3c7cb89372e0b0648920c",
+      "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+      "solution/oracle.patch": "a8819cf4bb2ad7849e4010e80f853b1ac5b6c673e772a552ebded0567c4dbb54",
+      "tests/test.sh": "f0bdedfc67f3e3e217364dfb98258e39570725578ae3b9a1456a591316387433",
+      "tests/verify_parallel_config.py": "ac27a948ad17fffb1ed34102ca708d4b88ad061d4c0cd3a9e56f2d444c224ecd",
+      "tests/trusted_score.py": "063d52849ba38b43957b48bb0c08c4ce0e8c4d7385e460033720a587a00d32b7",
+      "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+      "tests/check_behavior.py": "800574b28305e562bd097cb2851a6be1794ca9e8df79af16b7352c39ebeba608",
+      "tests/workload.py": "346cb53a5f2f17faca0d79d6cfdc26d626cdd197929c15f7c9d8dcddd33a3327",
+      "tests/pipeline_workload.py": "530116bce1b12056316c594bcaf455add34b0eccfd7fef0091fbb7e415565f66",
+      "tests/flashinfer_pipeline.py": "040cf34acf51559b04b5ce529912f6870b302cb66f00f81b169c861a2461579f",
+      "tests/pipeline_contract.py": "e9624a80199fa2f9e36c498fa3bff5c557b95d40afaf61ccb67499d98d544f39",
+      "validation/ci-cases.json": "9d313e51c634b31d23d40751764d1efe033670d6c6b4d6a9641bc384b2a767aa",
+      "validation/wrong-legacy-owner.patch": "02b96f88f9d9e73030d08c6773da5c50a8d5e75df8ea45fb9f8dfca689ec84bb",
+      "validation/early-exit-os-exit.patch": "c34a59bcee96cc2e599e1dbfda9a2e849e507191a1c5ab748d52078427e69033",
+      "validation/early-exit-system-exit.patch": "a953b6d100d29bc5a85b4794337a9291ce829c2ba75d3e1cc57804a89f7d7100",
+      "validation/alternate-consumer-boundary-ownership.patch": "e8879a3ccc7b3dc8d6038f8b56e6687056298c753e7786d2e4c725315fdecf28",
+      "validation/forged-report-exit.patch": "5d9e304321097bcb6ed7dc89d74fdb462a2c45b59b62b4668fc212a28750a529",
+      "validation/constant-numerical-output.patch": "cd791421d519ee3987e6678a614edd6bc2a41e40b0c3ae80f923d62629e08e10",
+      "validation/replay-observations.patch": "e493a512287104a1bda591ebe42fa1ca92d37306168d3decec4d284a04b0278c",
+      "validation/compatibility-global-warning.patch": "ad919eea0f892b89df457b9aee4bcce7435ee69728c8e2be4558d42a8addf013",
+      "validation/alternate-workspace-diagnostic.patch": "0b929554847b8a5c6a3ced6c1c6b4c5bbefb8ab9a742f396e24e38b72174c144",
+      "validation/undersized-profile-workspace.patch": "2dcadf10ba9d718529ca86ee9d7a43209a9533a5b883f7a449aeb9adeb14f16f",
+      "validation/alternate-layer-config-view.patch": "1312bcd6471951bb829afea984249e7c1cdd218fad3ab5ea8ad183f3945f41bd",
+      "validation/missing-flashinfer-owner.patch": "dc40452518006c9d83a26c44b3010ca0fa4d66cbc7f025b47f5f409fd57eea96",
+      "validation/alternate-full-config-owner.patch": "4c87fba17d3c020608c769f67988c5c4e8cd466bb109e51b734ee7f983e06e5e",
+      "validation/incomplete-flashinfer-pipeline.patch": "79dad8bb3dd45055c10890263d1cfbdc47161d64c191c119bd20fb8ce5340662",
+      "validation/alternate-consumer-full-pipeline.patch": "74f41f100bce26d247b9e742d0505fa2677385a3841432a1a5c469aa58e356da",
+      "validation/missing-expert-parallel-config.patch": "924e76b15e6c81de0073a025e0d605b22784504c997e993a5bc11db46b4ee421",
+      "validation/incorrect-finalize-rank-slice.patch": "536aade220e6b917f446d353371013ba6487adb2c787eec315a5482b92c9495e",
+      "validation/alternate-layer-owned-method.patch": "995ac93f5459d5cec7a569c00f7e2f4fe057372d3beb7135cfc1a0633382576d",
+      "validation/alternate-workspace-full-pipeline.patch": "538d8d6b964d251e0de940c2d328eace27e9c509dfb761740f29f79ba63af21c",
+      "validation/challenge/challenge_config_ownership.py": "2a69ad7b659958e3537741cf77d38bf11d02cc7342ad285347c59a9ff35f6038",
+      "validation/challenge/challenge_full_pipeline.py": "3f8f82b511aa300bed81910d6ad2d80754b46d7091f6151425ca8ea6f52a5a2a",
+      "validation/evidence/native-source-equivalence.json": "f24acccfba2e96e3eb1e11b792ab8d8386b069d6cde8c459783afd2b108f81b6",
+      "validation/evidence/jit-compilation.json": "673a37a4b700a9d0cdbccd2350bc6aac6534cf2d9b77a862a4105a667b72f67a",
+      "validation/evidence/environment-review.json": "66fc8350be87ee51e9be2febd0ef5dbb25589e92fb75edcd4841e1940dc2fe3b",
+      "validation/evidence/fairness-environment-modular-20260909.tar.gz": "7d1cf452a80fac8427469532e37bd9b95bdd19680551212ebb60b360ed32dd21",
+      "instruction.md": "414ac8c35f0614b51608148035b90011f5e392daab55a79bb78fcb26ae2468ed"
+    },
+    "grading_files_unchanged_across_all_runs": true,
+    "curator_only_change": "Independent challenge setup repaired after the matrix started (required all2all_backend and real workspace initialization); it is not imported by grading. Matrix snapshots retain the initial challenge hash, final Oracle carries the corrected challenge. No scoring, task instruction, environment, solution or control changed after matrix start."
+  },
+  "provenance_gates": {
+    "final_oracle_reward_one": true,
+    "no_harbor_errors": true,
+    "contract_review_passed": true,
+    "all_negative_controls_rejected": true,
+    "correct_alternatives_accepted": true
+  },
+  "historical_evidence": {
+    "path": "validation/history/before-prepare-hardening-20260912.json",
+    "sha256": "47bbdf5e76e5b3f4a80703a1d6a6af910bf6427bee936a8ecca9e4b2c3bf5bfe",
+    "original_results_unchanged": true
+  },
+  "astra_rollout": {
+    "new_model_run": false,
+    "saved_patch": "validation/alternate-layer-owned-method.patch",
+    "saved_patch_sha256": "995ac93f5459d5cec7a569c00f7e2f4fe057372d3beb7135cfc1a0633382576d",
+    "source": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/astra-modular.patch",
+    "fresh_full_harbor_reward": 1
+  },
+  "environment_audit": {
+    "image_rebuilt": false,
+    "reason": "Environment inputs unchanged; standard writable FlashInfer cache configured for the verifier worker.",
+    "logs": [
+      "/data/yinchen/modular-prepare-hardening-20260912T053849Z/image-check.log",
+      "/data/yinchen/modular-prepare-hardening-20260912T053849Z/image-inspect.json",
+      "/data/yinchen/modular-prepare-hardening-20260912T053849Z/image-history.json"
+    ]
+  },
+  "setup_diagnostics": {
+    "excluded_from_behavior_results": [
+      "/data/yinchen/modular-prepare-hardening-20260912T053849Z/diagnostics/oracle-first",
+      "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenges-setup-failure",
+      "/data/yinchen/modular-prepare-hardening-20260912T053849Z/challenge-lock-unavailable.log"
+    ],
+    "explanation": "Initial Docker diagnostic hit a root-home cache permission error. Initial independent challenge lacked config/workspace setup. Reserved GPU was avoided. These are setup failures, not evidence that an implementation should be rejected."
+  },
+  "remaining_limitations": [
+    "Single-device composed ownership validation; does not exercise NCCL multi-process transport or FlashInfer FP8 arithmetic.",
+    "Historical Astra trace is unchanged; only its final production patch is replayed through the new grader."
+  ],
+  "checksum_note": "Task snapshot checksums are pre-evidence. Evidence and remediation documentation are written after final Harbor; executable hashes identify the actual grading revision."
+}
