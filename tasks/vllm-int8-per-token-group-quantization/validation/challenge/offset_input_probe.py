@@ -23,9 +23,11 @@ print('CASE=' + json.dumps(case), flush=True)
 if a.mode == 'public':
     q, s = per_token_group_quant_int8(x, 64)
 else:
-    q = torch.empty_like(x, dtype=torch.int8)
-    s = torch.empty((2, 3, 2), device=x.device, dtype=torch.float32)
-    torch.ops._C.per_token_group_quant_int8(x, q, s, 64, 1e-10, -128., 127.)
+    import sys
+    sys.path.insert(0, '/tests')
+    from native_interface import make_quantizer
+    q, s = make_quantizer(torch.ops._C.per_token_group_quant_int8)(x, 64)
+
 torch.cuda.synchronize()
 g = values.float().reshape(-1, 64)
 rs = g.abs().amax(1).clamp_min(1e-10) / 127
