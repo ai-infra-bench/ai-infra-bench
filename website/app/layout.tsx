@@ -42,9 +42,9 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: withBasePath("/favicon-32.png"),
+        url: withBasePath("/favicon-192.png"),
         type: "image/png",
-        sizes: "32x32",
+        sizes: "192x192",
       },
       {
         url: withBasePath("/favicon.svg?v=contour-mono"),
