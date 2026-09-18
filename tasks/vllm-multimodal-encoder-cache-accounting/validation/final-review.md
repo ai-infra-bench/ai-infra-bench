@@ -48,10 +48,12 @@ It is distinct from direct Docker validation. Raw run location:
 ## Evidence and history
 
 [e2e-evidence.json](e2e-evidence.json) records current executable hashes and
-validation scope. [rollout-review.md](rollout-review.md) and its hashed evidence
+validation scope. [rollout-review.md](rollout-review.md) and its linked historical evidence
 archive document the 1.3.3 flash campaign and full controls. Those historical
 runs are not relabeled as 1.3.4 results. The old 1.3.0 final report and evidence
-are preserved under `history/1.3.0-before-final-evidence-*`.
+are available in the [historical commit](https://github.com/ouycc/ai-infra-bench/tree/b596d2e67de1e3191ef1b6a587d6b98c015ed48f/tasks/vllm-multimodal-encoder-cache-accounting/validation/history/). Raw logs,
+historical snapshots and the old trajectory ZIP are intentionally omitted
+from the current PR tree; the concise reports and executable controls remain.
 
 This update changes only evidence and review documentation. Instruction,
 Oracle, image, verifier and controls remain at the tested executable revision.

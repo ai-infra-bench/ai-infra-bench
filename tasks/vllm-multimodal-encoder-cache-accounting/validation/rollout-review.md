@@ -34,7 +34,7 @@ change between these versions. Frozen Harbor task.toml appends the trusted
 after-agent collector command; the control matrix uses that same frozen
 configuration. Its hash differs from repository task.toml only for this appended
 collection step, while all scored test files match the executable revision. Hash identities are preserved in
-[evidence](evidence/rollout-hardening-1.3.3/).
+[evidence](https://github.com/ouycc/ai-infra-bench/tree/b596d2e67de1e3191ef1b6a587d6b98c015ed48f/tasks/vllm-multimodal-encoder-cache-accounting/validation/evidence/rollout-hardening-1.3.3/).
 
 The repository rollout review skill and its differential-cases/reporting
 references were read. The local review ledger records skill hashes and every
@@ -76,7 +76,7 @@ capture, not cumulative edit operations. Times are seconds from Harbor.
 | task__tBcBwC7 | 0 | 0 | 138/139 | 160 | 10+1 | +457/−81 | 1152.880 / 1111.732 / 13.611 |
 
 Untracked paths, sizes, line counts and exact hashes are in
-[the inventory](evidence/rollout-hardening-1.3.3/round-01-inventory.json).
+[the inventory](https://github.com/ouycc/ai-infra-bench/tree/b596d2e67de1e3191ef1b6a587d6b98c015ed48f/tasks/vllm-multimodal-encoder-cache-accounting/validation/evidence/rollout-hardening-1.3.3/round-01-inventory.json).
 No binary additions, deletions of upstream tests, reward-file manipulation or
 successful answer retrieval were observed. Ordinary Base history inspection,
 empty WebSearch results, missing gh and blocked curl/WebFetch requests are not
@@ -294,7 +294,7 @@ This is development validation, not an unbiased model-capability estimate.
 
 ## Evidence handoff
 
-The checked-in [evidence directory](evidence/rollout-hardening-1.3.3/) contains
+The archived [evidence directory](https://github.com/ouycc/ai-infra-bench/tree/b596d2e67de1e3191ef1b6a587d6b98c015ed48f/tasks/vllm-multimodal-encoder-cache-accounting/validation/evidence/rollout-hardening-1.3.3/) contains
 both inventories, actual Harbor canary/job records, immutable-input checks,
 replay diagnostics, the full control matrix, Docker diff inventories and a hashed
 review ledger. `evidence-files.sha256.json` inventories its files. Credential

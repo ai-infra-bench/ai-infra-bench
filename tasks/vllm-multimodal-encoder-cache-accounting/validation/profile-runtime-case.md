@@ -53,6 +53,6 @@ cases are development evidence, not held-out model evaluation.
 
 Relevant executable files: `tests/encoder_profile_worker.py`,
 `tests/verify_encoder_cache.py`, `tests/encoder_capacity_worker.py`.
-Evidence: `evidence/rollout-hardening-1.3.3/full-control-matrix`,
+Evidence: [archived control matrix](https://github.com/ouycc/ai-infra-bench/tree/b596d2e67de1e3191ef1b6a587d6b98c015ed48f/tasks/vllm-multimodal-encoder-cache-accounting/validation/evidence/rollout-hardening-1.3.3/full-control-matrix),
 `canary05-experiment.json`, `canary05-post-run-input-check.json` and the saved
 answer replay directories. Historical matrices and patches remain unchanged.
