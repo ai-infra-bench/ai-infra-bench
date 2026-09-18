@@ -54,6 +54,10 @@ elif name == "docker":
         else:
             print(json.dumps([{"Id": "sha256:local-image"}]))
     elif args[:2] == ["buildx", "build"]:
+        expected_proxy = os.environ["MOCK_EXPECT_PROXY"]
+        for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+            if os.environ.get(key) != expected_proxy:
+                raise AssertionError((key, os.environ.get(key), expected_proxy))
         attempt_path = Path(os.environ["MOCK_BUILD_ATTEMPT"])
         attempt = int(attempt_path.read_text()) + 1 if attempt_path.exists() else 1
         attempt_path.write_text(str(attempt))
@@ -138,6 +142,8 @@ class ValidationImageTests(unittest.TestCase):
                 env.pop(key, None)
             env.update({
                 "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                "http_proxy": "http://127.0.0.1:7892",
+                "https_proxy": "http://127.0.0.1:7892",
                 "TASK_NAME": "example", "TARGET_PLATFORM": "linux/amd64",
                 "PUBLISH_IMAGE": str(publish).lower(),
                 "HARBOR_JOBS_DIR": str(root / "jobs"), "RUNNER_TEMP": str(root),
@@ -147,6 +153,7 @@ class ValidationImageTests(unittest.TestCase):
                 "MOCK_BUILD_ATTEMPT": str(root / "build-attempt"),
                 "MOCK_BUILD_FAILURES": str(build_failures),
                 "MOCK_BUILD_ERROR": build_error,
+                "MOCK_EXPECT_PROXY": "http://127.0.0.1:7892",
                 "MOCK_CACHE_HIT": str(cache_hit).lower(),
                 "MOCK_HARBOR_FAIL": str(harbor_fail).lower(),
                 "MOCK_REGISTRY": REGISTRY, "MOCK_DIGEST": DIGEST,
