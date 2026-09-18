@@ -59,16 +59,38 @@ else
     printf 'No cached image for %s; building locally\n' "$image_ref"
   fi
   test -f "$task_dir/environment/Dockerfile"
-  docker buildx build \
-    --load \
-    --network "${AI_INFRA_BUILD_NETWORK:-default}" \
-    --build-arg HTTP_PROXY --build-arg HTTPS_PROXY \
-    --build-arg http_proxy --build-arg https_proxy \
-    --build-arg NO_PROXY --build-arg no_proxy \
-    --progress=plain \
-    --tag "$image_ref" \
-    --file "$task_dir/environment/Dockerfile" \
-    "$task_dir/environment"
+  build_attempt=1
+  while true; do
+    build_log="$(mktemp "${RUNNER_TEMP:-/tmp}/ai-infra-build.XXXXXX.log")"
+    set +e
+    docker buildx build \
+      --load \
+      --network "${AI_INFRA_BUILD_NETWORK:-default}" \
+      --build-arg HTTP_PROXY --build-arg HTTPS_PROXY \
+      --build-arg http_proxy --build-arg https_proxy \
+      --build-arg NO_PROXY --build-arg no_proxy \
+      --progress=plain \
+      --tag "$image_ref" \
+      --file "$task_dir/environment/Dockerfile" \
+      "$task_dir/environment" 2>&1 | tee "$build_log"
+    build_status="${PIPESTATUS[0]}"
+    set -e
+    if (( build_status == 0 )); then
+      rm -f "$build_log"
+      break
+    fi
+    if (( build_attempt >= 3 )) || ! grep -Eiq \
+      'GnuTLS recv error|OpenSSL SSL_(connect|read)|SSL routines::unexpected eof while reading|RPC failed; curl|fatal: early EOF|Could not resolve host|Temporary failure (in name resolution|resolving)|TLS handshake timeout|proxyconnect tcp|connection reset by peer|context deadline exceeded|dial tcp.*(i/o timeout|network is unreachable|connection refused)|failed to fetch anonymous token|Failed to fetch.*(Connection failed|Temporary failure)|500 Internal Server Error' \
+      "$build_log"; then
+      rm -f "$build_log"
+      exit "$build_status"
+    fi
+    printf 'Build failed due to a transient network error; retrying (%d/3)\n' \
+      "$((build_attempt + 1))"
+    rm -f "$build_log"
+    sleep "$((build_attempt * 5))"
+    ((build_attempt += 1))
+  done
 fi
 
 runtime_image="$image_ref"
