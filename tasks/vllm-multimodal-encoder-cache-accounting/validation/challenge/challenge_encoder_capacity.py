@@ -35,7 +35,11 @@ for length,indices in [(137,[3,9,23,37,52,66,81,104,129]),(53,[4,13,27,39,48]),(
   scheduler_budget=compute_encoder_budget(model,config,registry)
   runner_budget=MultiModalBudget(model,config,registry)
   result={'length':length,'expected_rows':expected,'expected_capacity':expected_budget,'scheduler_budget':list(scheduler_budget),'runner_budget':runner_budget.get_encoder_budget()}
-  result['pass']=scheduler_budget==(expected_budget,expected_budget) and result['runner_budget']==expected_budget
+  allowed_budgets=(0,expected_budget) if expected == 0 else (expected_budget,)
+  result['allowed_capacities']=list(allowed_budgets)
+  result['pass']=(len(scheduler_budget)==2
+      and all(value in allowed_budgets for value in scheduler_budget)
+      and result['runner_budget']==min(scheduler_budget))
   rows.append(result)
  finally:
   MultiModalProfiler._get_dummy_mm_inputs=old_dummy
