@@ -57,7 +57,11 @@ async def test_text_and_bash_command_both_reach_client() -> None:
         if event["type"] == "response.output_text.delta"
     ]
     calls = completed_calls(events)
-    assert text == [content]
+    # Responses streaming clients accumulate text deltas. Their boundaries are
+    # not part of the public text contract, so accept any non-empty partition
+    # that reconstructs the exact content.
+    assert text
+    assert "".join(text) == content
     ordered_deltas = [
         (event["type"], event["delta"])
         for event in events
@@ -67,13 +71,24 @@ async def test_text_and_bash_command_both_reach_client() -> None:
             "response.function_call_arguments.delta",
         }
     ]
-    assert ordered_deltas == [
-        ("response.output_text.delta", content),
-        (
-            "response.function_call_arguments.delta",
-            compact_json(arguments),
-        ),
+    text_positions = [
+        index
+        for index, (event_type, _) in enumerate(ordered_deltas)
+        if event_type == "response.output_text.delta"
     ]
+    argument_positions = [
+        index
+        for index, (event_type, _) in enumerate(ordered_deltas)
+        if event_type == "response.function_call_arguments.delta"
+    ]
+    assert text_positions
+    assert argument_positions
+    assert max(text_positions) < min(argument_positions)
+    assert "".join(
+        delta
+        for event_type, delta in ordered_deltas
+        if event_type == "response.function_call_arguments.delta"
+    ) == compact_json(arguments)
     assert len(calls) == 1
     assert calls[0]["name"] == "bash"
     assert calls[0]["arguments"] == compact_json(arguments)

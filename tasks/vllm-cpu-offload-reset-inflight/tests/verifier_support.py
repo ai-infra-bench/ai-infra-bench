@@ -298,8 +298,13 @@ def _start_lazy_store(harness: Harness, request: Request, num_blocks: int):
 
 def start_store(harness: Harness, request: Request, num_blocks: int):
     if harness.lazy:
-        return _start_lazy_store(harness, request, num_blocks)
-    return _start_eager_store(harness, request, num_blocks)
+        transfer = _start_lazy_store(harness, request, num_blocks)
+    else:
+        transfer = _start_eager_store(harness, request, num_blocks)
+    # The task resets after the benchmark request has ended. Completion of a
+    # copy already submitted to the worker is a distinct, later event.
+    harness.connector.request_finished(request, [])
+    return transfer
 
 
 def complete_transfer(harness: Harness, transfer: TransferHandle, count=None):
@@ -313,7 +318,9 @@ def complete_transfer(harness: Harness, transfer: TransferHandle, count=None):
             finished_recving=set(),
             kv_connector_worker_meta=SimpleCPUOffloadWorkerMetadata(
                 completed_store_events={
-                    int(transfer.token): harness.worker_count if count is None else count
+                    int(transfer.token): (
+                        harness.worker_count if count is None else count
+                    )
                 }
             ),
         )
@@ -348,6 +355,9 @@ def start_load(harness: Harness, source: Request, request_id: str):
         )
     )
     harness.gpu_pool.free_blocks(blocks)
+    # Preserve the production ordering named by the task: the final request
+    # ends before its worker-owned load reports completion.
+    harness.connector.request_finished(loading, [])
     return (
         loading,
         TransferHandle(

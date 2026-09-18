@@ -438,21 +438,18 @@ async def run() -> None:
         )
 
 
+def test_required_openai_serving_lifecycle() -> None:
+    asyncio.run(run())
+
+
 def main() -> int:
-    try:
-        asyncio.run(run())
-        return 0
-    except Exception as exc:
-        print(
-            json.dumps(
-                {
-                    "error": type(exc).__name__,
-                    "message": str(exc).splitlines()[0] if str(exc) else "",
-                }
-            ),
-            flush=True,
-        )
-        return 1
+    import pytest
+
+    return pytest.main([
+        "--noconftest", "-c", "/dev/null", "--rootdir=/workspace/vllm",
+        "-p", "no:cacheprovider", "-v", "-s",
+        "--junitxml=/logs/verifier/serving-junit.xml", __file__,
+    ])
 
 
 if __name__ == "__main__":

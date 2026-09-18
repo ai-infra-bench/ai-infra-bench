@@ -1,0 +1,131 @@
+diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/simple_cpu_offload_connector.py b/vllm/distributed/kv_transfer/kv_connector/v1/simple_cpu_offload_connector.py
+index 15904da9e..6b244eec6 100644
+--- a/vllm/distributed/kv_transfer/kv_connector/v1/simple_cpu_offload_connector.py
++++ b/vllm/distributed/kv_transfer/kv_connector/v1/simple_cpu_offload_connector.py
+@@ -234,21 +234,26 @@ class SimpleCPUOffloadConnector(KVConnectorBase_V1, SupportsHMA):
+             )
+         return False, None
+ 
+-    # NOTE: New API only for SimpleCPUOffloadConnector.
+     def has_pending_transfers(self) -> bool:
+         if self.scheduler_manager is not None:
+-            return self.scheduler_manager.has_pending_stores()
++            return self.scheduler_manager.has_pending_transfers()
+         return False
+ 
++    def has_pending_push_work(self) -> bool:
++        # Reuse the engine's existing liveness hook so completed transfers are
++        # polled even after the final request has left the scheduler.
++        return self.has_pending_transfers()
++
+     def take_events(self) -> Iterable[KVCacheEvent]:
+         if self.scheduler_manager is not None:
+             return self.scheduler_manager.take_events()
+         return []
+ 
+     def reset_cache(self) -> bool | None:
+-        raise NotImplementedError(
+-            "SimpleCPUOffloadConnector does not support reset_cache(). "
+-            "reset_prefix_cache() requires synchronizing all pending "
+-            "CPU offload transfers before clearing GPU prefix cache blocks, "
+-            "which is not yet implemented."
+-        )
++        if self.scheduler_manager is None:
++            # Reset is coordinated by the scheduler process.  Worker-side
++            # transfer streams are polled and drained through normal connector
++            # metadata handling, so there is no worker-local cache map to
++            # reset here.
++            return None
++        return self.scheduler_manager.reset_cache()
+diff --git a/vllm/v1/simple_kv_offload/manager.py b/vllm/v1/simple_kv_offload/manager.py
+index f61c4320d..036634b25 100644
+--- a/vllm/v1/simple_kv_offload/manager.py
++++ b/vllm/v1/simple_kv_offload/manager.py
+@@ -671,6 +671,11 @@ class SimpleCPUOffloadScheduler:
+         if not isinstance(meta, SimpleCPUOffloadWorkerMetadata):
+             return
+         for event_idx, count in meta.completed_store_events.items():
++            # Ignore completions for events from a cache generation that was
++            # already reset.  In particular, do not recreate pending-count
++            # state for a stale event that only some workers have reported.
++            if event_idx not in self._store_event_to_blocks:
++                continue
+             total = self._store_event_pending_counts.get(event_idx, 0) + count
+             if total >= self._expected_worker_count:
+                 self._store_event_pending_counts.pop(event_idx, None)
+@@ -680,7 +685,12 @@ class SimpleCPUOffloadScheduler:
+ 
+     def _process_store_event(self, event_idx: int) -> None:
+         """Process a fully-completed store event."""
+-        transfer = self._store_event_to_blocks.pop(event_idx)
++        # A worker may report a completion after the scheduler has reset the
++        # connector.  In that case the event belongs to the previous cache
++        # generation and must not make its blocks visible again.
++        transfer = self._store_event_to_blocks.pop(event_idx, None)
++        if transfer is None:
++            return
+         if not self._lazy_mode:
+             self._in_flight_store_gpu_blocks.difference_update(transfer.gpu_block_ids)
+         self._process_store_completion(transfer.gpu_block_ids, transfer.cpu_block_ids)
+@@ -725,9 +735,58 @@ class SimpleCPUOffloadScheduler:
+             self._gpu_block_pool.blocks[bid] for bid in gpu_block_ids
+         )
+ 
+-    def has_pending_stores(self) -> bool:
+-        """Return True if there are in-flight store transfers."""
+-        return bool(self._store_event_to_blocks)
++    def has_pending_transfers(self) -> bool:
++        """Return True if transfers still require worker polling."""
++        return bool(self._store_event_to_blocks or self._reqs_to_load)
++
++    def reset_cache(self) -> bool:
++        """Reset the CPU prefix cache once all transfers have quiesced.
++
++        Store and load transfers hold references in the CPU/GPU block pools
++        until their completion is observed by the scheduler.  Resetting while
++        any such state is outstanding would either fail to clear the cache or
++        allow a late completion to repopulate it, so callers should retry when
++        this method returns ``False``.
++
++        Returns:
++            ``True`` when the CPU cache was reset, ``False`` when transfers or
++            temporary cache-hit pins are still outstanding.
++        """
++        if (
++            self._store_event_to_blocks
++            or self._store_event_pending_counts
++            or self._reqs_to_load
++            or self._pending_cpu_hits
++        ):
++            return False
++
++        # Keep scheduler state intact while any request still owns a GPU
++        # block.  The normal scheduler reset checks this first, but this guard
++        # also makes a direct connector reset safe.
++        if self._gpu_block_pool is not None:
++            num_used = self._gpu_block_pool.num_gpu_blocks - (
++                self._gpu_block_pool.get_num_free_blocks()
++            )
++            if num_used != 1:  # The null block is always marked as used.
++                return False
++
++        if not self.cpu_block_pool.reset_prefix_cache():
++            return False
++
++        # Drop scheduler state from the old cache generation.  Event counters
++        # intentionally remain monotonic: workers can still report completion
++        # for an event that was submitted before this reset, and reusing its
++        # index could make that stale completion apply to a new store.
++        self._load_event_to_reqs.clear()
++        self._store_event_to_reqs.clear()
++        self._reqs_to_store.clear()
++        self._in_flight_store_gpu_blocks.clear()
++        self._store_event_to_blocks.clear()
++        self._store_event_pending_counts.clear()
++        self._reqs_to_load.clear()
++        self._pending_cpu_hits.clear()
++        self._cursor = None
++        return True
+ 
+     def request_finished(
+         self,

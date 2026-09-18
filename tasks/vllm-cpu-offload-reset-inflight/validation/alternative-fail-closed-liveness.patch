@@ -1,0 +1,92 @@
+diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/simple_cpu_offload_connector.py b/vllm/distributed/kv_transfer/kv_connector/v1/simple_cpu_offload_connector.py
+index 15904da9e..23d3b4414 100644
+--- a/vllm/distributed/kv_transfer/kv_connector/v1/simple_cpu_offload_connector.py
++++ b/vllm/distributed/kv_transfer/kv_connector/v1/simple_cpu_offload_connector.py
+@@ -237,7 +237,14 @@ class SimpleCPUOffloadConnector(KVConnectorBase_V1, SupportsHMA):
+     # NOTE: New API only for SimpleCPUOffloadConnector.
+     def has_pending_transfers(self) -> bool:
+         if self.scheduler_manager is not None:
+-            return self.scheduler_manager.has_pending_stores()
++            return self.scheduler_manager.has_pending_transfers()
++        return False
++
++    def has_pending_push_work(self) -> bool:
++        # Keep the engine stepping after the final request so worker-side
++        # completions are polled and delivered to the scheduler.
++        if self.scheduler_manager is not None:
++            return self.scheduler_manager.has_pending_transfers()
+         return False
+ 
+     def take_events(self) -> Iterable[KVCacheEvent]:
+@@ -245,10 +252,7 @@ class SimpleCPUOffloadConnector(KVConnectorBase_V1, SupportsHMA):
+             return self.scheduler_manager.take_events()
+         return []
+ 
+-    def reset_cache(self) -> bool | None:
+-        raise NotImplementedError(
+-            "SimpleCPUOffloadConnector does not support reset_cache(). "
+-            "reset_prefix_cache() requires synchronizing all pending "
+-            "CPU offload transfers before clearing GPU prefix cache blocks, "
+-            "which is not yet implemented."
+-        )
++    def reset_cache(self) -> bool:
++        if self.scheduler_manager is not None:
++            return self.scheduler_manager.reset_cache()
++        return True
+diff --git a/vllm/v1/simple_kv_offload/manager.py b/vllm/v1/simple_kv_offload/manager.py
+index f61c4320d..d1c835804 100644
+--- a/vllm/v1/simple_kv_offload/manager.py
++++ b/vllm/v1/simple_kv_offload/manager.py
+@@ -680,7 +680,10 @@ class SimpleCPUOffloadScheduler:
+ 
+     def _process_store_event(self, event_idx: int) -> None:
+         """Process a fully-completed store event."""
+-        transfer = self._store_event_to_blocks.pop(event_idx)
++        transfer = self._store_event_to_blocks.pop(event_idx, None)
++        if transfer is None:
++            logger.debug("Ignoring stale store completion for event %d", event_idx)
++            return
+         if not self._lazy_mode:
+             self._in_flight_store_gpu_blocks.difference_update(transfer.gpu_block_ids)
+         self._process_store_completion(transfer.gpu_block_ids, transfer.cpu_block_ids)
+@@ -725,10 +728,40 @@ class SimpleCPUOffloadScheduler:
+             self._gpu_block_pool.blocks[bid] for bid in gpu_block_ids
+         )
+ 
++    def has_pending_transfers(self) -> bool:
++        """Return whether state from an active request can still affect the cache."""
++        return bool(
++            self._pending_cpu_hits
++            or self._reqs_to_load
++            or self._reqs_to_store
++            or self._load_event_to_reqs
++            or self._store_event_to_blocks
++            or self._store_event_to_reqs
++            or self._in_flight_store_gpu_blocks
++            or self._store_event_pending_counts
++        )
++
+     def has_pending_stores(self) -> bool:
+         """Return True if there are in-flight store transfers."""
+         return bool(self._store_event_to_blocks)
+ 
++    def reset_cache(self) -> bool:
++        """Reset cached CPU blocks when no request can repopulate old entries."""
++        if self.has_pending_transfers():
++            logger.warning(
++                "Failed to reset CPU offload cache because transfers or request "
++                "state are still pending"
++            )
++            return False
++
++        if not self.cpu_block_pool.reset_prefix_cache():
++            return False
++
++        # A lazy scan cursor can otherwise strand the scanner at the end of the
++        # free queue after all of the block hashes it passed were invalidated.
++        self._cursor = None
++        return True
++
+     def request_finished(
+         self,
+         request: "Request",

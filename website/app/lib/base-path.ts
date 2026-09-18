@@ -12,6 +12,6 @@ export function withRouteBasePath(value: string) {
   const hashIndex = value.indexOf('#');
   const path = hashIndex === -1 ? value : value.slice(0, hashIndex);
   const hash = hashIndex === -1 ? '' : value.slice(hashIndex);
-  const staticPath = isStaticExport && /^\/tasks\/[^/]+$/.test(path) ? `${path}.html` : path;
+  const staticPath = isStaticExport && (/^\/tasks\/[^/]+$/.test(path) || path === '/tasks' || path === '/leaderboard') ? `${path}.html` : path;
   return withBasePath(`${staticPath}${hash}`);
 }

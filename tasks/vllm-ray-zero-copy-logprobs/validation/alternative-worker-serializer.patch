@@ -1,0 +1,115 @@
+diff --git a/tests/utils_/test_ray_utils.py b/tests/utils_/test_ray_utils.py
+index 0872ae941..2dc53c002 100644
+--- a/tests/utils_/test_ray_utils.py
++++ b/tests/utils_/test_ray_utils.py
+@@ -3,9 +3,11 @@
+ 
+ from unittest.mock import MagicMock, patch
+ 
++import numpy as np
+ import pytest
+ 
+-from vllm.v1.executor.ray_utils import get_bundles_sorted_by_node
++from vllm.v1.executor.ray_utils import RayWorkerWrapper, get_bundles_sorted_by_node
++from vllm.v1.outputs import LogprobsLists, ModelRunnerOutput
+ 
+ NODE_A = "node_a"
+ NODE_B = "node_b"
+@@ -98,3 +100,60 @@ def test_get_bundles_sorted_by_node(bundles_to_node_id, bundle_specs, expected):
+         result = get_bundles_sorted_by_node(mock_pg)
+ 
+     assert result == expected
++
++
++@pytest.mark.parametrize("num_logprobs", [None, 0, 2])
++@pytest.mark.parametrize("cu_num_generated_tokens", [None, [0, 2, 3]])
++def test_ray_logprobs_serialization(num_logprobs, cu_num_generated_tokens):
++    ray = pytest.importorskip("ray")
++    from ray.util.serialization import StandaloneSerializationContext
++
++    output = ModelRunnerOutput(
++        req_ids=["req-0", "req-1"],
++        req_id_to_index={"req-0": 0, "req-1": 1},
++        sampled_token_ids=(
++            [[1], [3]] if cu_num_generated_tokens is None else [[1, 2], [3]]
++        ),
++    )
++    if num_logprobs is not None:
++        num_positions = sum(map(len, output.sampled_token_ids))
++        shape = (num_positions, num_logprobs + 1)
++        output.logprobs = LogprobsLists(
++            np.arange(np.prod(shape), dtype=np.int32).reshape(shape),
++            -np.arange(np.prod(shape), dtype=np.float32).reshape(shape),
++            np.array([1, 2, 1], dtype=np.int64)[:num_positions],
++            cu_num_generated_tokens,
++        )
++
++    # Exercise the worker's serializer registration without starting a cluster,
++    # and restore Ray's process-wide reducers after the test.
++    context = StandaloneSerializationContext()
++    with (
++        patch.dict(ray.cloudpickle.CloudPickler.dispatch),
++        patch.object(
++            ray._private.worker.global_worker,
++            "get_serialization_context",
++            return_value=context,
++        ),
++    ):
++        RayWorkerWrapper()
++        buffers = []
++        serialized = ray.cloudpickle.dumps(
++            output, protocol=5, buffer_callback=buffers.append
++        )
++        # Out-of-band NumPy buffers would pin the compiled DAG's shared memory
++        # channel while the engine's output thread retains the last response.
++        assert not buffers
++        restored = ray.cloudpickle.loads(serialized)
++
++    assert restored.req_ids == output.req_ids
++    assert restored.req_id_to_index == output.req_id_to_index
++    assert restored.sampled_token_ids == output.sampled_token_ids
++    if output.logprobs is None:
++        assert restored.logprobs is None
++    else:
++        assert isinstance(restored.logprobs, LogprobsLists)
++        assert restored.logprobs.cu_num_generated_tokens == cu_num_generated_tokens
++        for original, result in zip(output.logprobs[:3], restored.logprobs[:3]):
++            np.testing.assert_array_equal(result, original, strict=True)
++            assert not np.shares_memory(result, original)
+diff --git a/vllm/v1/executor/ray_utils.py b/vllm/v1/executor/ray_utils.py
+index 67b43bdc1..2c7e34ae9 100644
+--- a/vllm/v1/executor/ray_utils.py
++++ b/vllm/v1/executor/ray_utils.py
+@@ -2,6 +2,7 @@
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ 
+ import os
++import pickle
+ import time
+ from collections import defaultdict
+ from concurrent.futures import Future
+@@ -15,7 +16,7 @@ from vllm.logger import init_logger
+ from vllm.platforms import current_platform
+ from vllm.sequence import IntermediateTensors
+ from vllm.utils.network_utils import get_ip
+-from vllm.v1.outputs import AsyncModelRunnerOutput
++from vllm.v1.outputs import AsyncModelRunnerOutput, LogprobsLists
+ from vllm.v1.serial_utils import run_method
+ from vllm.v1.worker.worker_base import WorkerWrapperBase
+ 
+@@ -56,6 +57,15 @@ try:
+ 
+         def __init__(self, *args, **kwargs) -> None:
+             super().__init__(*args, **kwargs)
++            # Ray's zero-copy NumPy deserialization can pin the compiled DAG's
++            # shared memory channel while the engine retains the last output.
++            # Multi-node channels have only one buffer, so this can block the
++            # next execution even after a request has finished. Serialize sample
++            # logprobs as owned bytes to preserve their values without retaining
++            # channel buffers. Standard pickle keeps the NumPy data in-band.
++            ray.util.register_serializer(
++                LogprobsLists, serializer=pickle.dumps, deserializer=pickle.loads
++            )
+             # Since the compiled DAG runs a main execution
+             # in a different thread that calls cuda.set_device.
+             # The flag indicates is set_device is called on

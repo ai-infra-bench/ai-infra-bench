@@ -7,6 +7,12 @@ Guide the user through creating a new Harbor task end-to-end. Don't just dump co
 walk them through each decision, especially around the verifier (which is usually the
 hardest part).
 
+## Step 0: Define the initial scope and investigate upstream history
+
+For tasks that repair or extend an existing repository, define the intended behavior and initial scope, then search related upstream PRs, issues, discussions, and code history before choosing the Oracle or freezing the instruction and verifier. Follow [references/upstream-history.md](references/upstream-history.md). This applies even when the user supplies one specific PR: check later fixes and unresolved reports, including open and closed-but-unmerged PRs. A merged patch is not proof of correctness.
+
+Record which findings apply to the frozen Base and task contract, turn applicable defects into behavioral checks, and resolve contradictions with the proposed Oracle before accepting it. Keep the search evidence and future implementation details in curator-only artifacts. If upstream research is not applicable, record why; if access is unavailable, record the investigation as incomplete rather than claiming no related bugs exist.
+
 ## Step 1: Scaffold the task
 
 ```bash
@@ -101,7 +107,17 @@ harbor task start-env -p "<task-path>" -e docker -a -i
 
 This is usually where task authors realize something is missing from the Dockerfile.
 
+### Preinstall the agent's test tools
+
+Install the repository's local test runner and the dependencies needed by relevant tests in the image, using the same interpreter and PATH the agent will use. For Python tasks that use pytest, preinstall a compatible pinned pytest version and the plugins and conftest imports needed by those tests. A custom verifier does not remove the agent's need to run local regression tests. Do not install the repository's entire optional test stack unless the task needs it.
+
+Check a fresh container as the actual agent user under the declared network policy. Confirm `python -m pytest --version`, collect a relevant existing test file, and run a small existing regression test without downloads or manual setup. A version check alone does not catch missing plugins or conftest dependencies. Distinguish an expected Base behavior failure from an import, collection, permission, or missing-fixture error. Record the commands and results; do not claim the full upstream suite works from a focused smoke test.
+
+Install verifier dependencies at image build time too, including in a separate verifier image when used. Offline agent or scoring phases must not depend on runtime pip, uvx, apt, model downloads, or the reviewer's package cache. Keep private tests and reference answers out of the agent image.
+
 ## Step 4: Decide how to verify
+
+Before making a case affect reward, establish that it follows from the task contract and can arise through supported inputs and lifecycle transitions at the frozen Base. Follow the [fixture reachability requirements](../ai-infra-bench-task-review/references/review-rubric.md#8-verify-fixture-reachability). During construction, provide the evidence; independent review must check it. An internal object that can be instantiated is not sufficient evidence of a reachable product state.
 
 **This is the most important decision.** Ask the user: *"How do you want to grade this
 task?"* Then help them pick:
@@ -127,6 +143,21 @@ environment_mode = "separate"
 [verifier.environment]
 docker_image = "ubuntu:24.04"
 ```
+
+### Verifier permissions and output collection
+
+Protect trusted grading scripts and final rewards from modification by candidate
+code, while allowing the actual Harbor host user to traverse the output directory
+and read logs and rewards. Check effective access under the selected mounts,
+users, and provider; file ownership alone does not establish trust. A trusted
+read-only harness mount may retain a non-root host UID. If root-owned files are
+required, install those harness files into a protected container-local directory
+before running candidate code; do not make candidate-controlled files trusted by
+changing their owner. Avoid locking shared output paths to root-only access.
+Validate collection with the intended host identity, including a non-root host
+when used in CI. A root-host-only check can hide permission failures. Choose a
+permission design appropriate to the task rather than requiring one universal
+layout.
 
 ### Option A: Reward Kit (recommended for most cases)
 
@@ -157,19 +188,20 @@ design the criteria.
 Use when the verification is straightforward assertion-style Python. Default template if
 `--no-pytest` wasn't passed.
 
-`tests/test.sh`:
+Install pytest in the image first (use a version compatible with the repository):
+
+```dockerfile
+RUN python -m pip install --no-cache-dir pytest==8.4.1
+```
+
+`tests/test.sh` runs with that same interpreter and does not install packages:
+
 ```bash
 #!/bin/bash
-apt-get update && apt-get install -y curl
-curl -LsSf https://astral.sh/uv/0.9.7/install.sh | sh
-source $HOME/.local/bin/env
-
-uvx --with pytest==8.4.1 pytest /tests/test_outputs.py
-
-if [ $? -eq 0 ]; then
-  echo 1 > /logs/verifier/reward.txt
-else
-  echo 0 > /logs/verifier/reward.txt
+mkdir -p /logs/verifier
+printf '0\n' > /logs/verifier/reward.txt
+if python -m pytest /tests/test_outputs.py; then
+  printf '1\n' > /logs/verifier/reward.txt
 fi
 ```
 

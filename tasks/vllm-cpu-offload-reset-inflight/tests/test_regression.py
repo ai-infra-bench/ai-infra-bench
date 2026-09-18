@@ -243,3 +243,33 @@ def test_repeated_reset_cycles_do_not_exhaust_block_pools(tmp_path, lazy):
         assert reset(harness) is True
         assert observed_hit(harness, source, f"cycle-old-{cycle}")[0] == 0
     assert_fresh_store_works(harness, 120000)
+
+
+@pytest.mark.parametrize("lazy", [False, True], ids=["eager", "lazy"])
+@pytest.mark.parametrize("kind", ["store", "load"])
+def test_final_request_transfer_keeps_engine_polling(tmp_path, lazy, kind):
+    harness = make_harness(
+        tmp_path / f"liveness-{kind}-{lazy}",
+        lazy=lazy,
+        num_cpu_blocks=12,
+        num_gpu_blocks=20,
+    )
+    source = make_request(
+        f"liveness-{kind}-{lazy}", num_blocks=2, token_seed=130000
+    )
+    if kind == "store":
+        transfer = start_store(harness, source, 2)
+    else:
+        populate_cache(harness, source, 2)
+        _loading, transfer, _metadata = start_load(
+            harness, source, f"liveness-load-{lazy}"
+        )
+
+    assert reset(harness) is False
+    assert harness.connector.has_pending_push_work() is True
+    assert harness.scheduler.has_requests() is True
+    complete_transfer(harness, transfer)
+    assert harness.connector.has_pending_push_work() is False
+    assert harness.scheduler.has_requests() is False
+    assert reset(harness) is True
+    assert observed_hit(harness, source, f"liveness-old-{kind}-{lazy}")[0] == 0

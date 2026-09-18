@@ -1,0 +1,218 @@
+diff --git a/tests/utils_/test_ray_utils.py b/tests/utils_/test_ray_utils.py
+index 0872ae941..de88edc61 100644
+--- a/tests/utils_/test_ray_utils.py
++++ b/tests/utils_/test_ray_utils.py
+@@ -3,9 +3,12 @@
+ 
+ from unittest.mock import MagicMock, patch
+ 
++import numpy as np
+ import pytest
+ 
++from vllm.v1.executor.ray_executor import RayDistributedExecutor
+ from vllm.v1.executor.ray_utils import get_bundles_sorted_by_node
++from vllm.v1.outputs import LogprobsLists, ModelRunnerOutput
+ 
+ NODE_A = "node_a"
+ NODE_B = "node_b"
+@@ -24,6 +27,36 @@ MOCK_RAY_NODES = [
+ ]
+ 
+ 
++def test_ray_executor_detaches_logprobs_from_compiled_dag_output():
++    logprobs = LogprobsLists(
++        logprob_token_ids=np.array([[10]], dtype=np.int32),
++        logprobs=np.array([[-1.5]], dtype=np.float32),
++        sampled_token_ranks=np.array([4], dtype=np.int32),
++    )
++    model_output = ModelRunnerOutput(
++        req_ids=["request"],
++        req_id_to_index={"request": 0},
++        logprobs=logprobs,
++    )
++    executor = MagicMock()
++    executor.forward_dag.execute.return_value = ["compiled_dag_ref"]
++    executor.has_connector = False
++
++    future = RayDistributedExecutor._execute_dag(
++        executor, MagicMock(), grammar_output=None, non_block=True
++    )
++
++    with patch("vllm.v1.executor.ray_utils.ray") as mock_ray:
++        mock_ray.get.return_value = model_output
++        output = future.result()
++
++    assert output is model_output
++    assert output.logprobs is not None
++    for channel_array, output_array in zip(logprobs[:3], output.logprobs[:3]):
++        np.testing.assert_array_equal(output_array, channel_array)
++        assert not np.shares_memory(output_array, channel_array)
++
++
+ @pytest.mark.parametrize(
+     "bundles_to_node_id,bundle_specs,expected",
+     [
+diff --git a/tests/v1/test_outputs.py b/tests/v1/test_outputs.py
+index 89d551e34..752604904 100644
+--- a/tests/v1/test_outputs.py
++++ b/tests/v1/test_outputs.py
+@@ -2,6 +2,8 @@
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ from unittest import TestCase
+ 
++import numpy as np
++
+ from vllm.v1.outputs import LogprobsLists
+ 
+ 
+@@ -34,6 +36,22 @@ class TestLogprobsLists(TestCase):
+             cu_num_generated_tokens=[0, 2, 5, 9],
+         )
+ 
++    def test_copy_owns_array_data(self):
++        original = LogprobsLists(
++            logprob_token_ids=np.array([[1, 2]], dtype=np.int32),
++            logprobs=np.array([[-0.1, -1.2]], dtype=np.float32),
++            sampled_token_ranks=np.array([1], dtype=np.int32),
++            cu_num_generated_tokens=[0, 1],
++        )
++
++        copied = original.copy()
++
++        for original_array, copied_array in zip(original[:3], copied[:3]):
++            np.testing.assert_array_equal(copied_array, original_array)
++            assert copied_array.dtype == original_array.dtype
++            assert not np.shares_memory(copied_array, original_array)
++        assert copied.cu_num_generated_tokens == original.cu_num_generated_tokens
++
+     def test_slice_without_cu_num_generated_tokens(self):
+         """Test slicing without cu_num_generated_tokens"""
+         logprobsLists = LogprobsLists(
+diff --git a/vllm/v1/executor/ray_executor.py b/vllm/v1/executor/ray_executor.py
+index 1dda2c294..2a07a829a 100644
+--- a/vllm/v1/executor/ray_executor.py
++++ b/vllm/v1/executor/ray_executor.py
+@@ -46,6 +46,20 @@ COMPLETED_NONE_FUTURE: Future[ModelRunnerOutput | None] = Future()
+ COMPLETED_NONE_FUTURE.set_result(None)
+ 
+ 
++def _detach_model_runner_output(
++    output: ModelRunnerOutput | None,
++) -> ModelRunnerOutput | None:
++    """Detach zero-copy NumPy arrays from a Ray Compiled Graph channel.
++
++    Ray holds the channel read lock while a zero-copy deserialized array is in
++    scope. Cross-node channels have only one buffer, so retaining logprobs in
++    scheduler output can make the next graph execution time out on that lock.
++    """
++    if output is not None and output.logprobs is not None:
++        output.logprobs = output.logprobs.copy()
++    return output
++
++
+ @dataclass
+ class RayWorkerMetaData:
+     """
+@@ -463,20 +477,27 @@ class RayDistributedExecutor(Executor):
+             # Get output only from a single worker (output_rank)
+             # When PP is not used, we block here until the result is available.
+             if not non_block:
+-                return refs[0].get()
++                return _detach_model_runner_output(refs[0].get())
+ 
+             # When PP is used, we return a FutureWrapper immediately so that
+             # the scheduler can yield to the next batch.
+-            return FutureWrapper(refs[0])
++            return FutureWrapper(
++                refs[0], output_transform=_detach_model_runner_output
++            )
+ 
+         # Get output from all workers when connector is present
+         assert self.kv_output_aggregator is not None
+         if not non_block:
+             # Block and get results from all workers
+-            return self.kv_output_aggregator.aggregate(ray.get(refs))
++            output = self.kv_output_aggregator.aggregate(ray.get(refs))
++            return _detach_model_runner_output(output)
+ 
+         # Return a future that will aggregate outputs from all workers
+-        return FutureWrapper(refs, self.kv_output_aggregator)
++        return FutureWrapper(
++            refs,
++            self.kv_output_aggregator,
++            output_transform=_detach_model_runner_output,
++        )
+ 
+     def collective_rpc(  # type: ignore[override]
+         self,
+diff --git a/vllm/v1/executor/ray_utils.py b/vllm/v1/executor/ray_utils.py
+index 67b43bdc1..fe2cdc8c2 100644
+--- a/vllm/v1/executor/ray_utils.py
++++ b/vllm/v1/executor/ray_utils.py
+@@ -4,8 +4,9 @@
+ import os
+ import time
+ from collections import defaultdict
++from collections.abc import Callable
+ from concurrent.futures import Future
+-from typing import TYPE_CHECKING, Union
++from typing import TYPE_CHECKING, Any, Union
+ 
+ import vllm.platforms
+ from vllm.config import ParallelConfig
+@@ -196,20 +197,31 @@ class FutureWrapper(Future):
+     to block and return a single output.
+ 
+     If aggregator is provided, the outputs from all workers are aggregated upon
+-    the result() call. If not only the first worker's output is returned.
++    the result() call. If not only the first worker's output is returned. An
++    optional output transform is applied after aggregation.
+     """
+ 
+-    def __init__(self, ref_or_refs, aggregator: KVOutputAggregator | None = None):
++    def __init__(
++        self,
++        ref_or_refs,
++        aggregator: KVOutputAggregator | None = None,
++        output_transform: Callable[[Any], Any] | None = None,
++    ):
+         super().__init__()
+         self.ref_or_refs = ref_or_refs
+         self.aggregator = aggregator
++        self.output_transform = output_transform
+ 
+     def result(self, timeout=None):
+         outputs = ray.get(self.ref_or_refs, timeout=timeout)
+         if self.aggregator is None:
+-            return outputs
++            output = outputs
++        else:
++            output = self.aggregator.aggregate(outputs, output_rank=0)
+ 
+-        return self.aggregator.aggregate(outputs, output_rank=0)
++        if self.output_transform is not None:
++            output = self.output_transform(output)
++        return output
+ 
+ 
+ def ray_is_available() -> bool:
+diff --git a/vllm/v1/outputs.py b/vllm/v1/outputs.py
+index 1f102ec61..ccaa0b686 100644
+--- a/vllm/v1/outputs.py
++++ b/vllm/v1/outputs.py
+@@ -36,6 +36,15 @@ class LogprobsLists(NamedTuple):
+     # different for each request.
+     cu_num_generated_tokens: list[int] | None = None
+ 
++    def copy(self) -> "LogprobsLists":
++        """Return a copy whose arrays own their data."""
++        return LogprobsLists(
++            self.logprob_token_ids.copy(),
++            self.logprobs.copy(),
++            self.sampled_token_ranks.copy(),
++            self.cu_num_generated_tokens,
++        )
++
+     def slice_request(self, req_idx: int, num_positions: int):
+         if self.cu_num_generated_tokens is not None:
+             req_idx = self.cu_num_generated_tokens[req_idx]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import math
+from fractions import Fraction
 from functools import lru_cache
 
 import av
@@ -21,6 +22,7 @@ def numbered_h264(
     width: int,
     height: int,
     max_b_frames: int,
+    start_pts: int = 0,
 ) -> bytes:
     """Encode a real H.264 clip with motion and a visible frame marker."""
     buffer = io.BytesIO()
@@ -34,6 +36,8 @@ def numbered_h264(
         stream.codec_context.options = {
             "x264-params": f"scenecut=0:keyint={gop_size}:min-keyint={gop_size}"
         }
+        if start_pts:
+            stream.time_base = Fraction(1, fps)
 
         rows, cols = np.indices((height, width))
         for frame_index in range(num_frames):
@@ -60,6 +64,9 @@ def numbered_h264(
                 cv2.LINE_AA,
             )
             frame = av.VideoFrame.from_ndarray(image, format="rgb24")
+            if start_pts:
+                frame.pts = start_pts + frame_index
+                frame.time_base = Fraction(1, fps)
             for packet in stream.encode(frame):
                 container.mux(packet)
         for packet in stream.encode():

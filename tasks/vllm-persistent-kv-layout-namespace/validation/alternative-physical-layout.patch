@@ -1,0 +1,112 @@
+diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/offloading/config.py b/vllm/distributed/kv_transfer/kv_connector/v1/offloading/config.py
+index b807b480f..163a300dd 100644
+--- a/vllm/distributed/kv_transfer/kv_connector/v1/offloading/config.py
++++ b/vllm/distributed/kv_transfer/kv_connector/v1/offloading/config.py
+@@ -5,7 +5,11 @@
+ from typing import TYPE_CHECKING
+ 
+ from vllm.v1.core.kv_cache_utils import resolve_kv_cache_block_sizes
+-from vllm.v1.kv_cache_interface import FullAttentionSpec, MLAAttentionSpec
++from vllm.v1.kv_cache_interface import (
++    AttentionSpec,
++    FullAttentionSpec,
++    MLAAttentionSpec,
++)
+ from vllm.v1.kv_offload.config import (
+     OffloadingCacheConfig,
+     OffloadingConfig,
+@@ -24,6 +28,21 @@ def is_kv_cache_tensor_packed(kv_cache_tensor: "KVCacheTensor") -> bool:
+     return bool(kv_cache_tensor.block_stride)
+ 
+ 
++def uses_cross_layer_blocks(
++    vllm_config: "VllmConfig", kv_cache_config: "KVCacheConfig"
++) -> bool:
++    """Return whether the runner serializes each block across layers."""
++    if vllm_config.use_v2_model_runner or len(kv_cache_config.kv_cache_groups) != 1:
++        return False
++
++    spec = kv_cache_config.kv_cache_groups[0].kv_cache_spec
++    return (
++        isinstance(spec, AttentionSpec)
++        and not spec.kv_quant_mode.is_per_token_head
++        and spec.indexes_kv_by_block_stride
++    )
++
++
+ def build_offloading_config(
+     vllm_config: "VllmConfig",
+     kv_cache_config: "KVCacheConfig",
+@@ -102,17 +121,18 @@ def build_offloading_config(
+         )
+         worker_kv_bytes_per_block = total_gpu_kv_bytes // kv_cache_config.num_blocks
+ 
+-    # Only a single non-MLA full-attention group is parallelism-invariant:
+-    # MLA latent KV is replicated per rank (never head-sharded), and the V2
+-    # model runner's KV layout is not known to be parallelism-invariant.
++    cross_layers_blocks = uses_cross_layer_blocks(vllm_config, kv_cache_config)
++
++    # Only the V1 cross-layer layout for a single non-MLA full-attention group
++    # is parallelism-invariant. MLA latent KV is replicated per rank, and
++    # layerwise blocks do not concatenate into the single-rank byte order.
+     single_group = (
+         kv_cache_config.kv_cache_groups[0].kv_cache_spec
+         if len(kv_cache_config.kv_cache_groups) == 1
+         else None
+     )
+     is_parallelism_agnostic = (
+-        not vllm_config.use_v2_model_runner
+-        and single_group is not None
++        cross_layers_blocks
+         and isinstance(single_group, FullAttentionSpec)
+         and not isinstance(single_group, MLAAttentionSpec)
+     )
+@@ -133,6 +153,7 @@ def build_offloading_config(
+         cache=OffloadingCacheConfig(
+             tokens_per_hash=tokens_per_hash,
+             blocks_per_chunk=blocks_per_chunk,
++            cross_layers_blocks=cross_layers_blocks,
+         ),
+         parallel=OffloadingParallelConfig(
+             rank=parallel_config.rank,
+diff --git a/vllm/v1/kv_offload/config.py b/vllm/v1/kv_offload/config.py
+index cd7b3ee20..c8765168c 100644
+--- a/vllm/v1/kv_offload/config.py
++++ b/vllm/v1/kv_offload/config.py
+@@ -30,6 +30,8 @@ class OffloadingCacheConfig:
+     tokens_per_hash: int
+     # Blocks coalesced into one offload chunk.
+     blocks_per_chunk: int
++    # Whether each offloaded block interleaves data across layers.
++    cross_layers_blocks: bool = True
+ 
+ 
+ @dataclass(frozen=True)
+diff --git a/vllm/v1/kv_offload/file_mapper.py b/vllm/v1/kv_offload/file_mapper.py
+index b85d4d069..f4510d9ed 100644
+--- a/vllm/v1/kv_offload/file_mapper.py
++++ b/vllm/v1/kv_offload/file_mapper.py
+@@ -35,6 +35,7 @@ class FileMapper:
+         kv_cache_groups: list[dict] | None = None,
+         inference_engine: str = "vllm",
+         parallel_agnostic: bool = False,
++        cross_layers_blocks: bool = True,
+     ):
+         """
+         Initialize the file mapper. Each worker constructs its own, but
+@@ -55,6 +56,7 @@ class FileMapper:
+             "pcp_size": pcp_size,
+             "dcp_size": dcp_size,
+             "dtype": str(dtype),
++            **({} if cross_layers_blocks else {"cross_layers_blocks": False}),
+             "kv_cache_groups": kv_cache_groups or [],
+             "inference_engine": inference_engine,
+         }
+@@ -89,6 +91,7 @@ class FileMapper:
+             dcp_size=parallel.dcp_size,
+             rank=parallel.rank,
+             dtype=config.model.dtype,
++            cross_layers_blocks=config.cache.cross_layers_blocks,
+             kv_cache_groups=kv_cache_groups,
+             parallel_agnostic=(parallel_agnostic and parallel.is_parallelism_agnostic),
+         )

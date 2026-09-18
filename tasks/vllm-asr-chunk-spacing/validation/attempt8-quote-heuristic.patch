@@ -1,0 +1,174 @@
+diff --git a/vllm/entrypoints/openai/speech_to_text/speech_to_text.py b/vllm/entrypoints/openai/speech_to_text/speech_to_text.py
+index e0a3cf0dc..729724f14 100644
+--- a/vllm/entrypoints/openai/speech_to_text/speech_to_text.py
++++ b/vllm/entrypoints/openai/speech_to_text/speech_to_text.py
+@@ -4,6 +4,7 @@ import asyncio
+ import io
+ import math
+ import time
++import unicodedata
+ import zlib
+ from collections.abc import AsyncGenerator, Callable
+ from functools import cached_property
+@@ -69,6 +70,87 @@ ResponseType: TypeAlias = (
+ logger = init_logger(__name__)
+ 
+ 
++# Some languages are conventionally written without spaces between words. For
++# the others, independently decoded audio chunks need a separator when their
++# decoded text does not already provide one.
++_SPACELESS_LANGUAGES = frozenset(("zh", "ja", "th", "lo", "km", "my"))
++_OPENING_PUNCTUATION = frozenset("([{<\"'\u2018\u201c")
++
++
++def _is_cjk_character(character: str) -> bool:
++    """Return whether *character* belongs to a script normally written without
++    spaces between words.
++
++    The script check is also useful when the request language is omitted (as
++    it is for Qwen3-ASR), while the explicit language check handles chunks
++    containing only punctuation or Latin text.
++    """
++    codepoint = ord(character)
++    return (
++        0x2E80 <= codepoint <= 0x2FFF  # CJK radicals and punctuation
++        or 0x3000 <= codepoint <= 0x30FF  # Hiragana, Katakana, punctuation
++        or 0x31F0 <= codepoint <= 0x31FF  # Katakana extensions
++        or 0x3400 <= codepoint <= 0x4DBF  # CJK extension A
++        or 0x4E00 <= codepoint <= 0x9FFF  # CJK unified ideographs
++        or 0xF900 <= codepoint <= 0xFAFF  # CJK compatibility ideographs
++    )
++
++
++def _needs_speech_text_separator(
++    previous: str, current: str, language: str | None
++) -> bool:
++    if not previous or not current:
++        return False
++    if language in _SPACELESS_LANGUAGES:
++        return False
++    if previous[-1].isspace() or current[0].isspace():
++        return False
++    if language is None and (
++        _is_cjk_character(previous[-1]) or _is_cjk_character(current[0])
++    ):
++        return False
++    if previous[-1] in _OPENING_PUNCTUATION:
++        return False
++    # Punctuation belongs to the surrounding text; in particular, do not
++    # produce ``word ,`` when the next chunk starts with punctuation.
++    if unicodedata.category(current[0]).startswith("P"):
++        return False
++    return True
++
++
++def _speech_output_language(
++    task_type: Literal["transcribe", "translate"],
++    language: str | None,
++    to_language: str | None,
++) -> str | None:
++    if task_type == "translate":
++        # The OpenAI translation endpoint targets English by default; vLLM's
++        # ``to_language`` extension can select another output language.
++        return to_language or "en"
++    return language
++
++
++def _join_speech_text_parts(
++    text_parts: list[str], language: str | None = None
++) -> str:
++    """Join text decoded from independent audio chunks.
++
++    Token detokenization cannot provide whitespace across separate model
++    requests.  Add it only where the surrounding text indicates a
++    space-delimited language; CJK/Japanese boundaries remain untouched.
++    """
++    joined_parts = []
++    previous = ""
++    for part in text_parts:
++        if not part:
++            continue
++        if _needs_speech_text_separator(previous, part, language):
++            joined_parts.append(" ")
++        joined_parts.append(part)
++        previous = part
++    return "".join(joined_parts)
++
++
+ class OpenAISpeechToText(OpenAIServing):
+     """Base class for speech-to-text operations like transcription and
+     translation."""
+@@ -500,16 +582,19 @@ class OpenAISpeechToText(OpenAIServing):
+                 "translate": TranslationSegment,
+             }
+             segment_class: type[SpeechToTextSegment] = segments_types[self.task_type]
+-            text = ""
+             chunk_size_in_s = self.asr_config.max_audio_clip_s
+             if chunk_size_in_s is None:
+                 assert len(list_result_generator) == 1, (
+                     "`max_audio_clip_s` is set to None, audio cannot be chunked"
+                 )
++            output_language = _speech_output_language(
++                self.task_type, request.language, request.to_language
++            )
+             for idx, result_generator in enumerate(list_result_generator):
+                 start_time = (
+                     float(idx * chunk_size_in_s) if chunk_size_in_s is not None else 0.0
+                 )
++                chunk_text_parts = []
+                 async for op in result_generator:
+                     if request.response_format == "verbose_json":
+                         assert op.outputs[0].logprobs
+@@ -524,11 +609,14 @@ class OpenAISpeechToText(OpenAIServing):
+                         )
+ 
+                         total_segments.extend(segments)
+-                        text_parts.extend([seg.text for seg in segments])
++                        chunk_text_parts.extend([seg.text for seg in segments])
+                     else:
+                         raw_text = op.outputs[0].text
+-                        text_parts.append(self.model_cls.post_process_output(raw_text))
+-            text = "".join(text_parts)
++                        chunk_text_parts.append(
++                            self.model_cls.post_process_output(raw_text)
++                        )
++                text_parts.append("".join(chunk_text_parts))
++            text = _join_speech_text_parts(text_parts, output_language)
+             if self.task_type == "transcribe":
+                 final_response: ResponseType
+                 # add usage in TranscriptionResponse.
+@@ -596,7 +684,15 @@ class OpenAISpeechToText(OpenAIServing):
+         )
+ 
+         try:
+-            for result_generator in list_result_generator:
++            # Each result generator corresponds to an independently decoded
++            # audio chunk. Keep the text emitted so far so the first delta of
++            # the next chunk can receive a language-appropriate separator.
++            previous_content = ""
++            output_language = _speech_output_language(
++                self.task_type, request.language, request.to_language
++            )
++            for chunk_idx, result_generator in enumerate(list_result_generator):
++                at_chunk_boundary = chunk_idx > 0
+                 async for res in result_generator:
+                     # On first result.
+                     if res.prompt_token_ids is not None:
+@@ -618,7 +714,16 @@ class OpenAISpeechToText(OpenAIServing):
+                     # Qwen3-ASR with "language X<asr_text>" prefix), streaming
+                     # would need buffering to strip the prefix properly since
+                     # deltas may split the tag across chunks.
+-                    delta_message = DeltaMessage(content=output.text)
++                    content = output.text
++                    if at_chunk_boundary and content:
++                        if _needs_speech_text_separator(
++                            previous_content, content, output_language
++                        ):
++                            content = " " + content
++                        at_chunk_boundary = False
++                    delta_message = DeltaMessage(content=content)
++                    if content:
++                        previous_content = content
+                     completion_tokens += len(output.token_ids)
+ 
+                     if output.finish_reason is None:

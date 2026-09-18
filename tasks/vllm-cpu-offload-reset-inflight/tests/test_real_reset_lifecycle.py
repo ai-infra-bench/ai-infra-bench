@@ -31,6 +31,10 @@ def _worker(commands, completions):
 
 
 def _complete_via_process(commands, completions, harness, name, transfer):
+    # With no live requests, the production EngineCore calls another empty
+    # step only when this standard connector hook keeps the scheduler active.
+    assert harness.connector.has_pending_push_work() is True
+    assert harness.scheduler.has_requests() is True
     commands.put({"name": name, "delay": 0.05})
     assert completions.get(timeout=10) == name
     complete_transfer(harness, transfer)
@@ -58,7 +62,6 @@ def _run_mode(lazy, model_dir, commands, completions):
         f"e2e-old-store-{lazy}", num_blocks=3, token_seed=130000
     )
     store_transfer = start_store(harness, old_store, 3)
-    commands.put({"name": "store", "delay": 0.15})
     assert reset(harness) is False
     _assert_transfer_owned_blocks_stay_reserved(
         harness.gpu_pool, store_transfer.gpu_block_ids
@@ -66,8 +69,9 @@ def _run_mode(lazy, model_dir, commands, completions):
     _assert_transfer_owned_blocks_stay_reserved(
         harness.cpu_pool, store_transfer.cpu_block_ids
     )
-    assert completions.get(timeout=10) == "store"
-    complete_transfer(harness, store_transfer)
+    _complete_via_process(
+        commands, completions, harness, "store", store_transfer
+    )
     assert reset(harness) is True
     assert observed_hit(harness, old_store, "e2e-old-store")[0] == 0
 
@@ -121,15 +125,22 @@ def main():
             _run_mode(False, root / "eager", commands, completions)
             _run_mode(True, root / "lazy", commands, completions)
         print(
-            {
-                "modes": ["eager", "lazy"],
-                "worker_process": worker.pid,
-                "entrypoint": "Scheduler.reset_prefix_cache(reset_connector=True)",
-                "store_and_load_overlap": True,
-                "transfer_owned_blocks_remained_unavailable": True,
-                "old_cache_hits_after_reset": 0,
-                "post_reset_store_and_hit": True,
-            },
+            "CPU_OFFLOAD_LIFECYCLE_RESULT "
+            + repr(
+                {
+                    "completed": True,
+                    "modes": ["eager", "lazy"],
+                    "completion_worker_started": worker.pid is not None,
+                    "entrypoint": (
+                        "Scheduler.reset_prefix_cache(reset_connector=True)"
+                    ),
+                    "store_and_load_overlap": True,
+                    "idle_engine_liveness_checked": True,
+                    "transfer_owned_blocks_remained_unavailable": True,
+                    "old_cache_hits_after_reset": 0,
+                    "post_reset_store_and_hit": True,
+                }
+            ),
             flush=True,
         )
         return 0

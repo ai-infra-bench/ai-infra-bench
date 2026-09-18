@@ -11,7 +11,7 @@ const nestedDir = path.join(clientDir, normalizedBasePath);
 const nestedAssetsDir = path.join(nestedDir, '_next');
 const targetAssetsDir = path.join(clientDir, '_next');
 const siteUrl = new URL(
-  process.env.NEXT_PUBLIC_SITE_URL ?? 'https://ai-infra-bench.github.io',
+  process.env.NEXT_PUBLIC_SITE_URL ?? 'https://infrabench.ai',
 );
 
 let nestedEntries = [];
@@ -34,6 +34,8 @@ const taskIndex = JSON.parse(
 const absoluteUrl = (route) => new URL(route, siteUrl).toString();
 const sitemapUrls = [
   absoluteUrl('/'),
+  absoluteUrl('/leaderboard'),
+  absoluteUrl('/tasks'),
   ...taskIndex.map((task) => absoluteUrl(`/tasks/${task.slug}`)),
 ];
 const sitemap = [

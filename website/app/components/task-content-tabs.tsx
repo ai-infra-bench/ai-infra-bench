@@ -55,7 +55,11 @@ export function TaskContentTabs({
       </Tabs.List>
 
       <Tabs.Content className="content-panel instruction-panel" value="instruction">
-        <div className="markdown-body" dangerouslySetInnerHTML={{ __html: instructionHtml }} />
+        <div
+          className="markdown-body"
+          ref={(element) => element?.querySelectorAll('pre').forEach((pre) => { pre.tabIndex = 0; })}
+          dangerouslySetInnerHTML={{ __html: instructionHtml }}
+        />
       </Tabs.Content>
 
       <Tabs.Content className="content-panel" value="verifier">

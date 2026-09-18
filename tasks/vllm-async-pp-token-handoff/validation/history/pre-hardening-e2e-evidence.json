@@ -1,0 +1,107 @@
+{
+  "record_kind": "archived_pre_hardening_summary_not_current_validation",
+  "warnings": [
+    "Not certification of the current executable snapshot.",
+    "Original summaries may contain review-identified errors; consult raw logs."
+  ],
+  "original_file_sha256": "67976c058218826c534bb7356c01b995dc585b1942a09e31703ef6919e0c94a8",
+  "original_record": {
+    "schema_version": "1.0",
+    "task": "vllm-async-pp-token-handoff",
+    "evidence_summary": {
+      "harbor_cases": {
+        "oracle": {
+          "rounds": [
+            "g05"
+          ],
+          "rewards": [
+            1
+          ],
+          "stable": true
+        },
+        "base": {
+          "rounds": [
+            "g06",
+            "r04"
+          ],
+          "rewards": [
+            0,
+            0
+          ],
+          "stable": true
+        },
+        "alternate-inline-nccl": {
+          "rounds": [
+            "g07"
+          ],
+          "rewards": [
+            1
+          ],
+          "stable": true
+        },
+        "cpu-sync-object-collective": {
+          "rounds": [
+            "g08"
+          ],
+          "rewards": [
+            0
+          ],
+          "stable": true
+        }
+      },
+      "challenge_states": {
+        "oracle": {
+          "verdict": "PASS",
+          "ranks_reported": [
+            0,
+            1
+          ],
+          "frames_seen": 2,
+          "anomalies": []
+        },
+        "alternate": {
+          "verdict": "PASS",
+          "unsatisfied_scenarios": []
+        },
+        "control": {
+          "verdict": "FAIL",
+          "reason": "object_tensor_dict_forbidden",
+          "typed_rejection": true
+        }
+      },
+      "repeat_rounds": {
+        "total": 2,
+        "base_rewards": [
+          0,
+          0
+        ],
+        "oracle_rewards": [
+          1,
+          1
+        ]
+      }
+    },
+    "key_findings": [
+      "All 5 stages (CONFIG, NCCL_BASIC, NCCL_INTEGRATED, NCCL_REORDERED, SCHEDULER_REENTRY) satisfied at uid=65534",
+      "Per-rank independent pipes prevent rank identity confusion",
+      "Negative controls fail on typed target-invariant (no_gpu_broadcast, object_tensor_dict_forbidden), not crashes",
+      "2-rank NCCL works end-to-end under privilege drop",
+      "Challenge control demonstrates behavioral rejection with typed reason_code"
+    ],
+    "hardening_measures": [
+      "Worker processes run at uid=65534 (privilege drop verified)",
+      "Trusted supervisor observes rank identity via independent pipes",
+      "Per-rank framing protocol prevents cross-talk",
+      "GPU canary fails-closed on UUID mismatch"
+    ],
+    "defects_found_and_fixed": [
+      "Staging directory conflict (artifact stager removed staged code)",
+      "python3 -I discards PYTHONPATH (fixed: -s + explicit PYTHONPATH)",
+      "task_fixtures incomplete port (missing required Scheduler params)",
+      "Duplicate dist.barrier() causing NCCL deadlock",
+      "Challenge runner quoting bug (exit 127)",
+      "Challenge child log discarded (fixed: capture to evidence)"
+    ],
+    "gpu_evidence": "Real A100 GPUs (UUID-pinned), verified via parent-observed uid/exit/frames per rank"
+  }
+}
