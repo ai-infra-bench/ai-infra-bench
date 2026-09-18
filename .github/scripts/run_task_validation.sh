@@ -6,6 +6,21 @@ set -euo pipefail
 : "${PUBLISH_IMAGE:=false}"
 : "${HARBOR_JOBS_DIR:=${GITHUB_WORKSPACE:-$PWD}/harbor-jobs}"
 
+# GitHub Actions treats differently cased env names as duplicate YAML keys.
+# Normalize the lowercase job values for tools that read uppercase proxy vars.
+http_proxy_value="${http_proxy:-${HTTP_PROXY:-}}"
+https_proxy_value="${https_proxy:-${HTTPS_PROXY:-}}"
+no_proxy_value="${no_proxy:-${NO_PROXY:-}}"
+if [[ -n "$http_proxy_value" ]]; then
+  export http_proxy="$http_proxy_value" HTTP_PROXY="$http_proxy_value"
+fi
+if [[ -n "$https_proxy_value" ]]; then
+  export https_proxy="$https_proxy_value" HTTPS_PROXY="$https_proxy_value"
+fi
+if [[ -n "$no_proxy_value" ]]; then
+  export no_proxy="$no_proxy_value" NO_PROXY="$no_proxy_value"
+fi
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
