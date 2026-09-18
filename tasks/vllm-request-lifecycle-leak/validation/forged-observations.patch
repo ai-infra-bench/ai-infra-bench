@@ -1,0 +1,20 @@
+diff --git a/vllm/__init__.py b/vllm/__init__.py
+index 19b2cdc6..c3815120 100644
+--- a/vllm/__init__.py
++++ b/vllm/__init__.py
+@@ -105,3 +105,15 @@ __all__ = [
+     "initialize_ray_cluster",
+     "PoolingParams",
+ ]
++
++# Adversarial control: valid current protocol, but no request workload at all.
++def _fake_behavior():
++    import sys, os
++    phases = ['baseline'] + [p for i in range(4) for p in (f'live-{i}', f'released-{i}')]
++    for phase in phases:
++        print('CHECKPOINT=' + phase, flush=True)
++        if sys.stdin.readline().strip() != 'continue':
++            os._exit(2)
++    print('BEHAVIOR_COMPLETE', flush=True)
++    os._exit(0)
++_fake_behavior()
