@@ -2,10 +2,12 @@
 set -uo pipefail
 mkdir -p /logs/verifier
 cd /workspace/vllm
+rm -f /logs/verifier/{reward.txt,reward.json,junit.xml,http-junit.xml}
 
 pytest_rc=0
 integrity_rc=0
 http_rc=0
+http_integrity_rc=0
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 900 \
   pytest --noconftest -c /dev/null --rootdir=/workspace/vllm \
     -p no:cacheprovider -p pytest_asyncio.plugin \
@@ -15,13 +17,17 @@ python /tests/check_junit.py /logs/verifier/junit.xml || integrity_rc=$?
 timeout 300 python /tests/test_real_http_sse.py \
   > /logs/verifier/real_http_sse.log 2>&1 || http_rc=$?
 cat /logs/verifier/real_http_sse.log
+python /tests/check_junit.py /logs/verifier/http-junit.xml http \
+  || http_integrity_rc=$?
 
-if [ "$pytest_rc" -eq 0 ] && [ "$integrity_rc" -eq 0 ] && [ "$http_rc" -eq 0 ]; then
+if [ "$pytest_rc" -eq 0 ] && [ "$integrity_rc" -eq 0 ] \
+    && [ "$http_rc" -eq 0 ] && [ "$http_integrity_rc" -eq 0 ]; then
   reward=1
 else
   reward=0
 fi
 printf '%s\n' "$reward" > /logs/verifier/reward.txt
-printf '{"reward":%s,"pytest_exit_code":%s,"integrity_exit_code":%s,"http_exit_code":%s}\n' \
-  "$reward" "$pytest_rc" "$integrity_rc" "$http_rc" > /logs/verifier/reward.json
+printf '{"reward":%s,"pytest_exit_code":%s,"integrity_exit_code":%s,"http_exit_code":%s,"http_integrity_exit_code":%s}\n' \
+  "$reward" "$pytest_rc" "$integrity_rc" "$http_rc" \
+  "$http_integrity_rc" > /logs/verifier/reward.json
 exit 0

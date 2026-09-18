@@ -2,10 +2,13 @@
 set -uo pipefail
 mkdir -p /logs/verifier
 cd /workspace/vllm
+rm -f /logs/verifier/{reward.txt,reward.json,junit.xml,tokenizer-junit.xml,serving-junit.xml}
 pytest_rc=0
 integrity_rc=0
 e2e_rc=0
+e2e_integrity_rc=0
 serving_rc=0
+serving_integrity_rc=0
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 600 \
   pytest --noconftest -c /dev/null --rootdir=/workspace/vllm \
     -p no:cacheprovider -v -s --junitxml=/logs/verifier/junit.xml \
@@ -14,18 +17,24 @@ python /tests/check_junit.py /logs/verifier/junit.xml || integrity_rc=$?
 timeout 180 python /tests/test_real_tokenizer_pipeline.py \
   > /logs/verifier/real_tokenizer_pipeline.log 2>&1 || e2e_rc=$?
 cat /logs/verifier/real_tokenizer_pipeline.log
+python /tests/check_junit.py /logs/verifier/tokenizer-junit.xml tokenizer \
+  || e2e_integrity_rc=$?
 timeout 240 python /tests/test_real_openai_serving_lifecycle.py \
   > /logs/verifier/real_openai_serving_lifecycle.log 2>&1 || serving_rc=$?
 cat /logs/verifier/real_openai_serving_lifecycle.log
+python /tests/check_junit.py /logs/verifier/serving-junit.xml serving \
+  || serving_integrity_rc=$?
 if [ "$pytest_rc" -eq 0 ] && [ "$integrity_rc" -eq 0 ] \
-    && [ "$e2e_rc" -eq 0 ] && [ "$serving_rc" -eq 0 ]; then
+    && [ "$e2e_rc" -eq 0 ] && [ "$e2e_integrity_rc" -eq 0 ] \
+    && [ "$serving_rc" -eq 0 ] && [ "$serving_integrity_rc" -eq 0 ]; then
   rc=0
   printf '1\n' > /logs/verifier/reward.txt
 else
   rc=1
   printf '0\n' > /logs/verifier/reward.txt
 fi
-printf '{"reward":%s,"command_exit_code":%s,"pytest_exit_code":%s,"integrity_exit_code":%s,"e2e_exit_code":%s,"serving_exit_code":%s}\n' \
+printf '{"reward":%s,"command_exit_code":%s,"pytest_exit_code":%s,"integrity_exit_code":%s,"e2e_exit_code":%s,"e2e_integrity_exit_code":%s,"serving_exit_code":%s,"serving_integrity_exit_code":%s}\n' \
   "$([ "$rc" -eq 0 ] && printf 1 || printf 0)" "$rc" "$pytest_rc" \
-  "$integrity_rc" "$e2e_rc" "$serving_rc" > /logs/verifier/reward.json
+  "$integrity_rc" "$e2e_rc" "$e2e_integrity_rc" "$serving_rc" \
+  "$serving_integrity_rc" > /logs/verifier/reward.json
 exit 0

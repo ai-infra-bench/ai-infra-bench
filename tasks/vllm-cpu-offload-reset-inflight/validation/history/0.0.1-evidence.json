@@ -1,0 +1,224 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-04T21:06:51+08:00",
+  "source": {
+    "candidate_id": "vllm-cpu-300-213",
+    "instance_id": "vllm-project__vllm-39726",
+    "base_commit": "ed938ad7db9c28e3725058037c41285d8f46869e",
+    "origin_issue": null
+  },
+  "image": {
+    "canonical_tag": "ai-infra-bench/vllm-cpu-offload-reset-inflight:base-ed938ad7db9c",
+    "image_id": "sha256:7669d7a1375933c680aba58a378761db58776dc8f0aa61dcf3196df088df7ac7",
+    "size_bytes": 2572864390,
+    "dockerfile_sha256": "63d817fa2377de2199a0f8b9f696e4aaf951c9468c4119b4c91310b0cecf560a",
+    "dependency_lock_sha256": "711c16e9fb1dbc0900e4d2ab7801cc892448a854517e39a244320cd18f08bf4b",
+    "dependency_lock_manifest_sha256": "88195b35755f61d077b520c52b9717e34711cd27f10adfbd16f0e8e3c4aaf9ce",
+    "canonical_image_retained": true
+  },
+  "artifacts": {
+    "files": {
+      "task.toml": "7b1fc8b7009d3ded7c11fadcfa03be78775d8e1caf30f133d27d3d0a576c7a1c",
+      "instruction.md": "f8005f47168df9f4123fe52edc693e05efbb6f2c4dccf76e416731a2112d442e",
+      "environment/Dockerfile": "63d817fa2377de2199a0f8b9f696e4aaf951c9468c4119b4c91310b0cecf560a",
+      "environment/image-manifest.json": "72b71b6e99407a024387b1be7b75b02827c58d46b3f3f23c391251ad4b59eaa0",
+      "environment/lock/extras.in": "ba21efb7e4a36f39e6492aa1d5b01e6f9bbe4ccfedcef40a36ef6f8ddca50719",
+      "environment/lock/manifest.json": "88195b35755f61d077b520c52b9717e34711cd27f10adfbd16f0e8e3c4aaf9ce",
+      "environment/lock/requirements.txt": "711c16e9fb1dbc0900e4d2ab7801cc892448a854517e39a244320cd18f08bf4b",
+      "solution/oracle.patch": "343f6adb40e87c82b3b981bb53f2a78184fed4fd55f8d20bb997157a9c20bcd3",
+      "solution/solve.sh": "30736ddecc6d93c65becaef873117262947e06abc41e37210157417696d39d56",
+      "tests/check_junit.py": "16c7c9f11dfd45abc07d62785068776e6307f06c476f2b8985d35f054627bcf5",
+      "tests/test.sh": "f2403ac2d4c2546430fdf4e6e755c3b4628e0eb5d0717b5769bc68b2b83f1d64",
+      "tests/test_real_reset_lifecycle.py": "4be7be628711182d35104ff07ed7bbc0501e1cd8294a43e49b071428f3e979ff",
+      "tests/test_regression.py": "3fe36530d85ab155a55669bf0fa73dc8242921554d21f1ffd015c10040c59173",
+      "tests/verifier_support.py": "c7b33ad8a6ea28669832473a26ccefc6717d7feef938045b1ccc48b76627be19",
+      "validation/ci-cases.json": "95401ae9c79fac77a2846536775f9ea47e68a30c1b63b099157edbfce813b3cc",
+      "validation/alternative-load-deferred.patch": "3011b2ba2fa8291532550d91a55a26d5f7f9521d064a16b486e3bdc4f3a428cf",
+      "validation/always-false.patch": "15b3b4c7abb0eb0a2be58c877152d86ed963586572c8cb001fa74d815eeda613",
+      "validation/direct-pool-reset.patch": "edce2bb8433f9b842061fe89acfc6a23252a707441bc7829c5d5a160840423d4",
+      "validation/no-op-success.patch": "612aa6adc2d6637931c25272c3de77a47d076bd737f575d3cfad82c6d26d2a95",
+      "validation/oracle-eager-only.patch": "0b5581c9f4dfd73088ac48b8ae8eaeacfb74f8d59327d1f9a421a5fcef8db5e1",
+      "validation/release-transfer-refs-early.patch": "607cbbdea6f34a30a8a75b46b14186d7c04ee8e2383ff7f66f93ce5213f28246",
+      "validation/skip-all-conftest.patch": "9c99e33ae04abacf33cb464c74a9644152e1775ec25d64f6d1731dcb1f19a0fc",
+      "validation/remediation-matrix.md": "5979a065e3fdba3834a4273f64ee47722b0311231f9a4b6bbc6505074af22957"
+    }
+  },
+  "semantic_boundary": {
+    "path": "Scheduler.reset_prefix_cache(reset_connector=True) -> SimpleCPUOffloadScheduler transfer ownership and BlockPool allocation state -> reset result, cache visibility, and post-reset reuse",
+    "real_components": [
+      "vLLM Scheduler and factory-created SimpleCPUOffloadConnector",
+      "SimpleCPUOffloadScheduler eager and lazy state transitions",
+      "real CPU and GPU BlockPool allocation, exhaustion, eviction, and release behavior",
+      "real connector completion update path"
+    ],
+    "substitutions": [
+      {
+        "boundary": "SimpleCPUOffloadWorker CUDA streams and physical GPU-to-CPU copies",
+        "replacement": "deterministic delayed completion signals followed by legal KVConnectorOutput objects constructed in the verifier process",
+        "preserved_semantics": [
+          "store and load cardinality",
+          "completion ordering",
+          "multi-worker completion counts",
+          "outstanding-versus-completed lifecycle",
+          "CPU and GPU block ownership until completion"
+        ]
+      }
+    ],
+    "limitation": "The CPU image does not execute CUDA streams or physical DMA. The verifier checks the scheduler-side ownership invariant that prevents transfer-owned blocks from becoming allocatable before completion."
+  },
+  "verifier_contract": {
+    "behavior_cases": 26,
+    "modes": ["eager", "lazy"],
+    "prefix_lengths_in_blocks": [1, 2, 3],
+    "behaviors": [
+      "idle reset clears old entries and remains idempotent",
+      "in-flight stores and loads return false until all relevant work drains",
+      "CPU and GPU blocks owned by an in-flight transfer remain unavailable under full-pool allocation pressure",
+      "old entries and delayed completions cannot repopulate a successful reset",
+      "reset_connector=false preserves connector-managed entries",
+      "multiple store completions may arrive out of order",
+      "partial worker completion counts keep reset pending",
+      "simultaneous store and load work must both drain",
+      "five repeated reset cycles do not exhaust block pools",
+      "new stores and cache hits work after successful reset"
+    ],
+    "implementation_independence": [
+      "reward enters through Scheduler.reset_prefix_cache",
+      "ownership is observed through BlockPool allocation capacity rather than private refcounts",
+      "tests do not require Oracle-added maps, helpers, fields, event identifiers, or metadata layout",
+      "a direct pool-reset implementation and a deferred-load implementation both receive full reward"
+    ],
+    "collection_integrity": "JUnit must contain exactly 26 unique, passing, non-skipped cases"
+  },
+  "composed_lifecycle_test": {
+    "entrypoint": "Scheduler.reset_prefix_cache(reset_connector=True)",
+    "uses_real_scheduler": true,
+    "uses_real_connector_scheduler": true,
+    "uses_real_block_pools": true,
+    "uses_process_for_delay_signal_only": true,
+    "completion_objects_constructed_in_verifier_process": true,
+    "covers": [
+      "eager and lazy store completion",
+      "overlapping load and store completion",
+      "full-pool allocation pressure while transfers remain outstanding",
+      "false-to-true reset transition",
+      "old-hit removal",
+      "post-reset store and hit"
+    ]
+  },
+  "repeated_runs": [
+    {
+      "case": "base",
+      "rounds": 5,
+      "rewards": [0, 0, 0, 0, 0],
+      "behavior_tests_each_round": {"passed": 0, "failed": 26},
+      "e2e_exit_codes": [1, 1, 1, 1, 1],
+      "failure": "reset_cache raises NotImplementedError"
+    },
+    {
+      "case": "oracle",
+      "rounds": 5,
+      "rewards": [1, 1, 1, 1, 1],
+      "behavior_tests_each_round": {"passed": 26, "failed": 0},
+      "e2e_exit_codes": [0, 0, 0, 0, 0]
+    }
+  ],
+  "alternative_implementation_runs": [
+    {
+      "case": "direct-pool-reset",
+      "patch_sha256": "edce2bb8433f9b842061fe89acfc6a23252a707441bc7829c5d5a160840423d4",
+      "reward": 1,
+      "tests_passed": 26,
+      "tests_failed": 0,
+      "e2e_exit_code": 0
+    },
+    {
+      "case": "alternative-load-deferred",
+      "patch_sha256": "3011b2ba2fa8291532550d91a55a26d5f7f9521d064a16b486e3bdc4f3a428cf",
+      "reward": 1,
+      "tests_passed": 26,
+      "tests_failed": 0,
+      "e2e_exit_code": 0
+    }
+  ],
+  "adversarial_runs": [
+    {
+      "case": "no-op-success",
+      "reward": 0,
+      "tests_passed": 0,
+      "tests_failed": 26,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "always-false",
+      "reward": 0,
+      "tests_passed": 0,
+      "tests_failed": 26,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "oracle-eager-only",
+      "reward": 0,
+      "tests_passed": 14,
+      "tests_failed": 12,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "skip-all-conftest",
+      "reward": 0,
+      "tests_passed": 0,
+      "tests_failed": 26,
+      "tests_skipped": 0,
+      "e2e_exit_code": 1
+    },
+    {
+      "case": "release-transfer-refs-early",
+      "patch_sha256": "607cbbdea6f34a30a8a75b46b14186d7c04ee8e2383ff7f66f93ce5213f28246",
+      "reward": 0,
+      "tests_passed": 22,
+      "tests_failed": 4,
+      "e2e_exit_code": 1,
+      "failure": "transfer-owned CPU and GPU block capacity became allocatable before completion"
+    }
+  ],
+  "independent_oracle_challenge": {
+    "case": "two concurrent loads complete independently in eager and lazy modes",
+    "oracle": "pass",
+    "direct_pool_reset_alternative": "pass"
+  },
+  "harbor": {
+    "version": "0.22.0",
+    "job_id": "a6f760fa-e87d-4253-a930-b18c0f01703e",
+    "trial_id": "44115411-bbf3-4e31-9f8a-bf61a0a90fc9",
+    "input_task_checksum": "a3e0d698d8fc5a8e55b53d3ab835e585029cd0900ab505ac415320712b843181",
+    "locked_task_digest": "sha256:a43f3db9a64c918b180de1098e09fc6aa496b518f15ea02fefbe6b554316fe61",
+    "agent": "oracle",
+    "environment": "docker",
+    "n_completed_trials": 1,
+    "n_errored_trials": 0,
+    "reward": 1,
+    "command_exit_code": 0,
+    "pytest_exit_code": 0,
+    "integrity_exit_code": 0,
+    "e2e_exit_code": 0,
+    "tests_passed": 26,
+    "tests_failed": 0,
+    "tests_skipped": 0,
+    "runtime_seconds": 51,
+    "post_harbor_changes": "Only validation evidence was updated after the Harbor input snapshot."
+  },
+  "isolation_audit": {
+    "head_matches_base": true,
+    "future_reference_commit_absent": true,
+    "remotes_tags_reflogs_absent": true,
+    "unreachable_git_objects_absent": true,
+    "solution_tests_and_validation_absent_from_image": true,
+    "vllm_imports_from_base_worktree": true,
+    "installed_dependencies_match_lock": true,
+    "runtime_network_disabled": true,
+    "repository_conftests_disabled": true,
+    "exact_test_collection_enforced": true,
+    "skipped_tests_rejected": true,
+    "verifier_mount_read_only": true
+  }
+}

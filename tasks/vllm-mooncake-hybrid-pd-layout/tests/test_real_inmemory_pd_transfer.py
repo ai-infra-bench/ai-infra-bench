@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 
 import torch
 
@@ -156,7 +157,7 @@ def run_non_gdn_mla_transfer(attention_kind: str) -> int:
     return len(transport.transfers)
 
 
-def main() -> None:
+def test_required_inmemory_pd_transfer() -> None:
     logical_block_size = 18
     physical_ratio = 3
     config = make_hybrid_config(
@@ -259,5 +260,25 @@ def main() -> None:
     )
 
 
+def main() -> int:
+    import pytest
+
+    return pytest.main(
+        [
+            "--noconftest",
+            "-c",
+            "/dev/null",
+            "--rootdir=/workspace/vllm",
+            "-p",
+            "no:cacheprovider",
+            "-v",
+            "-s",
+            "--junitxml=/logs/verifier/mooncake-pipeline-junit.xml",
+            __file__,
+        ]
+    )
+
+
 if __name__ == "__main__":
-    main()
+    exit_code = main()
+    os._exit(exit_code)

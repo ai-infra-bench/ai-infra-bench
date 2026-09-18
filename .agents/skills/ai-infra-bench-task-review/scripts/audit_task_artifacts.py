@@ -20,7 +20,7 @@ from typing import Any
 import tomllib
 
 TIMEOUT = 120
-AGENT_TIMEOUT = 10 * 60 * 60
+AGENT_TIMEOUT_WARNING_THRESHOLD = 10 * 60 * 60
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)+$")
 RAW_ID = re.compile(r"(?:^|-)(?:pr|issue|candidate|instance)-[a-z0-9]+(?:-|$)")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -195,10 +195,15 @@ def check_task(task: Path, config: dict[str, Any], repo: Path, audit: Audit) -> 
         ),
         "[metadata].image_digest is not a SHA-256 digest",
     )
-    audit.require(
-        agent.get("timeout_sec") == AGENT_TIMEOUT,
-        f"[agent].timeout_sec must be {AGENT_TIMEOUT} (10 hours)",
-    )
+    agent_timeout = agent.get("timeout_sec")
+    if isinstance(agent_timeout, (int, float)) and not isinstance(
+        agent_timeout, bool
+    ):
+        if agent_timeout < AGENT_TIMEOUT_WARNING_THRESHOLD:
+            audit.warn(
+                "[agent].timeout_sec is shorter than 36000 seconds (10 hours); "
+                "the task may not give solvers enough time"
+            )
     validator = repo / ".github/scripts/task_ci.py"
     if audit.require(validator.is_file(), "repository task validator is missing"):
         result = run([sys.executable, str(validator), "validate", slug], cwd=repo)

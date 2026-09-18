@@ -2,7 +2,7 @@ schema_version = "1.4"
 
 [task]
 name = "ai-infra-bench/vllm-implement-anthropic-rust-serving"
-version = "0.0.1"
+version = "0.0.2"
 description = "Implement Anthropic SDK 1.3 Messages compatibility in vLLM's Rust frontend."
 authors = [{name = ""}]
 keywords = ["vllm", "cpu", "rust", "anthropic", "serving-api", "streaming"]
@@ -44,3 +44,7 @@ network_mode = "no-network"
 
 [verifier]
 timeout_sec = 64800
+
+[[verifier.collect]]
+command = "mkdir -p /logs/artifacts && cd /workspace/vllm && git diff --binary HEAD > /logs/artifacts/solution.patch && git status --short > /logs/artifacts/git-status.txt && git ls-files --others --exclude-standard -z > /logs/artifacts/untracked-paths.bin && tar --null -czf /logs/artifacts/untracked-files.tar.gz -T /logs/artifacts/untracked-paths.bin"
+timeout_sec = 120

@@ -1,14 +1,16 @@
-# Remediation matrix
+# Remediation matrix for 0.0.2
 
-| ID | Finding | Approved resolution | Status |
-|---|---|---|---|
-| R1 | The statement broadened a V1-to-V2 rollout failure into every incompatible persistent layout. | Freeze the task around a gradual V1-to-V2 rollout, cross-runner isolation, same-runner restart reuse, and preservation of already-compatible sharing. | Complete |
-| R2 | Rewarded tests injected `is_parallelism_agnostic` and did not execute the real V1/V2 configuration boundary. | Build V1 and V2 specs through `build_offloading_config` for the primary contract tests and real-filesystem E2E. | Complete |
-| R3 | The public OPT model was absent from rewarded cases, so an implementation could deliberately exclude it and still receive reward 1. | Run both the public model identity and a hidden model identity; add an exclude-public-model adversarial control. | Complete |
-| R4 | An always-miss implementation could avoid unsafe reuse by disabling useful cache hits. | Keep same-runner and compatible-sharing hit/data checks and add an always-miss adversarial control. | Complete |
-| R5 | `[agent].timeout_sec` was 3600 rather than the project-required 36000. | Set the agent budget to 36000 seconds. | Complete |
-| R6 | System packages and downloaded build tools are not fully pinned. | Leave the Dockerfile unchanged in this hardening pass. | Deferred by user |
-| R7 | Existing evidence names an older instruction hash. | Do not treat the pre-existing mismatch as a blocker; refresh executable results and hashes only if validation evidence is rewritten in this pass. | Complete during final validation |
+| Finding | Artifact change | Executed evidence |
+|---|---|---|
+| Legacy portable V1 compatibility was rewarded but not explicit in the statement | State that compatible V1 files written before the fix must remain readable across supported parallel configurations | Attempts 2–5 and 8 now fail one explicit legacy case rather than an unstated requirement |
+| “Safe sharing” could be read as requiring every byte-compatible V1/V2 combination to share | Limit the contract to portable V1 sharing; V1 and V2 need not share a namespace | Oracle and runner/cache-format alternatives now match the written scope |
+| V1 runner fixtures omitted the HND backend's block-stride indexing signal | Set `indexes_kv_by_block_stride=True` before `build_offloading_config` | Attempt 8 changes from 10/19 to 18/19; only its legacy namespace migration remains wrong |
+| Synthetic cases bypassed the real runner config boundary | Build varied incompatible layouts through `build_offloading_config` | Attempts 1 and 7 change from 15/19 reward 0 to 19/19 reward 1 |
+| Direct `OffloadingConfig(...)` construction rejected candidate-added normalized fields | Derive manual parallel variants with `dataclasses.replace()` from a real candidate config | Attempt 6 changes from 6/19 reward 0 to 19/19 reward 1 |
+| Existing positive alternatives all reused Oracle's classification field | Add runner cache-format, required runner-version, and physical-layout alternatives | All three receive 19/19, attested lifecycle, reward 1 in Docker and Harbor |
+| Lifecycle trusted a candidate process exit code of zero | Add a verifier-owned parent, exact completion record, timeout, and process-group cleanup | Reachable `SystemExit(0)` and `os._exit(0)` controls both receive reward 0 after pytest passes 19/19 |
+| Stale verifier output and arbitrary 19-case JUnit files could satisfy weak integrity checks | Clear verifier outputs before execution and require the exact test-name set | Base and all negative controls remain reward 0; Oracle remains reward 1 |
+| Candidate artifacts were not guaranteed to be captured before verifier execution | Add a pre-verifier collect hook and patch whitespace attributes | Harbor snapshots contain tracked and untracked candidate artifacts |
 
 ## Frozen semantic boundary
 
@@ -16,6 +18,7 @@
 V1 or V2 runner configuration plus a persistent cache root
 -> real offloading configuration classification and filesystem namespace selection
 -> an incompatible cross-runner lookup misses, while compatible restart data hits and loads intact
+-> pre-fix portable V1 files remain readable under compatible parallel configurations
 ```
 
 Model execution is a substitutable producer/consumer for this task. The real

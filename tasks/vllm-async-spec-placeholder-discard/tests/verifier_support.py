@@ -14,12 +14,13 @@ from vllm.config import (
     ModelConfig,
     ParallelConfig,
     SchedulerConfig,
+    SpeculativeConfig,
     VllmConfig,
 )
 from vllm.utils.hashing import sha256
 from vllm.v1.core.kv_cache_utils import get_request_block_hasher, init_none_hash
 from vllm.v1.core.sched.async_scheduler import AsyncScheduler
-from vllm.v1.core.sched.output import CachedRequestData, SchedulerOutput
+from vllm.v1.core.sched.output import SchedulerOutput
 from vllm.v1.core.single_type_kv_cache_manager import register_all_kvcache_specs
 from vllm.v1.kv_cache_interface import (
     FullAttentionSpec,
@@ -92,6 +93,10 @@ def make_scheduler(model_dir: Path, *, max_num_seqs=32) -> AsyncScheduler:
         scheduler_config=scheduler_config,
         cache_config=cache_config,
         parallel_config=ParallelConfig(pipeline_parallel_size=1),
+        speculative_config=SpeculativeConfig(
+            method="ngram_gpu",
+            num_speculative_tokens=7,
+        ),
     )
     kv_config = KVCacheConfig(
         num_blocks=10000,
@@ -147,6 +152,14 @@ def activate_requests(scheduler: AsyncScheduler, requests: list[Request]):
         request.append_output_token_ids(42)
         scheduler.add_request(request)
         request.num_computed_tokens = request.num_tokens - 1
+    # Admit waiting requests through the real schedule/update path. Drafts for
+    # the following frame are then consumed from normal RUNNING request state.
+    initial = scheduler.schedule()
+    assert set(initial.num_scheduled_tokens) == {
+        request.request_id for request in requests
+    }
+    deliver(scheduler, initial, accepted=0, token_seed=700)
+    assert all(request.num_output_placeholders == 0 for request in requests)
 
 
 def prepare_for_schedule(requests: list[Request]):
@@ -161,47 +174,39 @@ def capture_spec_frame(
     num_drafts: int,
     num_accepted: int,
 ) -> SchedulerOutput:
+    # Draft tokens are produced by the unavailable model runner, but they must
+    # be present before schedule() so every scheduler hook observes the same
+    # frame shape it sees in production.
+    drafts = list(range(100, 100 + num_drafts))
+    for request in requests:
+        request.spec_token_ids = drafts.copy()
     prepare_for_schedule(requests)
     output = scheduler.schedule()
-    add_speculation_to_frame(
-        output,
-        requests,
-        num_drafts=num_drafts,
-        num_accepted=num_accepted,
-    )
-    return output
-
-
-def add_speculation_to_frame(
-    output: SchedulerOutput,
-    requests: list[Request],
-    *,
-    num_drafts: int,
-    num_accepted: int,
-) -> None:
-    """Add the unavailable model-runner speculation boundary to one frame."""
     expected_ids = {request.request_id for request in requests}
     assert set(output.num_scheduled_tokens) == expected_ids
     for request in requests:
         request_id = request.request_id
-        output.scheduled_spec_decode_tokens[request_id] = list(
-            range(100, 100 + num_drafts)
-        )
-        output.num_scheduled_tokens[request_id] = num_drafts + 1
-        request.num_output_placeholders += num_drafts
-    output.total_num_scheduled_tokens = len(requests) * (num_drafts + 1)
+        assert output.num_scheduled_tokens[request_id] == num_drafts + 1
+        assert output.scheduled_spec_decode_tokens.get(request_id, []) == drafts
     output._verifier_num_accepted = num_accepted
+    return output
 
 
-def resume_after_reset(scheduler: AsyncScheduler, requests: list[Request]):
+def resume_after_reset(
+    scheduler: AsyncScheduler,
+    requests: list[Request],
+):
     assert scheduler.reset_prefix_cache(reset_running_requests=True) is True
     assert all(request.num_output_placeholders == 0 for request in requests)
-    prepare_for_schedule(requests)
-    output = scheduler.schedule()
-    assert set(output.num_scheduled_tokens) == {
-        request.request_id for request in requests
-    }
-    return output
+    # A force-preempted request re-enters from the waiting queue. Without a
+    # returned model frame there are no newly proposed draft IDs, so its first
+    # scheduled frame after reset is necessarily non-speculative.
+    return capture_spec_frame(
+        scheduler,
+        requests,
+        num_drafts=0,
+        num_accepted=0,
+    )
 
 
 def model_output(
@@ -271,51 +276,3 @@ def assert_stale_frame_did_not_change_fresh_state(
     after = snapshot(request)
     assert after == before
     assert after.placeholders >= 0
-
-
-def manual_running_scheduler(
-    model_dir: Path,
-    *,
-    count=1,
-):
-    scheduler = make_scheduler(model_dir, max_num_seqs=max(32, count))
-    requests = make_requests(count)
-    for request in requests:
-        request.num_computed_tokens = request.num_tokens
-        scheduler.requests[request.request_id] = request
-        scheduler.running.append(request)
-        request.status = RequestStatus.RUNNING
-    return scheduler, requests
-
-
-def synthetic_frame(cases):
-    scheduled = {}
-    spec = {}
-    request_ids = []
-    sampled = []
-    for request, drafts, accepted in cases:
-        request_ids.append(request.request_id)
-        scheduled[request.request_id] = drafts + 1
-        if drafts:
-            spec[request.request_id] = list(range(100, 100 + drafts))
-        sampled.append(list(range(900, 901 + accepted)))
-    scheduler_output = SchedulerOutput(
-        scheduled_new_reqs=[],
-        scheduled_cached_reqs=CachedRequestData.make_empty(),
-        num_scheduled_tokens=scheduled,
-        total_num_scheduled_tokens=sum(scheduled.values()),
-        scheduled_encoder_inputs={},
-        scheduled_spec_decode_tokens=spec,
-        num_common_prefix_blocks=[],
-        finished_req_ids=set(),
-        free_encoder_mm_hashes=[],
-    )
-    runner_output = ModelRunnerOutput(
-        req_ids=request_ids,
-        req_id_to_index={req_id: index for index, req_id in enumerate(request_ids)},
-        sampled_token_ids=sampled,
-        logprobs=None,
-        prompt_logprobs_dict={},
-        pooler_output=[],
-    )
-    return scheduler_output, runner_output

@@ -1,0 +1,163 @@
+diff --git a/vllm/entrypoints/openai/speech_to_text/speech_to_text.py b/vllm/entrypoints/openai/speech_to_text/speech_to_text.py
+--- a/vllm/entrypoints/openai/speech_to_text/speech_to_text.py
++++ b/vllm/entrypoints/openai/speech_to_text/speech_to_text.py
+@@ -4,6 +4,7 @@
+ import io
+ import math
+ import time
++import unicodedata
+ import zlib
+ from collections.abc import AsyncGenerator, Callable
+ from functools import cached_property
+@@ -68,6 +69,9 @@
+ 
+ logger = init_logger(__name__)
+ 
++# These languages do not normally delimit words with spaces.
++_NON_SPACE_DELIMITED_LANGUAGES = frozenset({"ja", "km", "lo", "my", "th", "zh"})
++
+ 
+ class OpenAISpeechToText(OpenAIServing):
+     """Base class for speech-to-text operations like transcription and
+@@ -290,6 +294,53 @@
+             input_len = len(first_input["decoder_prompt"]["prompt_token_ids"])
+ 
+         return input_len
++
++    def _get_chunk_separator(self, request: SpeechToTextRequest) -> str | None:
++        output_language = (
++            request.to_language if self.task_type == "translate" else request.language
++        )
++        if output_language is None:
++            return None
++        return "" if output_language in _NON_SPACE_DELIMITED_LANGUAGES else " "
++
++    @staticmethod
++    def _join_text_chunks(text_chunks: list[str], separator: str | None) -> str:
++        parts: list[str] = []
++        previous = ""
++        for chunk in text_chunks:
++            if not chunk:
++                continue
++            parts.append(OpenAISpeechToText._get_text_chunk_prefix(
++                previous, chunk, separator
++            ))
++            parts.append(chunk)
++            previous = chunk
++        return "".join(parts)
++
++    @staticmethod
++    def _get_text_chunk_prefix(
++        previous_text: str, chunk: str, separator: str | None
++    ) -> str:
++        if (
++            not previous_text
++            or not chunk
++            or previous_text[-1].isspace()
++            or chunk[0].isspace()
++        ):
++            return ""
++        if separator is None:
++            # An omitted language does not imply English. Use script evidence
++            # from the preceding chunk and the next chunk's first character.
++            # Looking only at that first character keeps the decision invariant
++            # to how the current chunk is divided into streaming deltas.
++            unspaced = any(
++                unicodedata.name(char, "").startswith(
++                    ("CJK", "HIRAGANA", "KATAKANA", "HALFWIDTH KATAKANA")
++                )
++                for char in previous_text + chunk[0]
++            )
++            return " "
++        return separator
+ 
+     def _get_verbose_segments(
+         self,
+@@ -491,8 +542,8 @@
+                 request, list_result_generator, request_id, request_metadata, duration_s
+             )
+         # Non-streaming response.
+-        total_segments = []
+-        text_parts = []
++        total_segments: list[SpeechToTextSegment] = []
++        text_chunks: list[str] = []
+         try:
+             assert list_result_generator is not None
+             segments_types: dict[str, type[SpeechToTextSegment]] = {
+@@ -500,13 +551,13 @@
+                 "translate": TranslationSegment,
+             }
+             segment_class: type[SpeechToTextSegment] = segments_types[self.task_type]
+-            text = ""
+             chunk_size_in_s = self.asr_config.max_audio_clip_s
+             if chunk_size_in_s is None:
+                 assert len(list_result_generator) == 1, (
+                     "`max_audio_clip_s` is set to None, audio cannot be chunked"
+                 )
+             for idx, result_generator in enumerate(list_result_generator):
++                chunk_text_parts: list[str] = []
+                 start_time = (
+                     float(idx * chunk_size_in_s) if chunk_size_in_s is not None else 0.0
+                 )
+@@ -524,11 +575,16 @@
+                         )
+ 
+                         total_segments.extend(segments)
+-                        text_parts.extend([seg.text for seg in segments])
++                        chunk_text_parts.extend([seg.text for seg in segments])
+                     else:
+                         raw_text = op.outputs[0].text
+-                        text_parts.append(self.model_cls.post_process_output(raw_text))
+-            text = "".join(text_parts)
++                        chunk_text_parts.append(
++                            self.model_cls.post_process_output(raw_text)
++                        )
++                text_chunks.append("".join(chunk_text_parts))
++            text = self._join_text_chunks(
++                text_chunks, self._get_chunk_separator(request)
++            )
+             if self.task_type == "transcribe":
+                 final_response: ResponseType
+                 # add usage in TranscriptionResponse.
+@@ -594,9 +650,13 @@
+             if include_usage and request.stream_continuous_usage_stats
+             else False
+         )
++        chunk_separator = self._get_chunk_separator(request)
++        previous_text = ""
+ 
+         try:
+             for result_generator in list_result_generator:
++                at_chunk_start = True
++                chunk_text_parts: list[str] = []
+                 async for res in result_generator:
+                     # On first result.
+                     if res.prompt_token_ids is not None:
+@@ -618,7 +678,16 @@
+                     # Qwen3-ASR with "language X<asr_text>" prefix), streaming
+                     # would need buffering to strip the prefix properly since
+                     # deltas may split the tag across chunks.
+-                    delta_message = DeltaMessage(content=output.text)
++                    output_text = output.text
++                    if output_text and at_chunk_start:
++                        output_text = self._get_text_chunk_prefix(
++                            previous_text, output_text, chunk_separator
++                        ) + output_text
++                        at_chunk_start = False
++                    if output_text:
++                        chunk_text_parts.append(output.text)
++
++                    delta_message = DeltaMessage(content=output_text)
+                     completion_tokens += len(output.token_ids)
+ 
+                     if output.finish_reason is None:
+@@ -651,6 +720,9 @@
+                     data = chunk.model_dump_json(exclude_unset=True)
+                     yield f"data: {data}\n\n"
+ 
++                if chunk_text_parts:
++                    previous_text = "".join(chunk_text_parts)
++
+             # Once the final token is handled, if stream_options.include_usage
+             # is sent, send the usage.
+             if include_usage:

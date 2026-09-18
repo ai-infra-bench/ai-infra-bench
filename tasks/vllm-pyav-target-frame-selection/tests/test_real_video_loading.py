@@ -57,6 +57,25 @@ def main() -> int:
         )
         assert nemotron_targets == expected_uniform_indices(generated, num_frames=9)
         assert_numbered_targets(nemotron_frames, nemotron_targets)
+
+        offset_video = numbered_h264(83, 24, 29, 112, 80, 2, start_pts=240)
+        offset_frames, offset_targets = assert_public_parity(
+            offset_video,
+            num_frames=7,
+        )
+        assert offset_targets == expected_uniform_indices(offset_video, num_frames=7)
+        assert_numbered_targets(offset_frames, offset_targets)
+
+        offset_dynamic_frames, offset_dynamic_targets = assert_public_parity(
+            offset_video,
+            loader_name="opencv_dynamic",
+            fps=3,
+            max_duration=2,
+        )
+        assert offset_dynamic_targets == expected_dynamic_indices(
+            offset_video, fps=3, max_duration=2
+        )
+        assert_numbered_targets(offset_dynamic_frames, offset_dynamic_targets)
         print(
             {
                 "entrypoint": "VIDEO_LOADER_REGISTRY.load(...).load_bytes",
@@ -66,6 +85,8 @@ def main() -> int:
                 "generated_sample_counts": counts,
                 "dynamic_frames": len(dynamic_frames),
                 "nemotron_frames": len(nemotron_frames),
+                "nonzero_start_frames": len(offset_frames),
+                "nonzero_start_dynamic_frames": len(offset_dynamic_frames),
             },
             flush=True,
         )

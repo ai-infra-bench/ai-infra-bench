@@ -51,9 +51,9 @@ export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
   }, [accelerator, tasks]);
 
   return (
-    <section className="task-catalog" id="tasks" aria-labelledby="task-catalog-title">
+    <section className="home-section task-catalog" id="tasks" aria-labelledby="task-catalog-title">
       <div className="catalog-intro scroll-reveal">
-        <h2 id="task-catalog-title">Tasks</h2>
+        <h2 className="home-section-title" id="task-catalog-title">Tasks</h2>
         <p>
           {tasks.length} offline tasks with execution-based behavioral and e2e tests.
         </p>
