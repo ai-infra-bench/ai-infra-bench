@@ -1,26 +1,20 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "status": "workspace_docker_validated_harbor_pending",
-  "validation_status": "all_25_rewards_and_12_positive_challenges_passed",
-  "recorded_at": "2026-09-17T17:09:20.796226+00:00",
+  "status": "1.3.4_docker_controls_and_harbor_oracle_passed",
+  "recorded_at": "2026-09-18T06:57:52.764003+00:00",
   "task": "ai-infra-bench/vllm-multimodal-encoder-cache-accounting",
-  "task_version": "1.3.0",
-  "pr_head": "08ee4f85fabe632dd56446c12be6b5ff2d247ae6",
+  "task_version": "1.3.4",
+  "executable_commit": "d4ebf3d6b8f68a142e7afa07d828936c02bdda73",
   "source": {
-    "task": "ai-infra-bench/vllm-multimodal-encoder-cache-accounting",
     "repository": "vllm-project/vllm",
     "base_commit": "676db55eecf8b6d9ec38ea243cf6f35ea8378ec6",
     "dependency_cutoff": "2025-12-16T09:37:15Z"
   },
   "image": {
-    "status": "revalidated_on_A100",
-    "planned_tag": "vllm-encoder-local:workspace-1.3.0",
-    "parent_image_id": "sha256:aad47363477b6b2092e8d3ba616da14fc35a11af170bc19f8d26de7ef00bb107",
     "actual_image_id": "sha256:8d200d6c23d542fb41b456cb55bf5c984b1c467c2020e31fb0e053e120c5f852",
-    "expected_image_id": "sha256:8d200d6c23d542fb41b456cb55bf5c984b1c467c2020e31fb0e053e120c5f852",
-    "build_commit": "86e7dae515f11d39343517ae2ec6ab8d6f41f049",
     "workdir": "/workspace/vllm",
-    "agent_canary": "Real /workspace/vllm/vllm/__init__.py and torch2.9.0+cu129 import; 9 upstream tests collected"
+    "execution_host": "A100",
+    "scope": "CPU orchestration and accounting; not GPU inference"
   },
   "artifacts": {
     "files": {
@@ -35,6 +29,9 @@
       },
       "environment/image-manifest.json": {
         "sha256": "2f9664b53b1f723fe9c0d0cfc92f40675f9182cc7794e550370d09790afb64af"
+      },
+      "environment/lock/README.md": {
+        "sha256": "dfdd6b7c38f8405a554fa06cdf3f7faae9e105caa1412edb3c17f095690f5542"
       },
       "environment/lock/environment.json": {
         "sha256": "fda410d0928fb654b66bbf4954f50e99a367cbef02c0eaec92777c6e9e720441"
@@ -55,7 +52,7 @@
         "sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491"
       },
       "task.toml": {
-        "sha256": "394fe3e5c83c8304ac4c200818ba3877abd0c1434a8ef3efb114660959cb0f6e"
+        "sha256": "b1952ee30d7c76e1dafc4c509c9dcfeed987f7cead608fde11a9e53bc5ead024"
       },
       "tests/checkpoint.c": {
         "sha256": "daec20ce4e7bce4890d44862ec216890b5dda5ccd5a83d30913918a22c82bfca"
@@ -67,13 +64,16 @@
         "sha256": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f"
       },
       "tests/encoder_capacity_worker.py": {
-        "sha256": "6e2d6e3a4470d9786118f03539116306d14eed40bb73a4fa931248700d1554a6"
+        "sha256": "1a8160405f98416dd1692652d0500a4bda338475e0245da1ae06fba343832f52"
       },
       "tests/encoder_contract.py": {
         "sha256": "d8f6cc2601aee3686da33f69308459a7315eff3f07d35d684e80fa114976104a"
       },
       "tests/encoder_fresh_worker.py": {
         "sha256": "b964f10dac1e4beebf287a2dea0a231f34d7d2d3692bb2b22b4851a0157e07dd"
+      },
+      "tests/encoder_profile_worker.py": {
+        "sha256": "69e289e40d9487affbb922e61f8dda24c28b7e01e0d018d6f515534b19a7db63"
       },
       "tests/test.sh": {
         "sha256": "4a0b5740341c0fa440e9012a2b63c7f340de4fdae8ff152b489eafe8f2e6b8c6"
@@ -82,10 +82,13 @@
         "sha256": "8b429bb2854280f3f81de0df6870003ba67f3958957d228970fb1d4c91a307d5"
       },
       "tests/verify_encoder_cache.py": {
-        "sha256": "1eb6ba727431dcc737e7a4dd9b57b29edfbcb50f57f9a8873d81f6d2500a8371"
+        "sha256": "a7ea8ad86f51ba94e0fa3fe654a140b77cf2c3608c0d05b5fee231f4e9f7e828"
       },
       "validation/alternate-dense-cache.patch": {
         "sha256": "610de49bed4addd2e3ad6d62df1d108d09dd99c6c89b664084bfdc698603c8f3"
+      },
+      "validation/alternate-dense-profile-consistent.patch": {
+        "sha256": "0be130371d8dcabad9a9bccf601a9c39c542075b3ef1e171bb99f0d47e29ad8d"
       },
       "validation/alternate-direct-mask-count.patch": {
         "sha256": "2407fc84c59c96ece9704d2d208b972fcd5985e9280904b8ae67232f5369b679"
@@ -96,26 +99,47 @@
       "validation/alternate-distinct-profile-accessors.patch": {
         "sha256": "9c5215dc5b80beec52dc3d04c4a547ebb1fdae872e07c1f9b9ddf2f01e87df43"
       },
+      "validation/alternate-hash-only-batching.patch": {
+        "sha256": "038bea7f99d60bdc04d23fd6dc88f6608ae0e7f7344e4cd378b4f361f8123755"
+      },
       "validation/alternate-request-initialized-count.patch": {
         "sha256": "c325c16a80aea435f5032b4f2b4c7cf15b24ee3fb468f225b465012637635e79"
       },
+      "validation/alternate-zero-output-capacity.patch": {
+        "sha256": "8950b2af27681cb992ff3ddfcd5372f60c639a54ff21bb588df4b22c92e13fb0"
+      },
       "validation/challenge/README.md": {
-        "sha256": "ff0d1f936190008cbd07ee8ab7e5680b88b5b2db5aa0fce784fd3afdf53225fc"
+        "sha256": "f3aacc792caaef4360a95e2375bf145b43070ebd388b82e2ec85cb650f6c5bf0"
       },
       "validation/challenge/challenge_encoder_cache.py": {
-        "sha256": "9211f2605c68bc6a8e4b138ba1cf9179e6b1234bdd4174b8057b63c6bff09ba1"
+        "sha256": "86780470fe12b0a5b99022cc904db38eb1c98c25f4bf1c4e68b6471f15d4bee0"
       },
       "validation/challenge/challenge_encoder_capacity.py": {
-        "sha256": "5ee97cf01c3112a05769efa7973cac19bca9c96595cd363dbcb160650fea20b0"
+        "sha256": "c3dba2fe24a0006f9a58a099dc315939d1282ccf311588a64609d8cd6e2e30da"
       },
       "validation/ci-cases.json": {
-        "sha256": "ceef16ff83430e795a2be32793c929d4a62d8f1100bb36e31edb22259048a03c"
+        "sha256": "4434f46a38e1d3b9d6f940a449daa2eb7631bb6c33618eb295fd5afb21d189ce"
       },
       "validation/curator-tools/check_environment.py": {
         "sha256": "5254a5e5d259acef422c06f8de8d0b54d7b4650eb684d41cfae2e0f4f6c1675b"
       },
       "validation/curator-tools/reproduce_baseline.py": {
         "sha256": "b7b916dab033d0cca2ea31d1ba111f69031971738f87698daea17d8a5bda151e"
+      },
+      "validation/curator-tools/rollout/campaign_agents.py": {
+        "sha256": "73a550b094a9884eb64908eefa5002f2ced7c8df77ec612c0617bc7e36ca0034"
+      },
+      "validation/curator-tools/rollout/capture_final.py": {
+        "sha256": "ef427fd445239efbcada27411e77cd4ab31dcbe8f85b35bb8f5e11fd9ab3f874"
+      },
+      "validation/curator-tools/rollout/probe_profile_runtime.py": {
+        "sha256": "f2601d827a9f4c259a059976d793a05b7b9cd0b11ee89cd8a1a6be4526614c6b"
+      },
+      "validation/curator-tools/rollout/replay_saved.py": {
+        "sha256": "e5509f7d0c71effea6a1c993e73305d21b0450cb7608f21d68e9dd1ec372aa27"
+      },
+      "validation/curator-tools/rollout/run_campaign.py": {
+        "sha256": "66c2337b27376682ac4c6638e6acc43d26a720d8c326343f9e80423eed0d285d"
       },
       "validation/curator-tools/run_matrix.py": {
         "sha256": "03fdf3db385f8e305e1686c754eedf0b1f0d8ab17d4cf700c2657030ff2f86e5"
@@ -126,8 +150,11 @@
       "validation/dense-cache-missing-cold-window.patch": {
         "sha256": "d219371fa660de616b9b326cf0ce13f462fa804d0fa2abebf553bcd0c939a8b7"
       },
-      "validation/docker-build.md": {
-        "sha256": "e096bcebf963aece380fad243b29db718e89fab098946e3184eaa0d3dad08389"
+      "validation/direct-completion-callback.patch": {
+        "sha256": "765a4dcadef940aa545ee531a5a4b09a84b436de41acc0628b52a27b132cc36e"
+      },
+      "validation/dynamic-report-forgery.patch": {
+        "sha256": "89c59ddcef8255f42ab4a011e79847ce823dc6cb162386f9709b6b19f1654a4e"
       },
       "validation/early-os-exit.patch": {
         "sha256": "88dddbe37443ec1c2ef8ff542cbe4b8326278bc96ce6885422db4becd29b2567"
@@ -141,62 +168,23 @@
       "validation/empty-window-admission.patch": {
         "sha256": "d8ae0707ef7e1ed809b15f9877aa88e03399f2d239590b7f3cdb7f5c0fbe6012"
       },
-      "validation/evidence/a100-verifier-hardening-1.2.9-initial-attempts.tar.gz": {
-        "sha256": "b909bdaba39cdc6d4d17e2fdc05dc3f1250360b0babc2daab36b5277cd11f213"
-      },
-      "validation/evidence/a100-verifier-hardening-1.2.9.tar.gz": {
-        "sha256": "6a6c1f47612e0e1b7e0736d9b4e89930970623702a526520eafb6f2cc3660beb"
-      },
-      "validation/evidence/a100-workspace-1.3.0.tar.gz": {
-        "sha256": "b54de87e7c873df7b6525edd79f62bd2d5a2190a0a34ac0b6b43c0fb3d31e44a"
-      },
-      "validation/evidence/dual-review-repair-1.2.6.tar.gz": {
-        "sha256": "657c49ee51e786b28ae924a4cea061ce81a3e033d86eb537e7a71826e56bb184"
-      },
-      "validation/evidence/dual-review-repair-1.2.7.tar.gz": {
-        "sha256": "8873b13bbb5a063c0ec20df1193c3e220eaafcc122ec290bdebdbce49e4c3ccb"
-      },
-      "validation/evidence/fairness-environment-pr8-20260909.tar.gz": {
-        "sha256": "a8bddd627cd764c5c0eb58907107c238e2de50afd79cb959c93b634342874c06"
-      },
-      "validation/evidence/lifecycle-fixture-pr8-20260910.tar.gz": {
-        "sha256": "ff49efba3e4686a800e44eb1908b95afd19a573240a50c077e032be1f03a1a3a"
-      },
-      "validation/evidence/producer-consumer-pr8-20260909.tar.gz": {
-        "sha256": "2c1b10c4ff2514f2a97d1d188ba06fb70405036a07d8bb1dd430f17645d256f0"
-      },
-      "validation/evidence/verifier-hardening-1.2.9/a100-summary.json": {
-        "sha256": "ec01cf4e7ea386f2c69d476f5d4fafb36f26b5f9759a02576ce6edb50f972b67"
-      },
-      "validation/evidence/verifier-hardening-1.2.9/behavior-methods-result.json": {
-        "sha256": "0f3c815d93d7e5b1844b02a1de36cd96ff1a1c340ee613d4e4a7ac42661d7438"
-      },
-      "validation/evidence/verifier-hardening-1.2.9/completion-tests.log": {
-        "sha256": "9ba77e0eaa08a814ebacb483c20b108594026831c5c479d2c09b374091da80fe"
-      },
-      "validation/evidence/verifier-hardening-1.2.9/patch-checks.json": {
-        "sha256": "87641a28020464dae5bbca381c4cdfe1b3e3e87c4752718e185b10cbadde4ed6"
-      },
-      "validation/evidence/workspace-1.3.0/build.log": {
-        "sha256": "15de3af270ff7be344aa6cb7e4daba8034f877b9cd393ae66c7325c9eebb8a7f"
-      },
-      "validation/evidence/workspace-1.3.0/image.json": {
-        "sha256": "6e247710088b108e3820c4ca2f1ac4519ef9ba41e446b93f4c038b6f23621fa2"
-      },
-      "validation/evidence/workspace-1.3.0/summary.json": {
-        "sha256": "b54f0bafcb2d4ca7418d670c9c15a17199373e8a81d71fb47536615f4aa84a18"
-      },
       "validation/forged-completion.patch": {
         "sha256": "18618b3f48eb29a1c4c31452d02c35d9bd9c92d4fad5524d20628d639af74e85"
       },
-      "validation/local-regressions.json": {
-        "sha256": "d1b3d2ca4bfa2ff41c227e77ee9ed65093f55badb9b013cc0a5822de210da8e1"
+      "validation/ignore-shifted-gather.patch": {
+        "sha256": "ea25efbe4cee70a6657836ad1d93b22eed24f8dbc12cc1beb4c3873f332c473b"
       },
       "validation/lookahead-omission.patch": {
         "sha256": "c4d8c0d9de25f3712ccfdc52360b5b2f5c024b5cc1fe19261819446cf5279004"
       },
       "validation/partial-budget-omission.patch": {
         "sha256": "41f7fb59f51a607fb638b64d5b9f4c8c4b491cbe178d3f50d19df7c7a6e0cdcc"
+      },
+      "validation/rename-cache-internals.patch": {
+        "sha256": "45cd4b0b3295be40bdc2abf00b38cdf8a14b7da6ed6ddca11ce25a0be5339f87"
+      },
+      "validation/restore-prompt-profile.patch": {
+        "sha256": "83c434307f0edb8f256d05bafde5d95e0ca5321b2271936e76ee684d89f773f0"
       },
       "validation/root-python-startup.patch": {
         "sha256": "b528146e3f6926b1e652e8d533ae4f07300ab2b0d240070fddb453db603d89e0"
@@ -210,385 +198,73 @@
       "validation/stale-observations.patch": {
         "sha256": "8fe13fd6c40248e91ae195b1b2f8a71fba696fbc7f399ecd07c96b50368f1c44"
       },
-      "validation/test_behavior_methods.py": {
-        "sha256": "e81baf40de34c870042b2a685a8275a7beadea3e212d1fdecb479bfe40a87c87"
-      },
-      "validation/test_completion_channel.py": {
-        "sha256": "1736e8e0a4dccfa36a191f5a954cfa876674a4e67a36211fbfd58914abfda80a"
-      },
-      "validation/test_entrypoint.py": {
-        "sha256": "ccbedef201a105b180373e541d66b5ac1b85d48b84b1c0ecfc41e74509f8660a"
-      },
       "validation/wrong-encoder-cache-order.patch": {
         "sha256": "871ea101b425bffaffacb5fcfea4c4f2aade35a0bd796e9a8e63cdf2aa0056bf"
       }
     }
   },
-  "runs": [
-    {
-      "name": "base",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "worker_reported_failures_with_zero_exit",
-      "failed_stages": [
-        "cache_lifecycle",
-        "fresh_observations",
-        "multiple_items",
-        "placeholder_coordinates",
-        "scheduled_cache_lifecycle",
-        "scheduler_partial_budget"
-      ]
+  "current_validation": {
+    "docker_controls": {
+      "cases": 8,
+      "matched": 8,
+      "positive": [
+        "oracle",
+        "alternate-zero-output-capacity"
+      ],
+      "negative": [
+        "base",
+        "empty-placeholder-omission",
+        "empty-window-admission",
+        "alternate-distinct-profile-accessors",
+        "scheduler-capacity-from-context",
+        "runner-capacity-from-context"
+      ],
+      "source": "A100 /tmp/pr84-zero-floor-134; completion output observed in this review"
     },
-    {
-      "name": "oracle",
-      "expected_reward": 1,
-      "exit_code": 0,
-      "actual_reward": 1,
-      "matches_expected": true,
-      "verifier_verdict": "PASS",
-      "reason": null,
-      "independent_cache_pass": true,
-      "independent_capacity_pass": true
+    "saved_codex_replay": {
+      "attempts": 4,
+      "passes": 0,
+      "new_model_calls": 0,
+      "capacity_challenge_failures": 4,
+      "cache_challenge_passes": 3,
+      "post_state_checks_passed": 4,
+      "source": "A100 /tmp/pr84-codex-gpt6-medium-02-replay-134; completion output observed in this review",
+      "scope": "Saved repository answers replayed under revised verifier; not a complete native trajectory review"
     },
-    {
-      "name": "alternate-direct-mask-count",
-      "expected_reward": 1,
-      "exit_code": 0,
-      "actual_reward": 1,
-      "matches_expected": true,
-      "verifier_verdict": "PASS",
-      "reason": null,
-      "independent_cache_pass": true,
-      "independent_capacity_pass": true
-    },
-    {
-      "name": "stale-observations",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "unauthenticated_completion"
-    },
-    {
-      "name": "runner-capacity-from-context",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "behavioral_observation_mismatch"
-    },
-    {
-      "name": "direct-completion-callback",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "worker_failed"
-    },
-    {
-      "name": "alternate-distinct-profile-accessors-video-fixed",
-      "expected_reward": 1,
-      "exit_code": 0,
-      "actual_reward": 1,
-      "matches_expected": true,
-      "verifier_verdict": "PASS",
-      "reason": null,
-      "independent_cache_pass": true,
-      "independent_capacity_pass": true
-    },
-    {
-      "name": "partial-budget-omission",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "worker_reported_failures_with_zero_exit",
-      "failed_stages": [
-        "fresh_observations",
-        "scheduled_cache_lifecycle",
-        "scheduler_partial_budget"
-      ]
-    },
-    {
-      "name": "root-python-startup",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "worker_reported_failures_with_zero_exit",
-      "failed_stages": [
-        "cache_lifecycle",
-        "fresh_observations",
-        "multiple_items",
-        "placeholder_coordinates",
-        "scheduled_cache_lifecycle",
-        "scheduler_partial_budget"
-      ]
-    },
-    {
-      "name": "alternate-dense-cache",
-      "expected_reward": 1,
-      "exit_code": 0,
-      "actual_reward": 1,
-      "matches_expected": true,
-      "verifier_verdict": "PASS",
-      "reason": null,
-      "independent_cache_pass": true,
-      "independent_capacity_pass": true
-    },
-    {
-      "name": "empty-placeholder-omission",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "worker_reported_failures_with_zero_exit",
-      "failed_stages": [
-        "fresh_observations",
-        "scheduled_cache_lifecycle"
-      ]
-    },
-    {
-      "name": "lookahead-omission",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "worker_reported_failures_with_zero_exit",
-      "failed_stages": [
-        "fresh_observations"
-      ]
-    },
-    {
-      "name": "ignore-shifted-gather",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "fresh_behavioral_observation_mismatch",
-      "mismatched_observations": [
-        "shifted_chain"
-      ]
-    },
-    {
-      "name": "early-system-exit",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "worker_failed"
-    },
-    {
-      "name": "wrong-encoder-cache-order",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "worker_reported_failures_with_zero_exit",
-      "failed_stages": [
-        "fresh_observations",
-        "model_runner_compact_gather",
-        "partial_mapping",
-        "scheduled_cache_lifecycle"
-      ]
-    },
-    {
-      "name": "alternate-request-initialized-count",
-      "expected_reward": 1,
-      "exit_code": 0,
-      "actual_reward": 1,
-      "matches_expected": true,
-      "verifier_verdict": "PASS",
-      "reason": null,
-      "independent_cache_pass": true,
-      "independent_capacity_pass": true
-    },
-    {
-      "name": "empty-window-admission",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "worker_reported_failures_with_zero_exit",
-      "failed_stages": [
-        "fresh_observations"
-      ]
-    },
-    {
-      "name": "alternate-distinct-profile-accessors",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "fresh_behavioral_observation_mismatch",
-      "mismatched_observations": [
-        "direct_profile"
-      ]
-    },
-    {
-      "name": "restore-prompt-profile",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "fresh_behavioral_observation_mismatch",
-      "mismatched_observations": [
-        "direct_profile"
-      ]
-    },
-    {
-      "name": "early-os-exit",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "unauthenticated_completion"
-    },
-    {
-      "name": "dense-cache-missing-cold-window",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "worker_reported_failures_with_zero_exit",
-      "failed_stages": [
-        "fresh_observations",
-        "scheduled_cache_lifecycle"
-      ]
-    },
-    {
-      "name": "forged-completion",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "unauthenticated_completion"
-    },
-    {
-      "name": "scheduler-capacity-from-context",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "behavioral_observation_mismatch"
-    },
-    {
-      "name": "rename-cache-internals",
-      "expected_reward": 1,
-      "exit_code": 0,
-      "actual_reward": 1,
-      "matches_expected": true,
-      "verifier_verdict": "PASS",
-      "reason": null,
-      "independent_cache_pass": true,
-      "independent_capacity_pass": true
-    },
-    {
-      "name": "dynamic-report-forgery",
-      "expected_reward": 0,
-      "exit_code": 0,
-      "actual_reward": 0,
-      "matches_expected": true,
-      "verifier_verdict": "FAIL",
-      "reason": "unauthenticated_completion"
+    "harbor_oracle": {
+      "output": "A100 /tmp/pr84-canary-134-final",
+      "completed_trials": 1,
+      "mean_reward": 1.0,
+      "source": "Observed Harbor completion output: 1/1 Mean: 1.000 and CAMPAIGN_DONE",
+      "scope": "CollectionCanary applies Oracle and harmless tracked/untracked capture markers; no model call"
     }
-  ],
-  "local_checks": [
-    {
-      "name": "completion_transport",
-      "status": "passed",
-      "command": "PYTHONDONTWRITEBYTECODE=1 python3 validation/test_completion_channel.py",
-      "scope": "macOS Python3.14, real native extension/fork/socket; four unittest methods",
-      "evidence": "validation/evidence/verifier-hardening-1.2.9/completion-tests.log"
-    },
-    {
-      "name": "production_methods",
-      "status": "passed",
-      "command": "PYTHONDONTWRITEBYTECODE=1 python validation/test_behavior_methods.py --oracle ORACLE_SOURCE --base BASE_SOURCE",
-      "scope": "macOS Python3.12.13 torch2.9.0; actual extracted production methods with simplified surrounding fixtures, not full suite",
-      "evidence": "validation/evidence/verifier-hardening-1.2.9/behavior-methods-result.json"
-    },
-    {
-      "name": "new_patch_applicability",
-      "status": "passed",
-      "evidence": "validation/evidence/verifier-hardening-1.2.9/patch-checks.json"
-    },
-    {
-      "name": "linux_entrypoint_smoke_initial",
-      "status": "historical_in_session_pass_not_final_snapshot_certification",
-      "scope": "Noncanonical cached ragflow linux/amd64 image, Python3.10, actual test.sh, import-only torch stub",
-      "observed": {
-        "honest_nobody_channel": "pass",
-        "dynamic_report_forgery": 0,
-        "direct_completion_callback": 0,
-        "early_os_exit": 0,
-        "early_system_exit": 0,
-        "nobody_output_readability": true
-      },
-      "limitation": "Observed in tool output before final Python cleanup. Raw log not preserved. Do not count as current Harbor run."
-    },
-    {
-      "name": "linux_entrypoint_smoke_final_retry",
-      "status": "blocked",
-      "reason": "Docker run and docker ps both stopped returning; no result collected. No Docker daemon restart performed."
-    },
-    {
-      "name": "A100_pinned_image_matrix",
-      "status": "passed",
-      "evidence": "validation/evidence/verifier-hardening-1.2.9/a100-summary.json"
-    }
-  ],
-  "pending": [
-    "Harbor orchestration and host reward collection smoke for publication"
-  ],
-  "scope_limits": [
-    "Current Docker rewards verified for workspace migration; no Harbor job IDs claimed",
-    "Native completion isolation limited to tested attacks; no arbitrary in-process/native tampering claim"
-  ],
-  "run_scope": "Actual test.sh in pinned A100 Docker containers from pulled commit 08e68b6; /workspace/vllm, network none, 4 CPU / 16GiB each. Not Harbor orchestration.",
-  "raw_evidence": {
-    "archive": "validation/evidence/a100-workspace-1.3.0.tar.gz",
-    "sha256": "b54de87e7c873df7b6525edd79f62bd2d5a2190a0a34ac0b6b43c0fb3d31e44a",
-    "summary": "validation/evidence/workspace-1.3.0/summary.json",
-    "build_log": "validation/evidence/workspace-1.3.0/build.log",
-    "group_layout": [
-      "smoke",
-      "group0",
-      "group1",
-      "group2",
-      "group3"
-    ],
-    "note": "Four case groups plus Base/Oracle smoke. Initial fourth-group SSH invocation did not start; it was launched after the other three completed. No duplicate scored runs or failed test results were excluded."
   },
-  "validated_source_commit": "08e68b6090f6e9ba44c7a6e962b29f7a92daee84",
-  "independent_challenges": {
-    "positive_implementations": 6,
-    "positive_runs": 12,
-    "all_passed": true,
-    "base_negative_runs": 2,
-    "base_exit_codes": [
-      1,
-      1
-    ]
+  "historical_validation": {
+    "version": "1.3.3",
+    "report": "validation/rollout-review.md",
+    "evidence": "validation/evidence/rollout-hardening-1.3.3/",
+    "scope": "27 controls, two four-attempt flash campaigns and Harbor canary are historical; not claimed rerun at 1.3.4"
+  },
+  "review_identity": {
+    "worktree": "/Users/yaoyaoyao/Documents/Codex/2026-09-17/qing-2/work/pr84",
+    "branch": "codex/pr84-verifier-workspace",
+    "head_before_evidence_edit": "d4ebf3d6b8f68a142e7afa07d828936c02bdda73",
+    "initial_dirty_state": "clean",
+    "skill": "ai-infra-bench-task-review",
+    "skill_hashes": {
+      ".agents/skills/ai-infra-bench-task-review/SKILL.md": "d95343d9408abd45190c0061eca41abf66ed6be3ca5471e2039e5759d5c7bacb",
+      ".agents/skills/ai-infra-bench-task-review/references/review-rubric.md": "c4413205916752c5fc793e26c74a20d15e2538b7043fe612c1741e7fa9901167",
+      ".agents/skills/ai-infra-bench-task-review/references/validation-playbook.md": "803fc8d1b120753003db681b20f1990d697f01ae52952e121255071af86a342e",
+      ".agents/skills/ai-infra-bench-task-review/scripts/audit_task_artifacts.py": "3c4f882ed2aa3542ddbb2d2c51522819be17dc22a12f2cd492076bd882190022"
+    }
+  },
+  "self_reference": "This is an evidence-only update after executable commit d4ebf3d. Historical snapshots retain their original hashes. Documentation changes do not imply a new executable run.",
+  "static_validation": {
+    "strict_evidence_audit": {
+      "checks": 4,
+      "errors": 0,
+      "warnings": 0,
+      "includes": "repository task validator, parsing, artifact hashes and whitespace"
+    }
   }
 }

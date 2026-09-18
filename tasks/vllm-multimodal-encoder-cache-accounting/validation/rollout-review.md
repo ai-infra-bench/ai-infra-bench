@@ -1,3 +1,6 @@
+> Historical 1.3.3 rollout review. For current 1.3.4 validation and the
+> zero-output capacity correction, see [final-review.md](final-review.md).
+
 # PR84 flash rollout review — completed campaign
 
 Final conclusion: retain the task with the repaired 1.3.3 verifier. Two A100
