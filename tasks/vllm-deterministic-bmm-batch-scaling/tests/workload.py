@@ -67,5 +67,10 @@ def make_workload(seed, artifact_dir):
     return {"correctness": cases, "performance_shapes": shapes, "performance": performance}
 
 
+# Include short and long FP32 reductions: correct values alone do not establish
+# that this dtype also removed the per-batch launch loop. The verifier compares
+# count scaling, without depending on kernel names or requiring a single kernel.
 LAUNCH_GROUPS = [('torch.float16', [32, 32, 64]),
-                 ('torch.bfloat16', [33, 29, 41])]
+                 ('torch.bfloat16', [33, 29, 41]),
+                 ('torch.float32', [31, 37, 43]),
+                 ('torch.float32', [37, 41, 2560])]

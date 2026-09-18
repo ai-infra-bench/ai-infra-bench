@@ -1,4 +1,8 @@
-PR #73 · vllm-deterministic-bmm-batch-scaling v1.2.7：可保留，本轮修改通过本地 task-review 三个 gate。10/10 维已评分，19/20，无未验证维度或已知阻断；第 9 维为明确的非阻断范围限制。
+PR #73 · v1.2.8 adds implementation-independent FP32 launch-scaling coverage and a targeted serial-FP32 negative control. The instruction, environment, Oracle, numerical checks, performance thresholds, and launch-count comparison rule are unchanged. Current executable hashes and CI reproduction details are in [e2e-evidence.json](e2e-evidence.json); acceptance of this revision is determined by its GitHub `Task validation` check. No new GPU results are claimed in this document. The report below describes v1.2.7 only; its results are preserved in [history/1.2.7-before-fp32-launch-coverage.json](history/1.2.7-before-fp32-launch-coverage.json). The new coverage does not address candidate-process observation forgery.
+
+---
+
+Historical review — PR #73 · vllm-deterministic-bmm-batch-scaling v1.2.7：可保留，本轮修改通过本地 task-review 三个 gate。10/10 维已评分，19/20，无未验证维度或已知阻断；第 9 维为明确的非阻断范围限制。
 
 | # | 维度 | 分数 / 状态 | 关键证据 | 下一步 |
 |---|---|---|---|---|
