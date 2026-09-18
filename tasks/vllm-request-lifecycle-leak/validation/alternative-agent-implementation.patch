@@ -1,0 +1,67 @@
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index 90ca5844..e9f1fd6f 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -982,6 +982,7 @@ class Scheduler(SchedulerInterface):
+
+         session._all_token_ids.extend(update.prompt_token_ids or ())
+         session.prompt_token_ids.extend(update.prompt_token_ids or ())
++        session.block_hashes.clear()
+         # Update block hashes for the new tokens
+         # (mirrors Request.append_output_token_ids)
+         if session.get_hash_new_full_blocks is not None:
+@@ -1719,6 +1720,11 @@ class Scheduler(SchedulerInterface):
+         self, request: Request, delay_free_blocks: bool = False
+     ) -> dict[str, Any] | None:
+         assert request.is_finished()
++        # Completion is the ownership boundary. Drop the request-bound hash
++        # callback here so releasing the scheduler's final reference also
++        # releases the request and any multimodal payload it owns. Live and
++        # streaming-waiting requests retain their callback and payload.
++        request.get_hash_new_full_blocks = None
+
+         connector_delay_free_blocks, kv_xfer_params = self._connector_finished(request)
+         self.encoder_cache_manager.free(request)
+diff --git a/vllm/v1/core/kv_cache_utils.py b/vllm/v1/core/kv_cache_utils.py
+index fd12dfe0..255cd394 100644
+--- a/vllm/v1/core/kv_cache_utils.py
++++ b/vllm/v1/core/kv_cache_utils.py
+@@ -411,7 +411,7 @@ def _gen_mm_extra_hash_keys(
+     # We do not need to check all mm inputs if the start token index is out of
+     # range. This usually happens in the late prefill phase and decoding phase.
+     last_pos = mm_features[-1].mm_position
+-    if last_pos.offset + last_pos.length < start_token_idx:
++    if last_pos.offset + last_pos.length <= start_token_idx:
+         return extra_keys, start_mm_idx
+
+     # Support start_mm_idx == -1 to indicate the last mm input.
+@@ -426,13 +426,13 @@ def _gen_mm_extra_hash_keys(
+         offset = mm_feature.mm_position.offset
+         length = mm_feature.mm_position.length
+         if end_token_idx > offset:
+-            if start_token_idx > offset + length:
++            if start_token_idx >= offset + length:
+                 # This block has passed the current mm input.
+                 curr_mm_idx += 1
+                 continue
+
+             # The block contains the current mm input.
+-            extra_keys.append(mm_feature.identifier)
++            extra_keys.append((mm_feature.identifier, offset - start_token_idx))
+
+             if end_token_idx >= offset + length:
+                 # If this block contains the end of the current mm input,
+@@ -569,12 +569,7 @@ def get_request_block_hasher(
+             return []
+
+         curr_mm_idx = 0
+-        if start_token_idx > 0:
+-            # Set curr_mm_idx = -1 to indicate the last mm input.
+-            # Note that since we reach to this branch only when the block is
+-            # completed with generated tokens, we only need to consider the
+-            # last mm input.
+-            curr_mm_idx = -1
++        # A newly completed block can overlap more than the last media item.
+
+         prev_block_hash_value = (
+             request.block_hashes[-1] if request.block_hashes else None
