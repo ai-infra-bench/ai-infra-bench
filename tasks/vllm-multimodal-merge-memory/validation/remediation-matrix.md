@@ -39,3 +39,7 @@ Integrity protection is bounded: native memory tampering and arbitrary mutation 
 ## Subsequent rollout remediation (v1.3.2)
 
 The historical 26-case matrix above is not a v1.3.2 rerun. Flash rollouts exposed the CPU-mask OOV scope extension (corrected in v1.3.1) and missing empty-outer count checks (six added in v1.3.2). Current Oracle/alternative are 32/32; Base/forged-success-exit are zero. Twelve effective model attempts were reviewed and completely replayed, plus four preserved infrastructure failures. See [rollout-review.md](rollout-review.md) and [rollout-attempts.json](rollout-attempts.json).
+
+## Repeated-call remediation (v1.3.3)
+
+Two implementation-independent CPU/CUDA cases vary mask positions, source values and text rows across consecutive equal-sized calls. The stale-placement counterexample now receives 0 after passing the original 32 checks. Oracle, index_copy, content-keyed caching and all four saved GPT-6 medium answers pass 34/34. The 18-run matrix and six formal Harbor trials preserve all expected control outcomes. See [repeated-call review](repeated-call-review.md) and `repeated-call-evidence.zip`; original 26/32-case evidence remains historical.

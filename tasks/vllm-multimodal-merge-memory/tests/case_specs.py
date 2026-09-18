@@ -26,3 +26,9 @@ CASES += [
     for device in ("cpu", "cuda")
     for form in ("list", "tuple", "tensor")
 ]
+
+# Equal token counts do not imply equal placeholder positions on later calls.
+CASES += [
+    dict(name=f"repeated_merge_{device}", kind="repeated_merge", device=device)
+    for device in ("cpu", "cuda")
+]

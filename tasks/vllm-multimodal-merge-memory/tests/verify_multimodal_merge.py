@@ -106,6 +106,38 @@ def run_suite(cases, emit):
             raise AssertionError("empty merge is not an identity operation")
         return {"passed": True}
 
+    def check_repeated_merge(spec):
+        inputs = torch.empty((19, 31), dtype=torch.float16, device="cuda")
+        mask = torch.zeros(19, dtype=torch.bool, device=spec["device"])
+        values = torch.empty((3, 31), dtype=torch.float32, device="cuda")
+        mm = [values[:1], [values[1:]]]
+        for iteration, positions in enumerate(([0, 4, 11], [2, 7, 18], [1, 6, 13])):
+            # Reuse buffers with new contents, as successive requests/chunks may
+            # have equal lengths and counts but different placeholder offsets.
+            cpu_mask = torch.zeros(19, dtype=torch.bool)
+            cpu_mask[positions] = True
+            mask.copy_(cpu_mask)
+            values_cpu = torch.arange(93, dtype=torch.float32).reshape(3, 31)
+            values_cpu = values_cpu + 100 * iteration
+            values.copy_(values_cpu)
+            text_cpu = -torch.arange(1, 590, dtype=torch.float16).reshape(19, 31)
+            text_cpu -= iteration
+            inputs.copy_(text_cpu)
+            expected = text_cpu.clone()
+            expected[cpu_mask] = values_cpu.to(inputs.dtype)
+            torch.cuda.synchronize()
+            with RejectCudaSync() if spec["device"] == "cpu" else nullcontext():
+                returned = merge(inputs, mm, mask)
+            torch.cuda.synchronize()
+            if returned is not inputs or returned.dtype != expected.dtype:
+                raise AssertionError("repeated merge must retain dtype and input identity")
+            if not torch.equal(inputs.cpu(), expected):
+                raise AssertionError(
+                    f"repeated merge used incorrect positions or values: "
+                    f"mask_device={spec['device']}, call={iteration + 1}"
+                )
+        return {"passed": True}
+
     def check_interface(spec):
         class LanguageModel:
             def embed_input_ids(self, ids):
@@ -140,7 +172,8 @@ def run_suite(cases, emit):
         return {"passed": True}
 
     checks = {"merge": check_merge, "counts": check_counts,
-              "empty": check_empty, "interface": check_interface}
+              "empty": check_empty, "interface": check_interface,
+              "repeated_merge": check_repeated_merge}
     for spec in cases:
         result = checks[spec["kind"]](spec)
         # Native authentication accepts only this original code object as caller.
