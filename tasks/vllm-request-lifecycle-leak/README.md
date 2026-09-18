@@ -1,0 +1,15 @@
+# vLLM request lifecycle retention
+
+Fix completed requests retaining multimodal payloads while preserving streaming sessions and prefix-cache behavior. See [instruction.md](instruction.md).
+
+The offline CPU image contains the exact Base source and the pinned donor's real AVX2 extension. Minimal distribution metadata selects CpuPlatform; PATH exposes the existing virtual environment. The agent interpreter includes pytest 8.4.1, pytest-asyncio 1.1.0 and tblib 3.1.0 for local regression tests. No model download or GPU is needed for this Python ownership boundary.
+
+The verifier constructs a real Scheduler, Request, encoder cache manager and KVCacheManager. Deterministic media shapes and model outputs replace only model computation. Normal completion enters through schedule/update_from_output; cancellation and stream continuation use their production entrypoints. Weak references check release and retention, real cache lookups check reuse, and a GC callback detects collections during the target lifecycle.
+
+The cache checks run ordinary decoding and streaming continuation with two media inputs using 16- and 32-token blocks. Token IDs and media ranges come from recorded output of Base's real Qwen processor, including repeated images, changed image content, and text insertion between images. They populate the cache through scheduling and model-output processing, then query reuse for matching prefixes and misses for changed or discarded inputs. The earlier synthetic fixed-token/moved-range case no longer affects reward; no particular hash representation is required. See the [input reachability evidence and upstream review](validation/upstream-review.md#input-reachability-evidence).
+
+A root parent independently reads the worker's Linux RSS at nine checkpoints over four batches. It checks that the live workload occurred and that post-warmup retained memory does not accumulate. It does not require memory to return immediately to the OS. Candidate stdout alone cannot pass this check. This is bounded hardening against known bypasses, not a sandbox against arbitrary malicious code sharing the Python observation process; a candidate that simulates both memory activity and reports remains outside the security guarantee.
+
+Run the local entrypoint matrix with `python3 tasks/vllm-request-lifecycle-leak/validation/run-local-matrix.py`, setting `TASK_IMAGE` to the image built from this task's Dockerfile and `MATRIX_OUT` to a directory outside the repository. Run formal Oracle validation with `harbor run -p tasks/vllm-request-lifecycle-leak -a oracle`.
+
+Current validation results and artifact identities are in [the evidence index](validation/e2e-evidence.json). Raw logs remain in the external evidence archive, not this task directory. The [1.4.0 archive](https://github.com/YaooXu/ai-infra-bench/releases/download/pr55-codex-validation-20260913/pr55-upstream-regressions-v1.4.0.zip) and earlier [agent trajectories](https://github.com/ai-infra-bench/ai-infra-bench/pull/55#issuecomment-5651502703) are historical; each result applies only to its recorded snapshot. Some upstream tests require uncached Hugging Face model configurations.
