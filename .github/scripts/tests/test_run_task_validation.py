@@ -54,6 +54,8 @@ elif name == "docker":
         else:
             print(json.dumps([{"Id": "sha256:local-image"}]))
     elif args[:2] == ["buildx", "build"]:
+        with open(os.environ["MOCK_LOG"], "a") as stream:
+            stream.write(json.dumps(["buildx_config", os.environ.get("BUILDX_CONFIG")]) + "\n")
         ready.touch()
     elif args[:3] == ["buildx", "imagetools", "inspect"]:
         print(json.dumps(os.environ["MOCK_DIGEST"]))
@@ -123,6 +125,7 @@ class ValidationImageTests(unittest.TestCase):
             # GPU execution must also work outside GitHub without registry vars.
             for key in ("GHCR_REPOSITORY", "GITHUB_REPOSITORY_OWNER"):
                 env.pop(key, None)
+            env.pop("BUILDX_CONFIG", None)
             env.update({
                 "PATH": f"{bin_dir}:{os.environ['PATH']}",
                 "TASK_NAME": "example", "TARGET_PLATFORM": "linux/amd64",
@@ -156,6 +159,13 @@ class ValidationImageTests(unittest.TestCase):
             if builds:
                 self.assertEqual(builds[0][builds[0].index("--tag") + 1], summary["image"])
                 self.assertIn("--load", builds[0])
+                buildx_configs = [cmd[1] for cmd in commands if cmd[0] == "buildx_config"]
+                self.assertEqual(len(buildx_configs), 1)
+                if gpus:
+                    self.assertTrue(buildx_configs[0].startswith(str(root / "ai-infra-buildx.")))
+                    self.assertTrue(Path(buildx_configs[0]).is_dir())
+                else:
+                    self.assertIsNone(buildx_configs[0])
             harbor = [cmd for cmd in commands if cmd[0] == "harbor"]
             self.assertEqual(len(harbor), 2)
             expected_env = "ci_gpu_docker:LeasedGpuDockerEnvironment" if gpus else "docker"

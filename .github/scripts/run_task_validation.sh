@@ -59,6 +59,12 @@ else
     printf 'No cached image for %s; building locally\n' "$image_ref"
   fi
   test -f "$task_dir/environment/Dockerfile"
+  if (( gpu_count > 0 )); then
+    # Self-hosted runners can inherit a shared, unwritable ~/.docker/buildx.
+    # Buildx state is client-side; keep it job-local without replacing the
+    # Docker CLI config (which may hold registry credentials or contexts).
+    export BUILDX_CONFIG="$(mktemp -d "${RUNNER_TEMP:-/tmp}/ai-infra-buildx.XXXXXX")"
+  fi
   docker buildx build \
     --load \
     --network "${AI_INFRA_BUILD_NETWORK:-default}" \
