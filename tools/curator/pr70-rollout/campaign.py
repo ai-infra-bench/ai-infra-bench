@@ -16,6 +16,7 @@ model='gpt-6-astra' if a.mode=='codex' else os.environ.get('MODEL') if a.mode=='
 if a.mode=='codex':
  os.environ['PR70_CODEX_BINARY']='/usr/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex'
  os.environ['CODEX_FORCE_AUTH_JSON']='1'
+ assert a.network_octet is not None, 'Codex proxy requires an explicit bridge subnet'
 if a.mode=='flash':assert model=='deepseek-v4-flash[1m]', 'unexpected configured model'
 def hashes(root):return {str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for f in root.rglob('*') if f.is_file()}
 commit=subprocess.check_output(['git','-C',str(TASK),'rev-parse','HEAD'],text=True).strip()
@@ -29,7 +30,7 @@ def run(slot):
    assert 0<=a.network_octet<=255 and 0<=slot<=7
    d['networks']={'default':{'ipam':{'config':[{'subnet':f'10.243.{a.network_octet}.{slot*16}/28'}]}}}
   if a.mode=='codex' and file.startswith('environment/'):
-   d['services']['harbor-docker-egress-control-sidecar']={'extra_hosts':['host.docker.internal:host-gateway'],'volumes':[str(Path(__file__).resolve().with_name('codex-egress.yaml'))+':/opt/egress-sidecar/gost.yaml:ro']}
+   d['services']['harbor-docker-egress-control-sidecar']={'extra_hosts':[f'host.docker.internal:10.243.{a.network_octet}.{slot*16+1}'],'volumes':[str(Path(__file__).resolve().with_name('codex-egress.yaml'))+':/opt/egress-sidecar/gost.yaml:ro']}
   q.write_text(yaml.safe_dump(d,sort_keys=False))
  frozen=hashes(prepared)
  (R/f'{name}-inputs.json').write_text(json.dumps(frozen,indent=2)+'\n')
