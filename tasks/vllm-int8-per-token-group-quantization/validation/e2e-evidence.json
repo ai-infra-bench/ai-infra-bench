@@ -2,14 +2,14 @@
   "schema_version": "vllm_harbor_task_validation.v1",
   "task": "ai-infra-bench/vllm-int8-per-token-group-quantization",
   "version": "1.2.8",
-  "status": "runtime_controls_and_oracle_validated_model_campaign_in_progress",
-  "recorded_at": "2026-09-17T21:18:34.265525+00:00",
+  "status": "accepted_after_two_flash_rounds_and_full_saved_state_review",
+  "recorded_at": "2026-09-18T08:01:14.274380+00:00",
   "revision": {
     "source_revision": "4a82916dc11b0174bcbae1d98769daac332697a5",
     "validation_harness_revision": "05cfe06",
     "base_commit": "14bf19e39f601163265b7c7d58d972b8a83d8896",
     "dependency_cutoff": "2025-07-23T18:29:36Z",
-    "state": "1.2.8 frozen Harbor Oracle validated; runtime controls inherited from byte-identical 1.2.7 inputs; model campaign in progress"
+    "state": "Task 1.2.8 accepted after two four-attempt Flash rounds, complete saved-state replays and trajectory review. No scoring changes after frozen second round."
   },
   "review_skill": {
     "worktree": "/Users/yaoyaoyao/Documents/Codex/2026-09-17/qing-2/work/pr70-review",
@@ -83,6 +83,14 @@
     "oracle-128-harbor-review.tar.gz": {
       "path": "validation/evidence/1.2.8/oracle-128-harbor-review.tar.gz",
       "sha256": "0357775bb9dc6daf9b3d36c099ca19a4771e96c78f6a46063bcc093f133c86aa"
+    },
+    "rollout-r01-manifest": {
+      "path": "validation/evidence/rollout-r01/manifest.json",
+      "sha256": "92e440fe6ca5b31f3e0e398a9a81ef3792edc113d3b5f927d37bc5875c8ab5e5"
+    },
+    "rollout-r02-manifest": {
+      "path": "validation/evidence/rollout-r02/manifest.json",
+      "sha256": "4b5be910a19cfd36b6dc75d6c1b2168d0145dc86716bb581d0b05e54e10aa1ca"
     }
   },
   "matrix": {
@@ -828,29 +836,64 @@
     "task_version": "1.2.7"
   },
   "model_campaign": {
-    "status": "round one incomplete; second frozen round not started",
+    "status": "complete; retain task 1.2.8",
     "model": "deepseek-v4-flash[1m]",
     "requested_parallelism": 4,
-    "round_one_task_version": "1.2.6",
-    "original_rewards_preserved": true,
-    "completed_model_attempts": 2,
-    "running_model_attempts": 2,
+    "rounds": 2,
+    "completed_model_attempts": 8,
+    "running_model_attempts": 0,
     "startup_failure_without_model": 1,
-    "completed_full_snapshot_replays_against_1_2_7": {
-      "gpu5": 0,
-      "replacement_gpu7": 0
+    "original_rewards_preserved": true,
+    "round_one": {
+      "task_version": "1.2.6",
+      "original_rewards": [
+        0,
+        1,
+        1,
+        0
+      ],
+      "revised_full_snapshot_rewards": [
+        0,
+        0,
+        1,
+        0
+      ],
+      "replay_task_version": "1.2.7 (runtime byte-identical to 1.2.8)",
+      "order": "GPU4/GPU5/GPU6/replacement GPU7",
+      "report": "validation/rollout-review-r01.md"
     },
-    "confirmed_old_verifier_false_positive": "gpu5 original reward 1; legal offset view causes misaligned-address error"
+    "round_two": {
+      "task_version": "1.2.8",
+      "revision": "08c99c4e3f8e5120ed0ebbffd689e2be366bf5f0",
+      "original_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "full_snapshot_rewards": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "order": "GPU4/GPU5/GPU6/GPU7",
+      "canonical_and_prepared_inputs_unchanged": true,
+      "report": "validation/rollout-review-r02.md"
+    },
+    "confirmed_old_verifier_false_positive": "R01 GPU5: original reward 1; revised reward 0 due to legal contiguous storage-offset views. Fixed in 1.2.7.",
+    "new_round_two_scoring_defects": [],
+    "decision": "No further task/scoring change or new model round justified by completed evidence; zero rewards independently supported by contract failures."
   },
   "compiler_cache": "Direct grading reused ccache, never a native library or build directory. Fresh Harbor containers received complete content-checked cache entries only after agent completion and verifier startup. The unchanged test.sh/build backend rebuilt each candidate; source/compiler/include hashes determine cache hits. Cache provenance and native hashes are retained. Final runs are not claimed as cold builds.",
   "limitations": [
-    "No final task/campaign acceptance yet: two round-one model attempts and the fresh revised round remain.",
     "Whole repository including ignored files and .git is captured before grading. Whole root filesystem is not captured; external writes are reviewed from trajectories.",
     "No immutable gateway model revision was recorded. Effective high effort appears in raw Claude session records; launch did not explicitly override effort.",
     "Fallback checks simulate stable platform capability before import and execute real Triton on CUDA; actual ROCm hardware was not tested.",
     "Upstream FP8 Triton reference cannot compile fp8e4nv on sm80. Independent native FP8 checks use PyTorch for 24 combinations.",
     "Native libraries remain on A100 with recorded hashes. Compiler caches were used in curator grading phases; no cold-build claim.",
-    "This does not certify isolation against arbitrary native process compromise."
+    "This does not certify isolation against arbitrary native process compromise.",
+    "The eight attempts are development evidence across two revisions, not an independent held-out capability/pass-rate estimate. Review does not prove absence of every possible edge case or bypass."
   ],
   "historical_1_2_6_evidence": "validation/history/1.2.6-before-offset-fix-e2e-evidence.json.gz",
   "prior_1_2_6_raw_evidence": {

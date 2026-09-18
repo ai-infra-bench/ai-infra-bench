@@ -1,0 +1,1032 @@
+{
+  "round": "flash-r02",
+  "review_revision": "08c99c4e3f8e5120ed0ebbffd689e2be366bf5f0",
+  "trials": [
+    {
+      "gpu": 4,
+      "id": "9cf34c80-df4e-42c5-8dcd-7e6c9e2270b9",
+      "trial_name": "flash-r02-gpu4__AeVyun5",
+      "task_checksum": "81f613f198d4549421dcb85d36d2b1f426990dec9f2e0a66e1303219c2783bef",
+      "original_reward": 0.0,
+      "exception_info": null,
+      "seconds": {
+        "total": 3266.346624,
+        "agent": 2745.590645,
+        "verifier": 501.561845
+      },
+      "atif_steps": 108,
+      "agent_steps": 107,
+      "top_level_tool_calls": 133,
+      "source_files": {
+        "CMakeLists.txt": {
+          "added": 2,
+          "removed": 1
+        },
+        "csrc/ops.h": {
+          "added": 6,
+          "removed": 0
+        },
+        "csrc/torch_bindings.cpp": {
+          "added": 8,
+          "removed": 0
+        },
+        "vllm/model_executor/layers/quantization/utils/int8_utils.py": {
+          "added": 7,
+          "removed": 0
+        },
+        "csrc/quantization/int8/per_token_group_quant.cu": {
+          "added": 163,
+          "removed": 0,
+          "sha256": "ce88a9e5b57b289dc014e184d27b7c74e5f4a8de3d53ec10e99983b34f5b9538"
+        }
+      },
+      "source_totals": {
+        "files": 5,
+        "added": 186,
+        "removed": 1
+      },
+      "raw_final_boundary": 536,
+      "snapshot": {
+        "bytes": 730286483,
+        "sha256": "020d5b13d310c6b430ea80574f453c9cbc64f76410450bd4cc3aa6c5bccad68b"
+      },
+      "formal_verification": {
+        "verdict": "FAIL",
+        "worker_result": {
+          "verdict": "FAIL",
+          "reason": "worker_exit_nonzero",
+          "worker_exit": 1,
+          "worker_output": {
+            "capability": [
+              8,
+              0
+            ],
+            "error": "single-large-fp32: CUDA error: invalid argument\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n",
+            "frozen_baseline_used": true,
+            "gpu": "NVIDIA A100-SXM4-40GB",
+            "parent_worker_boundary": true,
+            "stages": {
+              "configurable_arguments": {
+                "cases": [
+                  {
+                    "eps": 0.001,
+                    "group_size": 64,
+                    "range": [
+                      -64,
+                      63
+                    ],
+                    "shape": [
+                      3,
+                      64
+                    ]
+                  },
+                  {
+                    "eps": 1e-06,
+                    "group_size": 80,
+                    "range": [
+                      -32,
+                      31
+                    ],
+                    "shape": [
+                      1,
+                      80
+                    ]
+                  }
+                ]
+              },
+              "correctness": {
+                "cases": [
+                  {
+                    "cuda_q_delta": 1,
+                    "cuda_reference_delta": 1,
+                    "dtype": "torch.float16",
+                    "group_size": 64,
+                    "scale_max_delta": 0.0,
+                    "scale_reference_close": true,
+                    "shape": [
+                      32,
+                      128
+                    ]
+                  },
+                  {
+                    "cuda_q_delta": 1,
+                    "cuda_reference_delta": 1,
+                    "dtype": "torch.bfloat16",
+                    "group_size": 128,
+                    "scale_max_delta": 0.0,
+                    "scale_reference_close": true,
+                    "shape": [
+                      64,
+                      256
+                    ]
+                  },
+                  {
+                    "cuda_q_delta": 1,
+                    "cuda_reference_delta": 1,
+                    "dtype": "torch.float32",
+                    "group_size": 64,
+                    "scale_max_delta": 0.0,
+                    "scale_reference_close": true,
+                    "shape": [
+                      7,
+                      512
+                    ]
+                  },
+                  {
+                    "cuda_q_delta": 1,
+                    "cuda_reference_delta": 1,
+                    "dtype": "torch.float16",
+                    "group_size": 32,
+                    "scale_max_delta": 0.0,
+                    "scale_reference_close": true,
+                    "shape": [
+                      2,
+                      3,
+                      256
+                    ]
+                  }
+                ]
+              },
+              "operator_surface": "PASS",
+              "public_dispatch": {
+                "cuda_dispatch": "native",
+                "non_cuda_dispatch": "triton"
+              }
+            },
+            "traceback": "Traceback (most recent call last):\n  File \"/tests/quant_boundary.py\", line 62, in observe\n    q, s = quantize(x, case[\"group\"], case[\"eps\"])\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<string>\", line 242, in <lambda>\n  File \"<string>\", line 34, in cuda_quant\n  File \"/usr/local/lib/python3.12/dist-packages/torch/_ops.py\", line 1158, in __call__\n    return self._op(*args, **(kwargs or {}))\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nRuntimeError: CUDA error: invalid argument\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"<string>\", line 242, in worker_main\n  File \"/tests/quant_boundary.py\", line 68, in observe\n    raise RuntimeError(f\"{case['name']}: {exc}\") from exc\nRuntimeError: single-large-fp32: CUDA error: invalid argument\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n\n",
+            "verdict": "FAIL"
+          },
+          "stderr": ""
+        }
+      },
+      "full_saved_replay": {
+        "reward": 0.0,
+        "probes": [
+          {
+            "name": "offset-float16-0-public",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-float16-0-native",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-float16-1-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float16-1-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float16-3-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float16-3-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-bfloat16-0-public",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-bfloat16-0-native",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-bfloat16-1-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-bfloat16-1-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-bfloat16-3-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-bfloat16-3-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float32-0-public",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-float32-0-native",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-float32-1-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float32-1-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float32-3-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float32-3-native",
+            "exit_code": 1
+          },
+          {
+            "name": "single-large-fp32",
+            "exit_code": 1
+          },
+          {
+            "name": "single-large-fp16",
+            "exit_code": 1
+          },
+          {
+            "name": "unaligned-fp16",
+            "exit_code": 1
+          },
+          {
+            "name": "unaligned-bf16",
+            "exit_code": 1
+          },
+          {
+            "name": "unaligned-fp32",
+            "exit_code": 1
+          }
+        ],
+        "inputs_unchanged": true,
+        "rebuilt_native_sha256": "08184168bbd85bc2c04290708b18e797a16dc7293746f609fbc0685d014f57d3",
+        "started": 1789685569.8223827,
+        "finished": 1789686369.0890975
+      }
+    },
+    {
+      "gpu": 5,
+      "id": "1763f67d-6bb0-49c7-a3f3-9930c3477fc9",
+      "trial_name": "flash-r02-gpu5__5dazumT",
+      "task_checksum": "9d66bcb748407b7069d0202af5bcad0ad10ab4007e2e5f9d302958a8bcc74c5b",
+      "original_reward": 0.0,
+      "exception_info": null,
+      "seconds": {
+        "total": 10509.320145,
+        "agent": 10438.520455,
+        "verifier": 51.999475
+      },
+      "atif_steps": 81,
+      "agent_steps": 80,
+      "top_level_tool_calls": 101,
+      "source_files": {
+        "CMakeLists.txt": {
+          "added": 2,
+          "removed": 1
+        },
+        "csrc/ops.h": {
+          "added": 5,
+          "removed": 0
+        },
+        "csrc/torch_bindings.cpp": {
+          "added": 8,
+          "removed": 0
+        },
+        "vllm/model_executor/layers/quantization/utils/int8_utils.py": {
+          "added": 7,
+          "removed": 0
+        },
+        "csrc/quantization/int8/per_token_group_quant.cu": {
+          "added": 195,
+          "removed": 0,
+          "sha256": "b24d72d8ce7abcdf011e0f4f914e971852f989aa1f510f137e5f199d9596dc51"
+        }
+      },
+      "source_totals": {
+        "files": 5,
+        "added": 217,
+        "removed": 1
+      },
+      "raw_final_boundary": 409,
+      "snapshot": {
+        "bytes": 2989253580,
+        "sha256": "975adefdd7dc6c1c3fba66a80c371a3b9d5868fdc05ce5adcf8320d679c65bdf"
+      },
+      "formal_verification": {
+        "verdict": "FAIL",
+        "worker_result": {
+          "verdict": "FAIL",
+          "reason": "worker_exit_nonzero",
+          "worker_exit": 1,
+          "worker_output": {
+            "capability": [
+              8,
+              0
+            ],
+            "error": "CUDA error: invalid argument\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n",
+            "frozen_baseline_used": true,
+            "gpu": "NVIDIA A100-SXM4-40GB",
+            "parent_worker_boundary": true,
+            "stages": {
+              "configurable_arguments": {
+                "cases": [
+                  {
+                    "eps": 0.001,
+                    "group_size": 64,
+                    "range": [
+                      -64,
+                      63
+                    ],
+                    "shape": [
+                      3,
+                      64
+                    ]
+                  },
+                  {
+                    "eps": 1e-06,
+                    "group_size": 80,
+                    "range": [
+                      -32,
+                      31
+                    ],
+                    "shape": [
+                      1,
+                      80
+                    ]
+                  }
+                ]
+              },
+              "correctness": {
+                "cases": [
+                  {
+                    "cuda_q_delta": 1,
+                    "cuda_reference_delta": 1,
+                    "dtype": "torch.float16",
+                    "group_size": 64,
+                    "scale_max_delta": 1.4901161193847656e-08,
+                    "scale_reference_close": true,
+                    "shape": [
+                      32,
+                      128
+                    ]
+                  },
+                  {
+                    "cuda_q_delta": 1,
+                    "cuda_reference_delta": 1,
+                    "dtype": "torch.bfloat16",
+                    "group_size": 128,
+                    "scale_max_delta": 1.4901161193847656e-08,
+                    "scale_reference_close": true,
+                    "shape": [
+                      64,
+                      256
+                    ]
+                  },
+                  {
+                    "cuda_q_delta": 1,
+                    "cuda_reference_delta": 1,
+                    "dtype": "torch.float32",
+                    "group_size": 64,
+                    "scale_max_delta": 0.0,
+                    "scale_reference_close": true,
+                    "shape": [
+                      7,
+                      512
+                    ]
+                  },
+                  {
+                    "cuda_q_delta": 1,
+                    "cuda_reference_delta": 1,
+                    "dtype": "torch.float16",
+                    "group_size": 32,
+                    "scale_max_delta": 1.4901161193847656e-08,
+                    "scale_reference_close": true,
+                    "shape": [
+                      2,
+                      3,
+                      256
+                    ]
+                  }
+                ]
+              },
+              "operator_surface": "PASS",
+              "public_dispatch": {
+                "cuda_dispatch": "native",
+                "non_cuda_dispatch": "triton"
+              }
+            },
+            "traceback": "Traceback (most recent call last):\n  File \"<string>\", line 242, in worker_main\n  File \"/tests/quant_boundary.py\", line 53, in observe\n    x = x.repeat(repeats)[:numel].reshape(case[\"shape\"])\n        ^^^^^^^^^^^^^^^^^\nRuntimeError: CUDA error: invalid argument\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n\n",
+            "verdict": "FAIL"
+          },
+          "stderr": ""
+        }
+      },
+      "full_saved_replay": {
+        "reward": 0.0,
+        "probes": [
+          {
+            "name": "offset-float16-0-public",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-float16-0-native",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-float16-1-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float16-1-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float16-3-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float16-3-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-bfloat16-0-public",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-bfloat16-0-native",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-bfloat16-1-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-bfloat16-1-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-bfloat16-3-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-bfloat16-3-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float32-0-public",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-float32-0-native",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-float32-1-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float32-1-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float32-3-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float32-3-native",
+            "exit_code": 1
+          },
+          {
+            "name": "single-large-fp32",
+            "exit_code": 1
+          },
+          {
+            "name": "single-large-fp16",
+            "exit_code": 1
+          },
+          {
+            "name": "unaligned-fp16",
+            "exit_code": 0
+          },
+          {
+            "name": "unaligned-bf16",
+            "exit_code": 0
+          },
+          {
+            "name": "unaligned-fp32",
+            "exit_code": 0
+          }
+        ],
+        "inputs_unchanged": true,
+        "rebuilt_native_sha256": "5e95c282717752ab757fb0ae66339109f1274eb092ff5474c5b4be6b050bb299",
+        "started": 1789717584.6289108,
+        "finished": 1789718415.5406888
+      }
+    },
+    {
+      "gpu": 6,
+      "id": "97f086d7-e20b-4c5c-9a3e-f937fb161982",
+      "trial_name": "flash-r02-gpu6__qWJQGEE",
+      "task_checksum": "6ae38979f81fb782952c760a805f349bac767ff73ba1996e3a654acef5cdb2d8",
+      "original_reward": 0.0,
+      "exception_info": null,
+      "seconds": {
+        "total": 4595.546531,
+        "agent": 4080.081898,
+        "verifier": 496.636
+      },
+      "atif_steps": 108,
+      "agent_steps": 107,
+      "top_level_tool_calls": 134,
+      "source_files": {
+        "csrc/ops.h": {
+          "added": 5,
+          "removed": 0
+        },
+        "csrc/quantization/fp8/per_token_group_quant.cu": {
+          "added": 85,
+          "removed": 26
+        },
+        "csrc/torch_bindings.cpp": {
+          "added": 8,
+          "removed": 0
+        },
+        "vllm/model_executor/layers/quantization/utils/int8_utils.py": {
+          "added": 7,
+          "removed": 0
+        }
+      },
+      "source_totals": {
+        "files": 4,
+        "added": 105,
+        "removed": 26
+      },
+      "raw_final_boundary": 540,
+      "snapshot": {
+        "bytes": 728077477,
+        "sha256": "a9322796e424dc9c12ff72981d803ce352c6d7ef2410e1c28608ff9f83f0584a"
+      },
+      "formal_verification": {
+        "verdict": "FAIL",
+        "worker_result": {
+          "verdict": "FAIL",
+          "reason": "worker_exit_nonzero",
+          "worker_exit": 1,
+          "worker_output": {
+            "capability": [
+              8,
+              0
+            ],
+            "error": "CUDA error: invalid argument\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n",
+            "frozen_baseline_used": true,
+            "gpu": "NVIDIA A100-SXM4-40GB",
+            "parent_worker_boundary": true,
+            "stages": {
+              "configurable_arguments": {
+                "cases": [
+                  {
+                    "eps": 0.001,
+                    "group_size": 64,
+                    "range": [
+                      -64,
+                      63
+                    ],
+                    "shape": [
+                      3,
+                      64
+                    ]
+                  },
+                  {
+                    "eps": 1e-06,
+                    "group_size": 80,
+                    "range": [
+                      -32,
+                      31
+                    ],
+                    "shape": [
+                      1,
+                      80
+                    ]
+                  }
+                ]
+              },
+              "correctness": {
+                "cases": [
+                  {
+                    "cuda_q_delta": 1,
+                    "cuda_reference_delta": 1,
+                    "dtype": "torch.float16",
+                    "group_size": 64,
+                    "scale_max_delta": 0.0,
+                    "scale_reference_close": true,
+                    "shape": [
+                      32,
+                      128
+                    ]
+                  },
+                  {
+                    "cuda_q_delta": 1,
+                    "cuda_reference_delta": 1,
+                    "dtype": "torch.bfloat16",
+                    "group_size": 128,
+                    "scale_max_delta": 0.0,
+                    "scale_reference_close": true,
+                    "shape": [
+                      64,
+                      256
+                    ]
+                  },
+                  {
+                    "cuda_q_delta": 1,
+                    "cuda_reference_delta": 1,
+                    "dtype": "torch.float32",
+                    "group_size": 64,
+                    "scale_max_delta": 0.0,
+                    "scale_reference_close": true,
+                    "shape": [
+                      7,
+                      512
+                    ]
+                  },
+                  {
+                    "cuda_q_delta": 1,
+                    "cuda_reference_delta": 1,
+                    "dtype": "torch.float16",
+                    "group_size": 32,
+                    "scale_max_delta": 0.0,
+                    "scale_reference_close": true,
+                    "shape": [
+                      2,
+                      3,
+                      256
+                    ]
+                  }
+                ]
+              },
+              "operator_surface": "PASS",
+              "public_dispatch": {
+                "cuda_dispatch": "native",
+                "non_cuda_dispatch": "triton"
+              }
+            },
+            "traceback": "Traceback (most recent call last):\n  File \"<string>\", line 242, in worker_main\n  File \"/tests/quant_boundary.py\", line 53, in observe\n    x = x.repeat(repeats)[:numel].reshape(case[\"shape\"])\n        ^^^^^^^^^^^^^^^^^\nRuntimeError: CUDA error: invalid argument\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n\n",
+            "verdict": "FAIL"
+          },
+          "stderr": ""
+        }
+      },
+      "full_saved_replay": {
+        "reward": 0.0,
+        "probes": [
+          {
+            "name": "offset-float16-0-public",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-float16-0-native",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-float16-1-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float16-1-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float16-3-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float16-3-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-bfloat16-0-public",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-bfloat16-0-native",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-bfloat16-1-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-bfloat16-1-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-bfloat16-3-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-bfloat16-3-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float32-0-public",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-float32-0-native",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-float32-1-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float32-1-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float32-3-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float32-3-native",
+            "exit_code": 1
+          },
+          {
+            "name": "single-large-fp32",
+            "exit_code": 1
+          },
+          {
+            "name": "single-large-fp16",
+            "exit_code": 1
+          },
+          {
+            "name": "unaligned-fp16",
+            "exit_code": 0
+          },
+          {
+            "name": "unaligned-bf16",
+            "exit_code": 0
+          },
+          {
+            "name": "unaligned-fp32",
+            "exit_code": 0
+          }
+        ],
+        "inputs_unchanged": true,
+        "rebuilt_native_sha256": "3b7a49831aebdc74ad20a1d57e53ef5eee5dc7fb9be80e133dcb1f79c451dc97",
+        "started": 1789686860.0733676,
+        "finished": 1789687663.4203522
+      }
+    },
+    {
+      "gpu": 7,
+      "id": "0af701d6-a443-4efd-8dac-549def23d8b3",
+      "trial_name": "flash-r02-gpu7__L54rXMy",
+      "task_checksum": "47e70a65b3b44f48ed5fe7a0bf02979159d636605f9069395cdca2c65c79ad04",
+      "original_reward": 0.0,
+      "exception_info": null,
+      "seconds": {
+        "total": 2699.473367,
+        "agent": 2175.225393,
+        "verifier": 505.076674
+      },
+      "atif_steps": 62,
+      "agent_steps": 61,
+      "top_level_tool_calls": 88,
+      "source_files": {
+        "csrc/ops.h": {
+          "added": 5,
+          "removed": 0
+        },
+        "csrc/quantization/fp8/per_token_group_quant.cu": {
+          "added": 82,
+          "removed": 12
+        },
+        "csrc/torch_bindings.cpp": {
+          "added": 8,
+          "removed": 0
+        },
+        "vllm/model_executor/layers/quantization/utils/int8_utils.py": {
+          "added": 9,
+          "removed": 0
+        }
+      },
+      "source_totals": {
+        "files": 4,
+        "added": 104,
+        "removed": 12
+      },
+      "raw_final_boundary": 345,
+      "snapshot": {
+        "bytes": 727345590,
+        "sha256": "6ff3d309b1d16d586e55b3da54a916207a024ca0fb86c6b3aef9581f2d238791"
+      },
+      "formal_verification": {
+        "verdict": "FAIL",
+        "worker_result": {
+          "verdict": "FAIL",
+          "reason": "worker_exit_nonzero",
+          "worker_exit": 1,
+          "worker_output": {
+            "capability": [
+              8,
+              0
+            ],
+            "error": "CUDA error: invalid argument\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n",
+            "frozen_baseline_used": true,
+            "gpu": "NVIDIA A100-SXM4-40GB",
+            "parent_worker_boundary": true,
+            "stages": {
+              "configurable_arguments": {
+                "cases": [
+                  {
+                    "eps": 0.001,
+                    "group_size": 64,
+                    "range": [
+                      -64,
+                      63
+                    ],
+                    "shape": [
+                      3,
+                      64
+                    ]
+                  },
+                  {
+                    "eps": 1e-06,
+                    "group_size": 80,
+                    "range": [
+                      -32,
+                      31
+                    ],
+                    "shape": [
+                      1,
+                      80
+                    ]
+                  }
+                ]
+              },
+              "correctness": {
+                "cases": [
+                  {
+                    "cuda_q_delta": 0,
+                    "cuda_reference_delta": 0,
+                    "dtype": "torch.float16",
+                    "group_size": 64,
+                    "scale_max_delta": 1.4901161193847656e-08,
+                    "scale_reference_close": true,
+                    "shape": [
+                      32,
+                      128
+                    ]
+                  },
+                  {
+                    "cuda_q_delta": 1,
+                    "cuda_reference_delta": 1,
+                    "dtype": "torch.bfloat16",
+                    "group_size": 128,
+                    "scale_max_delta": 1.4901161193847656e-08,
+                    "scale_reference_close": true,
+                    "shape": [
+                      64,
+                      256
+                    ]
+                  },
+                  {
+                    "cuda_q_delta": 0,
+                    "cuda_reference_delta": 0,
+                    "dtype": "torch.float32",
+                    "group_size": 64,
+                    "scale_max_delta": 0.0,
+                    "scale_reference_close": true,
+                    "shape": [
+                      7,
+                      512
+                    ]
+                  },
+                  {
+                    "cuda_q_delta": 0,
+                    "cuda_reference_delta": 0,
+                    "dtype": "torch.float16",
+                    "group_size": 32,
+                    "scale_max_delta": 1.4901161193847656e-08,
+                    "scale_reference_close": true,
+                    "shape": [
+                      2,
+                      3,
+                      256
+                    ]
+                  }
+                ]
+              },
+              "operator_surface": "PASS",
+              "public_dispatch": {
+                "cuda_dispatch": "native",
+                "non_cuda_dispatch": "triton"
+              }
+            },
+            "traceback": "Traceback (most recent call last):\n  File \"<string>\", line 242, in worker_main\n  File \"/tests/quant_boundary.py\", line 53, in observe\n    x = x.repeat(repeats)[:numel].reshape(case[\"shape\"])\n        ^^^^^^^^^^^^^^^^^\nRuntimeError: CUDA error: invalid argument\nCUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.\nFor debugging consider passing CUDA_LAUNCH_BLOCKING=1\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n\n",
+            "verdict": "FAIL"
+          },
+          "stderr": ""
+        }
+      },
+      "full_saved_replay": {
+        "reward": 0.0,
+        "probes": [
+          {
+            "name": "offset-float16-0-public",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-float16-0-native",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-float16-1-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float16-1-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float16-3-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float16-3-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-bfloat16-0-public",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-bfloat16-0-native",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-bfloat16-1-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-bfloat16-1-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-bfloat16-3-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-bfloat16-3-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float32-0-public",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-float32-0-native",
+            "exit_code": 0
+          },
+          {
+            "name": "offset-float32-1-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float32-1-native",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float32-3-public",
+            "exit_code": 1
+          },
+          {
+            "name": "offset-float32-3-native",
+            "exit_code": 1
+          },
+          {
+            "name": "single-large-fp32",
+            "exit_code": 1
+          },
+          {
+            "name": "single-large-fp16",
+            "exit_code": 1
+          },
+          {
+            "name": "unaligned-fp16",
+            "exit_code": 1
+          },
+          {
+            "name": "unaligned-bf16",
+            "exit_code": 1
+          },
+          {
+            "name": "unaligned-fp32",
+            "exit_code": 1
+          }
+        ],
+        "inputs_unchanged": true,
+        "rebuilt_native_sha256": "162676fcc6d255ec1fc33a866d1452abf06d85b68d930e7eb1d083d6f4a2c9b6",
+        "started": 1789684983.6264362,
+        "finished": 1789685791.2883873
+      }
+    }
+  ]
+}

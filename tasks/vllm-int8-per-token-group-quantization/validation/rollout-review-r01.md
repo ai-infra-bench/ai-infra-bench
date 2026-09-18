@@ -1,8 +1,8 @@
-# First Flash round: rewards audited, revised round running
+# First Flash round: one false positive repaired
 
 One original reward was a false positive: GPU5 passed task 1.2.6 despite failing on legal contiguous tensors with nonzero storage offsets. Replaying all four complete saved repositories against the repaired 1.2.7 verifier gives **0/0/1/0**, versus original **0/1/1/0** in GPU4/5/6/7 order. GPU6 remains a valid passing candidate under the expanded suite. The other original zeros are supported by independent precision or large-group failures. No additional scoring change is justified by the remaining first-round evidence.
 
-This is a completed first-round review, **not final campaign acceptance**. A fresh four-concurrent Flash round on frozen task 1.2.8 is running. The added offset cases are development evidence, not held-out model evaluation.
+This completed first-round review preserves its original observations. The fresh four-concurrent round on frozen task 1.2.8 is now complete; see [second-round review and final acceptance](rollout-review-r02.md). The added offset cases are development evidence, not held-out model evaluation.
 
 ## Scope and reproducibility
 
@@ -67,4 +67,4 @@ All attempts initially raised compile concurrency and hit the 32 GiB memory limi
 
 The 1.2.7 20-control matrix and independent Oracle/alternative checks pass, including native FP8 preservation checks rather than counting unsupported sm80 Triton FP8 tests as successes. Fresh actual Harbor Oracle acceptance passes at 1.2.8 with minimum 2.320× and unchanged inputs. Runtime-control reuse from 1.2.7 is explicitly distinguished from that fresh run.
 
-Round two starts four clean Flash attempts on frozen 1.2.8 with explicit nonoverlapping networks and retained containers. Its full trajectories and final states still require review. First-round-derived tests are not a population pass-rate estimate, and a second-round outcome will not be tuned to force a desired distribution of rewards.
+Round two ran four clean Flash attempts on frozen 1.2.8 with explicit nonoverlapping networks and retained containers. Its complete trajectory/final-state review is recorded separately in [R02](rollout-review-r02.md). First-round-derived tests are not a population pass-rate estimate; no scoring change was made to force a desired distribution of second-round rewards.

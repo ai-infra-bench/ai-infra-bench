@@ -1,5 +1,5 @@
-# Acceptance pending the model campaign
+# Current acceptance: task 1.2.8
 
-Version 1.2.8 clarifies build guidance after two models spent hours rebuilding unrelated extensions. Its runtime files and controls are identical to the validated 1.2.7 revision. The fresh 1.2.8 Harbor Oracle run passes with reward 1 and a minimum 2.320× speedup; see [validation results](review-report.md).
+The two-round campaign and all eight full saved-state reviews are complete. Retain the repaired task and verifier; no further executable changes were justified by R02.
 
-Two first-round Flash attempts are still running, their final states require review, and a fresh frozen four-attempt round remains. Original rewards stay separate from diagnostic and full-verifier replays. This file does not certify final acceptance.
+See the [current review summary](review-report.md), [second-round attribution](rollout-review-r02.md), [first-round false-positive repair](rollout-review-r01.md), and [machine-readable validation evidence](e2e-evidence.json). Original and replay rewards remain distinct.
