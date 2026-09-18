@@ -15,7 +15,14 @@ MODEL = '/opt/models/tiny-qwen3'
 PREFIX = 'DISTRIBUTED_GENERATION='
 
 
-def workloads():
+def workloads(profile='batched'):
+    if profile in ('chunked', 'interleave1'):
+        return {
+            'short': ([9 + (i * 7) % 61 for i in range(13)], 2),
+            'long': ([73 + (i * 3) % 67 for i in range(62)], 23),
+            'later': ([151 + (i * 11) % 83 for i in range(63)], 7),
+        }
+    assert profile == 'batched'
     return {
         'short': ([4 + i % 41 for i in range(29)], 3),
         'long': ([60 + i % 53 for i in range(61)], 10),
@@ -23,7 +30,7 @@ def workloads():
     }
 
 
-def worker(backend, graph, layout):
+def worker(backend, graph, layout, profile='batched'):
     # Environment is set before vLLM imports in this fresh process; candidate
     # modules from earlier component tests cannot substitute the engine here.
     os.environ['VLLM_USE_V2_MODEL_RUNNER'] = '1'
@@ -35,10 +42,15 @@ def worker(backend, graph, layout):
     from vllm.v1.engine.llm_engine import LLMEngine
     cfg = EngineArgs(model=MODEL, tokenizer=MODEL, dtype='float16',
         max_model_len=128, tensor_parallel_size=2, decode_context_parallel_size=2,
-        cp_kv_cache_interleave_size=2, distributed_executor_backend='mp',
+        cp_kv_cache_interleave_size=1 if profile == 'interleave1' else 2,
+        distributed_executor_backend='mp',
         enforce_eager=not graph, async_scheduling=False,
-        enable_prefix_caching=False, max_num_seqs=4, max_num_batched_tokens=128,
-        block_size=16, kv_cache_memory_bytes=64 * 1024 * 1024,
+        enable_prefix_caching=False, max_num_seqs=4,
+        # The smaller token budget forces ordinary multi-tick prompt processing.
+        # The next chunk must combine already cached context and new prompt K/V.
+        max_num_batched_tokens=32 if profile == 'chunked' else 128,
+        block_size=16 if profile == 'batched' else 32,
+        kv_cache_memory_bytes=64 * 1024 * 1024,
         gpu_memory_utilization=0.03, max_logprobs=256,
         # This image's FA3 wrapper has a separate split-scheduler startup
         # incompatibility, reproduced with the original runner as well.
@@ -53,7 +65,7 @@ def worker(backend, graph, layout):
     started = time.monotonic()
     engine = LLMEngine.from_engine_args(cfg)
     setup_seconds = time.monotonic() - started
-    cases = workloads()
+    cases = workloads(profile)
     def admit(name):
         prompt, budget = cases[name]
         engine.add_request(name, {'prompt_token_ids': prompt},
@@ -86,25 +98,45 @@ def worker(backend, graph, layout):
         assert set(finished) == set(cases), 'missing completion or stuck generation'
         assert not engine.has_unfinished_requests(), 'engine not drained'
         print(PREFIX + json.dumps({'backend': backend, 'graph': graph, 'layout': layout,
+            'profile': profile,
             'finished': finished, 'history': history, 'setup_seconds': setup_seconds,
             'total_seconds': time.monotonic() - started}), flush=True)
     finally:
         engine.engine_core.shutdown()
 
 
-def check(backend, graph, layout):
+def check(backend, graph, layout, profile='batched'):
     command = [sys.executable, str(Path(__file__).resolve()), '--worker',
-               '--backend', backend, '--layout', layout]
+               '--backend', backend, '--layout', layout, '--profile', profile]
     if graph:
         command.append('--graph')
     # Explicit layout in each fresh worker: neither a process-local cache nor
     # the ambient environment may silently turn both cases into the same path.
     env = dict(os.environ, OMP_NUM_THREADS='1', VLLM_USE_V2_MODEL_RUNNER='1',
-               VLLM_KV_CACHE_LAYOUT=layout)
+               VLLM_KV_CACHE_LAYOUT=layout, PYTHONUNBUFFERED='1')
     # Parent component checks retain CUDA objects. This worker performs real
     # multi-process initialization in a fresh interpreter, never forked CUDA.
-    completed = subprocess.run(command, env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=300)
+    case = {'backend': backend, 'graph': graph, 'layout': layout, 'profile': profile}
+    started = time.monotonic()
+    print('DISTRIBUTED_START=' + json.dumps(case), flush=True)
+    try:
+        completed = subprocess.run(command, env=env, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=300)
+    except subprocess.TimeoutExpired as exc:
+        # subprocess.run captures output in the exception on timeout, including
+        # bytes even with text=True. Preserve it in the supervisor's verifier.log
+        # before propagating the original failure; never retry or award success.
+        print('DISTRIBUTED_TIMEOUT=' + json.dumps({**case,
+            'timeout_seconds': exc.timeout,
+            'elapsed_seconds': time.monotonic() - started}), flush=True)
+        for stream, output in (('stdout', exc.stdout), ('stderr', exc.stderr)):
+            if output is not None:
+                if isinstance(output, bytes):
+                    output = output.decode('utf-8', errors='replace')
+                print(f'DISTRIBUTED_PARTIAL_{stream.upper()}_BEGIN', flush=True)
+                print(output, end='' if output.endswith('\n') else '\n', flush=True)
+                print(f'DISTRIBUTED_PARTIAL_{stream.upper()}_END', flush=True)
+        raise
     print(completed.stdout, flush=True)
     assert completed.returncode == 0, (
         f'{backend} layout={layout} graph={graph}: engine process failed')
@@ -114,7 +146,8 @@ def check(backend, graph, layout):
     observation = records[0]
     assert (observation['backend'], observation['graph'], observation['layout']) == (
         backend, graph, layout), 'wrong generation observation configuration'
-    cases = workloads()
+    assert observation['profile'] == profile, 'wrong workload profile'
+    cases = workloads(profile)
     assert set(observation['finished']) == set(cases)
 
     # Independent model implementation on CPU, using the same immutable weights.
@@ -144,14 +177,15 @@ def check(backend, graph, layout):
             max_error = max(max_error, float((actual - expected).abs().max()))
             sequence.append(token)
     print('DISTRIBUTED_CHECK=' + json.dumps({'backend':backend,'graph':graph,'layout':layout,
+        'profile':profile,
         'requests':len(cases),'tokens':sum(b for _,b in cases.values()),
         'max_logprob_error':max_error,'setup_seconds':observation['setup_seconds'],
         'total_seconds':observation['total_seconds']}), flush=True)
 
 
-def run_group(backend, layout):
+def run_group(backend, layout, profile='batched'):
     for graph in (False, True):
-        check(backend, graph, layout)
+        check(backend, graph, layout, profile)
 
 
 if __name__ == '__main__':
@@ -160,8 +194,10 @@ if __name__ == '__main__':
     parser.add_argument('--backend', choices=['FLASH_ATTN', 'FLASHINFER'], required=True)
     parser.add_argument('--layout', choices=['NHD', 'HND'], required=True)
     parser.add_argument('--graph', action='store_true')
+    parser.add_argument('--profile', choices=['batched', 'chunked', 'interleave1'],
+                        default='batched')
     args = parser.parse_args()
     if args.worker:
-        worker(args.backend, args.graph, args.layout)
+        worker(args.backend, args.graph, args.layout, args.profile)
     else:
-        check(args.backend, args.graph, args.layout)
+        check(args.backend, args.graph, args.layout, args.profile)

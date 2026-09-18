@@ -13,14 +13,15 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, '/workspace/repo')
+import numpy as np
 import torch
 from vllm.config import (CacheConfig, CompilationConfig, ModelConfig,
                          ParallelConfig, SchedulerConfig, SpeculativeConfig, VllmConfig,
                          set_current_vllm_config)
 from vllm.config.compilation import CUDAGraphMode
 from vllm.forward_context import get_forward_context
-from vllm.sampling_params import SamplingParams
-from vllm.v1.core.sched.output import NewRequestData, SchedulerOutput
+from vllm.sampling_params import SamplingParams, StructuredOutputsParams
+from vllm.v1.core.sched.output import GrammarOutput, NewRequestData, SchedulerOutput
 from vllm.v1.kv_cache_interface import FullAttentionSpec
 from vllm.v1.core.kv_cache_utils import get_kv_cache_groups, get_kv_cache_config_from_groups
 from vllm.v1.attention.backends import flashinfer
@@ -84,7 +85,8 @@ def _run_case(lengths, steps=2):
                 scheduler_output.scheduled_new_reqs.append(NewRequestData(
                     req_id=req_id, prompt_token_ids=prompt, prefill_token_ids=prompt,
                     mm_features=[], sampling_params=SamplingParams(
-                        temperature=0, max_tokens=8, ignore_eos=True),
+                        temperature=0, max_tokens=8, ignore_eos=True,
+                        structured_outputs=StructuredOutputsParams(regex='.*')),
                     pooling_params=None, block_ids=(ids,), num_computed_tokens=0,
                     lora_request=None))
                 scheduler_output.num_scheduled_tokens[req_id] = len(prompt)
@@ -92,15 +94,20 @@ def _run_case(lengths, steps=2):
                     cache[physical, 1, :, 0, :] = torch.arange(
                         logical*16+1, logical*16+17, device='cuda')[:, None]
             scheduler_output.total_num_scheduled_tokens = sum(lengths)
-            runner.add_requests(scheduler_output)
-            runner.update_requests(scheduler_output)
-            runner.block_tables.apply_staged_writes()
+            scheduler_output.has_structured_output_requests = True
             if flashinfer.get_kv_cache_layout() == 'HND':
                 cache = cache.permute(0, 1, 3, 2, 4).contiguous().permute(0, 1, 3, 2, 4)
-            # The target batch and all metadata/mirrors come from the production
-            # scheduler-message preparation boundary, never from dummy edits.
-            batch = runner.prepare_inputs(scheduler_output, sum(lengths))
             observed = []
+
+            class Target(torch.nn.Module):
+                def forward(self, input_ids, positions, **kwargs):
+                    return torch.zeros((len(input_ids), 512),
+                                       dtype=torch.float16, device='cuda')
+
+                def compute_logits(self, hidden):
+                    logits = torch.full((len(hidden), 256), -1000., device='cuda')
+                    logits[:, 1] = 1000.
+                    return logits
 
             class Draft(torch.nn.Module):
                 calls = 0
@@ -130,18 +137,31 @@ def _run_case(lengths, steps=2):
                     return logits
 
             eagle.model = Draft()
-            result = eagle.propose(batch,
-                torch.zeros((sum(lengths), 512), dtype=torch.float16, device='cuda'), None,
-                torch.ones(2, dtype=torch.int32, device='cuda'),
-                torch.zeros(2, dtype=torch.int32, device='cuda'),
-                torch.ones(2, dtype=torch.int32, device='cuda'),
-                torch.ones(2, dtype=torch.int32, device='cuda'),
-                torch.zeros(2, device='cuda'), torch.zeros(2, dtype=torch.int64, device='cuda'))
+            runner.model = Target()
+            # Drive the worker's normal execution/sampling boundary. Internal
+            # preparation and proposal signatures are deliberately not called.
+            # A permissive scheduler grammar mask leaves logits unchanged and
+            # requests the ordinary CPU draft-token transport used by structured
+            # decoding. This is a supplied scheduler message, not a grammar-
+            # compiler test or an edit to the runner's internal batch state.
+            request_ids = [request.req_id for request in scheduler_output.scheduled_new_reqs]
+            runner.execute_model(scheduler_output)
+            sampled = runner.sample_tokens(GrammarOutput(
+                structured_output_request_ids=request_ids,
+                grammar_bitmask=np.full((len(request_ids), 8), -1, dtype=np.int32)))
+            result = runner.take_draft_token_ids()
             torch.cuda.synchronize()
             expected = [[1] + [n+step+1 for step in range(1, steps)] for n in lengths]
-            return {'lengths': lengths, 'steps': steps, 'draft_tokens': result.cpu().tolist(),
+            assert result is not None and sampled is not None
+            assert len(result.req_ids) == len(set(result.req_ids)) == len(request_ids)
+            assert set(result.req_ids) == set(request_ids)
+            by_id = dict(zip(result.req_ids, result.draft_token_ids, strict=True))
+            tokens = [by_id[req_id] for req_id in request_ids]
+            target_tokens = dict(zip(sampled.req_ids, sampled.sampled_token_ids, strict=True))
+            assert target_tokens == {req_id: [1] for req_id in request_ids}, target_tokens
+            return {'lengths': lengths, 'steps': steps, 'draft_tokens': tokens,
                     'expected': expected, 'attention_outputs': observed,
-                    'passed': result.cpu().tolist() == expected}
+                    'passed': tokens == expected}
 
 
 def check_eagle_nondcp():
@@ -153,7 +173,7 @@ def check_eagle_nondcp():
                        runner_module, graph_module):
             stack.enter_context(patch.object(module, 'get_dcp_group',
                                              return_value=GROUP, create=True))
-        for lengths in ([4, 7], [15, 23]):
+        for lengths in ([4, 7], [15, 23], [23, 15]):
             result = _run_case(lengths)
             results.append(result)
             print('EAGLE_NON_DCP_CASE=' + json.dumps(result), flush=True)

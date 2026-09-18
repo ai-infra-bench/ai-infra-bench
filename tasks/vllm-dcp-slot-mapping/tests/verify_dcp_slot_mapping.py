@@ -43,6 +43,9 @@ EXPECTED_CHECKPOINTS = (
     "distributed-flashinfer-generation",
     "distributed-flash-attention-hnd-generation",
     "distributed-flashinfer-hnd-generation",
+    "distributed-flashinfer-chunked-generation",
+    "distributed-flashinfer-hnd-chunked-generation",
+    "distributed-flash-attention-interleave1-graph",
     "complete",
 )
 
@@ -636,6 +639,13 @@ def run_suite(emit) -> None:
     emit("distributed-flash-attention-hnd-generation", True)
     distributed_check.run_group("FLASHINFER", "HND")
     emit("distributed-flashinfer-hnd-generation", True)
+    distributed_check.run_group("FLASHINFER", "NHD", "chunked")
+    emit("distributed-flashinfer-chunked-generation", True)
+    distributed_check.run_group("FLASHINFER", "HND", "chunked")
+    emit("distributed-flashinfer-hnd-chunked-generation", True)
+    for layout in ("NHD", "HND"):
+        distributed_check.check("FLASH_ATTN", True, layout, "interleave1")
+    emit("distributed-flash-attention-interleave1-graph", True)
     print(
         "PASS: production slot mapping handles non-DCP, held-out DCP ranks, "
         "interleaving, supported block sizes, requests, CUDA graph replay, "
