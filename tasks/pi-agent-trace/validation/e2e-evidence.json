@@ -9,13 +9,26 @@
   "dependency_cutoff": "2026-09-05T11:54:46Z",
   "image": {
     "canonical_tag": "ai-infra-bench/pi-agent-trace:base-d981de1229ef",
-    "image_id": "sha256:40fe5f960138c58e4697f4fa2798accc4e383809d3f340242c8b3320f0eb91e8",
-    "platform": "linux/amd64 (templates/pi-harbor-node/build.py under qemu; byte-identical Dockerfile to pi-background-processes and pi-history-notes, so the same image id)",
-    "local_matrix_image": "ai-infra-bench/pi-agent-trace:local = the linux/arm64 build of the same Dockerfile, retagged from pi-history-notes:local (sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d)",
-    "published": false
+    "image_id": "sha256:b3e2ea1ef22eaa1b6a0d22dd5d169546701b6eff535ed8160ea86bff1840224c",
+    "platform": "linux/amd64 (templates/pi-harbor-node/build.py under qemu on the arm64 host; harness revision 4 Dockerfile; CI's x64 runner rebuilds the same Dockerfile natively); matches task.toml image_digest and environment/image-manifest.json",
+    "local_matrix_image": "ai-infra-bench/pi-agent-trace:local = linux/arm64 build of the harness revision 4 Dockerfile, sha256:c0b17fefc5542c58b442cb47a51bc757ada45a5162192e52d5135889d082efb8 (the image the revision 4 matrix ran on)",
+    "published": false,
+    "previous_local_images": {
+      "harness_revision_2_amd64": "sha256:40fe5f960138c58e4697f4fa2798accc4e383809d3f340242c8b3320f0eb91e8 (canonical image before harness revision 3; superseded 2026-09-17)",
+      "harness_revision_3_arm64": "sha256:96703b6c4db6547b7096cd4d802fbc6f14bf35af9e2a3dd2418aa2c5a2eefd2d (revision 3 matrix image; superseded 2026-09-18)",
+      "harness_revision_3_amd64": "sha256:b44780bd36bae60aa0877c361c7856ab1d52467899105d2c23dd26454bf9bd0f (revision 3 canonical amd64; superseded 2026-09-18)"
+    },
+    "ci_x64": {
+      "run_id": "35258357030",
+      "pr": "#94",
+      "head": "25bbca7",
+      "date": "2026-09-17T18:21Z",
+      "image_id_prefix": "sha256:9599aae0a20b",
+      "note": "CI builds the Dockerfile natively on the x64 runner (environment_key 7763abb7…) and runs the full ci-cases.json matrix; it does not compare against image_digest"
+    }
   },
   "harbor_version": "0.22.0",
-  "hardware": "local macOS (Apple Silicon) host, colima docker VM; CI x64 runner not yet used",
+  "hardware": "local macOS (Apple Silicon) host, colima docker VM; CI x64 runner (GitHub Actions) validated harness revision 3 on 2026-09-17T18:21Z (run 35258357030, full matrix green)",
   "executable_hashes": {
     "instruction_sha256": "606dd2c1ac8b85f67a3ab595da323d57eff36d39b7679fe53d07fcc5915247aa",
     "task_toml_sha256": "4593319fef4fba698393826df8d8ba0589822c1417458a70fceeb8d11518c6bf",
@@ -46,6 +59,42 @@
   "harbor_runs": {
     "entrypoint": "python3.12 .github/scripts/task_ci.py {validate,image-check,prepare-case,check-result} + uvx --from harbor==0.22.0 harbor run --env docker --n-concurrent 1 --cpus ignore --memory ignore --delete --yes",
     "latest": {
+      "date": "2026-09-18",
+      "harness_revision": 4,
+      "image_id_arm64": "sha256:c0b17fefc5542c58b442cb47a51bc757ada45a5162192e52d5135889d082efb8",
+      "image_id_amd64_canonical": "sha256:b3e2ea1ef22eaa1b6a0d22dd5d169546701b6eff535ed8160ea86bff1840224c",
+      "log": "~/ai-infra-scratch/f3-at-matrix.log",
+      "result": "all-match 33/33 (base, oracle, every control incl. control-verifier-runner-escape, alternatives)",
+      "note": "verifier runs pi's suites as the unprivileged node user (su -p); baseline recorded as node (0 environmental failures); new control control-verifier-runner-escape rejected (reward 0)."
+    },
+    "previous": [
+      {
+        "date": "2026-09-15",
+        "image_id": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d",
+        "log": "~/ai-infra-scratch/at-matrix-8.log",
+        "all_match": true,
+        "n_cases": 30
+      },
+      {
+        "date": "2026-09-16",
+        "image_id": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d",
+        "log": "~/ai-infra-scratch/at-matrix-9.log",
+        "parallel_jobs": 2,
+        "note": "full matrix after the 2026-09-16 verifier revision (listed-keys attribute matching); includes alt-grok-run8-fixed",
+        "all_match": true,
+        "n_cases": 31
+      },
+      {
+        "date": "2026-09-16",
+        "image_id": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d",
+        "log": "~/ai-infra-scratch/at-matrix-11.log",
+        "parallel_jobs": 2,
+        "note": "full matrix after verifier revision 2 of 2026-09-16 (1 ms slack below verifier-clock windows; millisecond granularity for the two mixed-clock in-trace comparisons); includes alt-grok-run8-fixed and alt-opus-run1",
+        "all_match": true,
+        "n_cases": 31
+      }
+    ],
+    "harness_revision_3_matrix": {
       "date": "2026-09-17",
       "image_id": "sha256:96703b6c4db6547b7096cd4d802fbc6f14bf35af9e2a3dd2418aa2c5a2eefd2d",
       "log": "~/ai-infra-scratch/at-matrix-r3.log",
@@ -278,34 +327,7 @@
         }
       ],
       "all_match": true
-    },
-    "previous": [
-      {
-        "date": "2026-09-15",
-        "image_id": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d",
-        "log": "~/ai-infra-scratch/at-matrix-8.log",
-        "all_match": true,
-        "n_cases": 30
-      },
-      {
-        "date": "2026-09-16",
-        "image_id": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d",
-        "log": "~/ai-infra-scratch/at-matrix-9.log",
-        "parallel_jobs": 2,
-        "note": "full matrix after the 2026-09-16 verifier revision (listed-keys attribute matching); includes alt-grok-run8-fixed",
-        "all_match": true,
-        "n_cases": 31
-      },
-      {
-        "date": "2026-09-16",
-        "image_id": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d",
-        "log": "~/ai-infra-scratch/at-matrix-11.log",
-        "parallel_jobs": 2,
-        "note": "full matrix after verifier revision 2 of 2026-09-16 (1 ms slack below verifier-clock windows; millisecond granularity for the two mixed-clock in-trace comparisons); includes alt-grok-run8-fixed and alt-opus-run1",
-        "all_match": true,
-        "n_cases": 31
-      }
-    ]
+    }
   },
   "local_precheck": {
     "script": "validation/make_controls.py",
@@ -1094,16 +1116,16 @@
   ],
   "artifacts": {
     "files": {
-      "README.md": "7b56a912510185d0c9c53f08d02a2d6b402580d94c70eef2136554d3030f5f3d",
-      "environment/Dockerfile": "0f3adb8228746b1865ce3435e32d05269f204b4f1996b2ba7f7ef325c3ee7ea9",
-      "environment/image-manifest.json": "ff77a03038c5b90ee56dd6a08651f54679bbdc9e479b5cc4911aebfef7c1ffaf",
+      "README.md": "807515178c6476502dfef159599f9b5c5c58c9b6a4785e0d3fdbbc11c611d313",
+      "environment/Dockerfile": "e867971dae32dc48b325bb843c96a6d38810151dc66e4a2a8375dc7734fc84a5",
+      "environment/image-manifest.json": "846547b7f3858e6af624be51fa90abbf23b3243c169fe2e499163d963a7995ef",
       "environment/lock/manifest.json": "967f6a3c67d25bae5ed6be1dad6bc7ca15d2cfd3d3539f93366a02100d13cf2f",
       "environment/lock/package-lock.json": "e3569b99e673a0051be908f2bed57651b90a966a5a0d208913c29e6830a6a6c2",
       "instruction.md": "606dd2c1ac8b85f67a3ab595da323d57eff36d39b7679fe53d07fcc5915247aa",
       "solution/README.md": "3846768f81bcbc8be890ec89fb7a63ce3ec307b30a68ec48f1bec4dde0263d15",
       "solution/oracle.patch": "48ae4c3436169764077986f760b55dc4ece45fe2a0791c698433ca009812cbd8",
       "solution/solve.sh": "9fc62fd65f4dafe37cd88285894776535c4bfa300e62d5570140f49fdc93a8f9",
-      "task.toml": "4593319fef4fba698393826df8d8ba0589822c1417458a70fceeb8d11518c6bf",
+      "task.toml": "6644f491d5067af4716f36546fe79e142b559173728bf2c2270588bbbc7678b0",
       "tests/at.contract.test.ts": "16b26caacc23882128ce067b3ef4454e146b4282303438ae1c4ac3d6141a430c",
       "tests/at.lifecycle.test.ts": "9fa73df9709ac0ac094bb4c2de2a57640990ebbbdefe7e3c5b0a8c043babcdd6",
       "tests/at_support.ts": "c8b96f7427cffcc6b49dc689e8a38105360d5198c740b722dc86bef2fc174c73",
@@ -1112,7 +1134,7 @@
       "tests/check_junit.py": "c83c7f28d13b83d57295855e497f8eb443eeb16592777baa8fcbf84799cf6760",
       "tests/check_pass_to_pass.py": "45524a99263891462e106cdb8b10e270cb5a9b9a69f7360a4515a6f7a3ef82e0",
       "tests/fixtures/pi_child.mjs": "73c2d9d4d705831095f69772c9bf02fd7c4e414748608c223a02262dfdfc32b7",
-      "tests/test.sh": "697f39b8f32e4e24ee377eafea720c3aaae004573374a2d7b61a77a195c18636",
+      "tests/test.sh": "ddc1dd4915c532736f319b4ef97326cd82d4ea314e9b11ce95a4a0b6a9db0fd7",
       "validation/alt-grok-run1.patch": "982fd144d6693192497809994d9bcb54664d296aaff9767cdf07543d3036ea81",
       "validation/alt-grok-run3.patch": "1fc1f7529e23b694b392aee8cfb9196b94bbd152b1b36b9aef55b4aec998708c",
       "validation/alt-grok-run4.patch": "a07861ba020a599cfef10b63b1d0ae1b88a8814a2bd0a51caa6fb6f958825830",
@@ -1120,7 +1142,7 @@
       "validation/alt-grok-run8-fixed.patch": "87c7ff027eb4d9e2e730368b2fa2f02c51fcb96083a6fdbed47c9223aa24e602",
       "validation/alt-opus-run1.patch": "9817d4ffcb6dc7cf129ddb627cff82a3b3a1974789e17aee133f5ab0bd027479",
       "validation/behavior-map.md": "27dbf0ae5ae49ace5638c6e8c86d26aca831b7edc2a1d337e76d138735b36cf4",
-      "validation/ci-cases.json": "57c0450d6ddaeb46a0a530388a4841d4e40b39a2b94b256584a519bfb1aad89f",
+      "validation/ci-cases.json": "2bcd49e5aa5f8e3489a16967da9eaafea5ab0edb940a42aac86b67d8ea99650c",
       "validation/control-aborted-as-ok.patch": "ca556da5fe2bebcd6a9d83cd5ea0d0032668ad9acc27776124a1b9bd74b69ea9",
       "validation/control-chat-held-until-turn-end.patch": "7bd30caee123446bce4a601442a8fcee07afe7e9f9db6d5e93d224584081a894",
       "validation/control-chat-written-before-persist.patch": "4a28605f512f881759f816b2d62ed74c2ac3466e13f4f557ce0017d9e4b409f3",
@@ -1145,11 +1167,26 @@
       "validation/control-trace-id-per-process.patch": "06d98f8db7b5edf3d06c444cfd92763fc583b8116f0029175df94cde4f05fa7c",
       "validation/control-wakeup-as-prompt.patch": "81571621c837afaa2608b0ddcb84be2cfb88cab8462c1745a1be992181eb3a5e",
       "validation/control-write-failure-throws.patch": "ef4b99cdba0ee7f108e3d112feb697c4182b5250c8c33597ba5cc2a57accdbd0",
-      "validation/controls-plan.md": "54c28ccb04d6dd5c12e70661af7f36943a60e94b548e925773d5c2d38614d63d",
+      "validation/controls-plan.md": "12733d48e59fb9c985f0f47374c538779dfb76b9d068b537dd99237f8ee48bed",
       "validation/independent_challenge.py": "0c293e1904a558c028081c8f0d9e194e4523720a61c193fabfcd8a624174c94e",
       "validation/make_controls.py": "86f014a4a2580adbff3864c277ff16520ca43ac29af702a3b0eb752c4492800a",
-      "validation/rollout-review-2026-09-17.md": "9087e16bb9d4f91233497b3818206d5c60b017d1723f7e370ece830c4a61bbc6",
-      "validation/task-review-2026-09-17.md": "ba8cf20308f2f8589c3f1b918ec64286a7573d0dcd0c3f5268253ae6fe9707d2"
+      "validation/rollout-review-2026-09-17.md": "b1041eee3f60e2c9ad7cdb9cfade0db4cc2834782e1775bf0be54b8a1bbab24a",
+      "validation/task-review-2026-09-17.md": "7ce87cd348520f7cf0fbf185ed75a743b328796144eab14adb322f572ed0c2a6",
+      "validation/control-verifier-runner-escape.patch": "8aa915ea999e08e7fd7c389b9bf7731a51020777bb66accebab845bebaaef9e9"
     }
-  }
+  },
+  "record_updates": [
+    {
+      "date": "2026-09-18",
+      "change": "image.image_id updated to the harness revision 3 amd64 build (was the revision 2 id); CI x64 result recorded; README remaining-work list refreshed. No task artifact changed."
+    },
+    {
+      "date": "2026-09-18",
+      "change": "rollout-review-2026-09-17.md: appended the harness revision 3 rollout section (attempt audit, replay/challenge evidence, attribution). Documentation only."
+    },
+    {
+      "date": "2026-09-18",
+      "change": "Harness revision 4: tests/test.sh runs every candidate-executing suite as the node user and the image records the pass-to-pass baseline as node (Dockerfile chown moved before the baseline RUN); closes F3 (verifier-phase runner substitution). New control control-verifier-runner-escape (expected 0). Rebuilt arm64 sha256:c0b17fefc5542c58b442cb47a51bc757ada45a5162192e52d5135889d082efb8 and amd64 canonical sha256:b3e2ea1ef22eaa1b6a0d22dd5d169546701b6eff535ed8160ea86bff1840224c; task.toml image_digest and image-manifest.json updated; Oracle 1, probe/control 0, real submissions replay unchanged, matrices 33/33."
+    }
+  ]
 }

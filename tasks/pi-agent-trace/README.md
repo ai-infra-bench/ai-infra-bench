@@ -6,7 +6,7 @@ image is the same template build as `pi-background-processes` and
 `pi-history-notes` (identical Dockerfile bytes, so the same image id); the CI
 x64 runner has not built or published it yet.
 
-Harness revision 3 (2026-09-17): the agent phase runs as the unprivileged `node` user while the verifier runs as root; the installed toolchain is root-owned so candidate code cannot rewrite the runner that produces the verifier's reports, and `tests/test.sh` rejects submissions that change pi source or the build/test toolchain (see the task review under `validation/`); the pass-to-pass check tolerates the pinned environmental failures in the candidate run too. Verifier cases unchanged.
+Harness revision 3 (2026-09-17): the agent phase runs as the unprivileged `node` user while the verifier runs as root; the installed toolchain is root-owned so candidate code cannot rewrite the runner that produces the verifier's reports, and `tests/test.sh` rejects submissions that change pi source or the build/test toolchain (see the task review under `validation/`). Harness revision 4 (2026-09-18): `tests/test.sh` runs every suite that executes candidate code (pass-to-pass, contract, lifecycle) as the unprivileged `node` user too, so candidate code cannot rewrite the runner, interpreter or baseline during verification either; the reward file is written only by root; the image records the pass-to-pass baseline as `node` so it matches the candidate's run conditions (2158 tests, 0 environmental failures, 50 skipped). Verifier cases unchanged.
 
 ## What the agent does
 
@@ -121,7 +121,6 @@ tools/local_agent_rollout.sh pi-agent-trace ai-infra-bench/pi-agent-trace:local 
 ```
 
 ## Remaining work before publication
-
-1. CI run on the x64 runner and image publication (shared with the other pi tasks).
-2. An independent oracle challenge (the alternative implementation exists: `alt-grok-run1`).
-3. Ten-dimension review.
+1. Image publication through `publish-task-images.yml`. CI on the x64 runner is done: run 35258357030 (PR #94, head `25bbca7`, 2026-09-17T18:21Z) built the Dockerfile natively (image sha256:9599aae0a20b…) and ran the full `validation/ci-cases.json` matrix green; the local amd64 build (`sha256:b44780bd36ba…`, task.toml `image_digest`) is not yet pushed to a registry.
+2. Independent Oracle challenge: done 2026-09-17 (`validation/independent_challenge.py`, `validation/at.independent.test.ts`).
+3. Ten-dimension review: done 2026-09-17 (`validation/task-review-2026-09-17.md`), by the curator session; an independent second reviewer has not repeated it.
