@@ -1,30 +1,11 @@
-# Task 1.2.8 accepted after iterative rollout review
+# Task 1.2.9: native interface correction after Codex testing
 
-The repaired task and verifier can be retained. Two rounds of four concurrent Harbor/Flash attempts are complete; all eight full saved-state replays and trajectory reviews are complete. One original false positive was identified and repaired. The second round exposes no further scoring defect within the reviewed scope.
+Four concurrent A100 runs using Codex 0.153.4 and `gpt-6-astra` at `medium` are complete. The original task 1.2.8 scores were **0/4** because its verifier imposed an undocumented seven-argument native ABI. Regrading the same verifier-built candidate libraries with the corrected scorer gives **2/4**: GPUs 0 and 3 pass, while GPUs 1 and 2 reject legal positive INT8 lower bounds.
 
-| Round | Task version | Original rewards, GPU4/5/6/7 | Full saved-state replay |
-|---|---|---|---|
-| R01 | 1.2.6 | 0 / 1 / 1 / 0 | 0 / 0 / 1 / 0 on repaired 1.2.7 |
-| R02 | 1.2.8 | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 on unchanged 1.2.8 |
+Task 1.2.9 accepts both output-parameter and functional-return conventions of the required `_C::per_token_group_quant_int8` operator. Correctness and isolated performance share the same public-schema adapter, resolved outside measured calls. No numerical case, performance threshold, pinned reference, image or Oracle was weakened or changed. The statement remains unchanged. A functional implementation is retained as an expected-pass regression control.
 
-R01's unscored Docker-network startup failure is preserved separately; its replacement supplies the fourth actual model attempt. Every scored model trial finishes without a Harbor exception. R02 zeros are supported by independently reproduced oversized-group and contiguous-offset failures, with irregular-group behavior differing across candidates. No formal performance result is claimed for candidates that fail correctness first.
+Validation includes the complete corrected scorer on all four original rebuilt libraries, an actual Oracle Harbor pass (minimum speedup 2.336×), a second actual Harbor pass for the functional positive control, and independent 18-case offset checks passing on each of the four candidates. Native hashes and frozen test inputs are recorded. Original model rewards remain unchanged; diagnostic regrades are identified separately from clean Harbor replays.
 
-Changes made during this work:
+The confirmed prior false positive in Flash R01 remains fixed. This new round exposed a different issue: false negatives caused by an Oracle-specific call convention. GPU0/GPU3 pass the corrected five performance cases with minimum speedups 3.000× and 2.776×; the other two fail correctness before performance is measured.
 
-- **1.2.6:** repair Oracle shared-memory budgeting, add a CUDA fallback for one oversized group and irregular vector alignment, strengthen valid resource/alignment cases, and test fallback capability before candidate import so legitimate aliases and cached dispatch are accepted. Add hash-pinned pytest tools to the rebuilt image.
-- **1.2.7:** repair Oracle pointer alignment for legal contiguous views with storage offsets; add FP16/BF16/FP32 offset cases through both public and native entrypoints. This rejects R01 GPU5's previously accepted but incorrect answer. A different complete Flash answer still passes.
-- **1.2.8:** clarify that rebuilding `_C` with the existing project build system is sufficient and state the existing eight-CPU/32-GiB build limits. No executable grader, Oracle, control, image, performance protocol or threshold changes from 1.2.7.
-- **Evidence tooling:** capture complete repositories before grading, retain original scores separately from exact saved-state replay, compare isolated outputs with a frozen reference, and audit ignored/generated files and bytecode. These changes do not introduce new solution-specific scoring requirements.
-
-No valid-input case was removed to improve pass rates. Rank-one inputs and stricter MoE integration tolerances were considered and excluded because they exceed the explicit task contract. Second-round evidence did not justify another executable change or another model round.
-
-Validation on the immutable A100 image:
-
-- Actual Harbor 0.22.0 Oracle at 1.2.8: reward 1, no exception; all seven stages complete. Speedups **2.320, 2.340, 2.668, 2.339, 2.703×**, each above 1.5×.
-- Direct production-entrypoint matrix on byte-identical 1.2.7 runtime: **20/20 expected outcomes**, including Base, Oracle, a distinct alternative, legitimate refactors and incomplete/adversarial controls. These are not 20 Harbor trials.
-- Independent Oracle and alternative probes: each passes **54 INT8, 24 native FP8 and 18 offset checks**. R02 candidates that modify shared FP8 code each pass a separate 24-case native FP8 probe.
-- All model canonical/prepared inputs and all replay inputs remain unchanged. All final recorded trajectories and complete repository snapshots were reviewed; native code is rebuilt by the verifier.
-
-Detailed attribution, timings, file counts and integrity limits are in [R01 review](rollout-review-r01.md), [R02 review](rollout-review-r02.md), and [machine-readable evidence](e2e-evidence.json). Original model rewards and revised replays remain distinct. Evidence archives have SHA manifests; full binary/repository archives remain on the authorized A100.
-
-Limits: these are development rounds, not held-out capability estimates; the gateway supplies no immutable model revision; actual ROCm hardware was not exercised; upstream Triton FP8 tests cannot compile on sm80; full root-filesystem capture and exhaustive native-code isolation are not claimed. The independent native FP8 checks are recorded separately from those unsupported upstream tests.
+See [Codex run and diagnosis report](rollout-codex-r01.md), [machine-readable evidence](e2e-evidence.json), and [archive manifest](evidence/codex-r01/manifest.json). This update records a focused score diagnosis and production-code inspection, not a completed full-trajectory/generated-artifact audit of the new Codex round. Historical Flash reviews and the 20-control matrix are preserved in the [1.2.8 review](review-report-128.md), [R01](rollout-review-r01.md), and [R02](rollout-review-r02.md); their validation scope is not silently extended to 1.2.9.

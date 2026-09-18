@@ -1,5 +1,5 @@
-# Current acceptance: task 1.2.8
+# Current revision: task 1.2.9
 
-The two-round campaign and all eight full saved-state reviews are complete. Retain the repaired task and verifier; no further executable changes were justified by R02.
+The latest four Codex/GPT-6 medium runs revealed and repaired a hidden native calling-convention constraint. Original Harbor scores are 0/4; complete corrected-scorer regrades are 2/4. The remaining failures reject valid positive INT8 lower bounds. Oracle and functional-implementation Harbor controls, plus independent offset checks, pass.
 
-See the [current review summary](review-report.md), [second-round attribution](rollout-review-r02.md), [first-round false-positive repair](rollout-review-r01.md), and [machine-readable validation evidence](e2e-evidence.json). Original and replay rewards remain distinct.
+See the [current review summary](review-report.md), [Codex results and evidence limitations](rollout-codex-r01.md), and [machine-readable evidence](e2e-evidence.json). The prior Flash acceptance remains historical; complete trajectory/generated-artifact review of the new Codex round is not claimed.
