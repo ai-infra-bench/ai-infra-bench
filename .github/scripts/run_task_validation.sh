@@ -57,6 +57,26 @@ python3 .github/scripts/task_ci.py image-check \
 mkdir -p "$HARBOR_JOBS_DIR/$TASK_NAME"
 cases_json="$(python3 .github/scripts/task_ci.py cases --task "$TASK_NAME")"
 
+# Harbor 0.22's Docker environment does not advertise GPU allocation. GPU
+# tasks reserve devices through their Docker Compose files instead. Keep the
+# task's GPU metadata for resource discovery, but suppress Harbor's redundant
+# allocator check when launching a prepared GPU case.
+task_gpus="$(python3 - "$task_dir/task.toml" <<'PY'
+import sys
+import tomllib
+
+with open(sys.argv[1], 'rb') as task_file:
+    print(tomllib.load(task_file)['environment'].get('gpus', 0) or 0)
+PY
+)"
+harbor_gpu_args=()
+if (( task_gpus > 0 )); then
+  test -f "$task_dir/environment/docker-compose.yaml"
+  test -f "$task_dir/tests/docker-compose.yaml"
+  harbor_gpu_args=(--override-gpus 0)
+  printf 'Using Docker Compose GPU reservations for %s GPU(s)\n' "$task_gpus"
+fi
+
 while IFS= read -r case_json; do
   case_name="$(jq -er '.name' <<<"$case_json")"
   expected_reward="$(jq -er '.expected_reward' <<<"$case_json")"
@@ -81,6 +101,7 @@ while IFS= read -r case_json; do
     --n-concurrent 1 \
     --cpus ignore \
     --memory ignore \
+    "${harbor_gpu_args[@]}" \
     --delete \
     --yes
 
