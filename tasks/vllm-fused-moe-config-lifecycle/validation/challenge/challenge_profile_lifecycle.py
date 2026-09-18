@@ -29,20 +29,23 @@ import logging
 import sys
 import subprocess
 import traceback
+from itertools import count
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import torch
 
 import vllm.config.vllm as vllm_config_module
 from vllm.config import ParallelConfig, SchedulerConfig, VllmConfig, set_current_vllm_config
 from vllm.forward_context import set_forward_context
-from vllm.model_executor.layers.fused_moe.config import FusedMoEQuantConfig
+from vllm.model_executor.layers.fused_moe.layer import FusedMoE
 from vllm.model_executor.layers.fused_moe.fused_moe import TritonExperts
 import vllm.model_executor.layers.fused_moe.fused_moe_modular_method as method_module
 from vllm.model_executor.layers.fused_moe.modular_kernel import FusedMoEModularKernel
 from vllm.model_executor.layers.fused_moe.prepare_finalize import MoEPrepareAndFinalizeNoEP
 
 WARNING = "Current vLLM config is not set."
+_LAYER_IDS = count()
 
 # Fresh MoE geometry, distinct from the verifier's 4/64/128/4/2.
 TOKENS, HIDDEN, INTERMEDIATE, EXPERTS, TOPK = 6, 96, 160, 8, 3
@@ -74,61 +77,53 @@ def clear_current_config():
 
 def make_kernel_through_factory(config, ambient=None):
     original_method = method_module.FusedMoEModularMethod
-    quant = FusedMoEQuantConfig.make(None)
-
-    # Construct the production quant method with its real configuration. Model
-    # weight loading is outside this profile slice; the forward receives tensors.
-    from vllm.model_executor.layers.fused_moe.config import (
-        FusedMoEConfig, FusedMoEParallelConfig,
-    )
-    from vllm.model_executor.layers.fused_moe.unquantized_fused_moe_method import (
-        UnquantizedFusedMoEMethod,
-    )
     parallel = config.parallel_config
-    dp = parallel.data_parallel_size
-    rank = parallel.data_parallel_rank
-    ep = parallel.enable_expert_parallel and dp > 1
-    owner = FusedMoEParallelConfig(
-        tp_size=1 if ep else dp, tp_rank=0, pcp_size=1, pcp_rank=0,
-        dp_size=dp, dp_rank=rank, ep_size=dp if ep else 1, ep_rank=rank if ep else 0,
-        use_ep=ep, all2all_backend=parallel.all2all_backend,
+    # Only rank discovery is substituted at this single-device transport
+    # boundary. The real constructor resolves parallel sizes, public properties,
+    # expert ownership, registered weights and the production quant method.
+    rank_group = SimpleNamespace(
+        rank_in_group=parallel.data_parallel_rank,
+        world_size=parallel.data_parallel_size,
     )
-    from vllm.model_executor.layers.fused_moe.layer import determine_expert_map
-    local_count, expert_map, _ = determine_expert_map(owner.ep_size, owner.ep_rank, EXPERTS)
-    owned = torch.arange(EXPERTS) if expert_map is None else torch.where(expert_map >= 0)[0]
-    owned_cuda = owned.to(device='cuda')
-    map_cuda = expert_map.to(device='cuda') if expert_map is not None else None
-    moe = FusedMoEConfig(
-        num_experts=EXPERTS, experts_per_token=TOPK,
-        hidden_dim=HIDDEN, num_local_experts=local_count,
-        moe_parallel_config=owner, in_dtype=torch.float16,
-    )
-    # CustomOp dispatch initialization requires the normal model-init context.
-    # It ends before the production factory/kernel lifecycle under test.
-    with set_current_vllm_config(config):
-        old_quant = UnquantizedFusedMoEMethod(moe)
-    old_quant.moe_quant_config = quant
-    layer = SimpleNamespace(
-        vllm_config=config, moe_config=moe, moe_parallel_config=owner,
-        quant_method=old_quant, shared_experts_stream=None,
+    with (
+        patch(
+            "vllm.model_executor.layers.fused_moe.config.get_dp_group",
+            return_value=rank_group,
+        ),
+        set_current_vllm_config(config),
+        torch.device("cuda"),
+    ):
+        layer = FusedMoE(
+            EXPERTS, TOPK, HIDDEN, INTERMEDIATE, params_dtype=torch.float16,
+            tp_size=1, pcp_size=1, dp_size=parallel.data_parallel_size,
+            prefix=f"profile_layer_{next(_LAYER_IDS)}",
+        )
+        layer.ensure_moe_quant_config_init()
+    old_quant = layer.quant_method
+    map_cuda = layer.expert_map
+    owned_cuda = (
+        torch.arange(EXPERTS, device="cuda")
+        if map_cuda is None else torch.where(map_cuda >= 0)[0]
     )
     context = (set_current_vllm_config(ambient) if ambient is not None
                else contextlib.nullcontext())
     with context:
         method = original_method.make(layer, old_quant, MoEPrepareAndFinalizeNoEP(), None)
+    layer.quant_method = method
+
     def forward(x, w1, w2, weights, ids, *, activation, global_num_experts):
         # We supply deterministic router outputs and loaded weights; the real
         # modular method owns dispatch and all access to its internal storage.
-        layer.w13_weight = w1.index_select(0, owned_cuda).contiguous()
-        layer.w2_weight = w2.index_select(0, owned_cuda).contiguous()
-        layer.zero_expert_num, layer.zero_expert_type = 0, None
+        with torch.no_grad():
+            layer.w13_weight.copy_(w1.index_select(0, owned_cuda))
+            layer.w2_weight.copy_(w2.index_select(0, owned_cuda))
         layer.select_experts = lambda *args, **kwargs: (weights, ids, None)
         router_logits = torch.zeros((len(x), global_num_experts), device=x.device, dtype=x.dtype)
         return method.apply(
             layer, x, router_logits, top_k=ids.shape[1], renormalize=False,
             activation=activation, global_num_experts=global_num_experts, expert_map=map_cuda,
         )
-    forward.owned_experts = owned.tolist()
+    forward.owned_experts = owned_cuda.tolist()
     return forward
 
 

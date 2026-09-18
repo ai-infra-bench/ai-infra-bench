@@ -1,5 +1,9 @@
 # Docker build and reproduction evidence: vLLM PR #29999
 
+> Version 1.2.10 changes verifier fixtures only. The locked image is unchanged;
+> behavioral/Harbor results below describe v1.2.9 and do not certify the new
+> fixtures. Current pending validation is recorded in e2e-evidence.json.
+
 ## Current publication image refresh
 
 Commit `ea479f076c71af9ce725700cc86ab307fc38a81d` was rebuilt on 2026-09-17 after qualifying the `.git/` source and destination as directories for Dockerfile 1.7. The isolated legacy-builder run used the local content-verified vLLM Git service and produced image `sha256:a42e2dad9636b1a70d8b572f3fc57ac8b2141df090dd9f00e19b6e0b61cb0af0` (10,162,654,540 bytes). Repository `image-check` confirmed Base `2902c348265639de300c95cbcae1c26486f57ac7`, the sanitized history and non-root source binding. On that image, 23 declared Harbor matrix cases, 12 independent challenges and a final Oracle all matched their expected results with zero errored trials. Raw evidence is under `/data/yinchen/pr73-pr74-image-refresh-20260917`.
