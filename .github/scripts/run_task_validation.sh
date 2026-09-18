@@ -174,6 +174,18 @@ import sys
 
 for result_path in sorted(pathlib.Path(sys.argv[1]).glob("*/result.json")):
     trial = json.loads(result_path.read_text())
+    verifier = result_path.parent / "verifier"
+    # Harbor can finish a trial with reward=0 without raising an exception.
+    # GPU runner artifacts are not uploaded, so retain bounded verifier
+    # diagnostics for the first failing case in the public job log.
+    for name in ("verifier-details.json", "test-stdout.txt", "test-stderr.txt"):
+        path = verifier / name
+        if path.is_file():
+            print(json.dumps({
+                "trial": result_path.parent.name,
+                "verifier_file": name,
+                "tail": path.read_text(errors="replace")[-12000:],
+            }), flush=True)
     exception = trial.get("exception_info") or {}
     if exception:
         print(json.dumps({

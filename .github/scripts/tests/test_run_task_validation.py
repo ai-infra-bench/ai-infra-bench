@@ -81,6 +81,13 @@ elif name == "harbor":
     job = Path(args[args.index("--jobs-dir") + 1]) / args[args.index("--job-name") + 1]
     job.mkdir(parents=True)
     reward = "0.0" if args[args.index("--agent") + 1] == "nop" else "1.0"
+    if os.environ["MOCK_FORCE_ORACLE_FAILURE"] == "true" and reward == "1.0":
+        reward = "0.0"
+        trial = job / "trial" / "verifier"
+        trial.mkdir(parents=True)
+        (trial.parent / "result.json").write_text("{}")
+        (trial / "verifier-details.json").write_text('{"completed": 10, "required": 24}')
+        (trial / "test-stdout.txt").write_text("oracle-test-diagnostic\n")
     (job / "result.json").write_text(json.dumps({"stats": {
         "n_completed_trials": 1, "n_errored_trials": 0,
         "evals": {"test": {"reward_stats": {"reward": {reward: ["trial"]}}}},
@@ -96,6 +103,7 @@ class ValidationImageTests(unittest.TestCase):
     def run_validation(
         self, *, gpus, cache_hit, publish, harbor_fail=False, docker_image=True,
         build_failures=0, build_error="", expect_failure=False,
+        force_oracle_failure=False,
     ):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -159,6 +167,7 @@ class ValidationImageTests(unittest.TestCase):
                 "MOCK_EXPECT_PROXY": "http://127.0.0.1:7892",
                 "MOCK_CACHE_HIT": str(cache_hit).lower(),
                 "MOCK_HARBOR_FAIL": str(harbor_fail).lower(),
+                "MOCK_FORCE_ORACLE_FAILURE": str(force_oracle_failure).lower(),
                 "MOCK_REGISTRY": REGISTRY, "MOCK_DIGEST": DIGEST,
             })
             if not gpus:
@@ -173,6 +182,9 @@ class ValidationImageTests(unittest.TestCase):
             if harbor_fail or expect_failure:
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(summary.exists())
+                if force_oracle_failure:
+                    self.assertIn("oracle-test-diagnostic", result.stdout)
+                    self.assertIn('"verifier_file": "verifier-details.json"', result.stdout)
                 return None, commands
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             summary = json.loads(summary.read_text())
@@ -233,6 +245,12 @@ class ValidationImageTests(unittest.TestCase):
             with self.subTest(gpus=gpus):
                 _, commands = self.run_validation(gpus=gpus, cache_hit=False, publish=True, harbor_fail=True)
                 self.assertFalse(any(cmd[:2] == ["docker", "push"] for cmd in commands))
+
+    def test_failed_oracle_surfaces_bounded_verifier_diagnostics(self):
+        self.run_validation(
+            gpus=2, cache_hit=False, publish=False,
+            force_oracle_failure=True, expect_failure=True,
+        )
 
     def test_gpu_without_canonical_image_builds_locally(self):
         summary, commands = self.run_validation(
