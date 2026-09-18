@@ -50,16 +50,7 @@ def emit_result(result: dict) -> None:
     sys.stdout.flush()
 
 
-def cuda_quant(x, group_size, eps=1e-10, int8_min=-128.0, int8_max=127.0):
-    """Invoke the candidate CUDA operator."""
-    q = torch.empty_like(x, dtype=torch.int8)
-    s = torch.empty(
-        x.shape[:-1] + (x.shape[-1] // group_size,),
-        device=x.device,
-        dtype=torch.float32,
-    )
-    torch.ops._C.per_token_group_quant_int8(x, q, s, group_size, eps, int8_min, int8_max)
-    return q, s
+cuda_quant = None  # Bound to the registered public schema after loading _C.
 
 
 def reference(x, group_size, eps=1e-10, int8_min=-128, int8_max=127):
@@ -248,6 +239,11 @@ def worker_main():
             result["swapped_alias"] = swapped_alias
             emit_result(result)
             sys.exit(1)
+
+        sys.path.insert(0, "/tests")
+        from native_interface import make_quantizer
+        global cuda_quant
+        cuda_quant = make_quantizer(torch.ops._C.per_token_group_quant_int8)
 
         result["stages"]["operator_surface"] = "PASS"
 

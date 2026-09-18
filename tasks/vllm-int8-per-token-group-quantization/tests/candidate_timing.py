@@ -24,18 +24,18 @@ def main():
     event_cls = torch.cuda.Event
     elapsed = event_cls.elapsed_time
     synchronize = torch.cuda.synchronize
-    empty_like, empty = torch.empty_like, torch.empty
     group = int(group)
     x = torch.load(snapshot, map_location="cuda", weights_only=True).contiguous()
     shape = list(x.shape)
     torch.ops.load_library(native)
     op = torch.ops._C.per_token_group_quant_int8
 
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from native_interface import make_quantizer
+    quantize = make_quantizer(op)
+
     def work():
-        q = empty_like(x, dtype=torch.int8)
-        scale = empty(x.shape[:-1] + (x.shape[-1] // group,),
-                      device=x.device, dtype=torch.float32)
-        op(x, q, scale, group, 1e-10, -128.0, 127.0)
+        quantize(x, group)
 
     for _ in range(40):
         work()
