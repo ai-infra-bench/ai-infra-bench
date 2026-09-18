@@ -14,7 +14,7 @@ Version 0.0.3 (2026-09-16) keeps the 0.0.2 requirements and restates them as an 
 
 Harness revision 2 (2026-09-17): the lifecycle suite keeps the runner's `VITEST*` variables out of the child pi it spawns. Version 0.0.4 (2026-09-16) restates the SIGTERM/SIGINT sentence as an unmistakable outcome (pi, interactive or headless, must still end after the signal) after two more rollouts left a headless pi running, and revises the verifier harness: the between-test drain now waits 300 ms and for an idle session, and a verifier prompt waits for an idle session, since the contract lets a wake start a turn at any idle moment and an implementation may report an exit shortly after the process died. Cases, oracle and controls unchanged.
 
-Harness revision 3 (2026-09-17): the agent phase runs as the unprivileged `node` user while the verifier runs as root; the installed toolchain is root-owned so candidate code cannot rewrite the runner that produces the verifier's reports, and `tests/test.sh` rejects submissions that change pi source or the build/test toolchain (see the task review under `validation/`); the pass-to-pass check tolerates the pinned environmental failures in the candidate run too. Verifier cases unchanged.
+Harness revision 3 (2026-09-17): the agent phase runs as the unprivileged `node` user while the verifier runs as root; the installed toolchain is root-owned so candidate code cannot rewrite the runner that produces the verifier's reports, and `tests/test.sh` rejects submissions that change pi source or the build/test toolchain (see the task review under `validation/`). Harness revision 4 (2026-09-18): `tests/test.sh` runs every suite that executes candidate code (pass-to-pass, contract, lifecycle) as the unprivileged `node` user too, so candidate code cannot rewrite the runner, interpreter or baseline during verification either; the reward file is written only by root; the image records the pass-to-pass baseline as `node` so it matches the candidate's run conditions (2158 tests, 0 environmental failures, 50 skipped). Verifier cases unchanged.
 
 ## What the agent does
 
@@ -200,14 +200,10 @@ tools/local_agent_rollout.sh pi-background-processes ai-infra-bench/pi-backgroun
   alternative both pass all eight checks.
 
 ## Remaining work before publication
-
-1. CI run on the x64 runner and image publication through
-   `publish-task-images.yml`; the local amd64 build under emulation is only a
-   smoke test. After the first native build, compare the image's
-   `/opt/pi-baseline/summary.json` `failed_on_base` with `allowed_failures` in
-   `tests/baseline-pins.json`: an environmental failure that is not listed makes
-   Oracle score 0 with a `baseline_pin_problems` message, and the fix is to
-   extend the pin (the pin is the union of every platform's Base failures).
-2. Independent review with the task-review skill (ten-dimension scorecard).
+1. Image publication through `publish-task-images.yml`. CI on the x64 runner is done: run 35258346225 (PR #92, head `b426b07`, 2026-09-17T18:21Z) built the Dockerfile natively (image sha256:33bb73df41a2…) and ran the full `validation/ci-cases.json` matrix green; the local amd64 build (`sha256:b44780bd36ba…`, task.toml `image_digest`) is not yet pushed to a registry.
+   After the first native build, compare the image's `/opt/pi-baseline/summary.json` `failed_on_base` with `allowed_failures` in
+   `tests/baseline-pins.json`: an environmental failure that is not listed makes Oracle score 0 with a `baseline_pin_problems` message, and
+   the fix is to extend the pin (the pin is the union of every platform's Base failures). The CI run above passed this check.
+2. Ten-dimension review: done 2026-09-17 (`validation/task-review-2026-09-17.md`), by the curator session; an independent second reviewer has not repeated it.
 3. Repository: `templates/pi-harbor-node` is new with this task; a second pi
    task should exercise it before it is treated as stable.
