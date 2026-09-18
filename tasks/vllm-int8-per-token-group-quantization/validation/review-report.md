@@ -1,3 +1,5 @@
+> Update: the subsequent [full visible-trajectory and saved-repository review](rollout-codex-r01-full-review.md) is complete. Fresh rebuild rewards are **1 / 0 / 0 / 1**, with **23/23** supplemental checks per candidate. The scope limitations below describe the earlier diagnostic stage.
+
 # Task 1.2.9: native interface correction after Codex testing
 
 Four concurrent A100 runs using Codex 0.153.4 and `gpt-6-astra` at `medium` are complete. The original task 1.2.8 scores were **0/4** because its verifier imposed an undocumented seven-argument native ABI. Regrading the same verifier-built candidate libraries with the corrected scorer gives **2/4**: GPUs 0 and 3 pass, while GPUs 1 and 2 reject legal positive INT8 lower bounds.

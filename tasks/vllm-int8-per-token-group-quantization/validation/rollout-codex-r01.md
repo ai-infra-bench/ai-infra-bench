@@ -1,3 +1,5 @@
+> Update: the subsequent [full visible-trajectory and saved-repository review](rollout-codex-r01-full-review.md) is complete. Fresh rebuild rewards are **1 / 0 / 0 / 1**, with **23/23** supplemental checks per candidate. The scope limitations below describe the earlier diagnostic stage.
+
 # Codex / GPT-6 medium: four A100 attempts
 
 The four requested model attempts are complete. Original Harbor rewards are **0 / 0 / 0 / 0**. All were stopped by an undisclosed seven-argument native ABI assumption in the verifier. Task 1.2.9 accepts both the output-parameter convention and the functional convention returning `(q, scales)` through the task-named registered Torch operator. Regrading the unchanged verifier-built libraries with the complete corrected scorer yields **1 / 0 / 0 / 1**. GPU0 and GPU3 were false negatives; GPU1 and GPU2 have independently valid configured-range failures.
