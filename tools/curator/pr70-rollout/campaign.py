@@ -28,6 +28,8 @@ def run(slot):
   if a.network_octet is not None:
    assert 0<=a.network_octet<=255 and 0<=slot<=7
    d['networks']={'default':{'ipam':{'config':[{'subnet':f'10.243.{a.network_octet}.{slot*16}/28'}]}}}
+  if a.mode=='codex' and file.startswith('environment/'):
+   d['services']['harbor-docker-egress-control-sidecar']={'extra_hosts':['host.docker.internal:host-gateway'],'volumes':[str(Path(__file__).resolve().with_name('codex-egress.yaml'))+':/opt/egress-sidecar/gost.yaml:ro']}
   q.write_text(yaml.safe_dump(d,sort_keys=False))
  frozen=hashes(prepared)
  (R/f'{name}-inputs.json').write_text(json.dumps(frozen,indent=2)+'\n')
