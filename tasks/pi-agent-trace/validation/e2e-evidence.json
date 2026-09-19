@@ -70,7 +70,18 @@
       "image_id_amd64_canonical": "sha256:5ae25731adfef37fa7802eacaecba42092a98ca2a21dca2aa7b93b3527a22af7",
       "log": "~/ai-infra-scratch/rev5-matrix-pi-agent-trace.log",
       "result": "all-match 35/35 (base, oracle, every control incl. control-scope-hidden-by-gitignore and control-built-dist-tampered, alternatives)",
-      "note": "first run of the day had the three scope controls at reward 1: the scope function was piped into tee, so scope_rc was set in a subshell and lost; fixed (no pipeline) before this matrix, and tests/ were not edited afterwards. amd64 canonical image: check_scope.py on Base exits 0 and --list-files yields 265 Base test files; no amd64 matrix was run (as for revision 4)."
+      "note": "first run of the day had the three scope controls at reward 1: the scope function was piped into tee, so scope_rc was set in a subshell and lost; fixed (no pipeline) before this matrix, and tests/ were not edited afterwards. amd64 canonical image: check_scope.py on Base exits 0 and --list-files yields 265 Base test files; no amd64 matrix was run (as for revision 4); an amd64 smoke of the Oracle and the two new scope controls is recorded under amd64_smoke.",
+      "amd64_smoke": {
+        "date": "2026-09-19",
+        "image_id": "sha256:5ae25731adfef37fa7802eacaecba42092a98ca2a21dca2aa7b93b3527a22af7",
+        "how": "docker run --platform linux/amd64 (qemu on the arm64 host), --network none, tests and solution copied in, solve.sh and the control patch applied as node, bash /tests/test.sh as root; not a Harbor trial",
+        "results": {
+          "oracle": "reward 1, every layer 0 exit, scope_exit_code 0, candidate_tests_exit_code 0",
+          "control-scope-hidden-by-gitignore": "reward 0, scope_exit_code 1 (scope_added: packages/coding-agent/src/zz-hidden-core-hook.ts), all behaviour layers pass",
+          "control-built-dist-tampered": "reward 0, scope_exit_code 1 from the post-suite check only (built_modified: packages/coding-agent/dist/main.js), all behaviour layers pass"
+        },
+        "log": "~/ai-infra-scratch/rev5-amd64-smoke/run.log"
+      }
     },
     "previous": [
       {
