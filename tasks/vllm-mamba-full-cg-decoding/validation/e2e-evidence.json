@@ -1,5 +1,5 @@
 {
-  "status": "validated-local",
+  "status": "recorded-r2-matrix-passed-https-apt-checked-ci-rebuild-pending",
   "recorded_at": "2026-09-18T19:16:01.604440+00:00",
   "source_pr": {
     "url": "https://github.com/ai-infra-bench/ai-infra-bench/pull/64",
@@ -132,7 +132,7 @@
     },
     "patch_sha256": "6a586866a9b38028f13000036b40c6619b27d203014dcd2db4fb5af98a1c5cde"
   },
-  "checksum_note": "Harbor task checksums precede final evidence writes. Scoring code, instruction, runtime configuration, Docker build inputs, Oracle and control patches are unchanged. Only validation records and image validation status were updated afterward. Executable hashes were matched to all 21 run snapshots.",
+  "checksum_note": "The recorded Harbor task checksums and 21-case matrix belong to the r2 image before the HTTPS-only build-source change. Scoring code, instruction, runtime configuration, Oracle and control patches remain identical to those trials. Current artifact hashes include the updated recipe and this targeted APT validation; a complete updated-image build is pending CI.",
   "history": {
     "incoming_evidence": "archive/",
     "earlier_smoke": "diagnostic only; exposed reward JSON schema mismatch, then fixed",
@@ -167,16 +167,18 @@
     "Candidate Mamba2 ordinary eager execution was not separately tested; the trusted eager reference does not establish candidate eager regression coverage.",
     "Speculative coverage is Mamba2 with ngram proposals, not every supported speculative configuration."
   ],
-  "open_behavior_items": [],
+  "open_behavior_items": [
+    "The follow-up review of 87cecf4 reproduced a graph-observation bypass: forcing eager and fabricating profiler graph counts received reward 1. This HTTPS-only change does not address that verifier issue."
+  ],
   "worktree": "/tmp/ai-infra-pr64-review-20260919",
   "branch": "codex/pr64-behavior-hardening",
   "artifacts": {
     "files": {
       ".dockerignore": "cf9143fdfce145f9234e589317912e7c9fad341276064294f22da3946d23758e",
       "README.md": "163cd5f500d05598094c528064dc3de4ca9c4363f315bd39daa5f6626572ace8",
-      "environment/Dockerfile": "fa5a80b68f8b61e9b7845ef6fcb5dd774bc8b50791e1e6d6eea2533755c52008",
+      "environment/Dockerfile": "edfaf8bd9200dc2947df7e9514b4731c7f92cb0ec6c4b3e89e9e7168dc035cae",
       "environment/docker-compose.yaml": "2a8ebdb1c56b1d74ce13762d408a6efac3cd46c9b4277c669dbac6580db3b523",
-      "environment/image-manifest.json": "d496f363bc134500fb4b3e6da940ecf609844975222ba516203e7ef4d9e790e8",
+      "environment/image-manifest.json": "d787341079c742df3e0fd0af6c5460085ffdd42cc2f8080d3db3dcf0306cab2c",
       "environment/lock/README.md": "9cb8fd97893b181f790367d725b98a24218dbfb44d4e3d4fe5d15dcece4a4cf3",
       "environment/lock/manifest.json": "a04538a377bf6c54707fbcaf0c99804eccd2608cf66ac843452046e468a44715",
       "environment/lock/native-donor.json": "c46029adf79f6910908ca129a70084ea6c934e4bc6930606aeff554920b6ebc5",
@@ -189,7 +191,7 @@
       "tests/supervise_verifier.py": "542190dd885c5be2f1b90c1109922cea937f2485c8ae8c89c624779263796118",
       "tests/test.sh": "c4a5db80b4ce0f8cbb14e044b7ac66f4106312d698081898895e64a817b7d0fd",
       "tests/verify_mamba_full_cg.py": "3579338588cbe5a6e84caa73a5922a4d73f12bff5af4b977102754b20b8b26bb",
-      "validation/LOCAL-VALIDATION.md": "1eaac82232b7e0738a416108341baef6d1c0ce9fbdbf0e4e29fc9055677acba3",
+      "validation/LOCAL-VALIDATION.md": "bf24fe677fc8f424233b856601adc8391da85234a516a5629f0fcc1866b031ac",
       "validation/alternative-agent-implementation.patch": "d3c4f3022a4fd748e35139acdcdf3f7412765afbb34b55c3c9592cbb274f1cc0",
       "validation/alternative-host-preparation.patch": "075e91dd27ddf36ab3693fffa9136453b1003c4492c5711b74bafec4d2c83013",
       "validation/alternative-production-builders.patch": "25759475f0f1a2fac8851cd90969dad0407ef702908430771478ac77b55cba00",
@@ -213,7 +215,8 @@
       "validation/results/harbor-matrix-r4.zip": "e310d2b73517ca6eb97c9eae8a399833805ee1c95a6ed55d1b1994d5c9208512",
       "validation/results/matrix-results.json": "e3d3196e50f83489c6f7569183f8a84979e63e359e5b5068185dec425e7f4a01",
       "validation/zero-mamba2-state-addresses.patch": "23d8df26c82bac644cbdd3e6cea48d012e2a529b0a534819e90934a2f39c9b0d",
-      "validation/zero-state-addresses.patch": "cd3e697cd8e93c01a725b70b05586e39a4ae9124ef8fe14e7e8ccb516d2e269b"
+      "validation/zero-state-addresses.patch": "cd3e697cd8e93c01a725b70b05586e39a4ae9124ef8fe14e7e8ccb516d2e269b",
+      "validation/results/https-apt-check.txt": "72b81169c4e46ba55e59756b00e5b27639752c158f13381a67e9a799511c3941"
     }
   },
   "git_state_at_validation": "uncommitted; no push or GitHub writes",
@@ -222,5 +225,16 @@
     "repository": "xuanzhengdu-eng/ai-infra-bench",
     "branch": "task/add-vllm-mamba-full-cg-decoding",
     "note": "Commit and push are tracked by Git and PR history; the recorded validation preceded delivery."
+  },
+  "https_build_fix": {
+    "recorded_at": "2026-09-19T02:36:52.388127+00:00",
+    "change": "Ubuntu package source scheme only: HTTP to HTTPS; no added retry logic or changes to pinned package versions/signature checks.",
+    "donor_image": "vllm/vllm-openai:v0.21.0@sha256:4ac9b7c6dabc3ec762c0edef4e9245abe98373844da91cc53ee42e5c58280c5b",
+    "test": "Exact updated Dockerfile APT phase in a fresh donor container, network host and CI proxy http://127.0.0.1:7892.",
+    "result": "apt-get update and all three pinned package installations passed; process exit 0",
+    "log": "validation/results/https-apt-check.txt",
+    "full_rebuild": "pending CI; no replacement local image or repeated GPU matrix is claimed",
+    "previous_dockerfile_sha256": "fa5a80b68f8b61e9b7845ef6fcb5dd774bc8b50791e1e6d6eea2533755c52008",
+    "current_dockerfile_sha256": "edfaf8bd9200dc2947df7e9514b4731c7f92cb0ec6c4b3e89e9e7168dc035cae"
   }
 }
