@@ -1,0 +1,19 @@
+# Review report
+
+Version 2.1.2 implements the three scoring repairs from the independent review: public chunk construction, multi-token streaming output, and public text-output verification. The complete grading matrix has 17/17 expected results: Oracle and five correct alternatives receive 1; Base and ten negative controls receive 0. All correct implementations complete 19 public behavior scenarios. A fresh Harbor Oracle receives reward 1 with zero errored trials. The existing native ABI cutoff approximation remains a separate environment limitation.
+
+The input adapter preserves optional parameter defaults and supports the declared public prompt field or a sole required input under another name. The keyword-only correct control fixes the demonstrated false rejection without requiring an Oracle-specific class name or field order. Eight adapter tests cover constructor forms and error propagation.
+
+The public workload now has 19 scenarios. A single-chunk stream generates four tokens without EOS or explicit stops. Two-chunk burst and delayed streams produce at least three tokens before the first continuation and reach explicit stops before any allowed retained-context policy could exhaust the ample budget. The same workload also checks inclusion of visible stop tokens in text. These cases preserve the statement's freedom over generated-context retention and avoid imposing a per-segment budget interpretation.
+
+The worker records text, token IDs and completion metadata. The trusted parent compares complete tokens and concatenated public text with predictions from fresh weights and the saved tokenizer, including special-token and stop-token rules. A correct coalesced-output alternative combines deltas within each segment and must still pass. Completion metadata must agree with one consistent reference path. The worker no longer asserts one fixture-selected segment-length vector, because different valid retained contexts may generate different segment lengths.
+
+The new cap-stream-budget and blank-public-text controls preserve real model execution but violate the public output contract. Both previously received reward 1 at PR head 44ca003e6049cdc72271e518920931230c5831e8. Under the initial expanded verifier they receive 0 for single_multitoken token mismatch and ordinary_before text mismatch respectively. The forged report includes the new text field and fails independent token comparison rather than schema validation.
+
+Initial validation also exposed an unsuitable random reference model before candidate execution: seed 2651101967022555681 could not produce the stop-reason refresh fixture. That failure now uses the existing reference-regeneration path, as near-tied logits already did. Candidate failures are not retried. A separate scorer probe supplies that unsuitable seed followed by a valid seed and checks the attempt count and final reward.
+
+The instruction, Oracle and image are unchanged. The real public generation, scheduler, worker, KV, sampling, output and lifecycle paths remain in use. The documented v0.15.1 native ABI donor is still an approximation and is not established as an exact Base-native build by these verifier changes.
+
+Earlier versions and their evidence remain under history/. Current results, executable identities, archive hashes and known limits are recorded in e2e-evidence.json. Publication is tracked by PR #71; the executable identities and raw test records identify the validated snapshot.
+
+The two CPU reference-workload tests pass. Their positive example seed was corrected after the grading matrix because its former seed correctly failed the new visible-text prerequisite; only that development-test file changed, and it is not mounted or imported during grading. All grading inputs and controls match the matrix snapshot, the development tests were rerun, and Harbor used the final task snapshot. The reference-regeneration scorer probe records two attempts and reward 1.
