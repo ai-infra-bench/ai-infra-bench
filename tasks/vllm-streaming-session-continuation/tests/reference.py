@@ -115,9 +115,9 @@ def build_reference(path, seed):
     cases, expected = {}, {}
 
     def add(name, chunks, mode="burst", rid=None, stops=all_tokens, ignore_eos=True,
-            budget=None, include_stop=False):
+            budget=None, include_stop=False, output_kind="delta"):
         if budget is None:
-            budget = 2 if mode == "ordinary" else 32
+            budget = 8 if mode == "ordinary" else 32
         if mode == "ordinary":
             stops = ()
         possibilities = paths(chunks, budget, stops, ignore_eos)
@@ -154,6 +154,7 @@ def build_reference(path, seed):
             "chunks": texts,
             "mode": mode, "budget": budget, "stop_ids": list(stops), "ignore_eos": ignore_eos,
             "include_stop": include_stop,
+            "output_kind": output_kind,
             # Descriptive workload metadata, not a restriction on the
             # candidate's context-retention policy or output frame sizes.
             "segment_lengths": list(counts[0]),
@@ -161,6 +162,7 @@ def build_reference(path, seed):
         expected[name] = possibilities
 
     add("ordinary_before", fresh, "ordinary")
+    add("ordinary_cumulative_before", fresh, "ordinary", output_kind="cumulative")
     add("burst", main)
     add("delayed", main, "delayed")
     add("single_closed", fresh)
@@ -204,6 +206,7 @@ def build_reference(path, seed):
     add("multitoken_include_stop", multi_chunks, "delayed", stops=stops,
         include_stop=True)
     add("ordinary_after", fresh, "ordinary")
+    add("ordinary_cumulative_after", fresh, "ordinary", output_kind="cumulative")
     if not expected["ordinary_before"][0]["text"]:
         raise AmbiguousReference("ordinary generation must exercise visible output text")
     return {"cases": cases, "vocab_size": len(vocab)}, expected
@@ -218,7 +221,7 @@ def check_results(raw, workload, expected):
         assert record["ended"] is True, f"{name}: input/output lifecycle did not finish"
         rows = record["rows"]
         assert rows, f"{name}: no public output"
-        tokens, completions, text_parts = [], [], []
+        tokens, completions, actual_text = [], [], ""
         for row in rows:
             assert row["request_id"] == case["request_id"], f"{name}: wrong request identity"
             for output in row["outputs"]:
@@ -226,13 +229,20 @@ def check_results(raw, workload, expected):
                 assert all(type(t) is int and 0 <= t < workload["vocab_size"]
                            for t in output["tokens"]), f"{name}: invalid token IDs"
                 assert isinstance(output["text"], str), f"{name}: invalid output text"
-                tokens.extend(output["tokens"])
-                text_parts.append(output["text"])
+                if case["output_kind"] == "cumulative":
+                    assert output["tokens"][:len(tokens)] == tokens, (
+                        f"{name}: cumulative output lost or changed its token prefix")
+                    assert output["text"].startswith(actual_text), (
+                        f"{name}: cumulative output lost or changed its text prefix")
+                    tokens = list(output["tokens"])
+                    actual_text = output["text"]
+                else:
+                    tokens.extend(output["tokens"])
+                    actual_text += output["text"]
                 if output["finish_reason"] is not None:
                     completions.append((len(tokens), output))
         possibilities = [item for item in expected[name] if item["tokens"] == tokens]
         assert possibilities, f"{name}: tokens differ from independent continuation reference: {tokens}"
-        actual_text = "".join(text_parts)
         possibilities = [item for item in possibilities if item["text"] == actual_text]
         assert possibilities, f"{name}: text differs from independent tokenizer reference: {actual_text!r}"
         # Generator exhaustion and an explicit terminal output are both valid.
@@ -256,6 +266,8 @@ def check_results(raw, workload, expected):
                         ("stop_refresh", "stop_refresh_burst"),
                         ("multitoken_burst", "multitoken_delayed"),
                         ("multitoken_delayed", "multitoken_include_stop"),
-                        ("ordinary_before", "ordinary_after")):
+                        ("ordinary_before", "ordinary_after"),
+                        ("ordinary_before", "ordinary_cumulative_before"),
+                        ("ordinary_after", "ordinary_cumulative_after")):
         assert sequences[left] == sequences[right], f"session timing or isolation changed {left}/{right}"
     return list(workload["cases"])

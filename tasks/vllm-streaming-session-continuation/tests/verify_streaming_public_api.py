@@ -24,11 +24,15 @@ async def collect(engine, case, make_chunk):
                     await progress.wait_for(lambda: completed_segments > index)
 
     prompt = case["chunks"][0] if case["mode"] == "ordinary" else stream()
-    params = SamplingParams(
+    sampling_options = dict(
         max_tokens=case["budget"], temperature=0.0, ignore_eos=case["ignore_eos"],
-        stop_token_ids=case["stop_ids"], output_kind=RequestOutputKind.DELTA,
+        stop_token_ids=case["stop_ids"],
         include_stop_str_in_output=case["include_stop"],
     )
+    if case["output_kind"] == "delta":
+        sampling_options["output_kind"] = RequestOutputKind.DELTA
+    # Ordinary cumulative cases exercise the existing public default.
+    params = SamplingParams(**sampling_options)
     rows = []
     async for out in engine.generate(prompt, params, case["request_id"]):
         outputs = [{

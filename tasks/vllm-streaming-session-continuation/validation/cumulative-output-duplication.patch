@@ -531,14 +531,13 @@
  
      @property
      def tokenizer(self) -> TokenizerLike | None:
-@@ -870,3 +1021,36 @@
+@@ -870,3 +1021,28 @@
      @property
      def dead_error(self) -> BaseException:
          return EngineDeadError()
 +
 +
-+# A correct public implementation may combine output frames in either mode.
-+from copy import deepcopy as _deepcopy
++# A correct public implementation may deliver several deltas in one frame.
 +from functools import wraps as _wraps
 +
 +_generate_deltas = AsyncLLM.generate
@@ -546,19 +545,12 @@
 +
 +@_wraps(_generate_deltas)
 +async def _generate_coalesced(self, *args, **kwargs):
-+    params = kwargs.get("sampling_params")
-+    if params is None:
-+        params = args[1]
-+    aggregate = params.output_kind == RequestOutputKind.DELTA
 +    pending = None
 +    async for output in _generate_deltas(self, *args, **kwargs):
-+        # Cumulative token lists can belong to the live detokenizer. Keep the
-+        # buffered public output separate from the engine's mutable state.
-+        snapshot = _deepcopy(output)
 +        if pending is None:
-+            pending = snapshot
++            pending = output
 +        else:
-+            pending.add(snapshot, aggregate=aggregate)
++            pending.add(output, aggregate=True)
 +        if output.finished or any(item.finish_reason is not None
 +                                  for item in output.outputs):
 +            yield pending
