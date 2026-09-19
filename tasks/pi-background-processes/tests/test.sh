@@ -16,9 +16,13 @@
 # the fact. (A candidate can still, in principle, tamper with the report of the
 # suite it runs inside from within that same process; that is candidate-side
 # cheating for the hack screen, not a runner/scorer substitution.)
+#
+# What the submission changed is decided by content, never by git: the checkout and
+# its .git belong to the agent, so check_scope.py hashes the protected files against
+# tests/base-manifest.json and the image's root-owned build manifest (see its docstring).
 set -uo pipefail
 mkdir -p /logs/verifier
-rm -f /logs/verifier/{reward.txt,reward.json,contract-junit.xml,lifecycle-junit.xml,contract-summary.json,lifecycle-summary.json,scope.log}
+rm -f /logs/verifier/{reward.txt,reward.json,contract-junit.xml,lifecycle-junit.xml,contract-summary.json,lifecycle-summary.json,scope.log,scope-summary.json,candidate-tests-junit.xml}
 export PI_WORKSPACE=/workspace/pi
 export PI_VERIFIER_FIXTURES=/tests/fixtures
 export PI_OFFLINE=1 PI_TELEMETRY=0 PI_NO_LOCAL_LLM=1
@@ -62,7 +66,17 @@ if ! cd /workspace/pi/packages/coding-agent; then
   printf '{"reward":0,"command_exit_code":1,"error":"workspace missing"}\n' > /logs/verifier/reward.json
   exit 0
 fi
+# Nothing the agent phase left running may touch the workspace while it is judged.
+reap_node
 as_node 'rm -rf test/__verifier__' || true
+# The checkers, pins and manifests in /tests decide the reward; the candidate runs as
+# `node` and must not be able to write them.
+if su node -s /bin/bash -c 'test -w /tests || test -w /tests/test.sh || test -w /opt/pi-baseline'; then
+  echo "verifier: /tests or /opt/pi-baseline is writable by the candidate user" | tee /logs/verifier/verifier-error.log
+  printf '0\n' > /logs/verifier/reward.txt
+  printf '{"reward":0,"command_exit_code":1,"error":"verifier files writable by candidate"}\n' > /logs/verifier/reward.json
+  exit 0
+fi
 
 contract_rc=0
 contract_integrity_rc=0
@@ -70,44 +84,44 @@ lifecycle_rc=0
 lifecycle_integrity_rc=0
 p2p_rc=0
 p2p_check_rc=0
-
-# Every root git call below reads a throwaway copy of the index (GIT_INDEX_FILE),
-# so `git status`/`git add -N` can refresh their stat cache without ever
-# rewriting the real node-owned .git/index -- a root-owned index would break git
-# for the node suites. GIT_INDEX_FILE is inline on each call, never exported, so
-# it does not leak into the `su node` suites (pi's own tests use the real index).
-SNAP_INDEX=/tmp/pi-snap-index
-cp /workspace/pi/.git/index "$SNAP_INDEX" 2>/dev/null || true
-G="GIT_INDEX_FILE=$SNAP_INDEX git -C /workspace/pi"
+candidate_tests_rc=0
 
 # Snapshot of what the agent changed, for review of real rollouts (never affects reward).
-{
-  eval "$G status --short --untracked-files=all"
-  echo "--- diff vs Base (tracked + untracked, excluding node_modules/dist) ---"
-  eval "$G add -N --all -- . ':!**/node_modules/**' ':!**/dist/**'" 2>/dev/null || true
-  eval "$G diff d981de1229ef899957bbe968bc8dcda02a21f477 -- . ':!**/node_modules/**' ':!**/dist/**'" 2>/dev/null | head -c 4000000
-} > /logs/verifier/agent-changes.patch 2>&1 || true
-# The snapshot's `add -N` recorded intent-to-add for untracked files in this index
-# copy; refresh it to a clean copy of the real index so the scope and PASS_TO_PASS
-# checks below see new files as untracked (allowed) and flag only real edits.
-cp /workspace/pi/.git/index "$SNAP_INDEX" 2>/dev/null || true
+# Root never runs git in the checkout: its .git/config belongs to the agent, and git
+# executes what that config names (core.fsmonitor, diff.external, ...) as the caller. The
+# snapshot is taken as `node`, on a throwaway copy of the index so `add -N` does not
+# touch the real one.
+as_node "cp /workspace/pi/.git/index $VOUT/snap-index; export GIT_INDEX_FILE=$VOUT/snap-index; cd /workspace/pi; {
+  git status --short --untracked-files=all
+  echo '--- diff vs Base (tracked + untracked, excluding node_modules/dist) ---'
+  git add -N --all -- . ':!**/node_modules/**' ':!**/dist/**' 2>/dev/null
+  git diff d981de1229ef899957bbe968bc8dcda02a21f477 -- . ':!**/node_modules/**' ':!**/dist/**' 2>/dev/null | head -c 4000000
+} > $VOUT/agent-changes.patch 2>&1" || true
+reap_node
+cp "$VOUT/agent-changes.patch" /logs/verifier/agent-changes.patch 2>/dev/null || true
+rm -f "$VOUT/snap-index" "$VOUT/agent-changes.patch"
 
-
-# Toolchain and core scope: the instruction keeps the work inside the extension directory,
-# a new unit test file and documentation, and forbids changes to pi core. The verifier
-# rejects a submission that changed pi source or the build/test toolchain it is about to
-# execute (configs, manifests, scripts), whether by editing a tracked file or adding one.
-# Scratch files elsewhere are not penalised.
+# Scope: the instruction keeps the work inside the extension directory, a new unit test
+# file and documentation, and forbids changes to pi core, to the build/test toolchain the
+# verifier is about to execute, and to existing test files. Decided by content hashes
+# (check_scope.py); scratch files elsewhere are not penalised. Bit 1: pi core, toolchain
+# or built dist changed or added to. Bit 2: an existing test file changed. Bit 4: error.
 scope_rc=0
-scope_changes="$(eval "$G status --porcelain --untracked-files=all -- . ':!**/node_modules/**' ':!**/dist/**'" 2>/dev/null | awk '{print $NF}' \
-  | grep -E '^(packages/[^/]+/src/|scripts/|\.github/|\.npmrc$|package\.json$|package-lock\.json$|tsconfig[^/]*\.json$|biome\.json$|vitest[^/]*$|vite\.config[^/]*$|packages/[^/]+/(package\.json|tsconfig[^/]*\.json|vitest[^/]*|vite\.config[^/]*)$)' || true)"
-if [ -n "$scope_changes" ]; then
-  {
-    echo "SCOPE: the submission changed pi core or the build/test toolchain, which the instruction forbids:"
-    echo "$scope_changes"
-  } | tee /logs/verifier/scope.log
-  scope_rc=1
-fi
+tests_modified=0
+run_scope_check() {
+  local rc=0
+  python3 /tests/check_scope.py /workspace/pi /tests/base-manifest.json \
+    /opt/pi-baseline/build-manifest.sha256 "/logs/verifier/$1" > "/logs/verifier/${1%.json}.log" 2>&1 || rc=$?
+  if [ $((rc & 5)) -ne 0 ]; then
+    echo "SCOPE ($1): the submission changed pi core, the build/test toolchain or the built dist, which the instruction forbids:"
+    cat "/logs/verifier/${1%.json}.log"
+    scope_rc=1
+  fi
+  if [ $((rc & 2)) -ne 0 ]; then tests_modified=1; fi
+}
+# Not piped: a function in a pipeline runs in a subshell and scope_rc would be lost.
+run_scope_check scope-summary.json > /logs/verifier/scope.log 2>&1
+cat /logs/verifier/scope.log
 # Never execute vite's transient config bundles left by the agent phase. The
 # dirs live under root-owned node_modules, so node cannot recreate them; clear
 # the contents and hand the empty dirs back to node for fresh temp bundles.
@@ -117,22 +131,40 @@ for d in /workspace/pi/node_modules/.vite-temp /workspace/pi/node_modules/.vite 
   mkdir -p "$d" 2>/dev/null && chown node:node "$d" 2>/dev/null || true
 done
 
-# PASS_TO_PASS: pi's own coding-agent suite must match the Base baseline recorded
-# in the image, and existing test files must be untouched (new files are fine).
-if ! eval "$G diff --quiet d981de1229ef899957bbe968bc8dcda02a21f477 -- packages/coding-agent/test"; then
+# PASS_TO_PASS: pi's own coding-agent suite must match the Base baseline recorded in the
+# image, and existing test files must be untouched (new files are fine). Only the Base
+# test files run here (named by the pinned baseline), so the scored report holds the Base
+# inventory and nothing else; the submission's own test files run right after, on their
+# own, and must pass (the instruction asks for a unit test file that runs with `npm test`).
+if [ "$tests_modified" -ne 0 ]; then
   echo "PASS_TO_PASS: existing test files were modified" | tee /logs/verifier/pass-to-pass.log
-  eval "$G diff --name-only d981de1229ef899957bbe968bc8dcda02a21f477 -- packages/coding-agent/test" | tee -a /logs/verifier/pass-to-pass.log
+  python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["tests_modified"]))' /logs/verifier/scope-summary.json | tee -a /logs/verifier/pass-to-pass.log
+  p2p_check_rc=1
+elif ! python3 /tests/check_pass_to_pass.py --list-files /opt/pi-baseline/coding-agent-junit.xml /tests/baseline-pins.json > /tmp/pi-p2p-files.txt; then
+  echo "PASS_TO_PASS: the image baseline does not match the pins" | tee /logs/verifier/pass-to-pass.log
   p2p_check_rc=1
 else
-  as_node "exec timeout 900 node ../../node_modules/vitest/vitest.mjs run --retry 2 --maxWorkers=4 --reporter=junit --outputFile=$VOUT/pass-to-pass-junit.xml" \
+  mapfile -t base_tests < /tmp/pi-p2p-files.txt
+  as_node "exec timeout 900 node ../../node_modules/vitest/vitest.mjs run --retry 2 --maxWorkers=4 --reporter=junit --outputFile=$VOUT/pass-to-pass-junit.xml ${base_tests[*]}" \
     > /logs/verifier/pass-to-pass.log 2>&1 || p2p_rc=$?
   reap_node
   cp "$VOUT/pass-to-pass-junit.xml" /logs/verifier/pass-to-pass-junit.xml 2>/dev/null || true
   tail -n 20 /logs/verifier/pass-to-pass.log
-  # The baseline lives in the agent-writable image; check_pass_to_pass.py verifies it
+  # The baseline is root-owned in the image; check_pass_to_pass.py also verifies it
   # against pins (Base case inventory, key-gated skipped set, failure cap) that hold
   # across image builds and platforms, so a rewritten baseline is rejected.
   python3 /tests/check_pass_to_pass.py /opt/pi-baseline/coding-agent-junit.xml /logs/verifier/pass-to-pass-junit.xml /tests/baseline-pins.json || p2p_check_rc=$?
+
+  mapfile -t new_tests < <(python3 -c 'import json,sys; print("\n".join("/workspace/pi/" + p for p in json.load(open(sys.argv[1]))["new_test_files"]))' /logs/verifier/scope-summary.json)
+  if [ "${#new_tests[@]}" -gt 0 ] && [ -n "${new_tests[0]}" ]; then
+    as_node "exec timeout 600 node ../../node_modules/vitest/vitest.mjs run --retry 2 --maxWorkers=4 --reporter=junit --outputFile=$VOUT/candidate-tests-junit.xml ${new_tests[*]}" \
+      > /logs/verifier/candidate-tests.log 2>&1 || candidate_tests_rc=$?
+    reap_node
+    cp "$VOUT/candidate-tests-junit.xml" /logs/verifier/candidate-tests-junit.xml 2>/dev/null || true
+    tail -n 20 /logs/verifier/candidate-tests.log
+  else
+    echo "candidate tests: the submission added no test file" | tee /logs/verifier/candidate-tests.log
+  fi
 fi
 
 as_node 'mkdir -p test/__verifier__' || true
@@ -153,16 +185,20 @@ cat /logs/verifier/lifecycle.log
 python3 /tests/check_junit.py /logs/verifier/lifecycle-junit.xml lifecycle || lifecycle_integrity_rc=$?
 
 as_node 'rm -rf test/__verifier__' || true
-rm -f "$SNAP_INDEX"
 # Final reap so no candidate-spawned process can rewrite the reward after this point.
 reap_node
+# Candidate code ran inside the suites above as the owner of the checkout; a submission
+# whose tests or extension rewrote pi core or the built dist during verification is
+# rejected the same way as one that did it during the agent phase.
+run_scope_check scope-summary-final.json >> /logs/verifier/scope.log 2>&1
+cat /logs/verifier/scope.log
 reward=0
 if [ "$contract_rc" -eq 0 ] && [ "$contract_integrity_rc" -eq 0 ] \
    && [ "$lifecycle_rc" -eq 0 ] && [ "$lifecycle_integrity_rc" -eq 0 ] \
-   && [ "$p2p_check_rc" -eq 0 ] && [ "$scope_rc" -eq 0 ]; then
+   && [ "$p2p_check_rc" -eq 0 ] && [ "$candidate_tests_rc" -eq 0 ] && [ "$scope_rc" -eq 0 ]; then
   reward=1
 fi
 printf '%s\n' "$reward" > /logs/verifier/reward.txt
-printf '{"reward":%s,"command_exit_code":%s,"contract_exit_code":%s,"contract_integrity_exit_code":%s,"lifecycle_exit_code":%s,"lifecycle_integrity_exit_code":%s,"pass_to_pass_exit_code":%s,"pass_to_pass_check_exit_code":%s,"scope_exit_code":%s}\n' \
-  "$reward" "$((1-reward))" "$contract_rc" "$contract_integrity_rc" "$lifecycle_rc" "$lifecycle_integrity_rc" "$p2p_rc" "$p2p_check_rc" "$scope_rc" > /logs/verifier/reward.json
+printf '{"reward":%s,"command_exit_code":%s,"contract_exit_code":%s,"contract_integrity_exit_code":%s,"lifecycle_exit_code":%s,"lifecycle_integrity_exit_code":%s,"pass_to_pass_exit_code":%s,"pass_to_pass_check_exit_code":%s,"candidate_tests_exit_code":%s,"scope_exit_code":%s}\n' \
+  "$reward" "$((1-reward))" "$contract_rc" "$contract_integrity_rc" "$lifecycle_rc" "$lifecycle_integrity_rc" "$p2p_rc" "$p2p_check_rc" "$candidate_tests_rc" "$scope_rc" > /logs/verifier/reward.json
 exit 0

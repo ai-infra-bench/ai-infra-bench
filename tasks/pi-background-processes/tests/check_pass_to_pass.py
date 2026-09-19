@@ -4,6 +4,10 @@ skipped Base cases must be unchanged, and no case may fail unless it already
 failed on Base (the image records that baseline).
 
 Usage: check_pass_to_pass.py <baseline-junit.xml> <candidate-junit.xml> [baseline-pins.json]
+       check_pass_to_pass.py --list-files <baseline-junit.xml> <baseline-pins.json>
+           prints the Base test files (absolute paths) the PASS_TO_PASS run is limited to,
+           after checking the baseline against the pins; the submission's own test files
+           run separately, so the scored report holds the Base inventory only.
 """
 
 from __future__ import annotations
@@ -61,7 +65,23 @@ def check_pins(baseline: dict[str, str], pins: dict[str, object]) -> list[str]:
     return problems
 
 
+def list_files(baseline_path: Path, pins_path: Path) -> int:
+    baseline = outcomes(baseline_path)
+    problems = check_pins(baseline, json.loads(pins_path.read_text()))
+    if problems or not baseline:
+        print("\n".join(problems or ["baseline is empty"]), file=sys.stderr)
+        return 1
+    files = sorted({key.split("::", 1)[0] for key in baseline})
+    if any(not f.startswith("test/") or ".." in f.split("/") for f in files):
+        print("baseline names a test file outside test/", file=sys.stderr)
+        return 1
+    print("\n".join(f"/workspace/pi/packages/coding-agent/{f}" for f in files))
+    return 0
+
+
 def main() -> int:
+    if sys.argv[1] == "--list-files":
+        return list_files(Path(sys.argv[2]), Path(sys.argv[3]))
     baseline_path, candidate_path = Path(sys.argv[1]), Path(sys.argv[2])
     pins_path = Path(sys.argv[3]) if len(sys.argv) > 3 else None
     summary: dict[str, object] = {"passed": False}
