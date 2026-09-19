@@ -1,6 +1,12 @@
 # PR60：版本审查与校准记录
 
-## 最新发布：v1.8.5（2026-09-18）
+## 最新发布：v1.8.6（2026-09-19）
+
+v1.8.6 修复了声明环境 A100 所走的 FlashAttention 2 路径：全零 context prefill 不再进入 paged context kernel，FA2 混合批次拆分执行，CUDA graph 使用稳定输出缓冲区，并在 capture 时构造合法的非零 DCP context。verifier 的局部真实后端检查也不再直接向 FA2 提交其不支持的零/非零混合批次。
+
+固定镜像中的官方 verifier 已在两张 NVIDIA A100-SXM4-40GB 上完成 Oracle 24/24、reward=1、worker_exit_status=0，14 组真实双卡引擎组合全部完成；未修改 Base 在预期的 DCP slot mapping 门禁处得到 reward=0、2/24。没有重跑历史模型答案、其他负对照或完整评分信任矩阵。详见 [a100-fa2-validation.md](a100-fa2-validation.md)。
+
+## 历史：v1.8.5（2026-09-18）
 
 最新题面已明确支持合法配置，而不只示例中的 interleave=2；verifier 增加超时子进程日志保存，不改变阈值、断言或评分。该冻结版本的四次 GPT-6 Astra/high 实测为 1 次通过、3 次失败；逐份轨迹及最终代码审查后，10 项隔离诊断支持失败来自候选实现遗漏，未确认新的 verifier 误判。详见 [latest-rollout-review.md](latest-rollout-review.md)。这不代表全范围无缺陷，也不将历史校准改记为最新版本成绩。
 

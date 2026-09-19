@@ -1,16 +1,14 @@
 # vLLM DCP slot mapping
 
-## Published revision 1.8.5
+## Published revision 1.8.6
 
-The generation verifier now records the case before launch and, on a child
-timeout, preserves captured stdout/stderr in `verifier/verifier.log` before
-re-raising the original exception. Child Python output is unbuffered. The
-300-second per-case limit, 1800-second verifier limit, assertions, checkpoints,
-and reward policy are unchanged; there is no automatic retry. This records
-output already emitted by the child, not a guarantee of recovering buffered
-native-library output or logs from an externally killed container. Existing
-validation archives and calibration below belong to their recorded versions;
-they are not a new full Harbor acceptance run for 1.8.5.
+Revision 1.8.6 closes the declared A100 validation gap. A100 selects FlashAttention 2, while the earlier H20 calibration selected FlashAttention 3. The Oracle now handles zero-context DCP prefills, FA2 mixed context batches, stable CUDA-graph output storage, and capture metadata that exercises the real DCP context branch.
+
+The local real-backend component check no longer submits unsupported mixed zero/nonzero context rows directly to the FA2 paged-varlen kernel. It evaluates such prefill rows separately while the full-engine matrix continues to validate ordinary production batching. Per-case configuration logging and a CUDA synchronization immediately after model execution make asynchronous kernel failures attributable to the launching step.
+
+On 2026-09-19, the official verifier completed all 24 checkpoints with reward 1 and worker exit status 0 in the pinned image on two NVIDIA A100-SXM4-40GB GPUs. All fourteen full-engine combinations passed. The final FlashAttention HND/interleave-1 graph case had maximum all-vocabulary log-probability error 0.0024700164794921875 against the 0.02 threshold. See [a100-fa2-validation.md](validation/a100-fa2-validation.md).
+
+This is a fresh functional validation for v1.8.6. Oracle scored 1 at 24/24 checkpoints; unmodified Base scored 0 at 2/24 on the intended DCP slot-mapping failure. Saved model answers, other negative controls, grading-trust probes, and the complete historical control matrix were not rerun, so their earlier scores remain attached to their recorded task versions.
 
 ## Task and environment
 
@@ -18,9 +16,9 @@ Repair Model Runner V2 for ordinary DCP generation with FlashAttention or FlashI
 
 Instruction clarification (2026-09-18): the example interleave setting is not the only supported setting; the request explicitly covers valid DCP configurations, including the default, subject to backend and cache-block compatibility. No failure location, internal cause or repair strategy was added. Four frozen v1.8.5 GPT-6 Astra/high attempts used this clarified prompt: one completed all 24 checkpoints; three failed with candidate implementation defects reproduced in isolated diagnostic runs. See [latest-rollout-review.md](validation/latest-rollout-review.md). Earlier v1.8.4 calibration used the earlier instruction hash and remains historical evidence, not a new full control calibration for v1.8.5. Original snapshots and scores remain unchanged.
 
-Version 1.8.4 provides two GPUs, 2 GiB shared memory, exact Base source, a digest-pinned offline image, and a small random-weight Qwen3 model/tokenizer at `/opt/models/tiny-qwen3`. This ordinary development resource contains no reproducer or repair hints and does not measure language quality. The Agent budget remains ten hours. Four current full Harbor functional controls passed calibration: Oracle and a distinct curated alternative score 1 (24/24); Base and historical v183 Oracle score 0. Historical passing results are not final v1.8.4 acceptance.
+Version 1.8.6 provides two GPUs, 2 GiB shared memory, exact Base source, a digest-pinned offline image, and a small random-weight Qwen3 model/tokenizer at `/opt/models/tiny-qwen3`. This ordinary development resource contains no reproducer or repair hints and does not measure language quality. The Agent budget remains ten hours. The historical v1.8.4 H20 control matrix remains unchanged: Oracle and a distinct curated alternative scored 1, while Base and the historical v1.8.3 Oracle scored 0.
 
-The repository runner schema declares A100 ×2; local calibration uses shared H20 ×2. A100 validation is still pending and is not inferred from H20 results.
+The repository runner schema declares A100 ×2. The v1.8.6 Oracle has now completed the full official verifier on that declared hardware. Earlier H20 results continue to validate the default FA3 path only and are not relabeled as A100 results.
 
 ## Verifier
 

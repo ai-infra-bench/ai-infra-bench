@@ -352,6 +352,9 @@ def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool,
     from vllm.v1.core.sched.output import NewRequestData, SchedulerOutput
     import vllm.v1.worker.gpu.cudagraph_utils as graph_module
 
+    if real_backend:
+        from vllm.v1.attention.backends.fa_utils import get_flash_attn_version
+
     interleave = 2
     runner = construct_runner(
         dcp_size=dcp_size, dcp_rank=dcp_rank, interleave=interleave,
@@ -399,18 +402,48 @@ def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool,
             from vllm.v1.attention.backends.fa_utils import (
                 flash_attn_varlen_func, get_flash_attn_version,
             )
+            fa_version = get_flash_attn_version()
             query = torch.zeros((input_ids.shape[0], 4 // dcp_size, 32),
                                 dtype=torch.float16, device=input_ids.device)
-            attended = flash_attn_varlen_func(
-                q=query, k=self.keys, v=self.values,
-                cu_seqlens_q=common.query_start_loc,
-                max_seqlen_q=common.max_query_len, seqused_k=lengths,
-                max_seqlen_k=(common.max_dcp_context_kv_len if dcp_size > 1
-                              else common.max_seq_len),
-                softmax_scale=32 ** -0.5, causal=False,
-                block_table=common.block_table,
-                fa_version=get_flash_attn_version(), num_splits=1,
-            )
+            if fa_version == 2 and dcp_size > 1 and common.max_query_len > 1:
+                # FA2 paged-varlen does not accept a batch that mixes rows
+                # with and without context. This component check validates the
+                # runner's real page tables and lengths one request at a time;
+                # the full-engine checks below exercise production batching.
+                attended = torch.zeros_like(query)
+                query_starts = common.query_start_loc.cpu().tolist()
+                for req_index, (start, end) in enumerate(
+                    zip(query_starts, query_starts[1:])
+                ):
+                    local_length = int(lengths[req_index].item())
+                    if local_length == 0:
+                        continue
+                    single_query_start = torch.tensor(
+                        [0, end - start], dtype=torch.int32,
+                        device=input_ids.device,
+                    )
+                    flash_attn_varlen_func(
+                        q=query[start:end], k=self.keys, v=self.values,
+                        out=attended[start:end],
+                        cu_seqlens_q=single_query_start,
+                        max_seqlen_q=end - start,
+                        seqused_k=lengths[req_index:req_index + 1],
+                        max_seqlen_k=local_length,
+                        softmax_scale=32 ** -0.5, causal=False,
+                        block_table=common.block_table[req_index:req_index + 1],
+                        fa_version=fa_version, num_splits=1,
+                    )
+            else:
+                attended = flash_attn_varlen_func(
+                    q=query, k=self.keys, v=self.values,
+                    cu_seqlens_q=common.query_start_loc,
+                    max_seqlen_q=common.max_query_len, seqused_k=lengths,
+                    max_seqlen_k=(common.max_dcp_context_kv_len if dcp_size > 1
+                                  else common.max_seq_len),
+                    softmax_scale=32 ** -0.5, causal=False,
+                    block_table=common.block_table,
+                    fa_version=fa_version, num_splits=1,
+                )
             return torch.cat((fingerprint, attended.float().mean(dim=(1, 2)).unsqueeze(1)), dim=1)
 
         def compute_logits(self, hidden_states):
@@ -531,7 +564,21 @@ def check_runner_lifecycle(*, dcp_size: int, dcp_rank: int, graph: bool,
                           + p % block_size) % 127) / 128 for p in range(local_length))
                     / local_length if local_length else 0.0
                 )
+        if real_backend:
+            print("REAL_BACKEND_STEP=" + json.dumps({
+                "fa_version": get_flash_attn_version(),
+                "block_size": block_size,
+                "dcp_size": dcp_size,
+                "dcp_rank": dcp_rank,
+                "graph": graph,
+                "step": step,
+                "requests": list(counts),
+            }), flush=True)
         runner.execute_model(output)
+        if real_backend:
+            # Surface asynchronous kernel failures at the operation that
+            # launched them instead of during a later sampler copy.
+            torch.cuda.synchronize()
         if not counts:
             continue
         sampled = runner.sample_tokens(None)
