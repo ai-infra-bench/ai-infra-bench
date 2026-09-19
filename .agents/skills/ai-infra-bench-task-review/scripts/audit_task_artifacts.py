@@ -29,13 +29,16 @@ REQUIRED_FILES = (
     "environment/Dockerfile",
     "environment/image-manifest.json",
     "environment/lock/manifest.json",
-    "environment/lock/requirements.txt",
     "solution/oracle.patch",
     "solution/solve.sh",
     "tests/test.sh",
     "validation/ci-cases.json",
     "validation/e2e-evidence.json",
 )
+# The dependency lock is named by environment/lock/manifest.json output.path
+# (requirements.txt for Python targets, package-lock.json for Node targets, ...).
+# This is the fallback when the lock manifest does not record one.
+DEFAULT_DEPENDENCY_LOCK = "environment/lock/requirements.txt"
 EVIDENCE_HASHES = {
     "task_toml_sha256": "task.toml",
     "task_metadata_sha256": "task.toml",
@@ -126,6 +129,16 @@ def safe_task_relative_path(value: Any) -> str | None:
     return path.as_posix()
 
 
+def dependency_lock_path(task: Path) -> str:
+    """The task's dependency lock file, as named by the lock manifest."""
+    try:
+        lock = json.loads((task / "environment/lock/manifest.json").read_text())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return DEFAULT_DEPENDENCY_LOCK
+    recorded = safe_task_relative_path(mapping(mapping(lock).get("output")).get("path"))
+    return recorded or DEFAULT_DEPENDENCY_LOCK
+
+
 def load(task: Path, audit: Audit) -> tuple[dict[str, Any], dict[str, Any]]:
     before = audit.errors
     config: dict[str, Any] = {}
@@ -183,7 +196,8 @@ def check_task(task: Path, config: dict[str, Any], repo: Path, audit: Audit) -> 
             slug.startswith(f"{prefix}-"), f"task slug must start with {prefix}-"
         )
 
-    missing = [path for path in REQUIRED_FILES if not (task / path).is_file()]
+    required = [*REQUIRED_FILES, dependency_lock_path(task)]
+    missing = [path for path in required if not (task / path).is_file()]
     audit.require(not missing, f"required task files are missing: {missing}")
     audit.require(
         bool(re.fullmatch(r"[0-9a-f]{40}", str(metadata.get("base_commit", "")))),
@@ -276,7 +290,7 @@ def check_artifacts(
         (
             "image manifest",
             image.get("dependency_lock_sha256"),
-            "environment/lock/requirements.txt",
+            dependency_lock_path(task),
         ),
         (
             "image manifest",
