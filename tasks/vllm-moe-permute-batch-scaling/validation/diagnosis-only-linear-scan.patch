@@ -1,0 +1,13 @@
+diff --git a/csrc/moe/moe_permute_unpermute_op.cu b/csrc/moe/moe_permute_unpermute_op.cu
+index fd94b46e5..9c20bd35e 100644
+--- a/csrc/moe/moe_permute_unpermute_op.cu
++++ b/csrc/moe/moe_permute_unpermute_op.cu
+@@ -73,6 +73,8 @@ void moe_permute(
+       get_ptr<int64_t>(expert_first_token_offset), n_token, n_expert,
+       n_local_expert, topk, sorter, get_ptr<int>(sort_workspace), stream);
+ 
++  // Large aligned batches expose a routing lookup bottleneck below; this
++  // diagnosis-only control intentionally leaves the scaling behavior intact.
+   // dispatch expandInputRowsKernelLauncher
+   MOE_DISPATCH(input.scalar_type(), [&] {
+     expandInputRowsKernelLauncher<scalar_t>(

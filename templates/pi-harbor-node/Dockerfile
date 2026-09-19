@@ -168,6 +168,17 @@ RUN install -d -o node -g node /tmp/pi-baseline-home /tmp/pi-baseline-out \
       rm -rf "$d/.vite-temp" "$d/.vite"; install -d -o node -g node -m 0755 "$d/.vite-temp" "$d/.vite"; \
     done
 
+# Identity of what the image build generated inside the checkout: the built dist/ trees
+# (the verifier's lifecycle suites run the published dist/ entry points) and generated
+# sources such as packages/ai/src/providers/data. These files are gitignored, live in the
+# agent-owned checkout, and their bytes depend on the image build (the model catalog is
+# fetched at build time), so they cannot be pinned in tests/. Record them here, root-owned,
+# so tests/check_scope.py can reject a submission that edited the built pi core. A rebuild
+# from unchanged sources reproduces these bytes.
+RUN cd /workspace/pi \
+ && git ls-files --others -z | grep -zv -E '(^|/)node_modules/' | sort -z | xargs -0 sha256sum > /opt/pi-baseline/build-manifest.sha256 \
+ && test "$(grep -c -E '  packages/coding-agent/dist/' /opt/pi-baseline/build-manifest.sha256)" -gt 500 \
+ && chown root:root /opt/pi-baseline/build-manifest.sha256 && chmod 0444 /opt/pi-baseline/build-manifest.sha256
 RUN test ! -e /tests && test ! -e /solution && test ! -e /validation
 
 LABEL ai.infra.bench.environment-template=pi-harbor-node \

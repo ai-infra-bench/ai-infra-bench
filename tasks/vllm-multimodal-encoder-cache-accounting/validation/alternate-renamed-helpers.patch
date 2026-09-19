@@ -1,0 +1,101 @@
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -2075,7 +2075,7 @@
+         ]
+         return logits_indices_padded
+ 
+-    def _batch_mm_kwargs_from_scheduler(
++    def _collect_media_inputs(
+         self,
+         scheduler_output: "SchedulerOutput",
+     ) -> tuple[list[MultiModalKwargsItem], list[tuple[str, PlaceholderRange]]]:
+@@ -2110,11 +2110,11 @@
+ 
+         return mm_kwargs, mm_hashes_pos
+ 
+-    def _execute_mm_encoder(
++    def _encode_media_batch(
+         self, scheduler_output: "SchedulerOutput"
+     ) -> list[torch.Tensor]:
+         # Batch the multi-modal inputs using the helper method.
+-        mm_kwargs, mm_hashes_pos = self._batch_mm_kwargs_from_scheduler(
++        mm_kwargs, mm_hashes_pos = self._collect_media_inputs(
+             scheduler_output
+         )
+ 
+@@ -2191,7 +2191,7 @@
+ 
+         return encoder_outputs
+ 
+-    def _gather_mm_embeddings(
++    def _collect_encoder_rows(
+         self,
+         scheduler_output: "SchedulerOutput",
+         shift_computed_tokens: int = 0,
+@@ -2464,8 +2464,8 @@
+                 scheduler_output,
+                 encoder_cache=self.encoder_cache,
+             ) as ec_connector_output:
+-                self._execute_mm_encoder(scheduler_output)
+-                mm_embeds, is_mm_embed = self._gather_mm_embeddings(scheduler_output)
++                self._encode_media_batch(scheduler_output)
++                mm_embeds, is_mm_embed = self._collect_encoder_rows(scheduler_output)
+ 
+             # NOTE(woosuk): To unify token ids and soft tokens (vision
+             # embeddings), we always use embeddings (rather than token ids)
+@@ -2542,7 +2542,7 @@
+             # simpler, because the outputs are just passed to the decoder.
+             # We are not doing any prompt replacement. We also will only
+             # ever have a single encoder input.
+-            encoder_outputs = self._execute_mm_encoder(scheduler_output)
++            encoder_outputs = self._encode_media_batch(scheduler_output)
+             model_kwargs.update({"encoder_outputs": encoder_outputs})
+ 
+         return (
+@@ -2943,7 +2943,7 @@
+                         scheduler_output,
+                         encoder_cache=self.encoder_cache,
+                     ) as ec_connector_output:
+-                        self._execute_mm_encoder(scheduler_output)
++                        self._encode_media_batch(scheduler_output)
+                         return make_empty_encoder_model_runner_output(scheduler_output)
+ 
+                 if not num_scheduled_tokens:
+@@ -3532,7 +3532,7 @@
+                         target_hidden_states = hidden_states[:total_num_tokens]
+ 
+             if self.supports_mm_inputs:
+-                mm_embed_inputs = self._gather_mm_embeddings(
++                mm_embed_inputs = self._collect_encoder_rows(
+                     scheduler_output,
+                     shift_computed_tokens=1,
+                 )
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -288,7 +288,7 @@
+                     num_new_tokens,
+                     new_encoder_compute_budget,
+                     external_load_encoder_input,
+-                ) = self._try_schedule_encoder_inputs(
++                ) = self._admit_media_inputs(
+                     request,
+                     request.num_computed_tokens,
+                     num_new_tokens,
+@@ -548,7 +548,7 @@
+                             num_new_tokens,
+                             new_encoder_compute_budget,
+                             external_load_encoder_input,
+-                        ) = self._try_schedule_encoder_inputs(
++                        ) = self._admit_media_inputs(
+                             request,
+                             num_computed_tokens,
+                             num_new_tokens,
+@@ -868,7 +868,7 @@
+             num_output_tokens=num_output_tokens,
+         )
+ 
+-    def _try_schedule_encoder_inputs(
++    def _admit_media_inputs(
+         self,
+         request: Request,
+         num_computed_tokens: int,

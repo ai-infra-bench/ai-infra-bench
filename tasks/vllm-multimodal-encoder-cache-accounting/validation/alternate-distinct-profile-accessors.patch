@@ -1,0 +1,818 @@
+diff --git a/vllm/multimodal/inputs.py b/vllm/multimodal/inputs.py
+index 6b1cbbe24..c62e9b6e3 100644
+--- a/vllm/multimodal/inputs.py
++++ b/vllm/multimodal/inputs.py
+@@ -175,6 +175,18 @@ class PlaceholderRange:
+
+         return int(self.is_embed.sum().item())
+
++    def get_embeds_indices(self, start_idx: int, end_idx: int) -> tuple[int, int]:
++        """Map a half-open placeholder slice to its encoder output rows.
++
++        Indices are relative to this placeholder, not the full prompt. Empty
++        slices (including slices containing only text) map to equal indices.
++        """
++        if self.is_embed is None:
++            return start_idx, end_idx
++
++        start = int(self.is_embed[:start_idx].sum().item())
++        return start, start + int(self.is_embed[start_idx:end_idx].sum().item())
++
+     def extract_embeds_range(self) -> list[tuple[int, int]]:
+         """Extract the start and end indices of the embedded region in prompt.
+
+diff --git a/vllm/multimodal/profiling.py b/vllm/multimodal/profiling.py
+index cb70041e9..359826c28 100644
+--- a/vllm/multimodal/profiling.py
++++ b/vllm/multimodal/profiling.py
+@@ -363,7 +363,14 @@ class MultiModalProfiler(Generic[_I]):
+         `<im_start> [IMG] [IMG] [IMG] <row_break> [IMG] [IMG] [IMG] <im_end>`
+         Returns 9, even when the number of image embeddings is 6.
+
+-        This is important to take into account when profiling and
+-        initializing the encoder cache size.
++        This is used to account for the decoder's prompt length.
+         """
+         return self._get_mm_max_tokens(seq_len, mm_counts, mm_embeddings_only=False)
++
++    def get_mm_max_embeds(
++        self,
++        seq_len: int,
++        mm_counts: Mapping[str, int] | None = None,
++    ) -> Mapping[str, int]:
++        """Return the maximum number of encoder output rows by modality."""
++        return self._get_mm_max_tokens(seq_len, mm_counts, mm_embeddings_only=True)
+diff --git a/vllm/multimodal/registry.py b/vllm/multimodal/registry.py
+index 00a84f9de..a9e8775d7 100644
+--- a/vllm/multimodal/registry.py
++++ b/vllm/multimodal/registry.py
+@@ -148,10 +148,14 @@ class MultiModalRegistry:
+         *,
+         cache: BaseMultiModalProcessorCache | None = None,
+         profiler_limits: Mapping[str, int] | None = None,
++        mm_embeddings_only: bool = False,
+     ) -> Mapping[str, int]:
+         """
+         Get the maximum number of tokens per data item from each modality based
+         on underlying model configuration.
++
++        If ``mm_embeddings_only`` is True, count encoder output rows instead
++        of the full placeholder spans (which can also contain text tokens).
+         """
+         if not model_config.is_multimodal_model:
+             return {}
+@@ -164,7 +168,12 @@ class MultiModalRegistry:
+             profiler.get_mm_limits() if profiler_limits is None else profiler_limits
+         )
+
+-        return profiler.get_mm_max_contiguous_tokens(
++        get_max_tokens = (
++            profiler.get_mm_max_embeds
++            if mm_embeddings_only
++            else profiler.get_mm_max_contiguous_tokens
++        )
++        return get_max_tokens(
+             seq_len,
+             {modality: 1 for modality, limit in profiler_limits.items() if limit > 0},
+         )
+diff --git a/vllm/v1/core/encoder_cache_manager.py b/vllm/v1/core/encoder_cache_manager.py
+index 50f738713..ba7a17c6f 100644
+--- a/vllm/v1/core/encoder_cache_manager.py
++++ b/vllm/v1/core/encoder_cache_manager.py
+@@ -41,7 +41,7 @@ class EncoderCacheManager:
+
+     Args:
+         cache_size: Limit the size of the cache, measured by the number of
+-                    tokens from the input sequence.
++                    encoder output rows.
+
+     Attributes:
+         cache_size: Total cache capacity in encoder tokens.
+@@ -258,19 +258,23 @@ def compute_encoder_budget(
+     configurations.
+
+     Returns:
+-        - Compute budget for encoder execution, measured in number of tokens
+-            from the input sequence.
+-        - Space budget for encoder cache size, measured in number of tokens
+-            from the input sequence.
++        - Compute budget for encoder execution, measured in encoder output rows.
++        - Space budget for encoder cache size, measured in encoder output rows.
+     """
+     if mm_registry.supports_multimodal_inputs(model_config):
+         max_tokens_by_modality = mm_registry.get_max_tokens_per_item_by_modality(
+-            model_config
++            model_config, mm_embeddings_only=True
++        )
++        max_placeholder_tokens = (
++            mm_registry.get_max_tokens_per_item_by_modality(model_config)
++            if scheduler_config.disable_chunked_mm_input
++            else None
+         )
+
+         return compute_mm_encoder_budget(
+             scheduler_config,
+             max_tokens_by_modality,
++            max_placeholder_tokens=max_placeholder_tokens,
+         )
+
+     return compute_text_encoder_budget(scheduler_config)
+@@ -296,20 +300,22 @@ def compute_text_encoder_budget(scheduler_config: "SchedulerConfig") -> tuple[in
+ def compute_mm_encoder_budget(
+     scheduler_config: "SchedulerConfig",
+     max_tokens_by_modality: Mapping[str, int],
++    *,
++    max_placeholder_tokens: Mapping[str, int] | None = None,
+ ) -> tuple[int, int]:
+     """Compute the encoder cache budget based on the model and scheduler
+     configurations for a multimodal model.
+
+     Args:
+         scheduler_config: Scheduler configuration.
+-        max_tokens_by_modality: The maximum number of tokens for each
++        max_tokens_by_modality: The maximum number of encoder output rows for each
+             non-text modality.
++        max_placeholder_tokens: Full placeholder lengths for checking decoder
++            limits when multimodal input chunking is disabled.
+
+     Returns:
+-        - Compute budget for encoder execution, measured in number of tokens
+-            from the input sequence.
+-        - Space budget for encoder cache size, measured in number of tokens
+-            from the input sequence.
++        - Compute budget for encoder execution, measured in encoder output rows.
++        - Space budget for encoder cache size, measured in encoder output rows.
+     """
+
+     if not max_tokens_by_modality:
+@@ -321,14 +327,17 @@ def compute_mm_encoder_budget(
+         return 0, 0
+
+     max_tokens_per_mm_item = max(max_tokens_by_modality.values())
++    max_prompt_tokens_per_mm_item = max(
++        (max_placeholder_tokens or max_tokens_by_modality).values()
++    )
+
+     if (
+         scheduler_config.disable_chunked_mm_input
+-        and max_tokens_per_mm_item > scheduler_config.max_num_batched_tokens
++        and max_prompt_tokens_per_mm_item > scheduler_config.max_num_batched_tokens
+     ):
+         raise ValueError(
+             "Chunked MM input disabled but max_tokens_per_mm_item "
+-            f"({max_tokens_per_mm_item}) is larger than max_num_batched_tokens"
++            f"({max_prompt_tokens_per_mm_item}) is larger than max_num_batched_tokens"
+             f" ({scheduler_config.max_num_batched_tokens}). Please increase "
+             "max_num_batched_tokens."
+         )
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index 278970ae7..07d425636 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -913,12 +913,13 @@ class Scheduler(SchedulerInterface):
+         mm_hashes_to_schedule = set()
+         num_tokens_to_schedule = 0
+         for i, mm_feature in enumerate(mm_features):
+-            start_pos = mm_feature.mm_position.offset
+-            num_encoder_tokens = mm_feature.mm_position.length
++            pos_info = mm_feature.mm_position
++            start_pos = pos_info.offset
++            num_placeholder_tokens = pos_info.length
+
+             # The encoder output is needed if the two ranges overlap:
+             # [num_computed_tokens, num_computed_tokens + num_new_tokens) and
+-            # [start_pos, start_pos + num_encoder_tokens)
++            # [start_pos, start_pos + num_placeholder_tokens)
+             if (
+                 start_pos
+                 >= num_computed_tokens + num_new_tokens + shift_computed_tokens
+@@ -941,11 +942,26 @@ class Scheduler(SchedulerInterface):
+                 # decoder tokens (num_computed_tokens > 0), then we know we
+                 # already calculated encoder inputs and can skip here.
+                 continue
+-            elif start_pos + num_encoder_tokens <= num_computed_tokens:
++            elif start_pos + num_placeholder_tokens <= num_computed_tokens:
+                 # The encoder input is already computed and stored
+                 # in the decoder's KV cache.
+                 continue
+
++            start_idx = max(num_computed_tokens - start_pos, 0)
++            end_idx = min(
++                num_computed_tokens
++                + num_new_tokens
++                + shift_computed_tokens
++                - start_pos,
++                num_placeholder_tokens,
++            )
++            embed_start, embed_end = pos_info.get_embeds_indices(start_idx, end_idx)
++            if embed_start == embed_end:
++                # Text-only portions of a placeholder need neither encoder
++                # computation nor cache space, including during lookahead.
++                continue
++
++            num_encoder_tokens = request.get_num_encoder_tokens(i)
+             if not self.is_encoder_decoder:
+                 # We are not using the encoder cache for encoder-decoder models,
+                 # yet.
+@@ -966,7 +982,7 @@ class Scheduler(SchedulerInterface):
+                 self.scheduler_config.disable_chunked_mm_input
+                 and num_computed_tokens < start_pos
+                 and (num_computed_tokens + num_new_tokens)
+-                < (start_pos + num_encoder_tokens)
++                < (start_pos + num_placeholder_tokens)
+             ):
+                 num_new_tokens = start_pos - num_computed_tokens
+                 break
+@@ -978,10 +994,15 @@ class Scheduler(SchedulerInterface):
+                 # NOTE(woosuk): We assume that the encoder input tokens should
+                 # be processed altogether, as the encoder usually uses
+                 # bidirectional attention.
+-                if num_computed_tokens + shift_computed_tokens < start_pos:
++                first_embed_pos = start_pos
++                if pos_info.is_embed is not None:
++                    first_embed_pos += start_idx + int(
++                        pos_info.is_embed[start_idx:end_idx].nonzero()[0].item()
++                    )
++                if num_computed_tokens + shift_computed_tokens < first_embed_pos:
+                     # We only schedule the decoder tokens just before the
+                     # encoder input.
+-                    num_new_tokens = start_pos - (
++                    num_new_tokens = first_embed_pos - (
+                         num_computed_tokens + shift_computed_tokens
+                     )
+                 else:
+diff --git a/vllm/v1/request.py b/vllm/v1/request.py
+index a775e840e..cad1c9fde 100644
+--- a/vllm/v1/request.py
++++ b/vllm/v1/request.py
+@@ -210,9 +210,9 @@ class Request:
+         return RequestStatus.get_finished_reason(self.status)
+
+     def get_num_encoder_tokens(self, input_id: int) -> int:
++        """Return the number of encoder output rows for this media item."""
+         assert input_id < len(self.mm_features)
+-        num_tokens = self.mm_features[input_id].mm_position.length
+-        return num_tokens
++        return self.mm_features[input_id].mm_position.get_num_embeds()
+
+     def record_event(
+         self,
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+index 1aa2ec6bb..0b10d8cce 100644
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -169,9 +169,7 @@ from .utils import (
+     MultiModalBudget,
+     add_kv_sharing_layers_to_kv_cache_groups,
+     bind_kv_cache,
+-    gather_mm_placeholders,
+     sanity_check_mm_encoder_outputs,
+-    scatter_mm_placeholders,
+ )
+
+ if TYPE_CHECKING:
+@@ -1286,7 +1284,8 @@ class GPUModelRunner(
+             # whether encoding is finished or not so that cross-attention knows how
+             # many encoder tokens to attend to.
+             encoder_input_tokens = sum(
+-                feature.mm_position.length for feature in req_state.mm_features
++                feature.mm_position.get_num_embeds()
++                for feature in req_state.mm_features
+             )
+             self.encoder_seq_lens.np[req_index] = encoder_input_tokens
+
+@@ -2186,11 +2185,8 @@ class GPUModelRunner(
+             encoder_outputs.extend(curr_group_outputs)
+
+         # Cache the encoder outputs by mm_hash
+-        for (mm_hash, pos_info), output in zip(mm_hashes_pos, encoder_outputs):
+-            self.encoder_cache[mm_hash] = scatter_mm_placeholders(
+-                output,
+-                is_embed=pos_info.is_embed,
+-            )
++        for (mm_hash, _), output in zip(mm_hashes_pos, encoder_outputs):
++            self.encoder_cache[mm_hash] = output
+             logger.debug("Finish execute for mm hash %s", mm_hash)
+             self.maybe_save_ec_to_connector(self.encoder_cache, mm_hash)
+
+@@ -2221,16 +2217,16 @@ class GPUModelRunner(
+             for mm_feature in req_state.mm_features:
+                 pos_info = mm_feature.mm_position
+                 start_pos = pos_info.offset
+-                num_encoder_tokens = pos_info.length
++                num_placeholder_tokens = pos_info.length
+
+                 # The encoder output is needed if the two ranges overlap:
+                 # [num_computed_tokens,
+                 #  num_computed_tokens + num_scheduled_tokens) and
+-                # [start_pos, start_pos + num_encoder_tokens)
++                # [start_pos, start_pos + num_placeholder_tokens)
+                 if start_pos >= num_computed_tokens + num_scheduled_tokens:
+                     # The encoder output is not needed in this step.
+                     break
+-                if start_pos + num_encoder_tokens <= num_computed_tokens:
++                if start_pos + num_placeholder_tokens <= num_computed_tokens:
+                     # The encoder output is already processed and stored
+                     # in the decoder's KV cache.
+                     continue
+@@ -2238,9 +2234,13 @@ class GPUModelRunner(
+                 start_idx = max(num_computed_tokens - start_pos, 0)
+                 end_idx = min(
+                     num_computed_tokens - start_pos + num_scheduled_tokens,
+-                    num_encoder_tokens,
++                    num_placeholder_tokens,
+                 )
+-                assert start_idx < end_idx
++                assert start_idx <= end_idx
++
++                embed_start, embed_end = pos_info.get_embeds_indices(start_idx, end_idx)
++                if embed_start == embed_end:
++                    continue
+
+                 mm_hash = mm_feature.identifier
+                 encoder_output = self.encoder_cache.get(mm_hash, None)
+@@ -2254,10 +2254,7 @@ class GPUModelRunner(
+                     True if is_embed is None else is_embed
+                 )
+
+-                mm_embeds_item = gather_mm_placeholders(
+-                    encoder_output[start_idx:end_idx],
+-                    is_embed=is_embed,
+-                )
++                mm_embeds_item = encoder_output[embed_start:embed_end]
+                 mm_embeds_req.append(mm_embeds_item)
+
+             if self.is_multimodal_pruning_enabled and self.uses_mrope:
+@@ -4453,7 +4450,9 @@ class GPUModelRunner(
+                 mm_budget = self.mm_budget
+                 assert mm_budget is not None
+
+-                if (encoder_budget := mm_budget.get_encoder_budget()) > 0:
++                if (encoder_budget := mm_budget.get_encoder_budget()) > 0 and any(
++                    mm_budget.max_items_per_batch_by_modality.values()
++                ):
+                     # NOTE: Currently model is profiled with a single non-text
+                     # modality with the max possible input tokens even when
+                     # it supports multiple.
+@@ -4487,28 +4486,6 @@ class GPUModelRunner(
+                         expected_num_items=max_mm_items_per_batch,
+                     )
+
+-                    # NOTE: This happens when encoder cache needs to store
+-                    # the embeddings that encoder outputs are scattered onto.
+-                    # In this case we create dummy embeddings of size
+-                    # (max_tokens_for_modality, hidden_size) and scatter
+-                    # encoder output into it.
+-                    encoder_output_shape = dummy_encoder_outputs[0].shape
+-                    max_mm_tokens_per_item = mm_budget.max_tokens_by_modality[
+-                        dummy_modality
+-                    ]
+-                    if encoder_output_shape[0] < max_mm_tokens_per_item:
+-                        encoder_hidden_size = encoder_output_shape[-1]
+-                        expanded_outputs = []
+-                        for output in dummy_encoder_outputs:
+-                            expanded = output.new_zeros(
+-                                (max_mm_tokens_per_item, encoder_hidden_size)
+-                            )
+-                            num_tokens = output.shape[0]
+-                            expanded[:num_tokens].copy_(output)
+-                            expanded_outputs.append(expanded)
+-
+-                        dummy_encoder_outputs = expanded_outputs
+-
+                     # Cache the dummy encoder outputs.
+                     self.encoder_cache["tmp"] = dict(enumerate(dummy_encoder_outputs))
+
+diff --git a/vllm/v1/worker/utils.py b/vllm/v1/worker/utils.py
+index e9c48223d..3ed6db242 100644
+--- a/vllm/v1/worker/utils.py
++++ b/vllm/v1/worker/utils.py
+@@ -43,11 +43,18 @@ class MultiModalBudget:
+             model_config,
+             cache=cache,
+             profiler_limits=self.mm_limits,
++            mm_embeddings_only=True,
++        )
++        max_placeholder_tokens = mm_registry.get_max_tokens_per_item_by_modality(
++            model_config,
++            cache=cache,
++            profiler_limits=self.mm_limits,
+         )
+
+         encoder_compute_budget, encoder_cache_size = compute_mm_encoder_budget(
+             scheduler_config,
+             max_tokens_by_modality,
++            max_placeholder_tokens=max_placeholder_tokens,
+         )
+
+         self.encoder_compute_budget = encoder_compute_budget
+@@ -60,7 +67,9 @@ class MultiModalBudget:
+             (
+                 max_items_per_prompt,
+                 max_items_per_batch,
+-            ) = self.get_max_items(modality, max_tokens)
++            ) = self.get_max_items(
++                modality, max_tokens, max_placeholder_tokens[modality]
++            )
+
+             max_items_per_prompt_by_modality[modality] = max_items_per_prompt
+             max_items_per_batch_by_modality[modality] = max_items_per_batch
+@@ -82,6 +91,7 @@ class MultiModalBudget:
+         self,
+         modality: str,
+         max_tokens_per_item: int,
++        max_placeholder_tokens_per_item: int | None = None,
+     ) -> tuple[int, int]:
+         if max_tokens_per_item == 0:
+             return 0, 0
+@@ -99,10 +109,12 @@ class MultiModalBudget:
+         # Check how many items of this modality can be supported by
+         # the decoder budget.
+         mm_limit = self.mm_limits[modality]
++        if max_placeholder_tokens_per_item is None:
++            max_placeholder_tokens_per_item = max_tokens_per_item
+
+         max_items_per_prompt = max(
+             1,
+-            min(mm_limit, self.max_model_len // max_tokens_per_item),
++            min(mm_limit, self.max_model_len // max_placeholder_tokens_per_item),
+         )
+
+         scheduler_config = self.scheduler_config
+@@ -111,7 +123,8 @@ class MultiModalBudget:
+         if not scheduler_config.enable_chunked_prefill:
+             max_num_reqs = min(
+                 max_num_reqs,
+-                scheduler_config.max_num_batched_tokens // max_tokens_per_item,
++                scheduler_config.max_num_batched_tokens
++                // max_placeholder_tokens_per_item,
+             )
+
+         max_decoder_items_per_batch = max_num_reqs * max_items_per_prompt
+diff --git a/tests/v1/worker/test_mm_encoder.py b/tests/v1/worker/test_mm_encoder.py
+new file mode 100644
+--- /dev/null
++++ b/tests/v1/worker/test_mm_encoder.py
+@@ -0,0 +1,362 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Encoder accounting and chunked reads with sparse prompt placeholders."""
++
++from types import SimpleNamespace
++from unittest.mock import Mock
++
++import pytest
++import torch
++
++from vllm.multimodal.inputs import MultiModalFeatureSpec, PlaceholderRange
++from vllm.multimodal.profiling import MultiModalProfiler
++from vllm.multimodal.registry import MultiModalRegistry
++from vllm.sampling_params import SamplingParams
++from vllm.v1.core.encoder_cache_manager import (
++    EncoderCacheManager,
++    compute_encoder_budget,
++)
++from vllm.v1.core.sched.scheduler import Scheduler
++from vllm.v1.request import Request
++from vllm.v1.worker.gpu_model_runner import GPUModelRunner
++from vllm.v1.worker.utils import MultiModalBudget
++
++pytestmark = pytest.mark.cpu_test
++
++
++def make_request(positions, request_id="req"):
++    return Request(
++        request_id=request_id,
++        prompt_token_ids=[1] * 256,
++        sampling_params=SamplingParams(max_tokens=1),
++        pooling_params=None,
++        eos_token_id=None,
++        mm_features=[
++            MultiModalFeatureSpec(
++                data=None,
++                modality="image",
++                identifier=f"{request_id}-{i}",
++                mm_position=pos,
++            )
++            for i, pos in enumerate(positions)
++        ],
++    )
++
++
++def sparse_position(offset=0):
++    mask = torch.zeros(100, dtype=torch.bool)
++    mask[[10, 11, 20, 40, 60, 70, 80, 90]] = True
++    return PlaceholderRange(offset=offset, length=100, is_embed=mask)
++
++
++def make_scheduler(capacity, disable_chunked=False):
++    scheduler = Scheduler.__new__(Scheduler)
++    scheduler.encoder_cache_manager = EncoderCacheManager(capacity)
++    scheduler.ec_connector = None
++    scheduler.is_encoder_decoder = False
++    scheduler.scheduler_config = SimpleNamespace(
++        disable_chunked_mm_input=disable_chunked,
++    )
++    return scheduler
++
++
++def test_sparse_cache_capacity_reuse_and_eviction():
++    request = make_request([sparse_position()])
++    cache = EncoderCacheManager(8)
++    assert not cache.can_allocate(request, 0, 7, 0)
++    assert cache.can_allocate(request, 0, 8, 0)
++    cache.allocate(request, 0)
++    assert cache.num_free_slots == 0
++    assert cache.num_freeable_slots == 0
++    cache.free(request)
++    assert cache.num_freeable_slots == 8
++    assert cache.check_and_update_cache(request, 0)
++    assert cache.num_freeable_slots == 0
++    cache.free(request)
++
++    other = make_request([PlaceholderRange(offset=0, length=8)], "other")
++    assert cache.can_allocate(other, 0, 8, 0)
++    cache.allocate(other, 0)
++    assert cache.get_freed_mm_hashes() == [request.mm_features[0].identifier]
++    assert cache.num_free_slots == 0
++    cache.free(other)
++    assert cache.num_freeable_slots == 8
++
++
++@pytest.mark.parametrize("capacity,budget", [(0, 0), (8, 0), (0, 8), (8, 8)])
++@pytest.mark.parametrize("computed,new,shift", [(0, 10, 0), (21, 10, 5), (91, 9, 1)])
++@pytest.mark.parametrize("disable_chunked", [False, True])
++def test_text_only_windows_need_no_encoder(
++    capacity, budget, computed, new, shift, disable_chunked
++):
++    scheduler = make_scheduler(capacity, disable_chunked)
++    request = make_request([sparse_position()])
++    assert scheduler._try_schedule_encoder_inputs(
++        request, computed, new, budget, shift
++    ) == ([], new, budget, [])
++    assert scheduler.encoder_cache_manager.get_cached_input_ids(request) == set()
++
++
++@pytest.mark.parametrize("capacity,budget", [(0, 8), (8, 0), (7, 8), (8, 7)])
++def test_sparse_window_reserves_entire_output(capacity, budget):
++    scheduler = make_scheduler(capacity)
++    request = make_request([sparse_position()])
++    # This window consumes just one row, but all eight must fit.
++    assert scheduler._try_schedule_encoder_inputs(request, 0, 11, budget) == (
++        [],
++        10,
++        budget,
++        [],
++    )
++    assert scheduler._try_schedule_encoder_inputs(request, 10, 1, budget) == (
++        [],
++        0,
++        budget,
++        [],
++    )
++
++
++def test_later_windows_encode_once_and_reuse():
++    scheduler = make_scheduler(8)
++    request = make_request([sparse_position()])
++    assert scheduler._try_schedule_encoder_inputs(request, 0, 10, 0) == (
++        [],
++        10,
++        0,
++        [],
++    )
++    assert scheduler._try_schedule_encoder_inputs(request, 10, 1, 8) == (
++        [0],
++        1,
++        0,
++        [],
++    )
++    scheduler.encoder_cache_manager.allocate(request, 0)
++    for computed in (11, 20, 40, 90):
++        request.num_computed_tokens = computed
++        scheduler._free_encoder_inputs(request)
++        assert scheduler._try_schedule_encoder_inputs(request, computed, 1, 0) == (
++            [],
++            1,
++            0,
++            [],
++        )
++        assert scheduler.encoder_cache_manager.num_freeable_slots == 0
++    request.num_computed_tokens = 100
++    scheduler._free_encoder_inputs(request)
++    assert scheduler.encoder_cache_manager.num_freeable_slots == 8
++
++
++def test_lookahead_requires_embeddings():
++    request = make_request([sparse_position()])
++    scheduler = make_scheduler(8)
++    assert scheduler._try_schedule_encoder_inputs(request, 0, 10, 8, 1) == (
++        [0],
++        10,
++        0,
++        [],
++    )
++    assert scheduler._try_schedule_encoder_inputs(request, 0, 10, 0, 1) == (
++        [],
++        9,
++        0,
++        [],
++    )
++    # The current window needs an embedding even when the shifted window doesn't.
++    assert scheduler._try_schedule_encoder_inputs(request, 20, 1, 8, 1) == (
++        [0],
++        1,
++        0,
++        [],
++    )
++
++
++@pytest.mark.parametrize(
++    "mask", [None, torch.empty(0, dtype=torch.bool), torch.zeros(10, dtype=torch.bool)]
++)
++def test_empty_outputs(mask):
++    length = 0 if mask is None else len(mask)
++    request = make_request([PlaceholderRange(offset=5, length=length, is_embed=mask)])
++    scheduler = make_scheduler(0)
++    assert scheduler._try_schedule_encoder_inputs(request, 0, 20, 0) == (
++        [],
++        20,
++        0,
++        [],
++    )
++    cache = scheduler.encoder_cache_manager
++    assert cache.can_allocate(request, 0, 0, 0)
++    cache.allocate(request, 0)
++    cache.free(request)
++    assert cache.num_free_slots == cache.num_freeable_slots == 0
++
++
++@pytest.mark.parametrize("capacity,budget", [(10, 20), (20, 10), (16, 16)])
++def test_multiple_items_account_for_full_outputs(capacity, budget):
++    request = make_request([sparse_position(), sparse_position(100)])
++    scheduler = make_scheduler(capacity)
++    expected = ([0, 1], 120, 0, []) if capacity == 16 else ([0], 110, budget - 8, [])
++    assert scheduler._try_schedule_encoder_inputs(request, 0, 120, budget) == expected
++
++
++@pytest.mark.parametrize("shift", [0, 1, 3])
++@pytest.mark.parametrize("empty_mask", [False, True])
++def test_encode_cache_and_partial_reads(monkeypatch, shift, empty_mask):
++    positions = [
++        PlaceholderRange(
++            offset=1,
++            length=0,
++            is_embed=torch.empty(0, dtype=torch.bool) if empty_mask else None,
++        ),
++        sparse_position(3),
++        PlaceholderRange(offset=105, length=3),
++        PlaceholderRange(
++            offset=110, length=5, is_embed=torch.zeros(5, dtype=torch.bool)
++        ),
++    ]
++    request = make_request(positions)
++    runner = GPUModelRunner.__new__(GPUModelRunner)
++    runner.requests = {request.request_id: request}
++    runner.input_batch = SimpleNamespace(req_ids=[request.request_id])
++    runner.encoder_cache = {}
++    runner.is_multimodal_pruning_enabled = False
++    runner.device = torch.device("cpu")
++    runner.pin_memory = False
++    output_rows = [torch.arange(8).view(-1, 1), torch.arange(100, 103).view(-1, 1)]
++    runner.model = SimpleNamespace(embed_multimodal=Mock(return_value=output_rows))
++    runner.maybe_save_ec_to_connector = Mock()
++    runner._batch_mm_kwargs_from_scheduler = Mock(
++        return_value=(
++            [object(), object()],
++            [(request.mm_features[i].identifier, positions[i]) for i in (1, 2)],
++        )
++    )
++    monkeypatch.setattr(
++        "vllm.v1.worker.gpu_model_runner.group_mm_kwargs_by_modality",
++        lambda *args, **kwargs: [("image", 2, {})],
++    )
++    GPUModelRunner._execute_mm_encoder(runner, Mock())
++
++    # Construct expected prompt positions independently of the cache layout.
++    expected = {3 + p: row for row, p in enumerate([10, 11, 20, 40, 60, 70, 80, 90])}
++    expected.update({105 + i: 100 + i for i in range(3)})
++    buffer = torch.empty(256, dtype=torch.bool)
++    runner.is_mm_embed = SimpleNamespace(cpu=buffer, copy_to_gpu=lambda n: buffer[:n])
++    for computed, count in [(0, 10), (10, 9), (22, 25), (85, 30), (0, 120), (108, 10)]:
++        request.num_computed_tokens = computed
++        scheduled = SimpleNamespace(
++            total_num_scheduled_tokens=count,
++            num_scheduled_tokens={request.request_id: count},
++        )
++        embeds, mask = GPUModelRunner._gather_mm_embeddings(runner, scheduled, shift)
++        window = range(computed + shift, computed + shift + count)
++        assert mask.tolist() == [p in expected for p in window]
++        rows = torch.cat(embeds).flatten().tolist() if embeds else []
++        assert rows == [expected[p] for p in window if p in expected]
++    runner.model.embed_multimodal.assert_called_once()
++
++    runner.encoder_cache.clear()
++    request.num_computed_tokens = 0
++    scheduled = SimpleNamespace(
++        total_num_scheduled_tokens=10,
++        num_scheduled_tokens={request.request_id: 10},
++    )
++    embeds, mask = GPUModelRunner._gather_mm_embeddings(runner, scheduled, shift)
++    assert embeds == []
++    assert not mask.any()
++
++
++def test_sparse_capacity_planning(monkeypatch):
++    processor = SimpleNamespace(
++        info=SimpleNamespace(get_mm_max_tokens_per_item=lambda **kwargs: None),
++        allowed_mm_limits={"image": 4},
++    )
++    registry = MultiModalRegistry()
++    monkeypatch.setattr(registry, "create_processor", lambda *args, **kwargs: processor)
++    monkeypatch.setattr(registry, "supports_multimodal_inputs", lambda config: True)
++    monkeypatch.setattr(
++        MultiModalProfiler,
++        "_get_dummy_mm_inputs",
++        lambda *args, **kwargs: {"mm_placeholders": {"image": [sparse_position()]}},
++    )
++    monkeypatch.setattr(
++        "vllm.v1.worker.utils.processor_only_cache_from_config",
++        lambda *args: None,
++    )
++    model_config = SimpleNamespace(is_multimodal_model=True, max_model_len=256)
++    config = SimpleNamespace(
++        max_num_encoder_input_tokens=0,
++        encoder_cache_size=0,
++        disable_chunked_mm_input=False,
++        max_num_batched_tokens=32,
++        max_num_seqs=4,
++        enable_chunked_prefill=True,
++    )
++    assert registry.get_max_tokens_per_item_by_modality(model_config) == {"image": 100}
++    assert compute_encoder_budget(model_config, config, registry) == (8, 8)
++    budget = MultiModalBudget(model_config, config, registry)
++    assert budget.get_encoder_budget() == 8
++    assert budget.max_items_per_prompt_by_modality == {"image": 2}
++    assert budget.max_items_per_batch_by_modality == {"image": 1}
++    config.disable_chunked_mm_input = True
++    with pytest.raises(ValueError, match="100"):
++        compute_encoder_budget(model_config, config, registry)
++
++
++@pytest.mark.parametrize("num_embeds", [0, 8])
++def test_profile_caches_only_encoder_outputs(monkeypatch, num_embeds):
++    runner = GPUModelRunner.__new__(GPUModelRunner)
++    runner.supports_mm_inputs = True
++    runner.model_config = SimpleNamespace(multimodal_config=None)
++    runner.mm_budget = SimpleNamespace(
++        get_encoder_budget=lambda: 8,
++        get_modality_with_max_tokens=lambda: "image",
++        max_items_per_batch_by_modality={"image": int(num_embeds > 0)},
++        max_tokens_by_modality={"image": num_embeds},
++    )
++    runner.model = SimpleNamespace(
++        embed_multimodal=Mock(return_value=[torch.ones(num_embeds, 4)]),
++    )
++    runner._get_mm_dummy_batch = Mock(return_value={})
++    runner.encoder_cache = {}
++    runner.max_num_tokens = 128
++    runner._sync_device = Mock()
++
++    def count_elements(value):
++        if isinstance(value, torch.Tensor):
++            return value.numel()
++        values = value.values() if isinstance(value, dict) else value
++        return sum(count_elements(item) for item in values)
++
++    def dummy_run(*args, **kwargs):
++        assert count_elements(runner.encoder_cache) == num_embeds * 4
++        return None, None
++
++    runner._dummy_run = dummy_run
++    monkeypatch.setattr(
++        "vllm.v1.worker.gpu_model_runner.get_pp_group",
++        lambda: SimpleNamespace(is_last_rank=False),
++    )
++    GPUModelRunner.profile_run(runner)
++    assert runner.model.embed_multimodal.call_count == int(num_embeds > 0)
++
++
++def test_profile_counts_mixed_placeholders():
++    profiler = MultiModalProfiler(Mock())
++    inputs = {
++        "mm_placeholders": {
++            "image": [sparse_position(), PlaceholderRange(offset=100, length=3)],
++            "audio": [PlaceholderRange(offset=103, length=0)],
++            "video": [
++                PlaceholderRange(
++                    offset=103, length=5, is_embed=torch.zeros(5, dtype=torch.bool)
++                )
++            ],
++        }
++    }
++    assert profiler._get_mm_num_tokens(inputs) == {"image": 11, "audio": 0, "video": 0}
++    assert profiler._get_mm_num_tokens(inputs, mm_embeddings_only=False) == {
++        "image": 103,
++        "audio": 0,
++        "video": 5,
++    }

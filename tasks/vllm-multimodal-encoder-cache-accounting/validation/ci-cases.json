@@ -1,0 +1,416 @@
+{
+  "cases": [
+    {
+      "expected_reward": 0,
+      "name": "partial-budget-omission",
+      "patch": "partial-budget-omission.patch",
+      "patch_sha256": "41f7fb59f51a607fb638b64d5b9f4c8c4b491cbe178d3f50d19df7c7a6e0cdcc"
+    },
+    {
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "name": "alternate-direct-mask-count",
+      "patch": "alternate-direct-mask-count.patch",
+      "patch_sha256": "2407fc84c59c96ece9704d2d208b972fcd5985e9280904b8ae67232f5369b679"
+    },
+    {
+      "name": "early-system-exit",
+      "patch": "early-system-exit.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "patch_sha256": "41ee9728caef1ebf808ab6f76649c3123abcd9e38b8bbbd2d5c24d94fb9c394a"
+    },
+    {
+      "name": "early-os-exit",
+      "patch": "early-os-exit.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "patch_sha256": "88dddbe37443ec1c2ef8ff542cbe4b8326278bc96ce6885422db4becd29b2567"
+    },
+    {
+      "name": "root-python-startup",
+      "patch": "root-python-startup.patch",
+      "patch_sha256": "b528146e3f6926b1e652e8d533ae4f07300ab2b0d240070fddb453db603d89e0",
+      "expected_reward": 0,
+      "note": "Unchanged Base plus a startup hook. A trusted root interpreter must never execute candidate sitecustomize; process exits 0 before any required checks if it does."
+    },
+    {
+      "name": "alternate-dense-cache",
+      "patch": "alternate-dense-cache.patch",
+      "expected_reward": 0,
+      "patch_sha256": "610de49bed4addd2e3ad6d62df1d108d09dd99c6c89b664084bfdc698603c8f3",
+      "note": "Preserved historical positive control: dense runtime cache is larger than its compact profiling allocation. Newly covered profiling requirement reveals an independent underestimation; patch bytes unchanged."
+    },
+    {
+      "name": "wrong-encoder-cache-order",
+      "patch": "wrong-encoder-cache-order.patch",
+      "expected_reward": 0,
+      "patch_sha256": "871ea101b425bffaffacb5fcfea4c4f2aade35a0bd796e9a8e63cdf2aa0056bf"
+    },
+    {
+      "name": "dense-cache-missing-cold-window",
+      "patch": "dense-cache-missing-cold-window.patch",
+      "expected_reward": 0,
+      "note": "Previously accepted dense alternative; incomplete when scheduling skips a cold masked item.",
+      "patch_sha256": "d219371fa660de616b9b326cf0ce13f462fa804d0fa2abebf553bcd0c939a8b7"
+    },
+    {
+      "name": "alternate-request-initialized-count",
+      "patch": "alternate-request-initialized-count.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "patch_sha256": "c325c16a80aea435f5032b4f2b4c7cf15b24ee3fb468f225b465012637635e79"
+    },
+    {
+      "name": "empty-placeholder-omission",
+      "patch": "empty-placeholder-omission.patch",
+      "expected_reward": 0,
+      "patch_sha256": "160d74e86f927f28ae424ccdad86a098add613104d8fc03601847e883ac5cdc0",
+      "note": "Previous compact Oracle: asserts on an empty placeholder inside a scheduled window."
+    },
+    {
+      "name": "empty-window-admission",
+      "patch": "empty-window-admission.patch",
+      "expected_reward": 0,
+      "note": "Preserved previous Oracle blocks a cold empty window with insufficient encoder capacity or budget.",
+      "patch_sha256": "d8ae0707ef7e1ed809b15f9877aa88e03399f2d239590b7f3cdb7f5c0fbe6012"
+    },
+    {
+      "name": "forged-completion",
+      "patch": "forged-completion.patch",
+      "expected_reward": 0,
+      "note": "Preserved fixed completion report; no target behavior executed.",
+      "patch_sha256": "18618b3f48eb29a1c4c31452d02c35d9bd9c92d4fad5524d20628d639af74e85"
+    },
+    {
+      "name": "stale-observations",
+      "patch": "stale-observations.patch",
+      "expected_reward": 0,
+      "patch_sha256": "8fe13fd6c40248e91ae195b1b2f8a71fba696fbc7f399ecd07c96b50368f1c44",
+      "note": "Replay a genuine successful pilot observation payload without executing the current workload."
+    },
+    {
+      "name": "lookahead-omission",
+      "patch": "lookahead-omission.patch",
+      "expected_reward": 0,
+      "note": "Preserved prior Oracle handles low-resource empty windows but skips encoder output required by EAGLE lookahead, including mask-free inputs.",
+      "patch_sha256": "c4d8c0d9de25f3712ccfdc52360b5b2f5c024b5cc1fe19261819446cf5279004"
+    },
+    {
+      "name": "alternate-distinct-profile-accessors",
+      "patch": "alternate-distinct-profile-accessors.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "patch_sha256": "9c5215dc5b80beec52dc3d04c4a547ebb1fdae872e07c1f9b9ddf2f01e87df43",
+      "note": "Preserved historical source: distinct accessors are valid, but the Qwen3-VL direct estimate retains the 12.5x prompt expansion; actual scheduler and runner capacities are incorrect."
+    },
+    {
+      "name": "scheduler-capacity-from-context",
+      "patch": "scheduler-capacity-from-context.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "patch_sha256": "3acb3c3ca4bc47964686df3bb0e9c89017612a8b80964392f20ae6a73b6f4b8c",
+      "note": "Correct registry and cache accounting, but scheduler capacity wrongly uses decoder context length."
+    },
+    {
+      "name": "runner-capacity-from-context",
+      "patch": "runner-capacity-from-context.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "patch_sha256": "2358e30ce87455d0544190f7534271c834a1279b50a804f867913ef9eb2279a0",
+      "note": "Correct scheduler and registry, but runner capacity wrongly uses decoder context length."
+    },
+    {
+      "name": "rename-cache-internals",
+      "patch": "rename-cache-internals.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "patch_sha256": "45cd4b0b3295be40bdc2abf00b38cdf8a14b7da6ed6ddca11ce25a0be5339f87"
+    },
+    {
+      "name": "ignore-shifted-gather",
+      "patch": "ignore-shifted-gather.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "patch_sha256": "ea25efbe4cee70a6657836ad1d93b22eed24f8dbc12cc1beb4c3873f332c473b"
+    },
+    {
+      "name": "restore-prompt-profile",
+      "patch": "restore-prompt-profile.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "patch_sha256": "83c434307f0edb8f256d05bafde5d95e0ca5321b2271936e76ee684d89f773f0"
+    },
+    {
+      "name": "dynamic-report-forgery",
+      "patch": "dynamic-report-forgery.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "patch_sha256": "89c59ddcef8255f42ab4a011e79847ce823dc6cb162386f9709b6b19f1654a4e"
+    },
+    {
+      "name": "direct-completion-callback",
+      "patch": "direct-completion-callback.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "patch_sha256": "765a4dcadef940aa545ee531a5a4b09a84b436de41acc0628b52a27b132cc36e"
+    },
+    {
+      "name": "alternate-distinct-profile-accessors-video-fixed",
+      "patch": "alternate-distinct-profile-accessors-video-fixed.patch",
+      "apply_after": "base",
+      "expected_reward": 1,
+      "patch_sha256": "40e33c4bf6de29a1789f6fb94d9b7e8d42298c11bbfde2e09fcb4a07c5aba48a",
+      "note": "Historical distinct-accessor implementation plus the missing video estimate correction; preserves its alternative interfaces and representation."
+    },
+    {
+      "name": "alternate-hash-only-batching",
+      "patch": "alternate-hash-only-batching.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "patch_sha256": "038bea7f99d60bdc04d23fd6dc88f6608ae0e7f7344e4cd378b4f361f8123755",
+      "note": "Coherent batching-helper return refactor from (hash, position) tuples to hashes; scored tests must execute the real producer rather than impose historical private return values."
+    },
+    {
+      "name": "alternate-dense-profile-consistent",
+      "patch": "alternate-dense-profile-consistent.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "patch_sha256": "0be130371d8dcabad9a9bccf601a9c39c542075b3ef1e171bb99f0d47e29ad8d",
+      "note": "Historical 1.3.4 positive. The 1.4.0 contract additionally forbids encoder payload growth with non-embedding prompt positions; dense storage is now a negative. Patch bytes remain unchanged."
+    },
+    {
+      "name": "alternate-zero-output-capacity",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "patch": "alternate-zero-output-capacity.patch",
+      "patch_sha256": "8950b2af27681cb992ff3ddfcd5372f60c639a54ff21bb588df4b22c92e13fb0",
+      "note": "Allow zero global encoder capacity when all modality output upper bounds are zero; nonempty planning and zero-budget prompt advancement remain checked."
+    },
+    {
+      "name": "alternate-renamed-helpers",
+      "patch": "alternate-renamed-helpers.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Renames encoder batching, execution, gather and scheduler admission helpers and all production callers; no behavioral change.",
+      "patch_sha256": "cfa4477d770a61bac19f9d808dc8a33bf6dea2f40c1a50e1067598847005996f"
+    },
+    {
+      "name": "alternate-transposed-payload",
+      "patch": "alternate-transposed-payload.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Stores a contiguous transposed encoder payload and restores its orientation at consumption; storage layout and allocation lifetime differ.",
+      "patch_sha256": "c02d55265b8b60d48a8a7f0229a633288d20e48d46593ee0dbc8a544fe80c9cf"
+    },
+    {
+      "name": "wrong-main-window",
+      "patch": "wrong-main-window.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "note": "Preserves the gather helper but shifts its production main-model caller by one prompt position.",
+      "patch_sha256": "3143588a3a999081bb9246085f3420305aacdc03d17d2a67de5c0d93cc49b647"
+    },
+    {
+      "name": "historical-astra-video-estimate",
+      "patch": "historical-astra-video-estimate.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "note": "Unchanged production edits from the attached Astra/high 1.2.8 answer; its dummy path works but Qwen3-VL analytical estimates retain the 12.5x prompt expansion.",
+      "patch_sha256": "641dc755748a0e96eb166ae85d2673f1a9cb15c5d866dbf4d3e1c5d807857ca6"
+    },
+    {
+      "name": "preallocated-dense-payload",
+      "patch": "preallocated-dense-payload.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "note": "Dense cache reserves its backing pool in the runner constructor. Profiling covers that pool; payload growth must still be rejected after it receives encoder data.",
+      "patch_sha256": "457208b8390025e1f3e73c540ab5c146b1d60330e938e47486c1e2632b2118b7"
+    },
+    {
+      "name": "alternate-constructor-state",
+      "patch": "alternate-constructor-state.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Adds per-runner encoder-read accounting initialized by the real constructor; no output change.",
+      "patch_sha256": "51fba15bad868ac89ebc2e9cd2c307cff783afb8202ed33456e9a70d42a1458f"
+    },
+    {
+      "name": "alternate-runner-buffers",
+      "patch": "alternate-runner-buffers.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "patch_sha256": "ebc98accd50f64115da94b28aa8aa0188ab070a598dcaab097012637720460cf",
+      "note": "Renames runner model and input-buffer storage plus in-repository worker consumers; stable load/get/execute APIs retain the same behavior."
+    },
+    {
+      "name": "alternate-sparse-payload",
+      "patch": "alternate-sparse-payload.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "patch_sha256": "030bd35b7f2c436fa5117ac26b3290865a86c4cad98bb62394777f10992dc728",
+      "note": "Stores encoder rows as a sparse COO tensor with separate value/index storage, and profiles the same representation; downstream input values are unchanged."
+    },
+    {
+      "name": "omit-physical-eviction",
+      "patch": "omit-physical-eviction.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "note": "Skips physical cache retirement while preserving accounting and exact inputs; residency must grow under completed-request churn.",
+      "patch_sha256": "4fb107f55802292ca78453c106e73dcafc9c9ead690043cf54582424dc463e5d"
+    },
+    {
+      "name": "retain-evicted-payload-copy",
+      "patch": "retain-evicted-payload-copy.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "note": "Evicts the ordinary cache entry but retains a copied payload elsewhere; scoring must observe storage instead of a cache container.",
+      "patch_sha256": "5d9e1a30621c794db40e8b278c15c389f5c21b00023a13e33269ae5ec47067a4"
+    },
+    {
+      "name": "alternate-mask-torch-allocation",
+      "patch": "alternate-mask-torch-allocation.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Reallocates the bool mask without changing contents, shape or device, using torch.empty.",
+      "patch_sha256": "5b5f7faff82af510f4ebe53794fbd17b458c67986de7e858636153fc9cc456f8"
+    },
+    {
+      "name": "alternate-mask-template-allocation",
+      "patch": "alternate-mask-template-allocation.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Equivalent bool-mask reallocation using output.new_empty; allocating from a tensor template does not copy its values.",
+      "patch_sha256": "76dbab5ab132ec2a9aa8699bfc1c5c835cf05da67df0fa2a81b4b6551df8b413"
+    },
+    {
+      "name": "alternate-reusable-payload-pool",
+      "patch": "alternate-reusable-payload-pool.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Retains at most two retired buffers for reuse and profiles the same spare capacity. Correct eviction need not destroy each backing allocation.",
+      "patch_sha256": "4afa5db44df1ceca376725910f1e8dad6ef9f576381f2ae14b4d1238c6b9f7c9"
+    },
+    {
+      "name": "alternate-scheduler-budget-field",
+      "patch": "alternate-scheduler-budget-field.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Coherent rename of the scheduler's capacity storage and its production consumer; capacity must be inferred from real behavior.",
+      "patch_sha256": "0178ac748a4053ad7d04320220346ab4ba4e40718236a5018877a3ac8e2a8a4f"
+    },
+    {
+      "name": "python-list-payload-leak",
+      "patch": "python-list-payload-leak.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "note": "Retains encoder rows in a Python list expanded to the full prompt span.",
+      "patch_sha256": "459d6b47fedce7c606c0312ba32fe50163aaec0949bf7984935356f1cc590b68"
+    },
+    {
+      "name": "python-list-eviction-leak",
+      "patch": "python-list-eviction-leak.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "note": "Retires the Tensor entry but keeps its values in an unbounded Python history.",
+      "patch_sha256": "a7ae57e513e10e2fe8164990cb067154a393c955dd7883b44a2bdf1edce3b608"
+    },
+    {
+      "name": "alternate-python-payload",
+      "patch": "alternate-python-payload.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Stores compact encoder values in Python lists with matching profiling and restores tensors at consumption.",
+      "patch_sha256": "eebd851e349f3ffaa70979decd944e67e11635026871dbdb93c2a6c38501006e"
+    },
+    {
+      "name": "alternate-numpy-payload",
+      "patch": "alternate-numpy-payload.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Stores compact encoder values in NumPy arrays with matching profiling; retained logical allocations remain bounded.",
+      "patch_sha256": "872ce7391901d414b0b3399afd15dc9ae8ad1bf252c9bec3ed3ec4dd30ccc2cb"
+    },
+    {
+      "name": "alternate-python-mask-metadata",
+      "patch": "alternate-python-mask-metadata.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Retains per-position Python mask metadata; span-dependent metadata does not expand with embedding width.",
+      "patch_sha256": "20d93d30ffabfc9cb6408963af81040596510e1a4620c83e6372b30feb8308a7"
+    },
+    {
+      "name": "numpy-payload-eviction-leak",
+      "patch": "numpy-payload-eviction-leak.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "note": "Retires the Tensor entry but retains NumPy-owned copies after completed-request turnover.",
+      "patch_sha256": "20b2e477111406f7c01ad3fb0d6f1f405320cb1e3aa1a5cc10b7cfcfe8818435"
+    },
+    {
+      "name": "alternate-cache-capacity-fields",
+      "patch": "alternate-cache-capacity-fields.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Renames cache size and available-slot bookkeeping while retaining all allocation/free behavior; no scored field lookup is permitted.",
+      "patch_sha256": "29178b04d68fe3c3d91611b2272fd1d91e8c87032aee159fdb35a0e2a046579d"
+    },
+    {
+      "name": "python-list-span-growth",
+      "patch": "python-list-span-growth.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "note": "Expands a Python payload with placeholder span but correctly retires it; isolates the spatial-growth check from lifecycle accumulation.",
+      "patch_sha256": "a8c0dfc23d238f9f35f535d4c7c4b85a7c43147a6428ef5bbd2b272a58670fc7"
+    },
+    {
+      "name": "alternate-existing-tracemalloc",
+      "expected_reward": 1,
+      "apply_after": "oracle",
+      "patch": "alternate-existing-tracemalloc.patch",
+      "patch_sha256": "18512d19543086b88f76e3dcb84dd7a57999baa259388bc5d3a9f7684596703a",
+      "note": "Enables ordinary allocation tracing before candidate imports; the verifier must preserve and baseline an existing trace."
+    },
+    {
+      "name": "traced-python-eviction-leak",
+      "expected_reward": 0,
+      "apply_after": "oracle",
+      "patch": "traced-python-eviction-leak.patch",
+      "patch_sha256": "9e6abbff29c4d787d9313ec523dd628fea7b29e3b0946a9b3f73363b8c1109a1",
+      "note": "Retains Python payload copies while allocation tracing was already enabled; an initial heap must not hide ongoing growth."
+    },
+    {
+      "name": "alternate-lazy-position-metadata",
+      "patch": "alternate-lazy-position-metadata.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Keeps a bounded 64-request bool position history with lazy allocation; it contains no encoder values.",
+      "patch_sha256": "bf141191af1cd74e675cf6438cfc7335525f740852b9952788944ab6034655ab"
+    },
+    {
+      "name": "alternate-preallocated-position-metadata",
+      "patch": "alternate-preallocated-position-metadata.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Equivalent bounded bool position history using a preallocated ring. Allocation timing must not decide reward.",
+      "patch_sha256": "539550a0340aa13aed348c851c040e75a018aa705baad7ec67302f8467171ce2"
+    },
+    {
+      "name": "numpy-leak-with-fixed-metadata",
+      "patch": "numpy-leak-with-fixed-metadata.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "note": "Preserves NumPy retirement leakage while adding a fixed 8 MiB position-history buffer. Unrelated initial occupancy must not mask payload growth.",
+      "patch_sha256": "b06067b75c4e662544f51bedd45517cf4bd66c793b73f33201e30670c15e54a7"
+    },
+    {
+      "name": "alternate-width-position-metadata",
+      "patch": "alternate-width-position-metadata.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Bounded per-request bool position metadata also scales with hidden width; row-count contrast must treat that growth as diagnostic instead of payload leakage.",
+      "patch_sha256": "81e1fba85b20d345fbc59451527619781e800440acee13e173947d46b8534898"
+    }
+  ],
+  "schema_version": "ai_infra_bench_validation_cases.v1"
+}

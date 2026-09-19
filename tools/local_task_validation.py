@@ -13,6 +13,8 @@ Requirements and local pitfalls:
   plugin must be installed (~/.docker/cli-plugins/docker-buildx).
 - colima shares only $HOME with containers, so job and case directories default to
   ~/ai-infra-scratch/. Override with AI_INFRA_SCRATCH.
+- AI_INFRA_MATRIX_JOBS=N runs N cases at once (about 3 GB per case; keep N small and do not
+  overlap a matrix with a real-agent rollout).
 - Each case is a full Harbor trial (image start, agent, verifier); expect roughly a
   minute per case for CPU tasks.
 """
@@ -24,6 +26,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -58,8 +61,9 @@ def main() -> int:
     cases = json.loads(ci("cases", "--task", TASK))
     expected = {c["name"]: c["expected_reward"] for c in cases}
     names = wanted or [c["name"] for c in cases]
-    outcomes = []
-    for name in names:
+    parallel = max(1, int(os.environ.get("AI_INFRA_MATRIX_JOBS", "1")))
+
+    def run_case(name: str) -> tuple[str, int, bool, int]:
         case_dir = Path(tempfile.mkdtemp(prefix="ai-infra-case.", dir=str(SCRATCH / "cases")))
         agent = ci(
             "prepare-case",
@@ -121,7 +125,6 @@ def main() -> int:
             check=False,
         )
         ok = check.returncode == 0
-        outcomes.append((name, expected[name], ok, elapsed))
         print(
             f"RESULT {name}: {'OK' if ok else 'MISMATCH'} expected={expected[name]} "
             f"harbor_exit={run.returncode} elapsed={elapsed}s\n"
@@ -129,6 +132,13 @@ def main() -> int:
             flush=True,
         )
         shutil.rmtree(case_dir, ignore_errors=True)
+        return (name, expected[name], ok, elapsed)
+
+    # AI_INFRA_MATRIX_JOBS=N runs N cases at once (each is its own Harbor job and container);
+    # the verifier's PASS_TO_PASS suite needs a few GB per case, so keep N small and never
+    # overlap a matrix with a real-agent rollout.
+    with ThreadPoolExecutor(max_workers=parallel) as pool:
+        outcomes = list(pool.map(run_case, names))
     print("SUMMARY")
     for name, exp, ok, elapsed in outcomes:
         print(f"  {name:48s} expected={exp} {'OK' if ok else 'MISMATCH'} {elapsed}s")

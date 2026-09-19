@@ -1,0 +1,17 @@
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -2186,5 +2186,13 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+         # Cache the encoder outputs by mm_hash
+         for (mm_hash, pos_info), output in zip(mm_hashes_pos, encoder_outputs):
+             self.encoder_cache[mm_hash] = output
++            # Incorrect alternative: retain a dense, value-derived payload in a
++            # non-Tensor representation for every prompt position. This grows
++            # with the placeholder span and is never retired on cache eviction.
++            rows = output.tolist()
++            if rows:
++                if not hasattr(self, "_python_encoder_payload"):
++                    self._python_encoder_payload = {}
++                self._python_encoder_payload[mm_hash] = [list(rows[i % len(rows)]) for i in range(pos_info.length)]
+             logger.debug("Finish execute for mm hash %s", mm_hash)
+             self.maybe_save_ec_to_connector(self.encoder_cache, mm_hash)

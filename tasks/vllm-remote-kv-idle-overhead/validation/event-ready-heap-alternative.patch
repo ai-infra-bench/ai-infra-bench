@@ -1,0 +1,723 @@
+diff --git a/tests/v1/core/test_scheduler.py b/tests/v1/core/test_scheduler.py
+--- a/tests/v1/core/test_scheduler.py
++++ b/tests/v1/core/test_scheduler.py
+@@ -3639,6 +3639,41 @@
+     assert list(scheduler.waiting) == expected_waiting_reqs
+ 
+ 
++def test_idle_tick_does_not_scale_with_remote_kv_blocked_requests():
++    scheduler = create_scheduler(max_num_seqs=16)
++    num_blocked = 32
++    requests = create_requests(num_requests=num_blocked + 1)
++    for request in requests:
++        scheduler.add_request(request)
++
++    # Simulate the state after async remote-KV loads have started for the
++    # leading requests: they remain in the public waiting queue but are no
++    # longer present in the ready heap. The last request, C, is runnable.
++    for request in requests[:num_blocked]:
++        popped = scheduler._pop_waiting_ready_request()
++        assert popped is request
++        request.status = RequestStatus.WAITING_FOR_REMOTE_KVS
++
++    runnable = requests[-1]
++    assert scheduler._ready_waiting_ids == {runnable.request_id}
++
++    update_mock = Mock(wraps=scheduler._update_waiting_for_remote_kv)
++    scheduler._update_waiting_for_remote_kv = update_mock
++
++    output = scheduler.schedule()
++
++    # A tick with no new remote-KV event must not poll every blocked request.
++    update_mock.assert_not_called()
++
++    # C makes progress while A and B retain their public FCFS positions and
++    # stay blocked until their transfer completion events arrive.
++    assert list(output.num_scheduled_tokens) == [runnable.request_id]
++    assert scheduler.running == [runnable]
++    assert [req.request_id for req in scheduler.waiting] == [
++        request.request_id for request in requests[:num_blocked]
++    ]
++
++
+ def test_abort_request_waiting_for_remote_kvs():
+     scheduler = create_scheduler(use_kv_connector=True)
+ 
+@@ -3650,6 +3685,7 @@
+     request.status = RequestStatus.WAITING_FOR_REMOTE_KVS
+     scheduler.finish_requests((request.request_id,), RequestStatus.FINISHED_ABORTED)
+     assert request.status == RequestStatus.FINISHED_ABORTED
++    assert request.request_id not in scheduler._ready_waiting_ids
+ 
+     # verify request is not deleted
+     assert request.request_id in scheduler.requests
+@@ -3682,6 +3718,7 @@
+     # abort request
+     scheduler.finish_requests((request.request_id,), RequestStatus.FINISHED_ABORTED)
+     assert request.status == RequestStatus.FINISHED_ABORTED
++    assert request.request_id not in scheduler._ready_waiting_ids
+ 
+     # verify request is deleted
+     assert request.request_id not in scheduler.requests
+diff --git a/vllm/v1/core/kv_cache_manager.py b/vllm/v1/core/kv_cache_manager.py
+--- a/vllm/v1/core/kv_cache_manager.py
++++ b/vllm/v1/core/kv_cache_manager.py
+@@ -225,6 +225,8 @@
+         num_external_computed_tokens: int = 0,
+         delay_cache_blocks: bool = False,
+         num_encoder_tokens: int = 0,
++        reserved_blocks: int = 0,
++        reservation_tokens: int | None = None,
+     ) -> KVCacheBlocks | None:
+         """Add slots for a request with new tokens to append.
+ 
+@@ -345,7 +347,19 @@
+             num_tokens_main_model=num_tokens_main_model,
+         )
+ 
+-        if num_blocks_to_allocate > self.block_pool.get_num_free_blocks():
++        admission_blocks = num_blocks_to_allocate
++        if reservation_tokens is not None:
++            admission_blocks = max(admission_blocks,
++                self.coordinator.get_num_blocks_to_allocate(
++                    request_id=request.request_id,
++                    num_tokens=min(reservation_tokens + num_lookahead_tokens,
++                                   self.max_model_len),
++                    new_computed_blocks=new_computed_block_list,
++                    num_encoder_tokens=num_encoder_tokens,
++                    total_computed_tokens=num_local_computed_tokens + num_external_computed_tokens,
++                    num_tokens_main_model=reservation_tokens,
++                ))
++        if admission_blocks > self.block_pool.get_num_free_blocks() - reserved_blocks:
+             # Cannot allocate new blocks
+             return None
+ 
+diff --git a/vllm/v1/core/sched/request_queue.py b/vllm/v1/core/sched/request_queue.py
+--- a/vllm/v1/core/sched/request_queue.py
++++ b/vllm/v1/core/sched/request_queue.py
+@@ -3,7 +3,6 @@
+ 
+ import heapq
+ from abc import ABC, abstractmethod
+-from collections import deque
+ from collections.abc import Iterable, Iterator
+ from enum import Enum
+ 
+@@ -71,27 +70,65 @@
+         """Iterate over the queue according to the policy."""
+         pass
+ 
+-
+-class FCFSRequestQueue(deque[Request], RequestQueue):
+-    """A first-come-first-served queue that supports deque operations."""
++    def get_position_key(self, request: Request) -> int:
++        """Return a sortable position key for a queued request.
++
++        This is implemented by policy queues that have a meaningful stable
++        order (currently FCFS). Policy queues whose ordering is defined by
++        request attributes (priority) need not provide this key.
++        """
++        raise NotImplementedError
++
++
++class _FCFSNode:
++    __slots__ = ("request", "prev", "next")
++
++    def __init__(self, request: Request) -> None:
++        self.request = request
++        self.prev: _FCFSNode | None = None
++        self.next: _FCFSNode | None = None
++
++
++class FCFSRequestQueue(RequestQueue):
++    """A first-come-first-served queue with O(1) arbitrary removal."""
++
++    def __init__(self) -> None:
++        self._head: _FCFSNode | None = None
++        self._tail: _FCFSNode | None = None
++        self._nodes: dict[Request, _FCFSNode] = {}
++        self._order: dict[Request, int] = {}
++        self._next_order = 0
++        self._next_prepend_order = 0
+ 
+     def add_request(self, request: Request) -> None:
+         """Add a request to the queue according to FCFS policy."""
+-        self.append(request)
++        if request in self._nodes:
++            raise ValueError("request already in queue")
++        order = self._next_order
++        self._next_order += 1
++        self._insert_node(request, order, at_front=False)
+ 
+     def pop_request(self) -> Request:
+         """Pop a request from the queue according to FCFS policy."""
+-        return self.popleft()
++        if self._head is None:
++            raise IndexError("pop from an empty queue")
++        request = self._head.request
++        self._remove_node(self._head)
++        return request
+ 
+     def peek_request(self) -> Request:
+         """Peek at the next request in the queue without removing it."""
+-        if not self:
++        if self._head is None:
+             raise IndexError("peek from an empty queue")
+-        return self[0]
++        return self._head.request
+ 
+     def prepend_request(self, request: Request) -> None:
+         """Prepend a request to the front of the queue."""
+-        self.appendleft(request)
++        if request in self._nodes:
++            raise ValueError("request already in queue")
++        order = self._next_prepend_order - 1
++        self._next_prepend_order -= 1
++        self._insert_node(request, order, at_front=True)
+ 
+     def prepend_requests(self, requests: RequestQueue) -> None:
+         """Prepend all requests from another queue to the front of this
+@@ -100,32 +137,90 @@
+         Note: The requests will be prepended in reverse order of their
+         appearance in the `requests` queue.
+         """
+-        self.extendleft(requests)
++        for request in requests:
++            self.prepend_request(request)
+ 
+     def remove_request(self, request: Request) -> None:
+         """Remove a specific request from the queue."""
+-        self.remove(request)
++        node = self._nodes.get(request)
++        if node is None:
++            raise ValueError("request is not in queue")
++        self._remove_node(node)
+ 
+     def remove_requests(self, requests: Iterable[Request]) -> None:
+         """Remove multiple specific requests from the queue."""
+-        requests_to_remove = set(requests)
+-        filtered_requests = [req for req in self if req not in requests_to_remove]
+-        # deque does not support in-place filtering, so we need to clear
+-        # and extend
+-        self.clear()
+-        self.extend(filtered_requests)
++        for request in requests:
++            node = self._nodes.get(request)
++            if node is not None:
++                self._remove_node(node)
++
++    def get_position_key(self, request: Request) -> int:
++        return self._order[request]
+ 
+     def __bool__(self) -> bool:
+         """Check if queue has any requests."""
+-        return len(self) > 0
++        return self._head is not None
+ 
+     def __len__(self) -> int:
+         """Get number of requests in queue."""
+-        return super().__len__()
++        return len(self._nodes)
+ 
+     def __iter__(self) -> Iterator[Request]:
+         """Iterate over the queue according to FCFS policy."""
+-        return super().__iter__()
++        node = self._head
++        while node is not None:
++            yield node.request
++            node = node.next
++
++    def __contains__(self, request: object) -> bool:
++        return request in self._nodes
++
++    def __getitem__(self, index: int | slice):
++        if isinstance(index, slice):
++            return list(self)[index]
++        size = len(self._nodes)
++        if index < 0:
++            index += size
++        if index < 0 or index >= size:
++            raise IndexError("queue index out of range")
++        node = self._head
++        assert node is not None
++        for _ in range(index):
++            node = node.next
++            assert node is not None
++        return node.request
++
++    def _insert_node(self, request: Request, order: int, at_front: bool) -> None:
++        node = _FCFSNode(request)
++        self._nodes[request] = node
++        self._order[request] = order
++        if at_front:
++            node.next = self._head
++            if self._head is not None:
++                self._head.prev = node
++            self._head = node
++            if self._tail is None:
++                self._tail = node
++        else:
++            node.prev = self._tail
++            if self._tail is not None:
++                self._tail.next = node
++            self._tail = node
++            if self._head is None:
++                self._head = node
++
++    def _remove_node(self, node: _FCFSNode) -> None:
++        request = node.request
++        if node.prev is not None:
++            node.prev.next = node.next
++        else:
++            self._head = node.next
++        if node.next is not None:
++            node.next.prev = node.prev
++        else:
++            self._tail = node.prev
++        del self._nodes[request]
++        del self._order[request]
+ 
+ 
+ class PriorityRequestQueue(RequestQueue):
+@@ -186,6 +281,10 @@
+     def __bool__(self) -> bool:
+         """Check if queue has any requests."""
+         return bool(self._heap)
++
++    def __contains__(self, request: object) -> bool:
++        """Return whether request is currently in the priority queue."""
++        return request in self._heap
+ 
+     def __len__(self) -> int:
+         """Get number of requests in queue."""
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -1,5 +1,6 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++import heapq
+ import itertools
+ import time
+ from collections import defaultdict, deque
+@@ -161,6 +162,18 @@
+         # Priority queues for requests.
+         self.waiting = create_request_queue(self.policy)
+         self.running: list[Request] = []
++        # Promised future capacity for admitted requests. Update only on state
++        # changes; idle ticks must never rescan blocked remote requests.
++        self._kv_reservations: dict[str, int] = {}
++        self._reserved_kv_blocks = 0
++
++        # Auxiliary ready-selection heap for waiting requests. Remote-KV-blocked
++        # requests remain in self.waiting for ordering/visibility but are not
++        # present in this heap, so idle ticks do no work proportional to them.
++        self._ready_waiting: list[tuple[Any, str, int]] = []
++        self._ready_waiting_ids: set[str] = set()
++        self._ready_waiting_versions: dict[str, int] = {}
++        self._ready_waiting_version = 0
+ 
+         # The request IDs that are finished in between the previous and the
+         # current steps. This is used to notify the workers about the finished
+@@ -314,6 +327,77 @@
+                 pass
+         return num_new_tokens
+ 
++    def _waiting_ready_key(self, request: Request) -> tuple[Any, ...]:
++        if self.policy == SchedulingPolicy.PRIORITY:
++            return (
++                request.priority,
++                request.arrival_time,
++                request.request_id,
++                id(request),
++            )
++        return (
++            self.waiting.get_position_key(request),
++            request.request_id,
++        )
++
++    def _mark_waiting_ready(self, request: Request) -> None:
++        request_id = request.request_id
++        self._ready_waiting_ids.add(request_id)
++        self._ready_waiting_version += 1
++        version = self._ready_waiting_version
++        self._ready_waiting_versions[request_id] = version
++        heapq.heappush(
++            self._ready_waiting,
++            (self._waiting_ready_key(request), request_id, version),
++        )
++
++    def _discard_waiting_ready(self, request_id: str) -> None:
++        self._ready_waiting_ids.discard(request_id)
++        self._ready_waiting_versions.pop(request_id, None)
++
++    def _pop_waiting_ready_request(self) -> Request | None:
++        while self._ready_waiting:
++            _, request_id, version = self._ready_waiting[0]
++            if (
++                request_id not in self._ready_waiting_ids
++                or self._ready_waiting_versions.get(request_id) != version
++            ):
++                heapq.heappop(self._ready_waiting)
++                continue
++            request = self.requests.get(request_id)
++            if (
++                request is None
++                or request.is_finished()
++                or request not in self.waiting
++            ):
++                self._discard_waiting_ready(request_id)
++                heapq.heappop(self._ready_waiting)
++                continue
++            heapq.heappop(self._ready_waiting)
++            self._discard_waiting_ready(request_id)
++            return request
++        return None
++
++    def _wake_finished_remote_kv_requests(self) -> None:
++        if not self.finished_recving_kv_req_ids:
++            return
++        # Iterate a snapshot because _update_waiting_for_remote_kv mutates the
++        # original set. This is proportional to actual completed transfers, not
++        # to the number of still-blocked requests.
++        for request_id in tuple(self.finished_recving_kv_req_ids):
++            request = self.requests.get(request_id)
++            if request is None or request.status != RequestStatus.WAITING_FOR_REMOTE_KVS:
++                self.finished_recving_kv_req_ids.discard(request_id)
++                continue
++            if self._update_waiting_for_remote_kv(request):
++                if request.num_preemptions:
++                    # We must be loading for a resumed preemption
++                    # rather than a new request.
++                    request.status = RequestStatus.PREEMPTED
++                else:
++                    request.status = RequestStatus.WAITING
++                self._mark_waiting_ready(request)
++
+     def schedule(self) -> SchedulerOutput:
+         # NOTE(woosuk) on the scheduling algorithm:
+         # There's no "decoding phase" nor "prefill phase" in the scheduler.
+@@ -531,35 +615,28 @@
+ 
+         # Next, schedule the WAITING requests.
+         if not preempted_reqs and self._pause_state == PauseState.UNPAUSED:
+-            # Use a temporary RequestQueue to collect requests that need to be
+-            # skipped and put back at the head of the waiting queue later
+-            skipped_waiting_requests = create_request_queue(self.policy)
+-
+-            while self.waiting and token_budget > 0:
++            # Wake requests whose remote transfers completed since the previous
++            # scheduling step before selecting runnable waiting requests.
++            self._wake_finished_remote_kv_requests()
++
++            # Temporarily skipped requests are put back into the ready heap
++            # after the scheduling pass.
++            skipped_waiting_requests: list[Request] = []
++
++            while token_budget > 0:
+                 if len(self.running) == self.max_num_running_reqs:
+                     break
+ 
+-                request = self.waiting.peek_request()
++                request = self._pop_waiting_ready_request()
++                if request is None:
++                    break
+                 request_id = request.request_id
+ 
+-                # KVTransfer: skip request if still waiting for remote kvs.
++                # Remote-KV-blocked requests stay in the public waiting queue
++                # but are absent from the ready heap. This can only happen if a
++                # request was marked ready before it became remote-blocked.
+                 if request.status == RequestStatus.WAITING_FOR_REMOTE_KVS:
+-                    is_ready = self._update_waiting_for_remote_kv(request)
+-                    if is_ready:
+-                        if request.num_preemptions:
+-                            # We must be loading for a resumed preemption
+-                            # rather than a new request.
+-                            request.status = RequestStatus.PREEMPTED
+-                        else:
+-                            request.status = RequestStatus.WAITING
+-                    else:
+-                        logger.debug(
+-                            "%s is still in WAITING_FOR_REMOTE_KVS state.",
+-                            request_id,
+-                        )
+-                        self.waiting.pop_request()
+-                        skipped_waiting_requests.prepend_request(request)
+-                        continue
++                    continue
+ 
+                 # Skip request if the structured output request is still waiting
+                 # for FSM compilation.
+@@ -568,15 +645,13 @@
+                     if structured_output_req and structured_output_req.grammar:
+                         request.status = RequestStatus.WAITING
+                     else:
+-                        self.waiting.pop_request()
+-                        skipped_waiting_requests.prepend_request(request)
++                        skipped_waiting_requests.append(request)
+                         continue
+ 
+                 # Streaming: skip request if still waiting for next streaming req.
+                 if request.status == RequestStatus.WAITING_FOR_STREAMING_REQ:
+                     assert not request.streaming_queue
+-                    self.waiting.pop_request()
+-                    skipped_waiting_requests.prepend_request(request)
++                    skipped_waiting_requests.append(request)
+                     continue
+ 
+                 # Check that adding the request still respects the max_loras
+@@ -590,8 +665,7 @@
+                     )
+                 ):
+                     # Scheduling would exceed max_loras, skip.
+-                    self.waiting.pop_request()
+-                    skipped_waiting_requests.prepend_request(request)
++                    skipped_waiting_requests.append(request)
+                     continue
+ 
+                 num_external_computed_tokens = 0
+@@ -617,8 +691,7 @@
+                             # The request cannot be scheduled because
+                             # the KVConnector couldn't determine
+                             # the number of matched tokens.
+-                            self.waiting.pop_request()
+-                            skipped_waiting_requests.prepend_request(request)
++                            skipped_waiting_requests.append(request)
+                             continue
+ 
+                         request.num_external_computed_tokens = ext_tokens
+@@ -667,6 +740,7 @@
+                     ):
+                         # If chunked_prefill is disabled,
+                         # we can stop the scheduling here.
++                        skipped_waiting_requests.append(request)
+                         break
+ 
+                     num_new_tokens = min(num_new_tokens, token_budget)
+@@ -688,6 +762,7 @@
+                         )
+                         if num_new_tokens == 0:
+                             # The request cannot be scheduled.
++                            skipped_waiting_requests.append(request)
+                             break
+ 
+                 if self.need_mamba_block_aligned_split:
+@@ -698,6 +773,7 @@
+                         num_external_computed_tokens,
+                     )
+                     if num_new_tokens == 0:
++                        skipped_waiting_requests.append(request)
+                         break
+ 
+                 # Handles an edge case when P/D Disaggregation
+@@ -730,6 +806,12 @@
+                     num_external_computed_tokens=num_external_computed_tokens,
+                     delay_cache_blocks=load_kv_async,
+                     num_encoder_tokens=num_encoder_tokens,
++                    reserved_blocks=(self._reserved_kv_blocks
++                                     - self._kv_reservations.get(request_id, 0)),
++                    reservation_tokens=(
++                        min(request.num_prompt_tokens + request.max_tokens - 1,
++                            self.max_model_len) if self.connector is not None else None
++                    ),
+                 )
+ 
+                 if new_blocks is None:
+@@ -739,7 +821,10 @@
+                     # manager
+                     if request.has_encoder_inputs:
+                         self.encoder_cache_manager.free(request)
++                    skipped_waiting_requests.append(request)
+                     break
++
++                self._refresh_kv_reservation(request)
+ 
+                 # KVTransfer: the connector uses this info to determine
+                 # if a load is needed. Note that
+@@ -761,13 +846,10 @@
+                             preempted=request.num_preemptions > 0,
+                         )
+ 
+-                # Request was already popped from self.waiting
+-                # unless it was re-added above due to new_blocks being None.
+-                request = self.waiting.pop_request()
+                 if load_kv_async:
+-                    # If loading async, allocate memory and put request
+-                    # into the WAITING_FOR_REMOTE_KV state.
+-                    skipped_waiting_requests.prepend_request(request)
++                    # If loading async, leave the request in the public
++                    # waiting queue and mark it remote-blocked. It will be
++                    # woken when the transfer completion event arrives.
+                     request.status = RequestStatus.WAITING_FOR_REMOTE_KVS
+                     # Set num_computed_tokens even though KVs are not yet loaded.
+                     # request.num_computed_tokens will not be used anywhere until
+@@ -785,6 +867,9 @@
+                     request.num_computed_tokens = num_computed_tokens
+                     continue
+ 
++                # The request is being scheduled. Remove it from the public
++                # waiting queue.
++                self.waiting.remove_request(request)
+                 self.running.append(request)
+                 if self.log_stats:
+                     request.record_event(
+@@ -825,9 +910,16 @@
+                         if self.ec_connector is not None:
+                             self.ec_connector.update_state_after_alloc(request, i)
+ 
+-            # Put back any skipped requests at the head of the waiting queue
+-            if skipped_waiting_requests:
+-                self.waiting.prepend_requests(skipped_waiting_requests)
++            # Temporarily skipped requests remain in their original public
++            # queue positions. Re-add them to the ready heap after the pass so
++            # they can be scheduled once their temporary reason clears.
++            for skipped_request in skipped_waiting_requests:
++                if skipped_request.status in (
++                    RequestStatus.WAITING,
++                    RequestStatus.PREEMPTED,
++                    RequestStatus.WAITING_FOR_FSM,
++                ):
++                    self._mark_waiting_ready(skipped_request)
+ 
+         # Check if the scheduling constraints are satisfied.
+         total_num_scheduled_tokens = sum(num_scheduled_tokens.values())
+@@ -885,10 +977,11 @@
+         self.prev_step_scheduled_req_ids.clear()
+         self.prev_step_scheduled_req_ids.update(num_scheduled_tokens.keys())
+ 
++        # Full-attention managers record allocations even without KV zeroing.
++        # Drain the per-step IDs so completed workloads leave no history behind.
++        new_attention_block_ids = self.kv_cache_manager.take_new_block_ids()
+         new_block_ids_to_zero = (
+-            (self.kv_cache_manager.take_new_block_ids() or None)
+-            if self.needs_kv_cache_zeroing
+-            else None
++            (new_attention_block_ids or None) if self.needs_kv_cache_zeroing else None
+         )
+ 
+         scheduler_output = SchedulerOutput(
+@@ -941,6 +1034,7 @@
+         )
+         self.kv_cache_manager.free(request)
+         self.encoder_cache_manager.free(request)
++        self._drop_kv_reservation(request.request_id)
+         request.status = RequestStatus.PREEMPTED
+         request.num_computed_tokens = 0
+         if request.spec_token_ids:
+@@ -951,6 +1045,7 @@
+ 
+         # Put the request back to the waiting queue.
+         self.waiting.prepend_request(request)
++        self._mark_waiting_ready(request)
+ 
+     def _update_after_schedule(self, scheduler_output: SchedulerOutput) -> None:
+         # Advance the number of computed tokens for the request AFTER
+@@ -972,6 +1067,7 @@
+             scheduler_output.has_structured_output_requests |= (
+                 request.use_structured_output and not request.is_prefill_chunk
+             )
++            self._refresh_kv_reservation(request)
+ 
+             # NOTE: _free_encoder_inputs relies on num_computed_tokens, which
+             # may be updated again in _update_from_output for speculative
+@@ -1459,6 +1555,8 @@
+         if stopped_preempted_reqs:
+             # This is a rare case and unlikely to impact performance.
+             self.waiting.remove_requests(stopped_preempted_reqs)
++            for request in stopped_preempted_reqs:
++                self._discard_waiting_ready(request.request_id)
+ 
+         if failed_kv_load_req_ids and not self.recompute_kv_load_failures:
+             requests = [self.requests[req_id] for req_id in failed_kv_load_req_ids]
+@@ -1547,6 +1645,8 @@
+             self.num_waiting_for_streaming_input += 1
+ 
+         self.waiting.add_request(request)
++        if request.status == RequestStatus.WAITING:
++            self._mark_waiting_ready(request)
+         return False
+ 
+     def _get_routed_experts(self, request: Request) -> np.ndarray | None:
+@@ -1690,6 +1790,7 @@
+             elif update is not None:
+                 # Commence next input chunk.
+                 self._update_request_as_session(existing, update)
++                self._mark_waiting_ready(existing)
+             else:
+                 # Streaming-input session finished.
+                 self.finish_requests(request.request_id, RequestStatus.FINISHED_ABORTED)
+@@ -1698,6 +1799,7 @@
+                 request.streaming_queue = deque()
+             self.waiting.add_request(request)
+             self.requests[request.request_id] = request
++            self._mark_waiting_ready(request)
+             if self.log_stats:
+                 request.record_event(EngineCoreEventType.QUEUED)
+ 
+@@ -1747,6 +1849,8 @@
+             self.running = remove_all(self.running, running_requests_to_remove)
+         if waiting_requests_to_remove:
+             self.waiting.remove_requests(waiting_requests_to_remove)
++            for request in waiting_requests_to_remove:
++                self._discard_waiting_ready(request.request_id)
+ 
+         # Second pass: set status and free requests
+         for request in valid_requests:
+@@ -1767,6 +1871,7 @@
+         self, request: Request, delay_free_blocks: bool = False
+     ) -> dict[str, Any] | None:
+         assert request.is_finished()
++        self._drop_kv_reservation(request.request_id)
+ 
+         connector_delay_free_blocks, kv_xfer_params = self._connector_finished(request)
+         self.encoder_cache_manager.free(request)
+@@ -1784,6 +1889,7 @@
+     def _free_blocks(self, request: Request):
+         assert request.is_finished()
+         self.kv_cache_manager.free(request)
++        self._discard_waiting_ready(request.request_id)
+         del self.requests[request.request_id]
+ 
+     @property
+@@ -1981,6 +2087,32 @@
+ 
+         return self.connector.request_finished_all_groups(request, block_ids)
+ 
++    def _drop_kv_reservation(self, request_id: str) -> None:
++        self._reserved_kv_blocks -= self._kv_reservations.pop(request_id, 0)
++
++    def _refresh_kv_reservation(self, request: Request) -> None:
++        if self.connector is None:
++            return
++        # Budget for a request that can run on its own, including ordinary
++        # decode growth. An async load must not steal another request's space.
++        final_tokens = min(
++            request.num_prompt_tokens + request.max_tokens - 1,
++            self.max_model_len,
++        )
++        needed = self.kv_cache_manager.coordinator.get_num_blocks_to_allocate(
++            request_id=request.request_id,
++            num_tokens=min(final_tokens + self.num_lookahead_tokens,
++                           self.max_model_len),
++            new_computed_blocks=self.kv_cache_manager.empty_kv_cache_blocks.blocks,
++            num_encoder_tokens=0,
++            total_computed_tokens=request.num_computed_tokens,
++            num_tokens_main_model=final_tokens,
++        )
++        self._drop_kv_reservation(request.request_id)
++        if needed:
++            self._kv_reservations[request.request_id] = needed
++            self._reserved_kv_blocks += needed
++
+     def _update_waiting_for_remote_kv(self, request: Request) -> bool:
+         """
+         KV Connector: check if the request_id is finished_recving.
+@@ -2047,6 +2179,7 @@
+             assert req_id in self.requests
+             req = self.requests[req_id]
+             if req.status == RequestStatus.WAITING_FOR_REMOTE_KVS:
++                self._discard_waiting_ready(req_id)
+                 self.finished_recving_kv_req_ids.add(req_id)
+             else:
+                 assert RequestStatus.is_finished(req.status)

@@ -1,0 +1,18 @@
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -607,6 +607,7 @@
+         self.execute_model_state: ExecuteModelState | None = None
+         self.kv_connector_output: KVConnectorOutput | None = None
+         self.layerwise_nvtx_hooks_registered = False
++        self._encoder_read_statistics = {"calls": 0}
+ 
+     def reset_mm_cache(self) -> None:
+         if self.mm_budget:
+@@ -2196,6 +2197,7 @@
+         scheduler_output: "SchedulerOutput",
+         shift_computed_tokens: int = 0,
+     ) -> tuple[list[torch.Tensor], torch.Tensor]:
++        self._encoder_read_statistics["calls"] += 1
+         total_num_scheduled_tokens = scheduler_output.total_num_scheduled_tokens
+ 
+         mm_embeds = list[torch.Tensor]()
