@@ -36,6 +36,22 @@ auditor = load_module("metadata_auditor", ".agents/skills/ai-infra-bench-task-re
 
 
 class TaskMetadataTests(unittest.TestCase):
+    def test_ci_preparation_omits_snapshots_without_changing_formal_configs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for path in sorted((ROOT / "tasks").glob("*/task.toml")):
+                with self.subTest(task=path.parent.name):
+                    original = path.read_text()
+                    expected = tomllib.loads(original)
+                    self.assertTrue(expected["artifacts"])
+                    expected["artifacts"] = []
+                    expected["environment"]["docker_image"] = "ci-image:checked"
+                    prepared = Path(directory) / path.parent.name
+                    self.assertEqual(task_ci.prepare_case(
+                        path.parent, "ci-image:checked", "base", prepared,
+                    ), "nop")
+                    self.assertEqual(tomllib.loads((prepared / "task.toml").read_text()), expected)
+                    self.assertEqual(path.read_text(), original)
+
     def test_corpus_metadata_and_order_are_uniform(self):
         paths = sorted((ROOT / "tasks").glob("*/task.toml"))
         self.assertTrue(paths, "the benchmark corpus must not be empty")

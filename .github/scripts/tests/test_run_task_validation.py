@@ -72,6 +72,7 @@ elif name == "docker":
 elif name == "harbor":
     task_dir = Path(args[args.index("--path") + 1])
     config = tomllib.loads((task_dir / "task.toml").read_text())
+    assert config["artifacts"] == [], "CI must not download full checkout snapshots"
     with open(os.environ["MOCK_LOG"], "a") as stream:
         stream.write(json.dumps(["prepared_image", config["environment"]["docker_image"]]) + "\n")
     if os.environ["MOCK_HARBOR_FAIL"] == "true":
@@ -99,7 +100,7 @@ class ValidationImageTests(unittest.TestCase):
             root = Path(directory)
             scripts = root / ".github/scripts"
             scripts.mkdir(parents=True)
-            for name in ("task_ci.py", "run_task_validation.sh", "compact_task_artifacts.py"):
+            for name in ("task_ci.py", "run_task_validation.sh"):
                 shutil.copy2(GITHUB_DIR / "scripts" / name, scripts / name)
             shutil.copy2(GITHUB_DIR / "runner-classes.json", scripts.parent)
             task = root / "tasks/example"
@@ -110,6 +111,7 @@ class ValidationImageTests(unittest.TestCase):
                 "schema_version": "ai_infra_bench_validation_cases.v1", "cases": [],
             }))
             config = (
+                'artifacts = ["/workspace/repo"]\n'
                 f'[environment]\ngpus = {gpus}\nworkdir = "/workspace/repo"\n'
                 'cpus = 8\nmemory_mb = 16384\nstorage_mb = 51200\n'
             )
@@ -174,6 +176,8 @@ class ValidationImageTests(unittest.TestCase):
                 self.assertFalse(summary.exists())
                 return None, commands
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual((task / "task.toml").read_text(), config)
+            self.assertEqual(list(root.glob("ai-infra-case.*")), [])
             summary = json.loads(summary.read_text())
             self.assertEqual(summary["cache_hit"], cache_hit if not gpus else False)
             builds = [cmd for cmd in commands if cmd[:3] == ["docker", "buildx", "build"]]

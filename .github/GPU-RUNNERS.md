@@ -65,13 +65,11 @@ python .github/scripts/tests/smoke_gpu_cleanup.py --image <local-cuda-pytorch-im
 
 These are infrastructure smoke tasks outside the benchmark corpus. They run actual Harbor verifier trials and CUDA tensor operations, verify rewards using the CI result checker and retain UUID/timing evidence. They do not establish correctness or performance of a benchmark task. After the branch is merged and runners are online, perform a GitHub Actions run on an actual A100 task to complete remote acceptance; CPU tasks continue to use GitHub-hosted runners.
 
-After each CI case, identical checkout snapshot files are hardlinked across
-completed trials when paths, contents, permissions, ownership, and modification time
-match. Treat these saved snapshots as immutable; copy a snapshot before editing
-it. Temporary case inputs are removed after success, with `prepared-task.toml`
-retained in the job results. Uploaded results are a `.tar.gz` preserving the full
-Harbor directory layout, hidden files, and cross-trial hardlinks, rather than a
-ZIP of repeated checkout copies. Extract the complete archive before viewing or
-regrading it. The GPU upload policy is unchanged.
+Task validation, image-publication, and GPU smoke CI do not upload artifacts. Prepared
+CI task configs set `artifacts = []` to avoid downloading full checkout snapshots
+for every Base/Oracle/control case. Collection hooks still run, and successful
+temporary case inputs are removed after preserving `prepared-task.toml` in the
+local job results. Canonical task configs retain complete snapshots and collection
+hooks for formal evaluations. GitHub Actions execution logs remain available.
 
 Harbor 0.22.0 stores per-trial rewards in `stats.evals.*.reward_stats.reward`, while its `metrics` contains aggregate means. The result checker reads the per-trial rewards and requires exactly one completed, error-free trial with the expected reward; older direct reward metrics remain supported.

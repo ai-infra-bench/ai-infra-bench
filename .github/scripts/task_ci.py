@@ -375,6 +375,17 @@ def prepare_case(task_dir: Path, image: str, case_name: str, output: Path) -> st
         shutil.rmtree(output)
     shutil.copytree(task_dir, output)
     inject_docker_image(output / "task.toml", image)
+    # CI checks rewards without publishing trial artifacts. Avoid downloading a
+    # full checkout for every case; canonical task configs keep their snapshots.
+    task_file = output / "task.toml"
+    text = task_file.read_text()
+    expected = tomllib.loads(text)
+    if expected.get("artifacts"):
+        expected["artifacts"] = []
+        updated = re.sub(r"(?m)^artifacts[ \t]*=.*$", "artifacts = []", text, count=1)
+        if tomllib.loads(updated) != expected:
+            raise ContractError(f"{task_file}: expected a normalized root artifacts field")
+        task_file.write_text(updated)
 
     if case_name == "base":
         return "nop"
