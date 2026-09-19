@@ -20,13 +20,14 @@ sort parameters are ignored and discarded on the next filter interaction.
 
 Domain describes the kind of AI infrastructure work, not the project:
 Inference, Training or Agent harness. Only domains with actual tasks appear.
-All current vLLM tasks are classified as Inference via the explicit project
-mapping in `app/lib/task-filters.ts`.
+All 30 current vLLM tasks explicitly declare `metadata.domain = "inference"`.
+New tasks must provide `metadata.domain` as `inference`, `training`, or
+`agent_harness`, following the [task metadata convention](../templates/harbor-task/README.md).
 
-New tasks may provide `metadata.domain` as `inference`, `training` or
-`agent_harness`. Explicit metadata takes precedence. An unknown project is
-not automatically classified as inference; it remains visible under All until
-its domain is assigned.
+Explicit metadata takes precedence. For older records without a domain,
+`app/lib/task-filters.ts` retains the project mapping as a compatibility fallback.
+An unknown project is not automatically classified as inference; it remains
+visible under All until its domain is assigned.
 
 ## Future hardware sets
 

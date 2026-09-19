@@ -6,18 +6,21 @@ video codecs, and test tooling. Their frozen inputs are the base commit and
 dependency cutoff read from `task.toml`. Optional build inputs live in
 `environment/build-config.json` with `"schema_version": "vllm_build_config.v1"`.
 
-Generate one or more task Dockerfiles from the repository root:
+For tasks maintained with this CPU template, select their directories explicitly
+and generate Dockerfiles from the repository root:
 
 ```bash
 python3 templates/vllm-harbor-all-in-one/generate.py \
-  tasks/vllm-tool-argument-union \
-  tasks/vllm-kv-admission-thrashing
+  tasks/vllm-asr-chunk-spacing \
+  tasks/vllm-pyav-target-frame-selection
 ```
 
-Verify that checked-in Dockerfiles still match the template and build inputs:
+Verify that those tasks' checked-in Dockerfiles match the template and build inputs:
 
 ```bash
-python3 templates/vllm-harbor-all-in-one/generate.py --check tasks/vllm-*
+python3 templates/vllm-harbor-all-in-one/generate.py --check \
+  tasks/vllm-asr-chunk-spacing \
+  tasks/vllm-pyav-target-frame-selection
 ```
 
 Edit the template, not a generated Dockerfile. The generated Dockerfiles do not

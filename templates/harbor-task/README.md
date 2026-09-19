@@ -12,8 +12,12 @@ CPU/GPU tags, including compound tags such as `gpu-worker`. Use keywords for
 subsystem and topic labels instead of a separate `subsystems` field.
 The website skips the first `vllm` keyword when displaying or searching topics.
 
-Keep only `task_type`, `base_commit`, and `dependency_cutoff` in `[metadata]`:
-Harbor 0.22 does not preserve custom fields in `[task]`. Use `feature` for added
+Keep only `domain`, `task_type`, `base_commit`, and `dependency_cutoff` in
+`[metadata]`, in that order. Require an explicit `domain`: `inference`,
+`training`, or `agent_harness`. The current 30-task vLLM corpus uses `inference`.
+Domain describes the area of AI infrastructure work; `task_type` describes the
+kind of change. Harbor 0.22 does not preserve custom fields in `[task]`.
+Use `feature` for added
 capabilities, `bugfix` for incorrect behavior
 or stalled progress, and `performance` for latency, throughput, or memory-use
 improvements. Classify by the requested outcome, even when the solution is a
@@ -112,8 +116,8 @@ This embeds the collector in each task config; it does not depend on a host
 script being installed in the agent container or on access to `/tests`.
 
 Keep configs in reading order: top-level schema/artifacts, task identity,
-metadata, environment, agent, verifier, collection hooks, then optional CI
-validation settings. Environment fields run from workdir/OS through resources,
+metadata, environment, agent, verifier, then collection hooks. Environment
+fields run from workdir/OS through resources,
 network, and build timeout. Execution sections list user/network before timeout;
 collection hooks list service/user/timeout before the command.
 
@@ -126,6 +130,29 @@ The normalizer preserves values, comments, and multiline commands, checks parsed
 TOML equivalence before writing, and is idempotent. Hook synchronization also
 applies this ordering.
 
+After filling the task, run its shared static contract check:
+
+```bash
+python3 .github/scripts/task_ci.py validate <task-id>
+```
+
+The CLI, Skill audit, and CI use the same source-task validator. It checks the
+TOML schema, allowed keys, identity, metadata, budgets, required files, non-empty
+instructions, collector, ordering, and image/lock consistency. Keywords must
+be trimmed and unique, and CPU/GPU words are rejected even when separated by
+spaces or punctuation. Empty text and whole-value scaffolding placeholders
+such as `<subsystem>`, `<description>`, and `TODO` are rejected; ordinary XML
+fragments in real instructions remain valid.
+
+Validation reports errors without rewriting files. Use the formatter and
+collector commands above for explicit write-back. Runtime CI copies contain
+image/resource overrides and are not source tasks to validate with this command.
+The Skill's audit script additionally checks source syntax and supports image
+and staged checks. Check saved JUnit reports with the task's own checker and the
+arguments from `tests/test.sh`; see the [review procedure](../../.agents/skills/ai-infra-bench-task-review/references/review-rubric.md#14-validate-the-final-snapshot-through-the-formal-entrypoint).
+Scenario quality, solution hints and verifier fairness still require semantic
+review.
+
 Reference-solution identifiers and held-out test details should remain in curator-only storage until the task is released. The agent environment must contain only the clean base state and offline dependencies.
 
 ## Validation layout
@@ -136,6 +163,11 @@ its name, `patch` as `patches/<name>.patch`, `patch_sha256`, `expected_reward`, 
 optional `apply_after` (`base` by default, or `oracle`). Preserve the declared
 patch base when preparing or checking a control. The scorer does not consume
 these control patches.
+
+Control names must not be `base` or `oracle`, which are reserved for the built-in
+cases. `expected_reward` must be the integer `0` or `1`; booleans are invalid.
+Tasks using `verifier_only` must apply controls to Base and cannot declare
+`apply_after = "oracle"`.
 
 The default validation mode runs Base, Oracle, and the declared controls.
 Approved unsolved tasks set `"validation_mode": "verifier_only"` in

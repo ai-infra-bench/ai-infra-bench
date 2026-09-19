@@ -22,7 +22,7 @@ Record the search date, useful queries or history commands, links, PR merge stat
 
 For each material finding, answer these questions:
 
-- Does it violate an explicit requirement or a reasonable consequence of the proposed task contract?
+- Does it violate an explicit requirement or a necessary implication of normal product semantics discoverable in the solver's environment?
 - Can it occur with the frozen Base's interfaces and supported inputs, including after applying the proposed Oracle?
 - Does the proposed Oracle handle it, and what evidence supports that conclusion?
 
@@ -54,7 +54,7 @@ summary to the release task's `validation/` directory:
 | --- | --- | --- | --- |
 | Linked issue, PR, or code finding; status and inspected revision | Trigger, supported conditions, and requirement affected | Inspection or reproduction command, revision, and result | Included test, justified exclusion, or unresolved next step |
 
-Include the search date and limitations, plus the final Base and Oracle revisions. Map each included finding to a verifier case and a stated or reasonably implied requirement. Conversely, check the task's remaining requirements for coverage: an upstream search does not replace bidirectional instruction/verifier alignment or independent review.
+Include the search date and limitations, plus the final Base and Oracle revisions. Map each included finding to a verifier case and an explicit requirement or necessary implication of normal product semantics available to the solver. Conversely, check the task's remaining requirements for coverage: an upstream search does not replace bidirectional instruction/verifier alignment or independent review.
 
 Keep later patches, diagnostic answers, and private reproducers outside the agent's image and accessible workspace. Apply the task's cutoff and visibility rules to repository history, build contexts, and copied artifacts as well as the instruction. Express any accepted requirement as a natural developer request about behavior, without revealing the root cause or prescribing the reference fix.
 

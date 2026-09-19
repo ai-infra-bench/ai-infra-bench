@@ -8,9 +8,7 @@ Base, Oracle, control, and Harbor behavior.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -19,26 +17,10 @@ from typing import Any
 
 import tomllib
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
-from normalize_image_manifests import check_file_hashes
-from sync_collect_hooks import render_command
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".github/scripts"))
+from task_ci import ContractError, validate_task
 
 TIMEOUT = 120
-SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)+$")
-RAW_ID = re.compile(r"(?:^|-)(?:pr|issue|candidate|instance)-[a-z0-9]+(?:-|$)")
-SHA256 = re.compile(r"^[0-9a-f]{64}$")
-REQUIRED_FILES = (
-    "instruction.md",
-    "environment/Dockerfile",
-    "environment/image-manifest.json",
-    "environment/lock/manifest.json",
-    "environment/lock/requirements.txt",
-    "solution/oracle.patch",
-    "solution/solve.sh",
-    "tests/test.sh",
-    "validation/ci-cases.json",
-)
-
 
 class Audit:
     def __init__(self) -> None:
@@ -80,23 +62,8 @@ def run(command: list[str], *, cwd: Path | None = None) -> subprocess.CompletedP
         )
 
 
-def digest(path: Path) -> str:
-    with path.open("rb") as handle:
-        return hashlib.file_digest(handle, "sha256").hexdigest()
-
-
 def mapping(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
-
-
-def recorded_sha256(value: Any) -> str | None:
-    if isinstance(value, str) and SHA256.fullmatch(value):
-        return value
-    if isinstance(value, dict):
-        candidate = value.get("sha256")
-        if isinstance(candidate, str) and SHA256.fullmatch(candidate):
-            return candidate
-    return None
 
 
 def safe_task_relative_path(value: Any) -> str | None:
@@ -110,7 +77,7 @@ def safe_task_relative_path(value: Any) -> str | None:
     return path.as_posix()
 
 
-def load(task: Path, audit: Audit) -> tuple[dict[str, Any], dict[str, Any]]:
+def load(task: Path, audit: Audit) -> dict[str, Any]:
     before = audit.errors
     config: dict[str, Any] = {}
     try:
@@ -118,10 +85,9 @@ def load(task: Path, audit: Audit) -> tuple[dict[str, Any], dict[str, Any]]:
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         audit.require(False, f"invalid task.toml: {exc}")
 
-    documents: dict[str, Any] = {}
     for path in sorted(task.rglob("*.json")):
         try:
-            documents[path.relative_to(task).as_posix()] = json.loads(path.read_text())
+            json.loads(path.read_text())
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             audit.require(False, f"invalid JSON {path.relative_to(task)}: {exc}")
     for path in sorted(task.rglob("*.py")):
@@ -139,221 +105,16 @@ def load(task: Path, audit: Audit) -> tuple[dict[str, Any], dict[str, Any]]:
     else:
         audit.warn("bash is unavailable; shell syntax was not checked")
     audit.finish(before, "task artifacts parse")
-    return config, documents
+    return config
 
 
-def check_task(task: Path, config: dict[str, Any], repo: Path, audit: Audit) -> None:
+def check_task(task: Path, audit: Audit) -> None:
     before = audit.errors
-    slug = task.name
-    audit.require(bool(SLUG.fullmatch(slug)), f"invalid semantic task slug: {slug}")
-    audit.require(not RAW_ID.search(slug), f"task slug contains a raw ID: {slug}")
-
-    task_data = mapping(config.get("task"))
-    metadata = mapping(config.get("metadata"))
-    audit.require(
-        task_data.get("name") == f"ai-infra-bench/{slug}",
-        f"[task].name does not match tasks/{slug}",
-    )
-    audit.require(
-        isinstance(task_data.get("description"), str)
-        and bool(task_data["description"].strip()),
-        "[task].description must be non-empty",
-    )
-    audit.require(
-        set(metadata) == {"task_type", "base_commit", "dependency_cutoff"},
-        "[metadata] must contain only task_type, base_commit, and dependency_cutoff",
-    )
-    audit.require(
-        metadata.get("task_type") in {"feature", "bugfix", "performance"},
-        "[metadata].task_type must be feature, bugfix, or performance",
-    )
-
-    case_manifest_path = task / "validation/ci-cases.json"
     try:
-        case_manifest = mapping(json.loads(case_manifest_path.read_text()))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        case_manifest = {}
-    verifier_only = case_manifest.get("validation_mode") == "verifier_only"
-    required_files = [path for path in REQUIRED_FILES if not (verifier_only and path.startswith("solution/"))]
-    missing = [path for path in required_files if not (task / path).is_file()]
-    audit.require(not missing, f"required task files are missing: {missing}")
-    audit.require(
-        bool(re.fullmatch(r"[0-9a-f]{40}", str(metadata.get("base_commit", "")))),
-        "[metadata].base_commit is not a full commit SHA",
-    )
-    check_benchmark_config(config, audit)
-    validator = repo / ".github/scripts/task_ci.py"
-    if audit.require(validator.is_file(), "repository task validator is missing"):
-        result = run([sys.executable, str(validator), "validate", slug], cwd=repo)
-        audit.require(
-            result.returncode == 0,
-            f"repository task validation failed: {result.stderr.strip()}",
-        )
-    audit.finish(before, "task identity and repository contract pass")
-
-
-def check_benchmark_config(config: dict[str, Any], audit: Audit) -> None:
-    expected = {
-        "task": {"version": "1.0.0"},
-        "environment": {
-            "cpus": 8, "memory_mb": 16384, "storage_mb": 51200,
-            "build_timeout_sec": 10800, "network_mode": "no-network",
-        },
-        "agent": {"timeout_sec": 36000},
-        "verifier": {"timeout_sec": 7200},
-    }
-    for section, fields in expected.items():
-        actual = mapping(config.get(section))
-        for key, value in fields.items():
-            audit.require(actual.get(key) == value, f"[{section}].{key} must be {value!r}")
-    task = mapping(config.get("task"))
-    audit.require("authors" not in task, "[task].authors must be omitted")
-    keywords = task.get("keywords")
-    audit.require(
-        isinstance(keywords, list) and 1 <= len(keywords) <= 4
-        and keywords[0] == "vllm"
-        and all(isinstance(word, str) and word and not re.search(r"(?:^|[-_])(cpu|gpu)(?:$|[-_])", word, re.I) for word in keywords),
-        "keywords must start with vllm and contain at most three topic tags, without CPU/GPU tags",
-    )
-    environment = mapping(config.get("environment"))
-    agent = mapping(config.get("agent"))
-    verifier = mapping(config.get("verifier"))
-    audit.require("docker_image" not in environment, "omit environment.docker_image from the committed task")
-    gpus = environment.get("gpus")
-    if audit.require(type(gpus) is int and gpus >= 0, "environment.gpus must be an explicit nonnegative integer"):
-        if gpus:
-            audit.require(environment.get("gpu_types") == ["A100"], "GPU tasks must declare gpu_types = ['A100']")
-        else:
-            audit.require("gpu_types" not in environment, "CPU tasks must omit gpu_types")
-    audit.require(
-        "environment_mode" not in verifier and "environment" not in verifier,
-        "omit verifier environment settings to use default shared verification",
-    )
-    for section in ("agent", "verifier"):
-        audit.require(
-            mapping(config.get(section)).get("network_mode", "no-network") == "no-network",
-            f"[{section}] must preserve offline runtime networking",
-        )
-    workdir = environment.get("workdir")
-    audit.require(config.get("artifacts") == [workdir], "artifacts must archive the complete environment.workdir")
-    hooks = verifier.get("collect")
-    if audit.require(isinstance(hooks, list) and len(hooks) == 1, "one standard verifier.collect hook is required"):
-        hook = mapping(hooks[0])
-        audit.require(hook.get("service") == "main", "collector service must be main")
-        audit.require(hook.get("timeout_sec") == 300, "collector timeout_sec must be 300")
-        audit.require(hook.get("user") == agent.get("user"), "collector must run as the agent user")
-        base = mapping(config.get("metadata")).get("base_commit")
-        if isinstance(workdir, str) and isinstance(base, str):
-            audit.require(hook.get("command") == render_command(workdir, base), "collector command is stale; run tools/sync_collect_hooks.py")
-
-
-def compare(
-    audit: Audit,
-    label: str,
-    expected: Any,
-    required: dict[str, Any],
-) -> None:
-    for source, actual in required.items():
-        audit.require(actual is not None, f"{source} does not record {label}")
-        if actual is not None:
-            audit.require(actual == expected, f"{source} has the wrong {label}")
-
-
-def check_artifacts(
-    task: Path,
-    config: dict[str, Any],
-    documents: dict[str, Any],
-    audit: Audit,
-) -> None:
-    before = audit.errors
-    image = mapping(documents.get("environment/image-manifest.json"))
-    lock = mapping(documents.get("environment/lock/manifest.json"))
-    metadata = mapping(config.get("metadata"))
-
-    compare(
-        audit,
-        "Base commit",
-        metadata.get("base_commit"),
-        {
-            "lock manifest": lock.get("base_commit"),
-        },
-    )
-    compare(
-        audit,
-        "dependency cutoff",
-        metadata.get("dependency_cutoff"),
-        {
-            "lock manifest": lock.get("dependency_cutoff"),
-        },
-    )
-    checked_paths: set[str] = set()
-    try:
-        check_file_hashes(image, task / "environment")
-        checked_paths.update(f"environment/{relative}" for relative in image["files"])
-    except ValueError as exc:
-        audit.require(False, f"invalid image manifest: {exc}")
-
-    hashes: list[tuple[str, Any, str]] = []
-    output = mapping(lock.get("output"))
-    lock_output_path = safe_task_relative_path(output.get("path"))
-    if lock_output_path is not None:
-        hashes.append(("lock manifest", output.get("sha256"), lock_output_path))
-    else:
-        audit.require(False, "lock manifest does not record a safe output.path")
-
-    for source, recorded, relative in hashes:
-        audit.require(
-            recorded_sha256(recorded) is not None,
-            f"{source} does not contain a 64-character SHA-256 for {relative}",
-        )
-        path = task / relative
-        audit.require(path.is_file(), f"{source} refers to missing {relative}")
-        if path.is_file() and recorded_sha256(recorded) is not None:
-            matches = recorded_sha256(recorded) == digest(path)
-            audit.require(matches, f"{source} hash is stale for {relative}")
-            if matches:
-                checked_paths.add(relative)
-
-    manifest = mapping(documents.get("validation/ci-cases.json"))
-    cases = manifest.get("cases", [])
-    if audit.require(isinstance(cases, list), "validation cases must be a list"):
-        for index, item in enumerate(cases):
-            case = mapping(item)
-            patch_name = case.get("patch")
-            recorded = case.get("patch_sha256")
-            if not isinstance(patch_name, str):
-                audit.require(False, f"validation case {index} has no patch")
-                continue
-            relative = f"validation/{patch_name}"
-            path = task / relative
-            audit.require(
-                recorded_sha256(recorded) is not None,
-                f"validation case {index} patch hash is not a 64-character SHA-256",
-            )
-            audit.require(path.is_file(), f"validation case refers to missing {relative}")
-            if path.is_file() and recorded_sha256(recorded) is not None:
-                matches = recorded == digest(path)
-                audit.require(
-                    matches, f"validation case patch hash is stale for {relative}"
-                )
-                if matches:
-                    checked_paths.add(relative)
-
-    print(f"INFO: checked artifact hashes for {sorted(checked_paths)}")
-    audit.finish(before, "artifact identities and all recorded hashes pass")
-
-
-def check_junit(task: Path, junit: Path, audit: Audit) -> None:
-    checker = task / "tests/check_junit.py"
-    if not audit.require(checker.is_file(), "tests/check_junit.py is missing"):
-        return
-    result = run([sys.executable, str(checker), str(junit)])
-    audit.require(
-        result.returncode == 0,
-        f"task JUnit check failed: {(result.stdout + result.stderr).strip()}",
-    )
-    if result.returncode == 0:
-        audit.ok("task JUnit check passes")
+        validate_task(task)
+    except ContractError as exc:
+        audit.require(False, f"repository task validation failed: {exc}")
+    audit.finish(before, "shared task contract checks pass")
 
 
 def check_image(
@@ -510,7 +271,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("task", type=Path)
     parser.add_argument("--image", help="run image and patch checks")
-    parser.add_argument("--junit", type=Path, help="run the task's JUnit checker")
     parser.add_argument("--staged", action="store_true", help="check staged scope")
     args = parser.parse_args()
 
@@ -524,13 +284,10 @@ def main() -> int:
     if not audit.require(root.returncode == 0, "task is not in a Git worktree"):
         return 1
     repo = Path(root.stdout.strip()).resolve()
-    config, documents = load(task, audit)
+    config = load(task, audit)
+    check_task(task, audit)
     if config:
-        check_task(task, config, repo, audit)
-        check_artifacts(task, config, documents, audit)
         check_diff_whitespace(task, repo, audit)
-        if args.junit:
-            check_junit(task, args.junit.resolve(), audit)
         if args.image:
             check_image(task, config, repo, args.image, audit)
         if args.staged:

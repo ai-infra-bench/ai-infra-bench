@@ -14,6 +14,8 @@ import unittest
 
 
 GITHUB_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(GITHUB_DIR.parent / "tools"))
+from sync_collect_hooks import updated_config
 REGISTRY = "ghcr.io/test-owner/ai-infra-bench-task-envs"
 DIGEST = "sha256:" + "a" * 64
 
@@ -94,7 +96,7 @@ else:
 
 class ValidationImageTests(unittest.TestCase):
     def run_validation(
-        self, *, gpus, cache_hit, publish, harbor_fail=False, docker_image=True,
+        self, *, gpus, cache_hit, publish, harbor_fail=False,
         build_failures=0, build_error="", expect_failure=False,
     ):
         with tempfile.TemporaryDirectory() as directory:
@@ -105,30 +107,51 @@ class ValidationImageTests(unittest.TestCase):
                 shutil.copy2(GITHUB_DIR / "scripts" / name, scripts / name)
             helpers = root / "tools"
             helpers.mkdir()
-            shutil.copy2(GITHUB_DIR.parent / "tools/normalize_image_manifests.py", helpers)
+            for name in ("normalize_image_manifests.py", "normalize_task_configs.py", "sync_collect_hooks.py"):
+                shutil.copy2(GITHUB_DIR.parent / "tools" / name, helpers / name)
             shutil.copy2(GITHUB_DIR / "runner-classes.json", scripts.parent)
-            task = root / "tasks/example"
+            task = root / "tasks/example-task"
             (task / "environment/lock").mkdir(parents=True)
-            inputs = {"Dockerfile": "FROM scratch\n", "lock/requirements.txt": "", "lock/manifest.json": "{}\n"}
+            base = "a" * 40
+            cutoff = "2026-01-01T00:00:00Z"
+            lock = {"base_commit": base, "dependency_cutoff": cutoff, "output": {
+                "path": "environment/lock/requirements.txt", "sha256": hashlib.sha256(b"").hexdigest(),
+            }}
+            inputs = {"Dockerfile": "FROM scratch\n", "lock/requirements.txt": "",
+                      "lock/manifest.json": json.dumps(lock) + "\n"}
             for relative, content in inputs.items():
                 (task / "environment" / relative).write_text(content)
             (task / "environment/image-manifest.json").write_text(json.dumps({
                 "image_id": "sha256:" + "a" * 64,
                 "files": {name: hashlib.sha256(content.encode()).hexdigest() for name, content in inputs.items()},
-            }))
+            }, indent=2) + "\n")
             (task / "validation").mkdir()
             (task / "validation/ci-cases.json").write_text(json.dumps({
-                "schema_version": "ai_infra_bench_validation_cases.v1", "cases": [],
+                "schema_version": "ai_infra_bench_validation_cases.v2", "cases": [],
             }))
+            (task / "instruction.md").write_text("Implement the example behavior.\n")
+            for folder, files in {"solution": {"solve.sh": "exit 0\n", "oracle.patch": "test patch\n"},
+                                  "tests": {"test.sh": "exit 0\n"}}.items():
+                (task / folder).mkdir()
+                for name, content in files.items():
+                    (task / folder / name).write_text(content)
             config = (
-                'artifacts = ["/workspace/repo"]\n'
+                'schema_version = "1.4"\nartifacts = ["/workspace/repo"]\n'
+                '[task]\nname = "ai-infra-bench/example-task"\nversion = "1.0.0"\n'
+                'description = "Implement the example behavior."\nkeywords = ["vllm", "example"]\n'
+                '[metadata]\ndomain = "inference"\ntask_type = "bugfix"\n'
+                f'base_commit = "{base}"\ndependency_cutoff = "{cutoff}"\n'
                 f'[environment]\ngpus = {gpus}\nworkdir = "/workspace/repo"\n'
                 'cpus = 8\nmemory_mb = 16384\nstorage_mb = 51200\n'
             )
-            if gpus and docker_image:
-                config += 'docker_image = "sha256:local-canonical-image"\ngpu_types = ["A100"]\n'
-            elif gpus:
+            if gpus:
                 config += 'gpu_types = ["A100"]\n'
+            config += (
+                'network_mode = "no-network"\nbuild_timeout_sec = 10800\n'
+                '[agent]\nuser = "root"\ntimeout_sec = 36000\n'
+                '[verifier]\ntimeout_sec = 7200\n'
+            )
+            config = updated_config(config)
             (task / "task.toml").write_text(config)
 
             # Both PR and manual discovery must expose the GPU count used by
@@ -137,7 +160,7 @@ class ValidationImageTests(unittest.TestCase):
                 result = subprocess.run([
                     sys.executable, "-c",
                     "from pathlib import Path; import json, task_ci; "
-                    f"print(json.dumps(task_ci.matrix_entry(Path('tasks/example'), '{mode}')))",
+                    f"print(json.dumps(task_ci.matrix_entry(Path('tasks/example-task'), '{mode}')))",
                 ], cwd=root, env=dict(os.environ, PYTHONPATH=str(scripts)),
                     check=True, capture_output=True, text=True)
                 self.assertEqual(json.loads(result.stdout)["gpus"], gpus)
@@ -158,7 +181,7 @@ class ValidationImageTests(unittest.TestCase):
                 "PATH": f"{bin_dir}:{os.environ['PATH']}",
                 "http_proxy": "http://127.0.0.1:7892",
                 "https_proxy": "http://127.0.0.1:7892",
-                "TASK_NAME": "example", "TARGET_PLATFORM": "linux/amd64",
+                "TASK_NAME": "example-task", "TARGET_PLATFORM": "linux/amd64",
                 "PUBLISH_IMAGE": str(publish).lower(),
                 "HARBOR_JOBS_DIR": str(root / "jobs"), "RUNNER_TEMP": str(root),
                 "AI_INFRA_GPU_POOL_CONFIG": str(root / "pool.json"),
@@ -180,7 +203,7 @@ class ValidationImageTests(unittest.TestCase):
                 cwd=root, env=env, capture_output=True, text=True, timeout=20,
             )
             commands = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()]
-            summary = root / "jobs/example/ci-summary.json"
+            summary = root / "jobs/example-task/ci-summary.json"
             if harbor_fail or expect_failure:
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(summary.exists())
@@ -213,7 +236,7 @@ class ValidationImageTests(unittest.TestCase):
         for gpus, cache_hit, publish in itertools.product((1, 2, 4), (False, True), (False, True)):
             with self.subTest(gpus=gpus, cache_hit=cache_hit, publish=publish):
                 summary, commands = self.run_validation(gpus=gpus, cache_hit=cache_hit, publish=publish)
-                expected_image = f"ai-infra-bench-task-envs:example-{summary['environment_key']}"
+                expected_image = f"ai-infra-bench-task-envs:example-task-{summary['environment_key']}"
                 self.assertEqual(summary["image"], expected_image)
                 self.assertFalse(summary["published"])
                 self.assertEqual(summary["registry_digest"], "")
@@ -229,7 +252,7 @@ class ValidationImageTests(unittest.TestCase):
         for cache_hit, publish in itertools.product((False, True), repeat=2):
             with self.subTest(cache_hit=cache_hit, publish=publish):
                 summary, commands = self.run_validation(gpus=0, cache_hit=cache_hit, publish=publish)
-                image = f"{REGISTRY}:example-{summary['environment_key']}"
+                image = f"{REGISTRY}:example-task-{summary['environment_key']}"
                 self.assertEqual(summary["image"], image)
                 self.assertIn(["docker", "pull", image], commands)
                 should_publish = publish and not cache_hit
@@ -245,11 +268,11 @@ class ValidationImageTests(unittest.TestCase):
                 _, commands = self.run_validation(gpus=gpus, cache_hit=False, publish=True, harbor_fail=True)
                 self.assertFalse(any(cmd[:2] == ["docker", "push"] for cmd in commands))
 
-    def test_gpu_without_canonical_image_builds_locally(self):
+    def test_gpu_cache_miss_builds_locally(self):
         summary, commands = self.run_validation(
-            gpus=2, cache_hit=False, publish=False, docker_image=False,
+            gpus=2, cache_hit=False, publish=False,
         )
-        self.assertTrue(summary["image"].startswith("ai-infra-bench-task-envs:example-"))
+        self.assertTrue(summary["image"].startswith("ai-infra-bench-task-envs:example-task-"))
         self.assertEqual(len([cmd for cmd in commands if cmd[:3] == ["docker", "buildx", "build"]]), 1)
         self.assertFalse(any(cmd[:2] == ["docker", "pull"] for cmd in commands))
 

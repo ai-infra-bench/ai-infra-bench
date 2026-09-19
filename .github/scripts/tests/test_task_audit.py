@@ -1,7 +1,6 @@
 """Benchmark policy and control-patch baselines in the maintainer audit."""
 
 from contextlib import redirect_stdout
-import copy
 import importlib.util
 import io
 import json
@@ -9,7 +8,8 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-import tomllib
+import sys
+import re
 import unittest
 from unittest.mock import patch
 
@@ -23,40 +23,126 @@ spec.loader.exec_module(auditor)
 
 
 class TaskAuditTests(unittest.TestCase):
-    def test_benchmark_policy_accepts_current_corpus_and_rejects_configuration_drift(self):
-        for path in (ROOT / "tasks").glob("*/task.toml"):
-            with self.subTest(task=path.parent.name), redirect_stdout(io.StringIO()):
-                audit = auditor.Audit()
-                auditor.check_benchmark_config(tomllib.loads(path.read_text()), audit)
-                self.assertEqual(audit.errors, 0)
+    def test_cli_skill_and_ci_share_static_contract_checks(self):
+        sys.path.insert(0, str(ROOT / ".github/scripts"))
+        import task_ci
+        from normalize_task_configs import normalize_config
 
-        original = tomllib.loads((ROOT / "tasks/vllm-asr-chunk-spacing/task.toml").read_text())
-        for section, key, value in (
-            ("agent", "timeout_sec", 600),
-            ("agent", "timeout_sec", 72000),
-            ("verifier", "timeout_sec", 600),
-            ("verifier", "environment_mode", "separate"),
-            ("environment", "cpus", 4),
-            ("environment", "memory_mb", 8192),
-            ("environment", "storage_mb", 10240),
-            ("environment", "build_timeout_sec", 600),
-            ("environment", "network_mode", "public"),
-            ("environment", "docker_image", "example:old"),
-            ("task", "keywords", ["vllm", "gpu-worker"]),
-            ("task", "authors", ["Example"]),
-        ):
-            config = copy.deepcopy(original)
-            config[section][key] = value
-            with self.subTest(section=section, key=key, value=value), redirect_stdout(io.StringIO()):
-                audit = auditor.Audit()
-                auditor.check_benchmark_config(config, audit)
-                self.assertGreater(audit.errors, 0)
-        config = copy.deepcopy(original)
-        config["verifier"]["collect"][0]["command"] = "true"
-        with redirect_stdout(io.StringIO()):
-            audit = auditor.Audit()
-            auditor.check_benchmark_config(config, audit)
-        self.assertGreater(audit.errors, 0)
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            task = repo / "tasks/vllm-asr-chunk-spacing"
+            source = ROOT / "tasks" / task.name
+
+            def reset():
+                shutil.rmtree(task, ignore_errors=True)
+                shutil.copytree(source, task, ignore=shutil.ignore_patterns("__pycache__"))
+
+            def check(expected):
+                try:
+                    task_ci.validate_task(task)  # The CI corpus check uses this entry.
+                    direct = True
+                except task_ci.ContractError:
+                    direct = False
+                cli = subprocess.run(
+                    [sys.executable, str(ROOT / ".github/scripts/task_ci.py"), "validate", str(task)],
+                    capture_output=True, text=True,
+                )
+                skill = subprocess.run(
+                    [sys.executable, str(ROOT / ".agents/skills/ai-infra-bench-task-review/scripts/audit_task_artifacts.py"), str(task)],
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(
+                    (direct, cli.returncode == 0, skill.returncode == 0),
+                    (expected, expected, expected), cli.stderr + skill.stdout + skill.stderr,
+                )
+
+            def field(section, key, value):
+                path = task / "task.toml"
+                text = path.read_text()
+                header = "[[verifier.collect]]" if section == "verifier.collect" else f"[{section}]"
+                start = text.index(header + "\n") + len(header) + 1 if section else 0
+                following = re.search(r"(?m)^\[\[?[A-Za-z0-9_.-]+\]\]?\s*$", text[start:])
+                end = start + following.start() if following else len(text)
+                block = text[start:end]
+                existing = re.search(r"(?m)^" + re.escape(key) + r"[ \t]*=.*\n?", block)
+                line = "" if value is None else f"{key} = {json.dumps(value)}\n"
+                if existing:
+                    block = block[:existing.start()] + line + block[existing.end():]
+                else:
+                    block = block.rstrip() + "\n" + line + "\n"
+                path.write_text(normalize_config(text[:start] + block + text[end:]))
+
+            reset()
+            check(True)
+            for section, key, value in (
+                ("", "schema_version", "0.0"), ("", "schema_version", None),
+                ("", "publication_state", "published"),
+                ("", "artifacts", []),
+                ("task", "name", "wrong/task"), ("task", "name", None),
+                ("task", "description", ""), ("task", "description", 42),
+                ("task", "description", "<observable failure>"),
+                ("task", "descripton", "typo"), ("task", "version", "2.0.0"),
+                ("task", "authors", ["Example"]),
+                ("task", "keywords", ["vllm", " "]),
+                ("task", "keywords", ["vllm", 42]),
+                ("task", "keywords", ["vllm", "vllm"]),
+                ("task", "keywords", ["vllm", "gpu worker"]),
+                ("task", "keywords", ["vllm", "GPU/worker"]),
+                ("task", "keywords", ["vllm", "<subsystem>"]),
+                ("metadata", "domain", "other"), ("metadata", "domain", None),
+                ("metadata", "task_type", "other"), ("metadata", "source_ids", ["old"]),
+                ("metadata", "base_commit", "invalid"),
+                ("metadata", "dependency_cutoff", "not-a-date"),
+                ("metadata", "dependency_cutoff", "2026-02-30T00:00:00Z"),
+                ("metadata", "dependency_cutoff", "2000-01-01T00:00:00Z"),
+                ("environment", "cpus", 4), ("environment", "memory_mb", 8192),
+                ("environment", "storage_mb", 10240), ("environment", "build_timeout_sec", 600),
+                ("environment", "memory_mib", 1), ("environment", "network_mode", "public"),
+                ("environment", "docker_image", "example:old"), ("environment", "gpus", None),
+                ("agent", "timeout_sec", 600), ("agent", "timout_sec", 600),
+                ("verifier", "timeout_sec", 600), ("verifier", "timout_sec", 600),
+                ("verifier", "environment_mode", "shared"),
+                ("verifier.collect", "timeout_sec", 30), ("verifier.collect", "user", "other"),
+            ):
+                with self.subTest(section=section, key=key, value=value):
+                    reset()
+                    field(section, key, value)
+                    check(False)
+            for missing in ("task.toml", "instruction.md", "tests/test.sh", "solution/solve.sh"):
+                with self.subTest(missing=missing):
+                    reset()
+                    (task / missing).unlink()
+                    check(False)
+            for placeholder in ("", " \n", "<task instructions>", "TODO", "TBD"):
+                with self.subTest(instruction=placeholder):
+                    reset()
+                    (task / "instruction.md").write_text(placeholder)
+                    check(False)
+            for empty in ("", "# No configuration yet\n"):
+                with self.subTest(config=empty):
+                    reset()
+                    (task / "task.toml").write_text(empty)
+                    check(False)
+            reset()
+            path = task / "task.toml"
+            path.write_text(path.read_text() + "\n[accidental]\nsetting = true\n")
+            check(False)
+            reset()
+            path = task / "task.toml"
+            path.write_text(path.read_text().replace("set -eu\n", "set -e\n", 1))
+            check(False)
+            reset()
+            path = task / "task.toml"
+            text = path.read_text()
+            first = re.search(r"(?m)^name = .*\n", text)[0]
+            second = re.search(r"(?m)^version = .*\n", text)[0]
+            path.write_text(text.replace(first + second, second + first, 1))
+            check(False)
+            reset()
+            field("task", "description", "Preserve <parameter> values in XML inputs.")
+            (task / "instruction.md").write_text('Preserve this XML: <parameter name="topic">hello</parameter>.\n')
+            check(True)
 
     def test_image_audit_checks_controls_on_their_declared_base(self):
         with tempfile.TemporaryDirectory() as directory:
