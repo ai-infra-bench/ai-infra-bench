@@ -1,0 +1,297 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 98ed682fe..029932eb0 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -297,7 +297,8 @@ if(VLLM_GPU_LANG STREQUAL "CUDA")
+     "csrc/sparse/cutlass/sparse_scaled_mm_entry.cu"
+     "csrc/cutlass_extensions/common.cpp"
+     "csrc/attention/mla/cutlass_mla_entry.cu"
+-    "csrc/quantization/fp8/per_token_group_quant.cu")
++    "csrc/quantization/fp8/per_token_group_quant.cu"
++    "csrc/quantization/compressed_tensors/per_token_group_quant_int8.cu")
+ 
+   set_gencode_flags_for_srcs(
+     SRCS "${VLLM_EXT_SRC}"
+diff --git a/csrc/ops.h b/csrc/ops.h
+index 97a247d9d..7a9e5ac52 100644
+--- a/csrc/ops.h
++++ b/csrc/ops.h
+@@ -288,6 +288,10 @@ void scaled_fp4_experts_quant(
+     torch::Tensor const& input_offset_by_experts,
+     torch::Tensor const& output_scale_offset_by_experts);
+ 
++std::tuple<torch::Tensor, torch::Tensor> per_token_group_quant_int8(
++    const torch::Tensor& input, int64_t group_size, double eps,
++    int64_t int8_min, int64_t int8_max);
++
+ void per_token_group_quant_fp8(const torch::Tensor& input,
+                                torch::Tensor& output_q, torch::Tensor& output_s,
+                                int64_t group_size, double eps, double fp8_min,
+diff --git a/csrc/torch_bindings.cpp b/csrc/torch_bindings.cpp
+index 95f8541bc..e8f5283d9 100644
+--- a/csrc/torch_bindings.cpp
++++ b/csrc/torch_bindings.cpp
+@@ -615,6 +615,12 @@ TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops) {
+   ops.impl("selective_scan_fwd", torch::kCUDA, &selective_scan_fwd);
+ 
+ #ifndef USE_ROCM
++  ops.def("per_token_group_quant_int8(Tensor input, int group_size, "
++          "float eps=1e-10, int int8_min=-128, int int8_max=127) "
++          "-> (Tensor, Tensor)");
++  ops.impl("per_token_group_quant_int8", torch::kCUDA,
++           &per_token_group_quant_int8);
++
+   // Compute per-token-group FP8 quantized tensor and scaling factor.
+   ops.def(
+       "per_token_group_fp8_quant(Tensor input, Tensor! output_q, Tensor! "
+diff --git a/vllm/_custom_ops.py b/vllm/_custom_ops.py
+index cf296a3b5..a8e17e43c 100644
+--- a/vllm/_custom_ops.py
++++ b/vllm/_custom_ops.py
+@@ -1351,6 +1351,28 @@ def allspark_w8a16_gemm(a: torch.Tensor, b_qweight: torch.Tensor,
+                                             has_zp, n32k16_reorder)
+ 
+ 
++def per_token_group_quant_int8(
++    input: torch.Tensor,
++    group_size: int,
++    eps: float = 1e-10,
++    int8_min: int = -128,
++    int8_max: int = 127,
++) -> tuple[torch.Tensor, torch.Tensor]:
++    return torch.ops._C.per_token_group_quant_int8(input, group_size, eps,
++                                                 int8_min, int8_max)
++
++
++if hasattr(torch.ops._C, "per_token_group_quant_int8"):
++
++    @register_fake("_C::per_token_group_quant_int8")
++    def _per_token_group_quant_int8_fake(input, group_size, eps=1e-10,
++                                        int8_min=-128, int8_max=127):
++        return (torch.empty_like(input, dtype=torch.int8),
++                input.new_empty((*input.shape[:-1],
++                                 input.shape[-1] // group_size),
++                                dtype=torch.float32))
++
++
+ # int8
+ def scaled_int8_quant(
+     input: torch.Tensor,
+diff --git a/vllm/model_executor/layers/quantization/utils/int8_utils.py b/vllm/model_executor/layers/quantization/utils/int8_utils.py
+index 1fdf7d174..78a3700fc 100644
+--- a/vllm/model_executor/layers/quantization/utils/int8_utils.py
++++ b/vllm/model_executor/layers/quantization/utils/int8_utils.py
+@@ -5,6 +5,7 @@
+ import functools
+ import json
+ import logging
++import math
+ import os
+ from typing import Any, Optional
+ 
+@@ -212,30 +213,46 @@ def per_token_group_quant_int8(
+     group_size: int,
+     eps: float = 1e-10,
+     dtype: torch.dtype = torch.int8,
++    *,
++    int8_min: int = -128,
++    int8_max: int = 127,
+ ) -> tuple[torch.Tensor, torch.Tensor]:
+-    """Function to perform per-token-group quantization on an input tensor `x`.
++    """Quantize contiguous FP16/BF16/FP32 groups to INT8 with FP32 scales.
+ 
+-    It converts the tensor values into signed int8 values and returns the
+-    quantized tensor along with the scaling factor used for quantization.
++    The last dimension must be divisible by ``group_size``. Each group's
++    scale is ``max(absmax, eps) / int8_max``; values are divided by that
++    scale, clamped to the INT8 bounds and truncated toward zero. Scales
++    have shape ``(*x.shape[:-1], x.shape[-1] // group_size)``.
+ 
+-    Args:
+-        x: The input tensor with ndim >= 2.
+-        group_size: The group size used for quantization.
+-        eps: The minimum to avoid dividing zero.
+-        dtype: The dype of output tensor. Note that only `torch.int8`
+-            is supported for now.
+-
+-    Returns:
+-        tuple[torch.Tensor, torch.Tensor]: The quantized tensor and the
+-            scaling factor for quantization.
++    CUDA uses the native operator when available, otherwise uses Triton.
+     """
+-    assert (x.shape[-1] % group_size == 0
+-            ), "the last dimension of `x` cannot be divisible by `group_size`"
++    assert x.ndim >= 2, "`x` must have at least two dimensions"
++    assert group_size > 0 and x.shape[-1] % group_size == 0
++    assert x.is_contiguous(), "`x` is not contiguous"
++    assert dtype == torch.int8, "only INT8 output is supported"
++    assert x.dtype in (torch.float16, torch.bfloat16, torch.float32)
++    assert -128 <= int8_min < int8_max <= 127 and int8_max > 0
++    assert math.isfinite(eps) and 0 < eps <= torch.finfo(torch.float32).max
++    if current_platform.is_cuda() and x.is_cuda:
++        from vllm import _custom_ops as ops
++        if hasattr(torch.ops._C, "per_token_group_quant_int8"):
++            return ops.per_token_group_quant_int8(x, group_size, eps, int8_min,
++                                                 int8_max)
++    return _per_token_group_quant_int8_triton(x, group_size, eps, dtype,
++                                            int8_min, int8_max)
++
++
++def _per_token_group_quant_int8_triton(
++    x: torch.Tensor,
++    group_size: int,
++    eps: float = 1e-10,
++    dtype: torch.dtype = torch.int8,
++    int8_min: int = -128,
++    int8_max: int = 127,
++) -> tuple[torch.Tensor, torch.Tensor]:
++    """Triton fallback and reference for per-token-group INT8 quantization."""
++    assert group_size > 0 and x.shape[-1] % group_size == 0
+     assert x.is_contiguous(), "`x` is not contiguous"
+-
+-    iinfo = torch.iinfo(dtype)
+-    int8_max = iinfo.max
+-    int8_min = iinfo.min
+ 
+     x_q = torch.empty_like(x, device=x.device, dtype=dtype)
+     M = x.numel() // group_size
+@@ -246,6 +263,9 @@ def per_token_group_quant_int8(
+         dtype=torch.float32,
+     )
+ 
++    if M == 0:
++        return x_q, x_s
++
+     BLOCK = triton.next_power_of_2(N)
+     # heuristics for number of warps
+     num_warps = min(max(BLOCK // 256, 1), 8)
+diff --git a/csrc/quantization/compressed_tensors/per_token_group_quant_int8.cu b/csrc/quantization/compressed_tensors/per_token_group_quant_int8.cu
+new file mode 100644
+--- /dev/null
++++ b/csrc/quantization/compressed_tensors/per_token_group_quant_int8.cu
+@@ -0,0 +1,125 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++#include <torch/all.h>
++#include <ATen/cuda/CUDAContext.h>
++#include <c10/cuda/CUDAGuard.h>
++#include <c10/cuda/CUDAException.h>
++#include <cmath>
++#include <limits>
++
++namespace {
++template <typename T, int N>
++struct alignas(sizeof(T) * N) Pack {
++  T values[N];
++};
++
++// Each subgroup owns a group; vector loads and register reuse avoid shared
++// memory and give a block many groups to amortize scheduling overhead.
++template <typename T, int Group>
++__global__ void quant_group(const T* __restrict__ x, int8_t* __restrict__ q,
++                            float* __restrict__ scales, int64_t groups,
++                            float eps, float lower, float upper) {
++  constexpr int Vec = 8;
++  constexpr int Width = Group / Vec;
++  const int lane = threadIdx.x % Width;
++  const int64_t group = (int64_t(blockIdx.x) * blockDim.x + threadIdx.x) / Width;
++  if (group >= groups) return;
++  const int64_t offset = group * Group + lane * Vec;
++  Pack<T, Vec> input = *reinterpret_cast<const Pack<T, Vec>*>(x + offset);
++  float values[Vec];
++  float amax = eps;
++#pragma unroll
++  for (int i = 0; i < Vec; ++i) {
++    values[i] = static_cast<float>(input.values[i]);
++    amax = fmaxf(amax, fabsf(values[i]));
++  }
++  const unsigned mask = __activemask();
++#pragma unroll
++  for (int delta = Width / 2; delta; delta /= 2)
++    amax = fmaxf(amax, __shfl_xor_sync(mask, amax, delta, Width));
++  // Explicit IEEE division preserves tiny and very large FP32 scales even
++  // when the rest of the extension is compiled with --use_fast_math.
++  const float scale = __fdiv_rn(amax, upper);
++  if (lane == 0) scales[group] = scale;
++  Pack<int8_t, Vec> output;
++#pragma unroll
++  for (int i = 0; i < Vec; ++i) {
++    const float value = __fdiv_rn(values[i], scale);
++    output.values[i] = static_cast<int8_t>(fminf(upper, fmaxf(lower, value)));
++  }
++  *reinterpret_cast<Pack<int8_t, Vec>*>(q + offset) = output;
++}
++
++// Arbitrary positive group sizes, including sizes smaller than one warp.
++template <typename T>
++__global__ void quant_group_generic(const T* __restrict__ x,
++                                    int8_t* __restrict__ q,
++                                    float* __restrict__ scales, int64_t groups,
++                                    int64_t size, float eps, float lower,
++                                    float upper) {
++  const int lane = threadIdx.x % 32;
++  const int64_t group = (int64_t(blockIdx.x) * blockDim.x + threadIdx.x) / 32;
++  if (group >= groups) return;
++  float amax = eps;
++  for (int64_t i = lane; i < size; i += 32)
++    amax = fmaxf(amax, fabsf(static_cast<float>(x[group * size + i])));
++  for (int delta = 16; delta; delta /= 2)
++    amax = fmaxf(amax, __shfl_xor_sync(0xffffffff, amax, delta));
++  const float scale = __fdiv_rn(amax, upper);
++  if (lane == 0) scales[group] = scale;
++  for (int64_t i = lane; i < size; i += 32) {
++    const float value = __fdiv_rn(static_cast<float>(x[group * size + i]), scale);
++    q[group * size + i] = static_cast<int8_t>(fminf(upper, fmaxf(lower, value)));
++  }
++}
++}  // namespace
++
++std::tuple<torch::Tensor, torch::Tensor> per_token_group_quant_int8(
++    const torch::Tensor& input, int64_t group_size, double eps,
++    int64_t int8_min, int64_t int8_max) {
++  TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
++  TORCH_CHECK(input.dim() >= 2, "input must have at least two dimensions");
++  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
++  TORCH_CHECK(group_size > 0 && input.size(-1) % group_size == 0,
++              "group_size must be positive and divide the last dimension");
++  TORCH_CHECK(input.scalar_type() == at::kHalf ||
++                  input.scalar_type() == at::kBFloat16 ||
++                  input.scalar_type() == at::kFloat,
++              "input must be FP16, BF16 or FP32");
++  TORCH_CHECK(std::isfinite(eps) && eps > 0 &&
++                  eps <= std::numeric_limits<float>::max() && float(eps) > 0,
++              "eps must be positive and representable in FP32");
++  TORCH_CHECK(int8_min >= -128 && int8_min < int8_max && int8_max > 0 &&
++                  int8_max <= 127,
++              "INT8 bounds must satisfy -128 <= min < max <= 127 and max > 0");
++  const c10::cuda::CUDAGuard guard(input.device());
++  auto output = torch::empty_like(input, input.options().dtype(at::kChar));
++  auto shape = input.sizes().vec();
++  shape.back() /= group_size;
++  auto scales = torch::empty(shape, input.options().dtype(at::kFloat));
++  const int64_t groups = input.numel() / group_size;
++  if (groups == 0) return {output, scales};
++  const auto stream = at::cuda::getCurrentCUDAStream(input.get_device());
++  AT_DISPATCH_FLOATING_TYPES_AND2(at::kHalf, at::kBFloat16, input.scalar_type(),
++                                "per_token_group_quant_int8", [&] {
++    const auto* x = input.data_ptr<scalar_t>();
++    auto* q = output.data_ptr<int8_t>();
++    auto* s = scales.data_ptr<float>();
++    // Contiguous views may still have an unaligned storage offset.
++    const bool aligned =
++        reinterpret_cast<uintptr_t>(x) % (8 * sizeof(scalar_t)) == 0;
++    if (group_size == 64 && aligned) {
++      quant_group<scalar_t, 64><<<(groups + 31) / 32, 256, 0, stream>>>(
++          x, q, s, groups, eps, int8_min, int8_max);
++    } else if (group_size == 128 && aligned) {
++      quant_group<scalar_t, 128><<<(groups + 15) / 16, 256, 0, stream>>>(
++          x, q, s, groups, eps, int8_min, int8_max);
++    } else {
++      quant_group_generic<scalar_t><<<(groups + 7) / 8, 256, 0, stream>>>(
++          x, q, s, groups, group_size, eps, int8_min, int8_max);
++    }
++  });
++  C10_CUDA_KERNEL_LAUNCH_CHECK();
++  return {output, scales};
++}

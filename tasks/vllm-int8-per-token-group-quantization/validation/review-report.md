@@ -1,0 +1,13 @@
+> Update: the subsequent [full visible-trajectory and saved-repository review](rollout-codex-r01-full-review.md) is complete. Fresh rebuild rewards are **1 / 0 / 0 / 1**, with **23/23** supplemental checks per candidate. The scope limitations below describe the earlier diagnostic stage.
+
+# Task 1.2.9: native interface correction after Codex testing
+
+Four concurrent A100 runs using Codex 0.153.4 and `gpt-6-astra` at `medium` are complete. The original task 1.2.8 scores were **0/4** because its verifier imposed an undocumented seven-argument native ABI. Regrading the same verifier-built candidate libraries with the corrected scorer gives **2/4**: GPUs 0 and 3 pass, while GPUs 1 and 2 reject legal positive INT8 lower bounds.
+
+Task 1.2.9 accepts both output-parameter and functional-return conventions of the required `_C::per_token_group_quant_int8` operator. Correctness and isolated performance share the same public-schema adapter, resolved outside measured calls. No numerical case, performance threshold, pinned reference, image or Oracle was weakened or changed. The statement remains unchanged. A functional implementation is retained as an expected-pass regression control.
+
+Validation includes the complete corrected scorer on all four original rebuilt libraries, an actual Oracle Harbor pass (minimum speedup 2.336×), a second actual Harbor pass for the functional positive control, and independent 18-case offset checks passing on each of the four candidates. Native hashes and frozen test inputs are recorded. Original model rewards remain unchanged; diagnostic regrades are identified separately from clean Harbor replays.
+
+The confirmed prior false positive in Flash R01 remains fixed. This new round exposed a different issue: false negatives caused by an Oracle-specific call convention. GPU0/GPU3 pass the corrected five performance cases with minimum speedups 3.000× and 2.776×; the other two fail correctness before performance is measured.
+
+See [Codex run and diagnosis report](rollout-codex-r01.md), [machine-readable evidence](e2e-evidence.json), and [archive manifest](evidence/codex-r01/manifest.json). This update records a focused score diagnosis and production-code inspection, not a completed full-trajectory/generated-artifact audit of the new Codex round. Historical Flash reviews and the 20-control matrix are preserved in the [1.2.8 review](review-report-128.md), [R01](rollout-review-r01.md), and [R02](rollout-review-r02.md); their validation scope is not silently extended to 1.2.9.

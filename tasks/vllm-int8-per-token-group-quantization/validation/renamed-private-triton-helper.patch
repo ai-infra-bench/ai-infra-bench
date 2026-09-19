@@ -1,0 +1,20 @@
+--- a/vllm/model_executor/layers/quantization/utils/int8_utils.py
++++ b/vllm/model_executor/layers/quantization/utils/int8_utils.py
+@@ -166,7 +166,7 @@
+ 
+ 
+ @triton.jit
+-def _per_token_group_quant_int8(
++def _renamed_groupwise_triton_kernel(
+     # Pointers to inputs and output
+     y_ptr,
+     y_q_ptr,
+@@ -257,7 +257,7 @@
+     # heuristics for number of warps
+     num_warps = min(max(BLOCK // 256, 1), 8)
+     num_stages = 1
+-    _per_token_group_quant_int8[(M, )](
++    _renamed_groupwise_triton_kernel[(M, )](
+         x,
+         x_q,
+         x_s,

@@ -1,0 +1,35 @@
+# Harbor's unchanged allowlist gate, chained through A100 set_proxy.
+services:
+  - name: transparent-egress
+    addr: ":12345"
+    bypass: allowlist
+    metadata:
+      so_mark: 114514
+    handler:
+      type: red
+      chain: a100-set-proxy
+      metadata:
+        sniffing: true
+        sniffing.timeout: 5s
+        sniffing.fallback: true
+    listener:
+      type: red
+bypasses:
+  - name: allowlist
+    whitelist: true
+    reload: 1s
+    file:
+      path: /opt/egress-sidecar/allowlist.txt
+chains:
+  - name: a100-set-proxy
+    hops:
+      - name: a100
+        sockopts:
+          mark: 114514
+        nodes:
+          - name: set-proxy
+            addr: host.docker.internal:7890
+            connector:
+              type: http
+            dialer:
+              type: tcp
