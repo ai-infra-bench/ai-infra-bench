@@ -1,10 +1,14 @@
 diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
 --- a/vllm/v1/worker/gpu_model_runner.py
 +++ b/vllm/v1/worker/gpu_model_runner.py
-@@ -2259,6 +2259,10 @@
+@@ -2258,7 +2258,13 @@
+         # Used by mamba backends to distinguish actual decodes from
          # short extends.
          is_prefilling = num_computed_tokens_cpu < num_prompt_tokens_cpu
-
+-
++        # Padding rows contain no prompt work, even if their old counters remain.
++        is_prefilling[num_reqs:] = False
++
 +        is_prefilling = is_prefilling & ~(
 +            (torch.diff(self.query_start_loc.cpu[: num_reqs_padded + 1]) == 1)
 +            & (seq_lens_cpu_upper_bound > 1)
@@ -12,24 +16,39 @@ diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runne
          if self.use_async_spec_decode:
              # GPU tensors are authoritative in async mode.
              seq_lens_cpu = None
-@@ -3761,8 +3765,19 @@
+@@ -2332,7 +2338,12 @@
+             )
+
+             extra_attn_metadata_args = {}
+-            if use_spec_decode and isinstance(
++            # A Mamba2 request can accept drafts and then schedule none. Its
++            # accepted-state offset remains required across that transition.
++            mamba_spec_state = self.num_spec_tokens > 0 and isinstance(
++                builder, Mamba2AttentionMetadataBuilder
++            )
++            if (use_spec_decode or mamba_spec_state) and isinstance(
+                 builder, (Mamba2AttentionMetadataBuilder, GDNAttentionMetadataBuilder)
+             ):
+                 assert ubid is None, "UBatching not supported with GDN yet"
+@@ -3761,8 +3772,20 @@
                  invalid_modes={CUDAGraphMode.FULL} if disable_full else None,
              )
 
-+        # A fresh Mamba prompt needs the prefill path to initialize its state.
-+        # A one-token prompt can otherwise look like a uniform decode batch,
-+        # including when it shares a batch with a prior-state short extend.
-+        has_fresh_mamba_prompt = (
-+            force_uniform_decode is None
-+            and self.model_config.has_inner_state
-+            and bool(
-+                (self.input_batch.num_computed_tokens_cpu_tensor[:num_reqs] == 0).any()
++        # Stateful single-token extends can use the decode/update path.
++        # Fresh prompts and multi-token prompt chunks need prefill kernels,
++        # even when their token counts happen to match a captured decode shape.
++        has_unsafe_mamba_prefill = False
++        if force_uniform_decode is None and self.model_config.has_inner_state:
++            computed = self.input_batch.num_computed_tokens_cpu[:num_reqs]
++            prompt_lengths = self.input_batch.num_prompt_tokens[:num_reqs]
++            has_unsafe_mamba_prefill = bool(
++                ((computed < prompt_lengths)
++                 & ((computed == 0) | (num_scheduled_tokens_np != 1))).any()
 +            )
-+        )
          cudagraph_mode, batch_descriptor = dispatch_cudagraph(
 -            num_tokens_padded, disable_full=use_cascade_attn or has_encoder_output
 +            num_tokens_padded,
-+            disable_full=(use_cascade_attn or has_encoder_output or has_fresh_mamba_prompt),
++            disable_full=(use_cascade_attn or has_encoder_output or has_unsafe_mamba_prefill),
          )
          num_tokens_padded = batch_descriptor.num_tokens
          if self.compilation_config.pass_config.enable_sp:

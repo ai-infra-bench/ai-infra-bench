@@ -1,16 +1,16 @@
 {
-  "status": "recorded-r2-matrix-passed-https-apt-checked-ci-rebuild-pending",
-  "recorded_at": "2026-09-18T19:16:01.604440+00:00",
+  "status": "validated-local",
+  "recorded_at": "2026-09-19T05:15:19.705369+00:00",
   "source_pr": {
     "url": "https://github.com/ai-infra-bench/ai-infra-bench/pull/64",
     "reviewed_head": "dd91f8bebc19752307707bd8c388cca3df11522d"
   },
-  "task_version": "1.2.0",
+  "task_version": "1.3.0",
   "base_commit": "737bfa3a43ce386bd1894792f3302d9f3f9d73fa",
   "base_tree": "f1ee5dc01c843ebb52d20e1714a93f96ec07cb96",
   "dependency_cutoff": "2026-05-18T11:54:00Z",
-  "image_id": "sha256:6f1c2df7f633dc7dce80cb8e858726fa29fe28b51162ebd2a4b3b7ff33cd550c",
-  "image_tag": "ai-infra-bench/vllm-mamba-full-cg-decoding:base-737bfa3a43ce-r2",
+  "image_id": "sha256:a3f919b1b68a25af5b1947dd8e089d90b3503992f14c50ae98351bf885bfcfa4",
+  "image_tag": "ai-infra-bench/vllm-mamba-full-cg-decoding:base-737bfa3a43ce-r3",
   "image_publication": "local only; not published by this work",
   "skill_provenance": {
     "workspace_head": "d3b0557d8c22902f6c045cb86f1403de8cd52fd6",
@@ -35,18 +35,18 @@
     "torch": "2.11.0+cu130"
   },
   "semantic_boundary": "LLM.generate -> production scheduler/runner/backend -> Mamba recurrent state consumption/update and CUDA graph replay -> multi-step tokens and full distributions.",
-  "substitution": "Local chunked prefill creates prior-state still-prefilling continuations; NIXL transport, tokenizer and model downloads are omitted. Reference Base eager uses unsplit prefill to avoid the target graph-transition defect.",
-  "reward": "Independent root scorer compares all actual outputs against private immutable-Base eager results. Stdout and exit status alone cannot grant reward.",
+  "substitution": "Local chunked prefill creates prior-state continuations; NIXL transport, tokenizer and downloads are omitted. Immutable Base non-speculative eager serving supplies independent reference outputs. Supported hybrid Mamba2 exercises speculative state accounting; pure Mamba2 speculative accounting is not used as an authority.",
+  "reward": "Independent root scorer compares every token and logprob vector with private Base non-speculative eager results. A separate protected tracer supplies successful CUDA graph-call evidence; candidate stdout and profiler counts cannot grant reward.",
   "matrix": {
-    "trials": 21,
-    "matched_expected": 21,
+    "trials": 27,
+    "matched_expected": 27,
     "errored_trials": 0,
     "passing_trials": 6,
-    "failing_trials": 15,
+    "failing_trials": 21,
     "correct_alternatives": 4,
     "oracle_trials": 2,
     "records": "results/matrix-results.json",
-    "raw_bundle": "results/harbor-matrix-r4.zip"
+    "raw_bundle": "results/harbor-matrix-r6.zip"
   },
   "final_harbor_oracle": {
     "case": "oracle-repeat",
@@ -56,20 +56,20 @@
     ],
     "errors": 0,
     "completed": 1,
-    "seconds": 407.21,
+    "seconds": 482.83,
     "process_exit": 0,
-    "job_result": "/data/pr64-review-20260919/matrix-r4-jobs/oracle-repeat/result.json",
-    "gpu": "GPU-3815a178-ad22-4b81-5669-0533760a7e6b",
+    "job_result": "/data/pr64-review-20260919/matrix-r6-jobs/oracle-repeat/result.json",
+    "gpu": "GPU-a6a45da0-8978-3ea7-4fa0-1786ea9f3329",
     "passed": true,
-    "job_id": "390b4e2d-b03f-475b-ac1f-5a03d3cbedf3",
-    "trial_id": "d6f8db14-23ea-433a-a99b-29ac8339d148",
-    "trial_name": "oracle-repeat__gX7kyKc",
-    "task_checksum_before_evidence_update": "ac0ee1f99050a83780927f307c623e232a84305d0dfd105158eddbb48c06db35",
-    "started_at": "2026-09-18T19:06:51.800129Z",
-    "finished_at": "2026-09-18T19:13:32.568642Z",
+    "job_id": "68b6b46c-a697-4828-ab6a-56bd61929968",
+    "trial_id": "f8ee3139-8ad4-4390-b465-327e4f1e2d39",
+    "trial_name": "oracle-repeat__re62n8d",
+    "task_checksum_before_evidence_update": "556341a8ef4c8cd620be150a742034fb197050301b4c20bdcc6616d8f992830b",
+    "started_at": "2026-09-19T05:06:43.142358Z",
+    "finished_at": "2026-09-19T05:14:38.594172Z",
     "verifier": {
-      "started_at": "2026-09-18T19:07:09.855910Z",
-      "finished_at": "2026-09-18T19:13:32.568619Z"
+      "started_at": "2026-09-19T05:07:02.846814Z",
+      "finished_at": "2026-09-19T05:14:38.593841Z"
     },
     "verifier_environment_mode": "separate",
     "artifact_transfer": [
@@ -93,46 +93,186 @@
       "cases": [
         {
           "case": "mamba1-full",
-          "vectors": 56,
+          "vectors": 120,
           "max_error": 9.5367431640625e-07,
-          "seconds": 78.04,
+          "seconds": 72.22,
           "exit_code": 0,
-          "graph_launches": 29,
-          "accepted_tokens": null
+          "graph_launches": 59,
+          "accepted_tokens": null,
+          "cached_tokens": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
         },
         {
           "case": "mamba1-eager",
-          "vectors": 56,
+          "vectors": 120,
           "max_error": 9.5367431640625e-07,
-          "seconds": 40.29,
+          "seconds": 20.2,
           "exit_code": 0,
           "graph_launches": 0,
-          "accepted_tokens": null
+          "accepted_tokens": null,
+          "cached_tokens": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
         },
         {
           "case": "mamba2-full",
           "vectors": 56,
-          "max_error": 0.004772186279296875,
-          "seconds": 186.35,
+          "max_error": 0.005106925964355469,
+          "seconds": 181.89,
           "exit_code": 0,
           "graph_launches": 29,
-          "accepted_tokens": null
+          "accepted_tokens": null,
+          "cached_tokens": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
         },
         {
-          "case": "mamba2-speculative",
+          "case": "mamba2-eager",
           "vectors": 56,
-          "max_error": 8.678436279296875e-05,
-          "seconds": 50.85,
+          "max_error": 4.57763671875e-05,
+          "seconds": 20.24,
           "exit_code": 0,
-          "graph_launches": 10,
-          "accepted_tokens": 36
+          "graph_launches": 0,
+          "accepted_tokens": null,
+          "cached_tokens": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "case": "hybrid-spec-none",
+          "vectors": 192,
+          "max_error": 1.9073486328125e-06,
+          "seconds": 72.0,
+          "exit_code": 0,
+          "graph_launches": 3,
+          "accepted_tokens": 7,
+          "cached_tokens": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "case": "hybrid-spec-eager",
+          "vectors": 192,
+          "max_error": 1.9073486328125e-06,
+          "seconds": 22.3,
+          "exit_code": 0,
+          "graph_launches": 0,
+          "accepted_tokens": 7,
+          "cached_tokens": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "case": "hybrid-spec-all",
+          "vectors": 96,
+          "max_error": 1.9073486328125e-06,
+          "seconds": 39.34,
+          "exit_code": 0,
+          "graph_launches": 3,
+          "accepted_tokens": 7,
+          "cached_tokens": [
+            0,
+            32,
+            32,
+            32
+          ]
         }
       ],
-      "reference": "frozen Base eager GPU serving in a root-only reference process"
+      "reference": "frozen Base non-speculative eager GPU serving in a root-only reference process"
     },
-    "patch_sha256": "6a586866a9b38028f13000036b40c6619b27d203014dcd2db4fb5af98a1c5cde"
+    "independent_observations": {
+      "mamba1-full-observation.json": {
+        "child_exit": 0,
+        "armed": 1,
+        "finished": 1,
+        "graph_launches": 59,
+        "failed_graph_launches": 0
+      },
+      "mamba1-eager-observation.json": {
+        "child_exit": 0,
+        "armed": 1,
+        "finished": 1,
+        "graph_launches": 0,
+        "failed_graph_launches": 0
+      },
+      "mamba2-full-observation.json": {
+        "child_exit": 0,
+        "armed": 1,
+        "finished": 1,
+        "graph_launches": 29,
+        "failed_graph_launches": 0
+      },
+      "mamba2-eager-observation.json": {
+        "child_exit": 0,
+        "armed": 1,
+        "finished": 1,
+        "graph_launches": 0,
+        "failed_graph_launches": 0
+      },
+      "hybrid-spec-none-observation.json": {
+        "child_exit": 0,
+        "armed": 1,
+        "finished": 1,
+        "graph_launches": 3,
+        "failed_graph_launches": 0
+      },
+      "hybrid-spec-eager-observation.json": {
+        "child_exit": 0,
+        "armed": 1,
+        "finished": 1,
+        "graph_launches": 0,
+        "failed_graph_launches": 0
+      },
+      "hybrid-spec-all-observation.json": {
+        "child_exit": 0,
+        "armed": 1,
+        "finished": 1,
+        "graph_launches": 3,
+        "failed_graph_launches": 0
+      }
+    },
+    "patch_sha256": "ca47f7ebc83f4d52a643844c2c094414c1d0376cef492ef0a667a02bfc178bdd"
   },
-  "checksum_note": "The recorded Harbor task checksums and 21-case matrix belong to the r2 image before the HTTPS-only build-source change. Scoring code, instruction, runtime configuration, Oracle and control patches remain identical to those trials. Current artifact hashes include the updated recipe and this targeted APT validation; a complete updated-image build is pending CI.",
+  "checksum_note": "Harbor task checksums precede final evidence writes. Scoring code, instruction, runtime configuration, Docker build inputs, Oracle and control patches are unchanged. Only validation records and image validation status were updated afterward. Executable hashes were matched to all 27 run snapshots.",
   "history": {
     "incoming_evidence": "archive/",
     "earlier_smoke": "diagnostic only; exposed reward JSON schema mismatch, then fixed",
@@ -148,93 +288,91 @@
       "errors": 0,
       "warnings": 0
     },
-    "image_and_19_patches": {
+    "image_and_25_patches": {
       "checks": 5,
       "errors": 0,
       "warnings": 0
     },
     "repository_validator": "passed",
     "git_diff_check": "passed",
-    "command": "python3 .agents/skills/ai-infra-bench-task-review/scripts/audit_task_artifacts.py tasks/vllm-mamba-full-cg-decoding --strict-evidence",
-    "log_path": "/data/pr64-review-20260919/audit-final-evidence.log",
-    "log_sha256": "1e74edb080635e1e98231a9b965565062432386bfc44cfadaf7f944680f6208a",
-    "image_audit_log": "results/harbor-matrix-r4.zip:provenance/audit-r4-image.log"
+    "log_sha256": "5d475df39795cbf3a4e6ea390bbad59580156c2b19d8f9f9a633f4d7d10eb601",
+    "log_path": "/data/pr64-review-20260919/audit-r6-final.log"
+  },
+  "diagnostic_exclusions": {
+    "pure_mamba2_speculation": "Base maintains accepted-state accounting for hybrid models; supported hybrid Mamba2 is used for speculative tests.",
+    "short_cache_suffix": "Two-token cached suffix differs even in Base non-speculative eager. The graded eight-token suffix passes the Base eager cache baseline.",
+    "initial_padding_probe": "An ID-namespace mismatch produced zero collected rows; corrected before grading.",
+    "matrix_r5": "Source mirror ownership prevented Oracle/control edits; all final r6 artifacts were applied and transferred."
   },
   "limitations": [
     "No actual NIXL network transfer or multi-GPU hybrid-model benchmark was run.",
     "Behavioral numerical checks do not prove resistance to arbitrary hostile rewrites of the Python runtime.",
     "No new model-agent difficulty calibration was run.",
-    "Candidate Mamba2 ordinary eager execution was not separately tested; the trusted eager reference does not establish candidate eager regression coverage.",
-    "Speculative coverage is Mamba2 with ngram proposals, not every supported speculative configuration."
+    "Successful driver calls establish graph execution, not a proof against arbitrary native-runtime or whole-program rewrites.",
+    "The selected all-cache case has a passing Base eager baseline. A shorter suffix exposes an unrelated pre-existing Base eager cache discrepancy and is excluded."
   ],
-  "open_behavior_items": [
-    "The follow-up review of 87cecf4 reproduced a graph-observation bypass: forcing eager and fabricating profiler graph counts received reward 1. This HTTPS-only change does not address that verifier issue."
-  ],
+  "open_behavior_items": [],
   "worktree": "/tmp/ai-infra-pr64-review-20260919",
   "branch": "codex/pr64-behavior-hardening",
+  "git_state_at_validation": "current v1.3 changes uncommitted; previous delivery is 9c2509a",
+  "delivery_target": {
+    "pr": "https://github.com/ai-infra-bench/ai-infra-bench/pull/64",
+    "repository": "xuanzhengdu-eng/ai-infra-bench",
+    "branch": "task/add-vllm-mamba-full-cg-decoding"
+  },
   "artifacts": {
     "files": {
       ".dockerignore": "cf9143fdfce145f9234e589317912e7c9fad341276064294f22da3946d23758e",
-      "README.md": "163cd5f500d05598094c528064dc3de4ca9c4363f315bd39daa5f6626572ace8",
+      "README.md": "bf4583638ca4622f2d6c558e555b60c1af553917ed04dab554f15b5c8b99a2f9",
       "environment/Dockerfile": "edfaf8bd9200dc2947df7e9514b4731c7f92cb0ec6c4b3e89e9e7168dc035cae",
       "environment/docker-compose.yaml": "2a8ebdb1c56b1d74ce13762d408a6efac3cd46c9b4277c669dbac6580db3b523",
-      "environment/image-manifest.json": "d787341079c742df3e0fd0af6c5460085ffdd42cc2f8080d3db3dcf0306cab2c",
+      "environment/image-manifest.json": "804721c486963d613089eaa225fc1206602e44f660a628f6b310f18029d2e03b",
       "environment/lock/README.md": "9cb8fd97893b181f790367d725b98a24218dbfb44d4e3d4fe5d15dcece4a4cf3",
       "environment/lock/manifest.json": "a04538a377bf6c54707fbcaf0c99804eccd2608cf66ac843452046e468a44715",
       "environment/lock/native-donor.json": "c46029adf79f6910908ca129a70084ea6c934e4bc6930606aeff554920b6ebc5",
       "environment/lock/requirements.txt": "cb3b63dd4ccb3861651fb63081183ffaf801162ccf99830a8e71179c1fdb88cb",
       "instruction.md": "f36f3a7a89d7a8a6aad78922f9b7ffcf11f5dbd978261e458cc367fc4faa3284",
-      "solution/oracle.patch": "6a586866a9b38028f13000036b40c6619b27d203014dcd2db4fb5af98a1c5cde",
+      "solution/oracle.patch": "ca47f7ebc83f4d52a643844c2c094414c1d0376cef492ef0a667a02bfc178bdd",
       "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
-      "task.toml": "3f9f8d8ddefbaf5eddbb4cc746e835e671a944fa9061e6e1178cbde52be93602",
+      "task.toml": "24b77a49739906b0b32de265941383dded4717eeb9a5b404e1ad8c4881c32062",
       "tests/docker-compose.yaml": "a9d9fcaba73ad5f197f132eecc30dd3d2783b69bb5799652fce2d8cb2635d1ee",
-      "tests/supervise_verifier.py": "542190dd885c5be2f1b90c1109922cea937f2485c8ae8c89c624779263796118",
-      "tests/test.sh": "c4a5db80b4ce0f8cbb14e044b7ac66f4106312d698081898895e64a817b7d0fd",
-      "tests/verify_mamba_full_cg.py": "3579338588cbe5a6e84caa73a5922a4d73f12bff5af4b977102754b20b8b26bb",
-      "validation/LOCAL-VALIDATION.md": "bf24fe677fc8f424233b856601adc8391da85234a516a5629f0fcc1866b031ac",
-      "validation/alternative-agent-implementation.patch": "d3c4f3022a4fd748e35139acdcdf3f7412765afbb34b55c3c9592cbb274f1cc0",
-      "validation/alternative-host-preparation.patch": "075e91dd27ddf36ab3693fffa9136453b1003c4492c5711b74bafec4d2c83013",
-      "validation/alternative-production-builders.patch": "25759475f0f1a2fac8851cd90969dad0407ef702908430771478ac77b55cba00",
-      "validation/alternative-runner-inputs.patch": "9cebd0aadfafb31307eaa6bbcfbf0d173c66ed1445ddfea6d7515f5397907e47",
-      "validation/broken-eager.patch": "fa6ebf82db51ada47aaf82080a8c953571ab5dd62bce678dbaecac6e82710e84",
-      "validation/broken-spec-decode.patch": "a5d8e97beb5b34e538f5ecb7541705087f2cf5435b2a6910ca9c98a58b238e02",
-      "validation/ci-cases.json": "2e761772050739525fa920a46081f8ebb473831b383f0384b67b054a976d5c9b",
+      "tests/observe_cuda_graph.c": "5d65f38342a76174e9d56d35ce55a75cc5b587161e301b683613e132d2b457b0",
+      "tests/supervise_verifier.py": "dc1666a493d45254cbb807d5666bab857fa1c485c01d712dfeaa967c02d0f1f7",
+      "tests/test.sh": "6c43e3ac6debba7e22c7f81b9ef713c778452c9e11da316ea3743b712821ea54",
+      "tests/verify_mamba_full_cg.py": "19985ba3926d94180d70c0b5ed3cf547d1081e43be4de62e1651299627d1741a",
+      "validation/LOCAL-VALIDATION.md": "f7841ed7af832419caefd3f32076188dc4adf788ee25884d129b052f2bed7853",
+      "validation/alternative-agent-implementation.patch": "603a068dc19157aa494db02abe344394ba1c911b1a0cf8babb1a55a51c91fb87",
+      "validation/alternative-host-preparation.patch": "d0eded8763a55fde7b09d20489af0c391c1a454a1dd883d117fbd31d2989e2c8",
+      "validation/alternative-production-builders.patch": "15af6561c3cfd8fe1a12af878a77e7d5b83ea8012bdd077e4a5cbcfb4532b5dd",
+      "validation/alternative-runner-inputs.patch": "6f83056e4336ed18aeba398bd6844974e4803145ddb3cfdcc6cf0574fcdc959d",
+      "validation/broken-eager.patch": "386a9733edc825ce9f44437a574b90e715592e8ba91f30cc27d5af9ea542a1bf",
+      "validation/broken-spec-decode.patch": "57341a336c14267e7a97735a3294f32b14f34590fd4f9e63b276a2e77dab4bd8",
+      "validation/ci-cases.json": "14f030ecae7d418e81051a549a298c23763c37b6d16adca2eaf4170ae147f335",
       "validation/copy-private-reference.patch": "3a0a00685c58361d1610fadce2c891582c56070ee5d00485ef254a9b3b788a97",
-      "validation/disable-cuda-graphs.patch": "3e38cbf58bc90da75059bd961b8e59ba674cb8412f8df6b3cd8a00ab4ee26add",
-      "validation/docker-build.md": "890147dd19130da4ad8dd25f053e06ccd886a622e6497ff0f65428eae293a51e",
+      "validation/disable-cuda-graphs.patch": "8291c5c866f449f72fe9c012ff208bdf363a0716024e7b64b406c4f7147e14c4",
+      "validation/docker-build.md": "317a59a5b0034ce89b5697b72b170cc04e6b02ab731cc0a136806c8cf4a6ad5d",
       "validation/early-exit-os-exit.patch": "7e8264005f8d1cbc83bbe2fe6d9195e6ff06c117600fa08b5d41c620294c4d46",
       "validation/early-exit-systemexit.patch": "80f7fd0dce410eb62373fa96daeb380acaf16d0de85b03872956c1a0e142a2fe",
-      "validation/forged-complete-results.patch": "5bb8632f3a9a5595b541d4735051e3b0b37bfbba1bd9ccd235517c72e75cfbb9",
+      "validation/forged-complete-results.patch": "c503c89844fc6ebe47f3d4533933275d05a52567d4315494ea5d2b5446f8aba6",
+      "validation/forged-graph-observation.patch": "de36ca85a4546061036db1786490a096e99b5860b2474fceb0dfea6e6771c55a",
       "validation/forged-success-report.patch": "3cc325256381721eef79b211fe22c988f0c9a0602d75204812485d1b28766379",
       "validation/historical-oracle.patch": "f35c8ffec10d22dfb416cc0bd1084d1cdd8ecd44f93146d4c4e699a32f3ed0e9",
-      "validation/incomplete-agent-implementation.patch": "780d3cb9b51f9e7120a677ace77dd9f4d86a931c3137c2a32a0a4cf5d1b7e456",
-      "validation/local_harbor.py": "030f70d2639b78bcd2751d1a73d1db79fe409c7f0e85e7a90fa54c61ae122915",
-      "validation/mamba1-only-fix.patch": "4c8c50999f74f9b262b1fd2acad1b7ecdff4f110e675c39c491a22071a1c2a87",
-      "validation/metadata-counts-only.patch": "26217e71da2dbc10b63a66e67e108f4056fb4c73ad4130b60b614b5cdf1c8afb",
-      "validation/remediation-matrix.md": "34bd9042909d2958e8d9238e1356b949d26fd831cbd35970aa0130c5393dda30",
+      "validation/incomplete-agent-implementation.patch": "d0deec66b2338e2173a06959fc9efffca448ce1bbc3e5a2cb2de344272c92827",
+      "validation/invalid-driver-graph-launch.patch": "8d15a08bae51d974ac2a32e637e4423f0911755a6f6a0423f83a3b7454b2ba89",
+      "validation/local_harbor.py": "dcbaffd5b9486ff0a976da93af3cc5ea8daab0576ede616fcb1e51895d0031b3",
+      "validation/mamba1-only-fix.patch": "2ef3af7af7008ba59ab4a08504cdd86075172811ec252664914fc2c5b2428cb5",
+      "validation/metadata-counts-only.patch": "e2911c897a3397c2b6e466224c336a0c76875d612f7071a8eddd07741a1832dc",
+      "validation/missing-multitoken-prefill-guard.patch": "679461f92f0c260ff3721d022e5a09a1e4a1e5f7e786e40e2187725138568219",
+      "validation/missing-padding-cleanup.patch": "8c9bbfb9a2148ff818864f96edb4eeb23f5071d6bf268eb40e1c9cae3af3fa99",
+      "validation/missing-zero-draft-offset.patch": "4c3de8911343269831c52b38070476258b96a2d23ad482cce466b44a5ff3c87b",
+      "validation/previous-oracle.patch": "6a586866a9b38028f13000036b40c6619b27d203014dcd2db4fb5af98a1c5cde",
+      "validation/remediation-matrix.md": "8aab152d35175fb87bbe52c3c668925c0f28e9218c185af22b6e89636e90c2a5",
       "validation/results/harbor-matrix-r4.zip": "e310d2b73517ca6eb97c9eae8a399833805ee1c95a6ed55d1b1994d5c9208512",
-      "validation/results/matrix-results.json": "e3d3196e50f83489c6f7569183f8a84979e63e359e5b5068185dec425e7f4a01",
-      "validation/zero-mamba2-state-addresses.patch": "23d8df26c82bac644cbdd3e6cea48d012e2a529b0a534819e90934a2f39c9b0d",
-      "validation/zero-state-addresses.patch": "cd3e697cd8e93c01a725b70b05586e39a4ae9124ef8fe14e7e8ccb516d2e269b",
-      "validation/results/https-apt-check.txt": "72b81169c4e46ba55e59756b00e5b27639752c158f13381a67e9a799511c3941"
+      "validation/results/harbor-matrix-r6.zip": "22f9f9a4e575c9d2fe089a10ee55ff275b1f92d87d970375ba0f42f254a73654",
+      "validation/results/https-apt-check.txt": "72b81169c4e46ba55e59756b00e5b27639752c158f13381a67e9a799511c3941",
+      "validation/results/matrix-results.json": "1c3245eb22bef0263993ba79e5263d5a42dc226c97dfe91fedce33e49f6a3134",
+      "validation/zero-mamba2-state-addresses.patch": "97c3aac983301553fcbbf9af6a735326688ae9e0f4bd910396014674e5d95ad3",
+      "validation/zero-state-addresses.patch": "daf8554a7a068757dbf39567bf7a2b44f768b1ef81348eb155e9f31d7c83051d"
     }
-  },
-  "git_state_at_validation": "uncommitted; no push or GitHub writes",
-  "delivery_target": {
-    "pr": "https://github.com/ai-infra-bench/ai-infra-bench/pull/64",
-    "repository": "xuanzhengdu-eng/ai-infra-bench",
-    "branch": "task/add-vllm-mamba-full-cg-decoding",
-    "note": "Commit and push are tracked by Git and PR history; the recorded validation preceded delivery."
-  },
-  "https_build_fix": {
-    "recorded_at": "2026-09-19T02:36:52.388127+00:00",
-    "change": "Ubuntu package source scheme only: HTTP to HTTPS; no added retry logic or changes to pinned package versions/signature checks.",
-    "donor_image": "vllm/vllm-openai:v0.21.0@sha256:4ac9b7c6dabc3ec762c0edef4e9245abe98373844da91cc53ee42e5c58280c5b",
-    "test": "Exact updated Dockerfile APT phase in a fresh donor container, network host and CI proxy http://127.0.0.1:7892.",
-    "result": "apt-get update and all three pinned package installations passed; process exit 0",
-    "log": "validation/results/https-apt-check.txt",
-    "full_rebuild": "pending CI; no replacement local image or repeated GPU matrix is claimed",
-    "previous_dockerfile_sha256": "fa5a80b68f8b61e9b7845ef6fcb5dd774bc8b50791e1e6d6eea2533755c52008",
-    "current_dockerfile_sha256": "edfaf8bd9200dc2947df7e9514b4731c7f92cb0ec6c4b3e89e9e7168dc035cae"
   }
 }

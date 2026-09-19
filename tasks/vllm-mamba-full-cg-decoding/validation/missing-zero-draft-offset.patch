@@ -1,16 +1,7 @@
 diff --git a/vllm/v1/attention/backends/mamba_attn.py b/vllm/v1/attention/backends/mamba_attn.py
 --- a/vllm/v1/attention/backends/mamba_attn.py
 +++ b/vllm/v1/attention/backends/mamba_attn.py
-@@ -375,6 +375,8 @@
-         """
-         Compute metadata common to both Mamba1 and Mamba2.
-         """
-+        if not self.compilation_config.cudagraph_mode.has_full_cudagraphs():
-+            raise RuntimeError("review control: eager mode is broken")
-         num_reqs = common_attn_metadata.num_reqs
-
-         # Treat multi-token queries as decode requests when
-@@ -383,6 +385,28 @@
+@@ -383,6 +383,28 @@
          # of prefill queries as decode requests.
          decode_threshold = (
              self.reorder_batch_threshold if num_accepted_tokens is not None else 1
@@ -51,20 +42,18 @@ diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runne
 
          if self.use_async_spec_decode:
              # GPU tensors are authoritative in async mode.
-@@ -2332,7 +2334,12 @@
+@@ -2332,6 +2334,11 @@
              )
 
              extra_attn_metadata_args = {}
--            if use_spec_decode and isinstance(
 +            # A Mamba2 request can accept drafts and then schedule none. Its
 +            # accepted-state offset remains required across that transition.
 +            mamba_spec_state = self.num_spec_tokens > 0 and isinstance(
 +                builder, Mamba2AttentionMetadataBuilder
 +            )
-+            if (use_spec_decode or mamba_spec_state) and isinstance(
+             if use_spec_decode and isinstance(
                  builder, (Mamba2AttentionMetadataBuilder, GDNAttentionMetadataBuilder)
              ):
-                 assert ubid is None, "UBatching not supported with GDN yet"
 @@ -3761,8 +3768,20 @@
                  invalid_modes={CUDAGraphMode.FULL} if disable_full else None,
              )
