@@ -1,6 +1,7 @@
 """Exercise image routing through the real validation script without Docker/GPUs."""
 
 import itertools
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -102,10 +103,19 @@ class ValidationImageTests(unittest.TestCase):
             scripts.mkdir(parents=True)
             for name in ("task_ci.py", "run_task_validation.sh"):
                 shutil.copy2(GITHUB_DIR / "scripts" / name, scripts / name)
+            helpers = root / "tools"
+            helpers.mkdir()
+            shutil.copy2(GITHUB_DIR.parent / "tools/normalize_image_manifests.py", helpers)
             shutil.copy2(GITHUB_DIR / "runner-classes.json", scripts.parent)
             task = root / "tasks/example"
-            (task / "environment").mkdir(parents=True)
-            (task / "environment/Dockerfile").write_text("FROM scratch\n")
+            (task / "environment/lock").mkdir(parents=True)
+            inputs = {"Dockerfile": "FROM scratch\n", "lock/requirements.txt": "", "lock/manifest.json": "{}\n"}
+            for relative, content in inputs.items():
+                (task / "environment" / relative).write_text(content)
+            (task / "environment/image-manifest.json").write_text(json.dumps({
+                "image_id": "sha256:" + "a" * 64,
+                "files": {name: hashlib.sha256(content.encode()).hexdigest() for name, content in inputs.items()},
+            }))
             (task / "validation").mkdir()
             (task / "validation/ci-cases.json").write_text(json.dumps({
                 "schema_version": "ai_infra_bench_validation_cases.v1", "cases": [],

@@ -21,6 +21,9 @@ from urllib.parse import urlsplit
 import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "tools"))
+from normalize_image_manifests import check_file_hashes
+
 TASKS_DIR = REPO_ROOT / "tasks"
 RUNNER_CLASSES_PATH = REPO_ROOT / ".github" / "runner-classes.json"
 ENV_HASH_EXCLUDES = {"image-manifest.json", ".DS_Store"}
@@ -233,6 +236,12 @@ def validate_task(task_dir: Path) -> None:
     task_contract(task_dir)
     manifest = validation_manifest(task_dir)
     task_validation_mode(task_dir, manifest)
+    environment = task_dir / "environment"
+    try:
+        image_manifest = json.loads((environment / "image-manifest.json").read_text())
+        check_file_hashes(image_manifest, environment)
+    except (OSError, ValueError) as exc:
+        raise ContractError(f"{task_dir.name}: invalid image manifest: {exc}") from exc
 
 
 def changed_tasks(base: str, head: str) -> list[Path]:

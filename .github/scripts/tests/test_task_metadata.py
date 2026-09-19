@@ -8,6 +8,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import tempfile
 import tomllib
@@ -39,6 +40,25 @@ builder = load_module("metadata_builder", "templates/vllm-harbor-all-in-one/buil
 
 
 class TaskMetadataTests(unittest.TestCase):
+    def test_ci_validation_rejects_changed_image_inputs_and_missing_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            task = Path(directory) / "vllm-multimodal-encoder-cache-accounting"
+            shutil.copytree(ROOT / "tasks" / task.name, task)
+            task_ci.validate_task(task)
+            manifest_path = task / "environment/image-manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            for relative in manifest["files"]:
+                with self.subTest(input=relative):
+                    path = task / "environment" / relative
+                    original = path.read_bytes()
+                    path.write_bytes(original + b"\n")
+                    with self.assertRaisesRegex(task_ci.ContractError, "hash is stale"):
+                        task_ci.validate_task(task)
+                    path.write_bytes(original)
+            manifest_path.unlink()
+            with self.assertRaisesRegex(task_ci.ContractError, "invalid image manifest"):
+                task_ci.validate_task(task)
+
     def test_ci_preparation_omits_snapshots_without_changing_formal_configs(self):
         with tempfile.TemporaryDirectory() as directory:
             for path in sorted((ROOT / "tasks").glob("*/task.toml")):
