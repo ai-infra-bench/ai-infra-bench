@@ -27,6 +27,8 @@ Download and checksum-verify the Linux x64 runner distribution using GitHub's re
 
 `run_task_validation.sh` preserves the ordinary Docker backend and GHCR cache/publishing flow for CPU tasks. GPU tasks always run a local `docker buildx build --load`, tagged `ai-infra-bench-task-envs:<task>-<environment-key>`. The single GPU host keeps BuildKit's local layers, so unchanged layers are reused while Dockerfile and environment changes are rebuilt. The key includes the environment contents and target platform. GPU validation and main-branch jobs do not log in to GHCR, pull task images, push images or query registry digests; base-image pulls and build-time downloads still use the host's normal network configuration.
 
+Before checkout, self-hosted jobs restore the runner UID/GID and owner access on their previous `harbor-jobs` tree. Cancelled verifiers can leave root-owned directories that prevent Git cleanup. The repair runs with a cached task image, no network or GPU access, and mounts only that runner workspace’s results directory; symlink targets are not followed. Git then performs its normal checkout cleanup. Resource inventory is diagnostic and does not determine validation success.
+
 For GPU tasks, each Harbor validation case runs under `gpu_pool.py`. Local image builds happen before GPU acquisition. A lease is released between cases, allowing other jobs to make progress.
 
 Validation enables Harbor CPU and memory limits with `--cpus limit --memory limit`.

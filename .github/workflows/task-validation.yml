@@ -122,6 +122,25 @@ jobs:
       https_proxy: ${{ matrix.data_proxy_url }}
 
     steps:
+      - name: Restore ownership of prior Harbor results
+        if: runner.environment == 'self-hosted'
+        working-directory: ${{ runner.temp }}
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          old_results="$GITHUB_WORKSPACE/harbor-jobs"
+          if [ -d "$old_results" ]; then
+            test ! -L "$old_results"
+            cleanup_image="$(docker image ls --quiet --filter 'reference=ai-infra-bench-task-envs:*' | sed -n '1p')"
+            test -n "$cleanup_image"
+            docker run --rm --pull never --runtime runc --network none \
+              --user 0 --entrypoint /bin/sh \
+              --mount "type=bind,src=$old_results,dst=/cleanup" \
+              "$cleanup_image" -ec \
+              'chown -hR "$1:$2" /cleanup; chmod -R u+rwX /cleanup' \
+              cleanup "$(id -u)" "$(id -g)"
+          fi
+
       - name: Check out repository
         uses: actions/checkout@v7
 
@@ -144,6 +163,7 @@ jobs:
 
       - name: Record runner resources
         if: always()
+        continue-on-error: true
         run: |
           free -h
           df -h /
