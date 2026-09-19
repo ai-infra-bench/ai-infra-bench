@@ -250,6 +250,46 @@
       "expected_reward": 1,
       "patch_sha256": "030bd35b7f2c436fa5117ac26b3290865a86c4cad98bb62394777f10992dc728",
       "note": "Stores encoder rows as a sparse COO tensor with separate value/index storage, and profiles the same representation; downstream input values are unchanged."
+    },
+    {
+      "name": "omit-physical-eviction",
+      "patch": "omit-physical-eviction.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "note": "Skips physical cache retirement while preserving accounting and exact inputs; residency must grow under completed-request churn.",
+      "patch_sha256": "4fb107f55802292ca78453c106e73dcafc9c9ead690043cf54582424dc463e5d"
+    },
+    {
+      "name": "retain-evicted-payload-copy",
+      "patch": "retain-evicted-payload-copy.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "note": "Evicts the ordinary cache entry but retains a copied payload elsewhere; scoring must observe storage instead of a cache container.",
+      "patch_sha256": "5d9e1a30621c794db40e8b278c15c389f5c21b00023a13e33269ae5ec47067a4"
+    },
+    {
+      "name": "alternate-mask-torch-allocation",
+      "patch": "alternate-mask-torch-allocation.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Reallocates the bool mask without changing contents, shape or device, using torch.empty.",
+      "patch_sha256": "5b5f7faff82af510f4ebe53794fbd17b458c67986de7e858636153fc9cc456f8"
+    },
+    {
+      "name": "alternate-mask-template-allocation",
+      "patch": "alternate-mask-template-allocation.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Equivalent bool-mask reallocation using output.new_empty; allocating from a tensor template does not copy its values.",
+      "patch_sha256": "76dbab5ab132ec2a9aa8699bfc1c5c835cf05da67df0fa2a81b4b6551df8b413"
+    },
+    {
+      "name": "alternate-reusable-payload-pool",
+      "patch": "alternate-reusable-payload-pool.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Retains at most two retired buffers for reuse and profiles the same spare capacity. Correct eviction need not destroy each backing allocation.",
+      "patch_sha256": "4afa5db44df1ceca376725910f1e8dad6ef9f576381f2ae14b4d1238c6b9f7c9"
     }
   ],
   "schema_version": "ai_infra_bench_validation_cases.v1"

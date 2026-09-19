@@ -141,6 +141,7 @@ def run_checks(inputs):
         check('whole_reservation', lambda: check_whole_reservation(runtime))
         check('text_and_empty', lambda: check_text_and_empty(runtime))
         check('storage', lambda: check_storage(runtime))
+        check('storage_lifecycle', lambda: check_storage_lifecycle(runtime))
         def main_inputs():
             main, _ = run_fresh(runtime, inputs)
             observations['main'] = main

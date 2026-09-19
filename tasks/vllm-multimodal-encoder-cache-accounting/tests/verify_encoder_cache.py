@@ -22,7 +22,8 @@ WORKER_FILES = ('encoder_runtime.py', 'encoder_storage.py',
 WORKER_CODE = '\n\n'.join((TESTS / name).read_text() for name in WORKER_FILES)
 _COMPILED_WORKER = compile(WORKER_CODE, '<encoder-behavior-suite>', 'exec')
 REQUIRED_STAGES = {'allocator', 'capacity', 'resource_progress', 'whole_reservation',
-                   'text_and_empty', 'storage', 'main_inputs', 'eagle_inputs'}
+                   'text_and_empty', 'storage', 'storage_lifecycle',
+                   'main_inputs', 'eagle_inputs'}
 
 
 def run_suite(inputs, checkpoint):
@@ -53,12 +54,26 @@ def expected_observations():
         'text_and_empty': {'text_and_empty_advance': True},
         'storage': [{'span': span, 'payload_bytes': 512, 'runtime_bytes': 512, 'profile_bytes': 512}
                     for span in (16, 128, 4096)],
+        'storage_lifecycle': {'completed_requests': 24,
+                              'resident_payload_bytes': [512] * 24},
         'main_inputs': {'model_inputs_checked': True},
         'eagle_inputs': {'model_inputs_checked': True},
     }
 
 
 def stage_matches(name, observed, wanted):
+    if name == 'storage_lifecycle':
+        if not isinstance(observed, dict) or set(observed) != {
+                'completed_requests', 'resident_payload_bytes'}:
+            return False
+        sizes = observed['resident_payload_bytes']
+        if (type(observed['completed_requests']) is not int
+                or observed['completed_requests'] != 24
+                or not isinstance(sizes, list) or len(sizes) != 24
+                or any(type(value) is not int or value < 0 for value in sizes)):
+            return False
+        warm = max(sizes[:4])
+        return all(value <= warm + max(256, warm // 2) for value in sizes[4:])
     if name == 'capacity':
         if not isinstance(observed, dict) or set(observed) != {'dummy', 'video'}:
             return False

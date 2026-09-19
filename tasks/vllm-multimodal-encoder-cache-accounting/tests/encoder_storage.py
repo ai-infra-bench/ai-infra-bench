@@ -11,6 +11,17 @@ from torch.utils._pytree import tree_leaves
 
 
 class PayloadStorage(TorchDispatchMode):
+    # These operators take a Tensor only as a shape/dtype/device template. They
+    # do not read its values. A later copy/scatter of encoder values into their
+    # result is still observed normally. This describes Torch operation
+    # semantics, not permitted candidate allocation APIs or field names.
+    _TEMPLATE_FACTORIES = frozenset({
+        'aten::new_empty', 'aten::new_empty_strided', 'aten::new_zeros',
+        'aten::new_ones', 'aten::new_full', 'aten::empty_like',
+        'aten::zeros_like', 'aten::ones_like', 'aten::full_like',
+        'aten::rand_like', 'aten::randn_like', 'aten::randint_like',
+    })
+
     def __init__(self):
         super().__init__()
         self.references = {}
@@ -53,8 +64,10 @@ class PayloadStorage(TorchDispatchMode):
         inputs = [value for value in tree_leaves((args, kwargs))
                   if isinstance(value, torch.Tensor)]
         input_keys = [self._keys(value) for value in inputs]
-        inherited = any(data & self.payloads for data, _ in input_keys)
-        carries_resource = any(all_keys & self.resources for _, all_keys in input_keys)
+        reads_values = func._schema.name not in self._TEMPLATE_FACTORIES
+        inherited = reads_values and any(data & self.payloads for data, _ in input_keys)
+        carries_resource = reads_values and any(
+            all_keys & self.resources for _, all_keys in input_keys)
         result = func(*args, **(kwargs or {}))
         for value in tree_leaves(result):
             if torch.Tensor in type(value).__mro__:
@@ -164,3 +177,45 @@ def check_storage(runtime):
         if item['payload_bytes'] > baseline + allowance:
             raise AssertionError(f'cached payload grows with placeholder span: {observations}')
     return observations
+
+
+def check_storage_lifecycle(runtime):
+    """Observe bounded residency after real admission, use, completion and churn.
+
+    Every item fills the declared encoder budget. Distinct media identities and
+    values require old items to give way to new ones. The real model-input
+    comparisons run throughout each multi-chunk request, including while its
+    cached rows are still needed. No cache container or eviction method is read.
+
+    Warm up repeated identical shapes before comparing resident allocations.
+    Allocation pools and reusable backing storage may survive completion; only
+    continued growth with completed requests is rejected.
+    """
+    indices = [0, 2, 5, 7, 10, 12, 15, 17]
+    profile = specification(19, indices)
+    observer = PayloadStorage()
+    pair = None
+    resident = []
+    try:
+        with observer:
+            pair = runtime.pair(profile, chunk=4)
+            pair.model.on_encode = observer.mark
+            for index in range(24):
+                spec = specification(19, indices, value=101 + index * 23)
+                pair.add(request_workload(
+                    f'cache-turnover-{index}', 21, [spec], token=20 + index))
+                pair.finish()
+                gc.collect()
+                resident.append(observer.live_bytes())
+        warm = max(resident[:4])
+        allowance = max(256, warm // 2)
+        if any(value > warm + allowance for value in resident[4:]):
+            raise AssertionError(
+                'encoder payload keeps growing after completed requests: '
+                f'{resident}')
+        return {'completed_requests': len(resident),
+                'resident_payload_bytes': resident}
+    finally:
+        if pair:
+            pair.close()
+        observer.close()
