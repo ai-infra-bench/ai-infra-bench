@@ -1,0 +1,49 @@
+diff --git a/vllm/v1/attention/backends/mamba_attn.py b/vllm/v1/attention/backends/mamba_attn.py
+index 2af9c74..0d0270c 100644
+--- a/vllm/v1/attention/backends/mamba_attn.py
++++ b/vllm/v1/attention/backends/mamba_attn.py
+@@ -218,11 +218,19 @@ class BaseMambaAttentionMetadataBuilder(AttentionMetadataBuilder[M], abc.ABC):
+         Default build implementation for Mamba-like attention backends.
+         Subclasses (e.g., Mamba2) can override to add additional metadata.
+         """
+-        return self._compute_common_metadata(
++        metadata = self._compute_common_metadata(
+             common_attn_metadata,
+             num_accepted_tokens=num_accepted_tokens,
+             prev_last_scheduled_idx=prev_last_scheduled_idx,
+         )
++        common = common_attn_metadata
++        promoted = (common.is_prefilling
++                    & (torch.diff(common.query_start_loc_cpu) == 1)
++                    & (common.seq_lens_cpu_upper_bound > 1))
++        count = int(promoted.sum())
++        metadata.num_decodes += count
++        metadata.num_prefills -= count
++        return metadata
+
+     def _compute_chunk_metadata(
+         self,
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -3761,8 +3761,19 @@
+                 invalid_modes={CUDAGraphMode.FULL} if disable_full else None,
+             )
+
++        # A fresh Mamba prompt needs the prefill path to initialize its state.
++        # A one-token prompt can otherwise look like a uniform decode batch,
++        # including when it shares a batch with a prior-state short extend.
++        has_fresh_mamba_prompt = (
++            force_uniform_decode is None
++            and self.model_config.has_inner_state
++            and bool(
++                (self.input_batch.num_computed_tokens_cpu_tensor[:num_reqs] == 0).any()
++            )
++        )
+         cudagraph_mode, batch_descriptor = dispatch_cudagraph(
+-            num_tokens_padded, disable_full=use_cascade_attn or has_encoder_output
++            num_tokens_padded,
++            disable_full=(use_cascade_attn or has_encoder_output or has_fresh_mamba_prompt),
+         )
+         num_tokens_padded = batch_descriptor.num_tokens
+         if self.compilation_config.pass_config.enable_sp:

@@ -1,277 +1,80 @@
 #!/usr/bin/env python3
-"""Focused production behavior contract for Mamba one-token FULL-CG rows."""
-
+"""Unprivileged production client. The parent independently checks every result."""
 from __future__ import annotations
 
+import json
+import os
 import sys
-from types import SimpleNamespace
+from pathlib import Path
 
-import torch
-
-sys.path.insert(0, "/workspace/repo")
-
-from vllm.config.compilation import CUDAGraphMode
-from vllm.v1.attention.backend import CommonAttentionMetadata
-from vllm.v1.attention.backends.mamba_attn import (
-    BaseMambaAttentionMetadata,
-    BaseMambaAttentionMetadataBuilder,
-)
-from vllm.v1.kv_cache_interface import MambaSpec
+# The parent uses -I; only this child may load submitted Python code.
+sys.path.insert(0, sys.argv[3] if len(sys.argv) == 4 else "/workspace/repo")
+os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
+os.environ["VLLM_HOST_IP"] = "127.0.0.1"
+os.environ["GLOO_SOCKET_IFNAME"] = "lo"
 
 
-class ConcreteMambaBuilder(
-    BaseMambaAttentionMetadataBuilder[BaseMambaAttentionMetadata]
-):
-    metadata_cls = BaseMambaAttentionMetadata
+def main() -> None:
+    request = json.loads(Path(sys.argv[1]).read_text())
+    import torch
+    from vllm import LLM, SamplingParams
 
-
-def make_config(num_speculative_tokens: int = 0) -> SimpleNamespace:
-    speculative_config = (
-        SimpleNamespace(
-            num_speculative_tokens=num_speculative_tokens,
-            parallel_drafting=False,
-        )
-        if num_speculative_tokens
-        else None
-    )
-    return SimpleNamespace(
-        cache_config=SimpleNamespace(block_size=16, mamba_cache_mode="all"),
-        compilation_config=SimpleNamespace(
-            cudagraph_mode=CUDAGraphMode.FULL,
-            max_cudagraph_capture_size=None,
+    speculative = request["mode"] == "speculative"
+    llm = LLM(
+        model=request["model"],
+        skip_tokenizer_init=True,
+        dtype="float32",
+        max_model_len=128,
+        max_num_seqs=2,
+        max_num_batched_tokens=request.get("token_budget", 16),
+        kv_cache_memory_bytes=32 * 1024 * 1024,
+        num_gpu_blocks_override=request.get("num_gpu_blocks"),
+        enable_chunked_prefill=True,
+        async_scheduling=False,
+        enable_prefix_caching=request["cache"] == "all",
+        mamba_cache_mode=request["cache"],
+        enforce_eager=request.get("enforce_eager", False) or request["mode"] == "eager",
+        speculative_config=(
+            {"method": "ngram", "prompt_lookup_max": 3,
+             "prompt_lookup_min": 1, "num_speculative_tokens": 2}
+            if speculative else None
         ),
-        speculative_config=speculative_config,
-        num_speculative_tokens=num_speculative_tokens,
-        parallel_config=SimpleNamespace(decode_context_parallel_size=1),
-        scheduler_config=SimpleNamespace(max_num_seqs=4),
-        model_config=SimpleNamespace(max_model_len=64),
+        compilation_config={
+            "mode": 0,
+            "cudagraph_mode": "FULL",
+            "cudagraph_capture_sizes": [3, 6] if speculative else [1, 2],
+        },
+        max_logprobs=request["vocab_size"],
+        disable_log_stats=not speculative,
     )
-
-
-def make_common_metadata(
-    *,
-    seq_len: int,
-    is_prefilling: bool,
-    device: torch.device,
-    query_len: int = 1,
-) -> CommonAttentionMetadata:
-    return make_batch_metadata(
-        [(seq_len, query_len, is_prefilling)], device=device
-    )
-
-
-def make_batch_metadata(
-    rows: list[tuple[int, int, bool]], *, device: torch.device
-) -> CommonAttentionMetadata:
-    seq_len_values = [row[0] for row in rows]
-    query_len_values = [row[1] for row in rows]
-    query_offsets = [0]
-    for query_len in query_len_values:
-        query_offsets.append(query_offsets[-1] + query_len)
-    query_start_loc_cpu = torch.tensor(query_offsets, dtype=torch.int32)
-    query_start_loc = query_start_loc_cpu.to(device)
-    seq_lens_cpu = torch.tensor(seq_len_values, dtype=torch.int32)
-    seq_lens = seq_lens_cpu.to(device)
-    num_computed_tokens_cpu = seq_lens_cpu - torch.tensor(
-        query_len_values, dtype=torch.int32
-    )
-    metadata = CommonAttentionMetadata(
-        query_start_loc=query_start_loc,
-        query_start_loc_cpu=query_start_loc_cpu,
-        seq_lens=seq_lens,
-        seq_lens_cpu_upper_bound=seq_lens_cpu,
-        _seq_lens_cpu=seq_lens_cpu,
-        _num_computed_tokens_cpu=num_computed_tokens_cpu,
-        num_reqs=len(rows),
-        num_actual_tokens=query_offsets[-1],
-        max_query_len=max(query_len_values),
-        max_seq_len=max(seq_len_values),
-        block_table_tensor=torch.zeros(
-            (len(rows), 1), dtype=torch.int32, device=device
-        ),
-        slot_mapping=torch.zeros(
-            (query_offsets[-1],), dtype=torch.int64, device=device
-        ),
-        causal=True,
-    )
-    return metadata.replace(
-        is_prefilling=torch.tensor([row[2] for row in rows], dtype=torch.bool)
-    )
-
-
-def make_builder(
-    device: torch.device, num_speculative_tokens: int = 0
-) -> ConcreteMambaBuilder:
-    spec = MambaSpec(
-        block_size=16,
-        shapes=((1,), (1,)),
-        dtypes=(torch.float32,),
-    )
-    return ConcreteMambaBuilder(
-        spec, ["layer0"], make_config(num_speculative_tokens), device
-    )
-
-
-def replay_recurrent_graph(
-    metadata: BaseMambaAttentionMetadata,
-    *,
-    device: torch.device,
-    expected_first: float,
-    expected_replay: float,
-) -> None:
-    """Consume the production classification in an actual CUDA graph.
-
-    The tiny recurrence substitutes for model weights and the Mamba kernel, but
-    preserves the behavior that matters here: a decode row consumes persistent
-    state while a first-token prefill starts a new state.  Capturing and
-    replaying the device operation prevents a metadata-only repair from passing
-    without producing the corresponding FULL-CG state behavior.
-    """
-
-    prior = torch.tensor([3.0], device=device)
-    token = torch.tensor([2.0], device=device)
-    output = torch.empty_like(token)
-    graph = torch.cuda.CUDAGraph()
-    with torch.cuda.graph(graph):
-        if metadata.num_decodes == 1 and metadata.num_prefills == 0:
-            output.copy_(prior + token)
-        elif metadata.num_decodes == 0 and metadata.num_prefills == 1:
-            output.copy_(token)
-        else:
-            raise AssertionError(
-                "single-row metadata has an invalid decode/prefill split"
-            )
-
-    graph.replay()
-    torch.cuda.synchronize()
-    if output.item() != expected_first:
-        raise AssertionError(
-            f"captured recurrent result is wrong: {output.item()}!={expected_first}"
+    batches = []
+    profiler = torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA])
+    profiler.start()
+    for batch in request["batches"]:
+        results = llm.generate(
+            [{"prompt_token_ids": prompt} for prompt in batch],
+            SamplingParams(temperature=0, max_tokens=request["steps"],
+                           ignore_eos=True, logprobs=request["vocab_size"]),
+            use_tqdm=False,
         )
-
-    prior.fill_(11.0)
-    token.fill_(5.0)
-    graph.replay()
-    torch.cuda.synchronize()
-    if output.item() != expected_replay:
-        raise AssertionError(
-            f"replayed recurrent result is wrong: {output.item()}!={expected_replay}"
-        )
-
-
-def main() -> int:
-    if not torch.cuda.is_available():
-        print("FAIL: CUDA is unavailable", file=sys.stderr)
-        return 2
-
-    device = torch.device("cuda")
-
-    # Environment control: an ordinary decode row must traverse the production
-    # FULL-CG metadata path and keep CUDA-backed persistent decode state.
-    control = make_builder(device).build_for_cudagraph_capture(
-        make_common_metadata(seq_len=10, is_prefilling=False, device=device)
-    )
-    if not (
-        control.num_decodes == 1
-        and control.num_prefills == 0
-        and control.state_indices_tensor_d is not None
-        and control.state_indices_tensor_d.is_cuda
-    ):
-        print(f"FAIL: control decode metadata is invalid: {control}", file=sys.stderr)
-        return 2
-
-    # Bug contract: D-side recomputation of N from existing h(N-1) is still
-    # scheduler-labelled prefill, but a uniform single-token FULL-CG batch must
-    # build decode/update metadata.
-    previous_sync_mode = torch.cuda.get_sync_debug_mode()
-    prior_state_input = make_common_metadata(
-        seq_len=10, is_prefilling=True, device=device
-    )
-    prior_state_builder = make_builder(device)
-    speculative_builder = make_builder(device, 1)
-    speculative_input = make_common_metadata(
-        seq_len=10,
-        query_len=2,
-        is_prefilling=True,
-        device=device,
-    )
-    mixed_builder = make_builder(device)
-    mixed_input = make_batch_metadata(
-        [(10, 1, True), (1, 1, True)], device=device
-    )
-    torch.cuda.set_sync_debug_mode("error")
-    try:
-        prior_state = prior_state_builder.build_for_cudagraph_capture(
-            prior_state_input
-        )
-
-        # A wider speculative prefill is not the one-token NIXL recomputation
-        # case and must remain prefill-shaped.
-        speculative_prefill = speculative_builder.build(0, speculative_input)
-
-        # Exercise the split used by a real batch: the prior-state one-token
-        # row becomes decode while a genuine first-token row remains prefill.
-        mixed = mixed_builder.build(0, mixed_input)
-    finally:
-        torch.cuda.set_sync_debug_mode(previous_sync_mode)
-
-    # Guardrail: the very first prompt token has no prior Mamba state and must
-    # remain a prefill.
-    first_token = make_builder(device).build(
-        0, make_common_metadata(seq_len=1, is_prefilling=True, device=device)
-    )
-    torch.cuda.synchronize()
-
-    print(
-        "observed "
-        f"prior_state=(decodes={prior_state.num_decodes},prefills={prior_state.num_prefills}) "
-        f"first_token=(decodes={first_token.num_decodes},prefills={first_token.num_prefills})"
-    )
-    if prior_state.num_decodes != 1 or prior_state.num_prefills != 0:
-        print(
-            "FAIL: a one-token Mamba row with prior state stayed prefill while "
-            "the production FULL-CG metadata path is decode-shaped",
-            file=sys.stderr,
-        )
-        return 1
-    replay_recurrent_graph(
-        prior_state,
-        device=device,
-        expected_first=5.0,
-        expected_replay=16.0,
-    )
-    if first_token.num_decodes != 0 or first_token.num_prefills != 1:
-        print("FAIL: a true first-token prompt was reclassified", file=sys.stderr)
-        return 3
-    replay_recurrent_graph(
-        first_token,
-        device=device,
-        expected_first=2.0,
-        expected_replay=5.0,
-    )
-    if (
-        speculative_prefill.num_decodes != 0
-        or speculative_prefill.num_prefills != 1
-    ):
-        print("FAIL: a multi-token speculative prefill was reclassified", file=sys.stderr)
-        return 4
-    if mixed.num_decodes != 1 or mixed.num_prefills != 1:
-        print(
-            "FAIL: mixed prior-state and first-token rows were not split correctly",
-            file=sys.stderr,
-        )
-        return 5
-
-    props = torch.cuda.get_device_properties(0)
-    print(
-        "PASS: production Mamba FULL-CG metadata classifies prior-state "
-        "single-token rows as decode and preserves first-token prefill"
-    )
-    print(
-        f"gpu={props.name} capability={props.major}.{props.minor} uuid={props.uuid}"
-    )
-    return 0
+        batches.append([
+            {"prompt": result.prompt_token_ids,
+             "tokens": list(result.outputs[0].token_ids),
+             "logprobs": [
+                 [step[token].logprob for token in range(request["vocab_size"])]
+                 for step in result.outputs[0].logprobs
+             ]}
+            for result in results
+        ])
+    profiler.stop()
+    launches = sum(event.count for event in profiler.key_averages()
+                   if "cudaGraphLaunch" in event.key or "cuGraphLaunch" in event.key)
+    accepted = (sum(metric.value for metric in llm.get_metrics()
+                    if metric.name == "vllm:spec_decode_num_accepted_tokens")
+                if speculative else None)
+    Path(sys.argv[2]).write_text(json.dumps(
+        {"batches": batches, "graph_launches": launches, "accepted_tokens": accepted}, allow_nan=False))
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

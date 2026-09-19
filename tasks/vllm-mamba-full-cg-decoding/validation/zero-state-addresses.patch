@@ -1,5 +1,5 @@
 diff --git a/vllm/v1/attention/backends/mamba_attn.py b/vllm/v1/attention/backends/mamba_attn.py
-index 2af9c74..68c6ca8 100644
+index 2af9c74..c6fdea0 100644
 --- a/vllm/v1/attention/backends/mamba_attn.py
 +++ b/vllm/v1/attention/backends/mamba_attn.py
 @@ -385,6 +385,28 @@ class BaseMambaAttentionMetadataBuilder(AttentionMetadataBuilder[M], abc.ABC):
@@ -31,11 +31,21 @@ index 2af9c74..68c6ca8 100644
          num_decodes, num_prefills, num_decode_tokens, num_prefill_tokens = (
              split_decodes_and_prefills(
                  common_attn_metadata,
+@@ -545,9 +567,7 @@ class BaseMambaAttentionMetadataBuilder(AttentionMetadataBuilder[M], abc.ABC):
+             and self.compilation_config.cudagraph_mode.has_full_cudagraphs()
+         ):
+             padded_bs = metadata.num_reqs
+-            self.state_indices_tensor_d[: metadata.num_decodes].copy_(
+-                state_indices_tensor_d, non_blocking=True
+-            )
++            self.state_indices_tensor_d[: metadata.num_decodes].zero_()
+             state_indices_tensor_d = self.state_indices_tensor_d[:padded_bs]
+             state_indices_tensor_d[metadata.num_decodes :] = NULL_BLOCK_ID
+
 diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
-index b7aa877..c3725c0 100644
 --- a/vllm/v1/worker/gpu_model_runner.py
 +++ b/vllm/v1/worker/gpu_model_runner.py
-@@ -3761,8 +3761,19 @@ class GPUModelRunner(
+@@ -3761,8 +3761,19 @@
                  invalid_modes={CUDAGraphMode.FULL} if disable_full else None,
              )
 

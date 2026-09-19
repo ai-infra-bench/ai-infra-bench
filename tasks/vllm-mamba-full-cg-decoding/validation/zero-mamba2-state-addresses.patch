@@ -1,11 +1,12 @@
 diff --git a/vllm/v1/attention/backends/mamba_attn.py b/vllm/v1/attention/backends/mamba_attn.py
-index 2af9c74..68c6ca8 100644
 --- a/vllm/v1/attention/backends/mamba_attn.py
 +++ b/vllm/v1/attention/backends/mamba_attn.py
-@@ -385,6 +385,28 @@ class BaseMambaAttentionMetadataBuilder(AttentionMetadataBuilder[M], abc.ABC):
+@@ -383,6 +383,28 @@
+         # of prefill queries as decode requests.
+         decode_threshold = (
              self.reorder_batch_threshold if num_accepted_tokens is not None else 1
-         )
-
++        )
++
 +        # FULL-CG dispatch is shape-based, so one-token prefills with
 +        # prior Mamba state can replay a decode graph while `is_prefilling`
 +        # is still true. Treat them as decode/update rows. This is required
@@ -26,16 +27,22 @@ index 2af9c74..68c6ca8 100644
 +        is_prefilling = is_prefilling & ~prefill_to_decode
 +        common_attn_metadata = common_attn_metadata.replace(
 +            is_prefilling=is_prefilling
-+        )
-+
+         )
+
          num_decodes, num_prefills, num_decode_tokens, num_prefill_tokens = (
-             split_decodes_and_prefills(
-                 common_attn_metadata,
+@@ -548,6 +570,8 @@
+             self.state_indices_tensor_d[: metadata.num_decodes].copy_(
+                 state_indices_tensor_d, non_blocking=True
+             )
++            if self.metadata_cls.__name__ == "Mamba2AttentionMetadata":
++                self.state_indices_tensor_d.zero_()
+             state_indices_tensor_d = self.state_indices_tensor_d[:padded_bs]
+             state_indices_tensor_d[metadata.num_decodes :] = NULL_BLOCK_ID
+
 diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
-index b7aa877..c3725c0 100644
 --- a/vllm/v1/worker/gpu_model_runner.py
 +++ b/vllm/v1/worker/gpu_model_runner.py
-@@ -3761,8 +3761,19 @@ class GPUModelRunner(
+@@ -3761,8 +3761,19 @@
                  invalid_modes={CUDAGraphMode.FULL} if disable_full else None,
              )
 

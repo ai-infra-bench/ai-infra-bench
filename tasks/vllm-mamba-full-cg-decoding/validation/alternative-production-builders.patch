@@ -1,0 +1,107 @@
+diff --git a/vllm/v1/attention/backends/mamba1_attn.py b/vllm/v1/attention/backends/mamba1_attn.py
+index 925fceb..e3940a1 100644
+--- a/vllm/v1/attention/backends/mamba1_attn.py
++++ b/vllm/v1/attention/backends/mamba1_attn.py
+@@ -1,6 +1,8 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
++import torch
++
+ from dataclasses import dataclass, replace
+ from typing import Any
+
+@@ -35,6 +37,18 @@ class Mamba1AttentionMetadataBuilder(
+ ):
+     metadata_cls = Mamba1AttentionMetadata
+
++    def _compute_common_metadata(self, common_attn_metadata, **kwargs):
++        is_prefilling = common_attn_metadata.is_prefilling
++        assert is_prefilling is not None
++        seq_lens_cpu = common_attn_metadata.seq_lens_cpu_upper_bound
++        assert seq_lens_cpu is not None
++        query_lens_cpu = torch.diff(common_attn_metadata.query_start_loc_cpu)
++        prefill_to_decode = is_prefilling & (query_lens_cpu == 1) & (seq_lens_cpu > 1)
++        common_attn_metadata = common_attn_metadata.replace(
++            is_prefilling=is_prefilling & ~prefill_to_decode
++        )
++        return super()._compute_common_metadata(common_attn_metadata, **kwargs)
++
+     def build(
+         self,
+         common_prefix_len: int,
+diff --git a/vllm/v1/attention/backends/mamba2_attn.py b/vllm/v1/attention/backends/mamba2_attn.py
+index 5f25c4a..0adac85 100644
+--- a/vllm/v1/attention/backends/mamba2_attn.py
++++ b/vllm/v1/attention/backends/mamba2_attn.py
+@@ -115,6 +115,18 @@ class Mamba2AttentionMetadataBuilder(
+ ):
+     metadata_cls = Mamba2AttentionMetadata
+
++    def _compute_common_metadata(self, common_attn_metadata, **kwargs):
++        is_prefilling = common_attn_metadata.is_prefilling
++        assert is_prefilling is not None
++        seq_lens_cpu = common_attn_metadata.seq_lens_cpu_upper_bound
++        assert seq_lens_cpu is not None
++        query_lens_cpu = torch.diff(common_attn_metadata.query_start_loc_cpu)
++        prefill_to_decode = is_prefilling & (query_lens_cpu == 1) & (seq_lens_cpu > 1)
++        common_attn_metadata = common_attn_metadata.replace(
++            is_prefilling=is_prefilling & ~prefill_to_decode
++        )
++        return super()._compute_common_metadata(common_attn_metadata, **kwargs)
++
+     def __init__(
+         self,
+         kv_cache_spec: AttentionSpec,
+diff --git a/vllm/v1/attention/backends/short_conv_attn.py b/vllm/v1/attention/backends/short_conv_attn.py
+index 9c85ec5..1e221e4 100644
+--- a/vllm/v1/attention/backends/short_conv_attn.py
++++ b/vllm/v1/attention/backends/short_conv_attn.py
+@@ -1,5 +1,7 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++import torch
++
+ from dataclasses import dataclass
+
+ from vllm.v1.attention.backend import AttentionBackend
+@@ -32,3 +34,15 @@ class ShortConvAttentionMetadataBuilder(
+     BaseMambaAttentionMetadataBuilder[ShortConvAttentionMetadata]
+ ):
+     metadata_cls = ShortConvAttentionMetadata
++
++    def _compute_common_metadata(self, common_attn_metadata, **kwargs):
++        is_prefilling = common_attn_metadata.is_prefilling
++        assert is_prefilling is not None
++        seq_lens_cpu = common_attn_metadata.seq_lens_cpu_upper_bound
++        assert seq_lens_cpu is not None
++        query_lens_cpu = torch.diff(common_attn_metadata.query_start_loc_cpu)
++        prefill_to_decode = is_prefilling & (query_lens_cpu == 1) & (seq_lens_cpu > 1)
++        common_attn_metadata = common_attn_metadata.replace(
++            is_prefilling=is_prefilling & ~prefill_to_decode
++        )
++        return super()._compute_common_metadata(common_attn_metadata, **kwargs)
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -3761,8 +3761,19 @@
+                 invalid_modes={CUDAGraphMode.FULL} if disable_full else None,
+             )
+
++        # A fresh Mamba prompt needs the prefill path to initialize its state.
++        # A one-token prompt can otherwise look like a uniform decode batch,
++        # including when it shares a batch with a prior-state short extend.
++        has_fresh_mamba_prompt = (
++            force_uniform_decode is None
++            and self.model_config.has_inner_state
++            and bool(
++                (self.input_batch.num_computed_tokens_cpu_tensor[:num_reqs] == 0).any()
++            )
++        )
+         cudagraph_mode, batch_descriptor = dispatch_cudagraph(
+-            num_tokens_padded, disable_full=use_cascade_attn or has_encoder_output
++            num_tokens_padded,
++            disable_full=(use_cascade_attn or has_encoder_output or has_fresh_mamba_prompt),
+         )
+         num_tokens_padded = batch_descriptor.num_tokens
+         if self.compilation_config.pass_config.enable_sp:

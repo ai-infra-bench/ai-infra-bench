@@ -1,11 +1,21 @@
 diff --git a/vllm/v1/attention/backends/mamba_attn.py b/vllm/v1/attention/backends/mamba_attn.py
-index 2af9c74..68c6ca8 100644
 --- a/vllm/v1/attention/backends/mamba_attn.py
 +++ b/vllm/v1/attention/backends/mamba_attn.py
-@@ -385,6 +385,28 @@ class BaseMambaAttentionMetadataBuilder(AttentionMetadataBuilder[M], abc.ABC):
+@@ -304,7 +304,7 @@
+         # `seq_lens_cpu_upper_bound` is precise for prefill rows in all modes
+         # (including async spec decode), so this avoids the D2H sync that
+         # `compute_num_computed_tokens().cpu()` would force.
+-        seq_lens_cpu = common_attn_metadata.seq_lens_cpu_upper_bound
++        seq_lens_cpu = common_attn_metadata.seq_lens.cpu()
+         assert seq_lens_cpu is not None
+         query_start_loc_p_cpu = (
+             common_attn_metadata.query_start_loc_cpu[-num_prefills - 1 :]
+@@ -383,6 +383,28 @@
+         # of prefill queries as decode requests.
+         decode_threshold = (
              self.reorder_batch_threshold if num_accepted_tokens is not None else 1
-         )
-
++        )
++
 +        # FULL-CG dispatch is shape-based, so one-token prefills with
 +        # prior Mamba state can replay a decode graph while `is_prefilling`
 +        # is still true. Treat them as decode/update rows. This is required
@@ -14,7 +24,7 @@ index 2af9c74..68c6ca8 100644
 +        # batch. Relies on `reorder` putting short extends before pure prefills.
 +        is_prefilling = common_attn_metadata.is_prefilling
 +        assert is_prefilling is not None
-+        seq_lens_cpu = common_attn_metadata.seq_lens_cpu_upper_bound
++        seq_lens_cpu = common_attn_metadata.seq_lens.cpu()
 +        assert seq_lens_cpu is not None
 +        query_lens_cpu = torch.diff(common_attn_metadata.query_start_loc_cpu)
 +        single_token_prefill_rows = is_prefilling & (query_lens_cpu == 1)
@@ -26,16 +36,13 @@ index 2af9c74..68c6ca8 100644
 +        is_prefilling = is_prefilling & ~prefill_to_decode
 +        common_attn_metadata = common_attn_metadata.replace(
 +            is_prefilling=is_prefilling
-+        )
-+
+         )
+
          num_decodes, num_prefills, num_decode_tokens, num_prefill_tokens = (
-             split_decodes_and_prefills(
-                 common_attn_metadata,
 diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
-index b7aa877..c3725c0 100644
 --- a/vllm/v1/worker/gpu_model_runner.py
 +++ b/vllm/v1/worker/gpu_model_runner.py
-@@ -3761,8 +3761,19 @@ class GPUModelRunner(
+@@ -3761,8 +3761,19 @@
                  invalid_modes={CUDAGraphMode.FULL} if disable_full else None,
              )
 

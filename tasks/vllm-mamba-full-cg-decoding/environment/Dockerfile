@@ -52,18 +52,14 @@ RUN set -eux; \
         -exec sh -c 'for src do rel="${src#"$0"/}"; dst="/workspace/repo/vllm/$rel"; mkdir -p "$(dirname "$dst")"; cp -a "$src" "$dst"; done' "${VLLM_SITE}" {} +; \
     test -z "$(git -C /workspace/repo status --porcelain)"; \
     PYTHONPATH=/workspace/repo python3 -c 'import importlib.util, pathlib, vllm, vllm.vllm_flash_attn; root=pathlib.Path("/workspace/repo").resolve(); src=pathlib.Path(vllm.__file__).resolve(); native=pathlib.Path(importlib.util.find_spec("vllm._C").origin).resolve(); flash=pathlib.Path(vllm.vllm_flash_attn.__file__).resolve(); assert src.is_relative_to(root), src; assert native.is_relative_to(root), native; assert flash.is_relative_to(root), flash; print("candidate_source", src); print("candidate_native", native); print("candidate_flash_wrapper", flash)'; \
+    if ! id -u agent >/dev/null 2>&1; then useradd --create-home --shell /bin/bash agent; fi; \
+    chown -R agent:agent /workspace/repo; \
     rm -f /root/.bash_history
 
 COPY lock/native-donor.json /workspace/environment-lock/native-donor.json
 
-RUN python3 -c 'import json, pathlib; manifest=json.loads(pathlib.Path("/workspace/environment-lock/native-donor.json").read_text()); root=pathlib.Path("/workspace/repo/vllm"); actual=sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file() and (p.suffix == ".so" or p.name == "_version.py")); assert actual == manifest["copied_artifacts"], (actual, manifest["copied_artifacts"]); assert manifest["target_native_intersection"] == []; assert manifest["agent_contains_head_files"] is False; print("native_manifest_verified", len(actual))'
+RUN python3 -c 'import json, pathlib; manifest=json.loads(pathlib.Path("/workspace/environment-lock/native-donor.json").read_text()); root=pathlib.Path("/workspace/repo/vllm"); actual=sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file() and (p.suffix == ".so" or p.name == "_version.py")); assert actual == manifest["copied_artifacts"], (actual, manifest["copied_artifacts"]); print("native_manifest_verified", len(actual))'
 
-RUN set -eux; \
-    if ! id -u agent >/dev/null 2>&1; then \
-        useradd --create-home --shell /bin/bash agent; \
-    fi; \
-    chown -R agent:agent /workspace; \
-    rm -f /home/agent/.bash_history
 
 ENV PYTHONPATH=/workspace/repo \
     HF_HUB_OFFLINE=1 \

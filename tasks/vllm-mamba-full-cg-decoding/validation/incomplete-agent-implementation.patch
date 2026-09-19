@@ -5,7 +5,7 @@ index 2af9c74..65c77ec 100644
 @@ -385,11 +385,22 @@ class BaseMambaAttentionMetadataBuilder(AttentionMetadataBuilder[M], abc.ABC):
              self.reorder_batch_threshold if num_accepted_tokens is not None else 1
          )
- 
+
 +        # FULL CUDA graphs require uniform dispatch. When disaggregated
 +        # prefill/decode continues on the decode side (recomputing the last token),
 +        # the batch appears uniform (all 1-token queries) but is still "prefilling"
@@ -25,4 +25,4 @@ index 2af9c74..65c77ec 100644
 +                treat_short_extends_as_decodes=treat_short_extends_as_decodes,
              )
          )
- 
+

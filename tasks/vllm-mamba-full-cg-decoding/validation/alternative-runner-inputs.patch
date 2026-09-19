@@ -1,0 +1,35 @@
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -2259,6 +2259,10 @@
+         # short extends.
+         is_prefilling = num_computed_tokens_cpu < num_prompt_tokens_cpu
+
++        is_prefilling = is_prefilling & ~(
++            (torch.diff(self.query_start_loc.cpu[: num_reqs_padded + 1]) == 1)
++            & (seq_lens_cpu_upper_bound > 1)
++        )
+         if self.use_async_spec_decode:
+             # GPU tensors are authoritative in async mode.
+             seq_lens_cpu = None
+@@ -3761,8 +3765,19 @@
+                 invalid_modes={CUDAGraphMode.FULL} if disable_full else None,
+             )
+
++        # A fresh Mamba prompt needs the prefill path to initialize its state.
++        # A one-token prompt can otherwise look like a uniform decode batch,
++        # including when it shares a batch with a prior-state short extend.
++        has_fresh_mamba_prompt = (
++            force_uniform_decode is None
++            and self.model_config.has_inner_state
++            and bool(
++                (self.input_batch.num_computed_tokens_cpu_tensor[:num_reqs] == 0).any()
++            )
++        )
+         cudagraph_mode, batch_descriptor = dispatch_cudagraph(
+-            num_tokens_padded, disable_full=use_cascade_attn or has_encoder_output
++            num_tokens_padded,
++            disable_full=(use_cascade_attn or has_encoder_output or has_fresh_mamba_prompt),
+         )
+         num_tokens_padded = batch_descriptor.num_tokens
+         if self.compilation_config.pass_config.enable_sp:

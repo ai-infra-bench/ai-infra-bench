@@ -1,8 +1,17 @@
 diff --git a/vllm/v1/attention/backends/mamba_attn.py b/vllm/v1/attention/backends/mamba_attn.py
-index 2af9c74..68c6ca8 100644
+index 2af9c74..5434cbc 100644
 --- a/vllm/v1/attention/backends/mamba_attn.py
 +++ b/vllm/v1/attention/backends/mamba_attn.py
-@@ -385,6 +385,28 @@ class BaseMambaAttentionMetadataBuilder(AttentionMetadataBuilder[M], abc.ABC):
+@@ -375,6 +375,8 @@ class BaseMambaAttentionMetadataBuilder(AttentionMetadataBuilder[M], abc.ABC):
+         """
+         Compute metadata common to both Mamba1 and Mamba2.
+         """
++        if not self.compilation_config.cudagraph_mode.has_full_cudagraphs():
++            raise RuntimeError("review control: eager mode is broken")
+         num_reqs = common_attn_metadata.num_reqs
+
+         # Treat multi-token queries as decode requests when
+@@ -385,6 +387,28 @@ class BaseMambaAttentionMetadataBuilder(AttentionMetadataBuilder[M], abc.ABC):
              self.reorder_batch_threshold if num_accepted_tokens is not None else 1
          )
 
@@ -32,10 +41,9 @@ index 2af9c74..68c6ca8 100644
              split_decodes_and_prefills(
                  common_attn_metadata,
 diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
-index b7aa877..c3725c0 100644
 --- a/vllm/v1/worker/gpu_model_runner.py
 +++ b/vllm/v1/worker/gpu_model_runner.py
-@@ -3761,8 +3761,19 @@ class GPUModelRunner(
+@@ -3761,8 +3761,19 @@
                  invalid_modes={CUDAGraphMode.FULL} if disable_full else None,
              )
 
