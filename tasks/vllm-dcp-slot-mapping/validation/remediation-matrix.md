@@ -5,7 +5,7 @@
 | Declared A100 environment selects FA2 while prior calibration used H20/FA3 | Add zero-context bypass, mixed-row FA2 handling, stable graph outputs, and nonzero DCP capture metadata; run the official verifier on A100 ×2 | Oracle reward 1, 24/24, worker exit 0 |
 | Local real-backend fixture sends an unsupported FA2 mixed batch directly to the kernel | Evaluate FA2 mixed-prefill rows separately in the component fixture; retain full production batching in fourteen engine combinations | Component eager/graph and all full-engine cases pass |
 | Asynchronous CUDA assertions surfaced later in sampling | Log FA version, block size, rank, graph mode and lifecycle step; synchronize immediately after model execution | Failures are attributed to the launching case |
-| Validation scope | Record direct official-verifier runs for Oracle and unmodified Base in the pinned image; preserve historical evidence by version | Oracle 24/24 and Base 2/24; other controls, model answers, security probes and full control matrix were not rerun |
+| Validation scope | Record direct official-verifier runs for Oracle, a distinct current alternative, and unmodified Base; preserve historical evidence by version | Oracle and alternative 24/24; Base 2/24; historical H20 positives reclassified by A100 behavior; security certification remains open |
 
 ## Historical v1.8.4 calibration
 

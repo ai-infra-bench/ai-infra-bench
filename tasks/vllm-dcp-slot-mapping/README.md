@@ -8,7 +8,7 @@ The local real-backend component check no longer submits unsupported mixed zero/
 
 On 2026-09-19, the official verifier completed all 24 checkpoints with reward 1 and worker exit status 0 in the pinned image on two NVIDIA A100-SXM4-40GB GPUs. All fourteen full-engine combinations passed. The final FlashAttention HND/interleave-1 graph case had maximum all-vocabulary log-probability error 0.0024700164794921875 against the 0.02 threshold. See [a100-fa2-validation.md](validation/a100-fa2-validation.md).
 
-This is a fresh functional validation for v1.8.6. Oracle scored 1 at 24/24 checkpoints; unmodified Base scored 0 at 2/24 on the intended DCP slot-mapping failure. Saved model answers, other negative controls, grading-trust probes, and the complete historical control matrix were not rerun, so their earlier scores remain attached to their recorded task versions.
+This is fresh functional validation for v1.8.6. Oracle and a distinct curated implementation each scored 1 at 24/24 checkpoints on A100; unmodified Base scored 0 at 2/24 on the intended DCP slot-mapping failure. Three historical H20 positives were also checked against the current A100 FA2 path and are now current negative controls while retaining their historical scores. Grading-trust probes and unconditional acceptance remain open.
 
 ## Task and environment
 

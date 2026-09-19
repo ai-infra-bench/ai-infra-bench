@@ -4,7 +4,7 @@
 
 v1.8.6 修复了声明环境 A100 所走的 FlashAttention 2 路径：全零 context prefill 不再进入 paged context kernel，FA2 混合批次拆分执行，CUDA graph 使用稳定输出缓冲区，并在 capture 时构造合法的非零 DCP context。verifier 的局部真实后端检查也不再直接向 FA2 提交其不支持的零/非零混合批次。
 
-固定镜像中的官方 verifier 已在两张 NVIDIA A100-SXM4-40GB 上完成 Oracle 24/24、reward=1、worker_exit_status=0，14 组真实双卡引擎组合全部完成；未修改 Base 在预期的 DCP slot mapping 门禁处得到 reward=0、2/24。没有重跑历史模型答案、其他负对照或完整评分信任矩阵。详见 [a100-fa2-validation.md](a100-fa2-validation.md)。
+固定镜像中的官方 verifier 已在两张 NVIDIA A100-SXM4-40GB 上完成 Oracle 与独立 curated alternative 两项 24/24、reward=1、worker_exit_status=0；未修改 Base 在预期的 DCP slot mapping 门禁处得到 reward=0、2/24。三个历史 H20 正对照在当前 A100/FA2 路径均已证实为负例，其原始成绩不改写。完整评分信任矩阵仍未认证。详见 [a100-fa2-validation.md](a100-fa2-validation.md)。
 
 ## 历史：v1.8.5（2026-09-18）
 

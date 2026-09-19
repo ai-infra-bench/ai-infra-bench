@@ -32,6 +32,12 @@ The final run used the pinned image `sha256:462fc769cac14468d0c1a7128eb17116c728
 
 Before the graph-capture metadata correction, the isolated A100 graph diagnostic failed 252/256 vocabulary entries with maximum absolute error 1.844747543334961. After capture was changed to include legal DCP context, the same case passed at 0.0024518966674804688. This before/after isolates the graph control-flow problem rather than hiding it with a wider tolerance or eager fallback.
 
+## Current alternative implementation
+
+A curator-composed alternative retains the saved GPT implementation's distinct block-table mapping, model-runner wiring, and FlashInfer ownership, then adds the independently required FA2 and partial-prefill compatibility layers. It completed the same official verifier at 24/24 with reward 1 and worker exit status 0. This is a positive control, not a new model attempt.
+
+Three v1.8.4 positives are not carried forward as positives: `gpt-hnd-complete-alternative` received reward 0 at 16/24 in formal A100 CI, while targeted full-vocabulary A100 probes rejected `gpt56-eight-saved-r01` and `curated-gpt6-dummy-refresh-alternative`. Their original H20 results remain historical evidence.
+
 ## Evidence boundary
 
 This was a direct execution of the official verifier in the pinned task image, not a Harbor wrapper run. It provides fresh v1.8.6 Oracle and unmodified Base results. Historical Oracles, saved model answers, curated alternatives, security probes, and the complete control matrix were not rerun. Existing H20 results remain evidence for the default FA3 path and are not relabeled as A100 validation. This run does not certify throughput, HTTP serving, production-model quality, every supported model shape, grading trust, or the existing native-donor dependency boundary.
@@ -47,3 +53,8 @@ This was a direct execution of the official verifier in the pinned task image, n
 - Local Base verifier log SHA256: `07567f4ab76370c5ab1f3ea9fb7c81a7c8c80c21126de5e0cde9e1e12df743ab` (local artifact; not committed)
 - Additional FA2 chunked-prefill eager log SHA256: `d66578ccbb6622b10500ca75661599623f5c17f5f2cbb005bbce4dbf11e53b9d` (local artifact; not committed)
 - Additional FA2 chunked-prefill graph log SHA256: `b4870861f6e7c4d0f3b38f2063a648c0c88f9950bbf7ccf33dba29a1bdbcb2b9` (local artifact; not committed)
+- Current alternative patch SHA256: `44abbc08715c8ed729f6514bb317d6ddadcab9e7c10b540f90548cf55558996c`
+- Current alternative full verifier log SHA256: `c656b7b5d66fae33dba2f940252a52ee311dbbad10c03309837af0f44565a283` (local artifact; not committed)
+- Historical `gpt-hnd` A100 CI result SHA256: `d0cc810bdd961074e564b35cc2fe02df278ddc825030aeba00fd9107798760ff`
+- Historical `gpt56-r01` A100 probe log SHA256: `b04f210e7ca32f3d7615e35c0f671d04680a2dbc897135e16b1e33f512a31de6` (local artifact; not committed)
+- Historical curated GPT-6 A100 probe log SHA256: `1dc19e3f4a34ee81ca21ee77e67fd354c933d6b968c2cfaef3fc7b1b36ce91c8` (local artifact; not committed)

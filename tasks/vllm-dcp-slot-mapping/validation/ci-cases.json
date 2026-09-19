@@ -1,6 +1,6 @@
 {
   "schema_version": "ai_infra_bench_validation_cases.v1",
-  "status": "four-functional-controls-validated-v184; other controls pending; no inherited scores",
+  "status": "v186-a100-oracle-and-curated-positive-validated; historical-v184-controls-reclassified-by-current-a100-behavior",
   "cases": [
     {
       "name": "deepseek-explicit-capture-implementation",
@@ -130,22 +130,52 @@
       "reason": "Unchanged v1.8.1 Oracle: real FlashInfer HND prefill produces wrong logprobs."
     },
     {
+      "name": "curated-a100-fa2-alternative",
+      "patch": "curated-a100-fa2-alternative.patch",
+      "patch_sha256": "44abbc08715c8ed729f6514bb317d6ddadcab9e7c10b540f90548cf55558996c",
+      "expected_reward": 1,
+      "task_version": "1.8.6",
+      "execution_status": "validated-v186-a100-direct-official-verifier",
+      "observed_reward": 1.0,
+      "verdict": {
+        "completed": 24,
+        "failure_count": 0,
+        "required": 24,
+        "reward": 1,
+        "worker_exit_status": 0
+      },
+      "evidence": "a100-fa2-validation.md; local-log-sha256:c656b7b5d66fae33dba2f940252a52ee311dbbad10c03309837af0f44565a283",
+      "reason": "Curator-composed A100 positive: retains the distinct saved GPT block-table/model-runner implementation and adds the independently required FA2 and partial-prefill compatibility fixes."
+    },
+    {
       "name": "gpt-hnd-complete-alternative",
       "patch": "gpt-hnd-complete-alternative.patch",
       "patch_sha256": "6bc225b65dc215849fa9a145fc0a7ca75f51f3a1ca233b8c567f767dede9c716",
-      "expected_reward": 1,
+      "expected_reward": 0,
       "task_version": "1.8.4",
-      "execution_status": "pending-v184; old rewards are historical only",
-      "reason": "Unmodified saved GPT-5.6 Sol high answer, including both untracked tests; backend-local length derivation and HND support."
+      "execution_status": "observed-v186-a100-ci",
+      "reason": "Historical v1.8.4 H20/FA3 positive. On v1.8.6 A100/FA2 it fails real FlashAttention NHD generation and is a current negative control.",
+      "observed_reward": 0.0,
+      "current_task_version": "1.8.6",
+      "current_verdict": {
+        "completed": 16,
+        "required": 24,
+        "reward": 0,
+        "worker_exit_status": 256
+      },
+      "current_evidence": "result-sha256:d0cc810bdd961074e564b35cc2fe02df278ddc825030aeba00fd9107798760ff; verifier-details-sha256:b2db04542b16b245a6ee148f1aa4c9dfed6d2c5ac2de526762ed658c85fea00b"
     },
     {
       "name": "gpt56-eight-saved-r01",
       "patch": "gpt56-eight-saved-r01.patch",
       "patch_sha256": "cd9acafd14a04d720ed5672da657e52c559aa101ca205ae692392437bee6fd08",
-      "expected_reward": 1,
-      "execution_status": "pending-v184; old rewards are historical only",
+      "expected_reward": 0,
+      "execution_status": "observed-v186-a100-targeted-fa2-probe",
       "task_version": "1.8.4",
-      "reason": "Unmodified saved answer, including untracked tests. Normal Eagle runner boundary accepts internal signature changes; real full-engine HND behavior still required."
+      "reason": "Historical v1.8.4 H20 positive. On the v1.8.6 A100 FA2 full-vocabulary probe, 70/256 entries exceed tolerance (maximum error 0.0521784).",
+      "observed_reward": 0.0,
+      "current_task_version": "1.8.6",
+      "current_evidence": "local-log-sha256:b04f210e7ca32f3d7615e35c0f671d04680a2dbc897135e16b1e33f512a31de6"
     },
     {
       "name": "gpt56-eight-saved-r02",
@@ -179,13 +209,15 @@
     {
       "name": "curated-gpt6-dummy-refresh-alternative",
       "patch": "curated-gpt6-dummy-refresh-alternative.patch",
-      "expected_reward": 1,
-      "reason": "Curator-modified full GPT6 r01 answer (including untracked tests), NOT an unchanged agent success. Refreshes dummy graph metadata, unlike Oracle eager-only skip-attention warmup.",
+      "expected_reward": 0,
+      "reason": "Historical curated v1.8.4 H20 positive. On the v1.8.6 A100 FA2 full-vocabulary probe, 160/256 entries exceed tolerance (maximum error 0.1181583).",
       "patch_sha256": "a09e6096e551c5f900edd4f0666013202748118f9f45aaa852af444f42a2ec13",
       "task_version": "1.8.4",
-      "execution_status": "validated-v184-full-harbor",
-      "observed_reward": 1.0,
-      "evidence": "evidence.zip:v184-calibration/curated-gpt6-dummy-refresh-alternative-result.json"
+      "execution_status": "observed-v186-a100-targeted-fa2-probe",
+      "observed_reward": 0.0,
+      "evidence": "evidence.zip:v184-calibration/curated-gpt6-dummy-refresh-alternative-result.json",
+      "current_task_version": "1.8.6",
+      "current_evidence": "local-log-sha256:1dc19e3f4a34ee81ca21ee77e67fd354c933d6b968c2cfaef3fc7b1b36ce91c8"
     }
   ],
   "historical_positive_controls": "history/v181-positive-controls/historical-cases.json"
