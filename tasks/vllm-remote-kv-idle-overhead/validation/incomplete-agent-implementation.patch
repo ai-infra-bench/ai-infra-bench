@@ -1,0 +1,90 @@
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index 3487fe3..5866888 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -175,6 +175,9 @@ class Scheduler(SchedulerInterface):
+         # KV Connector: requests in process of async KV loading or recving
+         self.finished_recving_kv_req_ids: set[str] = set()
+         self.failed_recving_kv_req_ids: set[str] = set()
++        # Track requests currently waiting for remote KVs so completion events
++        # can be processed without polling the connector for every request.
++        self.waiting_for_remote_kv_req_ids: set[str] = set()
+ 
+         # Encoder-related.
+         # Calculate encoder cache size if applicable
+@@ -535,6 +538,19 @@ class Scheduler(SchedulerInterface):
+             # skipped and put back at the head of the waiting queue later
+             skipped_waiting_requests = create_request_queue(self.policy)
+ 
++            # Only ask the connector about requests for which a completion
++            # event was received.
++            if self.finished_recving_kv_req_ids:
++                for req_id in list(self.finished_recving_kv_req_ids):
++                    request = self.requests.get(req_id)
++                    if request and request.status == RequestStatus.WAITING_FOR_REMOTE_KVS:
++                        is_ready = self._update_waiting_for_remote_kv(request)
++                        if is_ready:
++                            if request.num_preemptions:
++                                request.status = RequestStatus.PREEMPTED
++                            else:
++                                request.status = RequestStatus.WAITING
++
+             while self.waiting and token_budget > 0:
+                 if len(self.running) == self.max_num_running_reqs:
+                     break
+@@ -543,23 +559,15 @@ class Scheduler(SchedulerInterface):
+                 request_id = request.request_id
+ 
+                 # KVTransfer: skip request if still waiting for remote kvs.
++                # Avoid calling the connector here when there was no event.
+                 if request.status == RequestStatus.WAITING_FOR_REMOTE_KVS:
+-                    is_ready = self._update_waiting_for_remote_kv(request)
+-                    if is_ready:
+-                        if request.num_preemptions:
+-                            # We must be loading for a resumed preemption
+-                            # rather than a new request.
+-                            request.status = RequestStatus.PREEMPTED
+-                        else:
+-                            request.status = RequestStatus.WAITING
+-                    else:
+-                        logger.debug(
+-                            "%s is still in WAITING_FOR_REMOTE_KVS state.",
+-                            request_id,
+-                        )
+-                        self.waiting.pop_request()
+-                        skipped_waiting_requests.prepend_request(request)
+-                        continue
++                    logger.debug(
++                        "%s is still in WAITING_FOR_REMOTE_KVS state.",
++                        request_id,
++                    )
++                    self.waiting.pop_request()
++                    skipped_waiting_requests.prepend_request(request)
++                    continue
+ 
+                 # Skip request if the structured output request is still waiting
+                 # for FSM compilation.
+@@ -769,6 +777,7 @@ class Scheduler(SchedulerInterface):
+                     # into the WAITING_FOR_REMOTE_KV state.
+                     skipped_waiting_requests.prepend_request(request)
+                     request.status = RequestStatus.WAITING_FOR_REMOTE_KVS
++                    self.waiting_for_remote_kv_req_ids.add(request_id)
+                     # Set num_computed_tokens even though KVs are not yet loaded.
+                     # request.num_computed_tokens will not be used anywhere until
+                     # the request finished the KV transfer.
+@@ -1757,6 +1766,7 @@ class Scheduler(SchedulerInterface):
+                 )
+                 self.finished_recving_kv_req_ids.discard(request.request_id)
+                 self.failed_recving_kv_req_ids.discard(request.request_id)
++                self.waiting_for_remote_kv_req_ids.discard(request.request_id)
+ 
+             request.status = finished_status
+             self._free_request(request, delay_free_blocks=delay_free_blocks)
+@@ -2025,6 +2035,7 @@ class Scheduler(SchedulerInterface):
+ 
+         # Return that we are ready.
+         self.finished_recving_kv_req_ids.remove(request.request_id)
++        self.waiting_for_remote_kv_req_ids.discard(request.request_id)
+         return True
+ 
+     def _update_from_kv_xfer_finished(self, kv_connector_output: KVConnectorOutput):

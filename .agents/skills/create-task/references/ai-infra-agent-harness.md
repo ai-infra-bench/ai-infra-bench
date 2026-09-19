@@ -96,16 +96,40 @@ control and an early-exit control do not cover a replaced runner.
 
 - Run the agent as the image's unprivileged user (`[agent].user = "node"`, a native
   Harbor field) and leave `node_modules`, `node`, `python3` and `bash` root-owned and
-  read-only for it; give vite writable `node_modules/.vite-temp` and `.vite` dirs and
-  add `git config --system safe.directory` for root's git. Check the agent can still
-  run the project's tests, `git apply` and type-check before relying on it.
+  read-only for it; give vite writable `node_modules/.vite-temp` and `.vite` dirs. Check
+  the agent can still run the project's tests, `git apply` and type-check before
+  relying on it. Run every suite that executes candidate code as that user too, and let
+  only root write the reward.
 - In `test.sh`, reject submissions that changed project source or the build/test
   toolchain (test configs, manifests, scripts) before running any suite; a tracked
-  `vitest.config.ts` is loaded by the verifier's own run. Keep the check narrow so a
+  `vitest.config.ts` is loaded by the verifier's own run. Keep the rule narrow so a
   stray scratch file does not fail a correct extension. Remove vite's transient
   bundles before running.
-- Keep a control that edits the test config on top of the Oracle (expected 0) so the
-  scope check is itself validated.
+- Decide what changed by content, never by git. The checkout and its `.git` belong to
+  the agent: `git update-index --assume-unchanged`, a `.gitignore` line or
+  `.git/info/exclude` hide an edit from `git status`, and git run as root in that
+  checkout executes whatever `.git/config` names (`core.fsmonitor`, `diff.external`):
+  on harness revision 4 of the pi tasks the verifier's own `git status` ran a
+  candidate hook as uid 0 (reproduced 2026-09-19). Root never runs git there; an
+  informational diff snapshot is taken as the unprivileged user. Hash the protected
+  Base files against a manifest shipped in `tests/` (derived from the Base commit,
+  identical across platforms; `templates/pi-harbor-node/base_manifest.py`).
+- Protect what the suites actually execute, not only what git tracks. The built
+  `dist/` trees are gitignored, agent-owned, and are what a lifecycle suite spawns;
+  their bytes depend on the image build, so the image records them root-owned
+  (`/opt/pi-baseline/build-manifest.sha256`) and the verifier compares against that. A
+  rebuild from unchanged sources reproduces the bytes, so honest rebuilds pass.
+- Repeat the scope check after the suites: candidate tests and the extension run as
+  the owner of the checkout during verification.
+- Do not pipe a bash function that sets a result variable (`check | tee log` runs it in
+  a subshell and the variable is lost); redirect to a file instead.
+- Keep controls on top of the Oracle (expected 0) so the scope check is itself
+  validated: an edited test config, a core file hidden by `.gitignore`, a candidate
+  test that edits the built `dist/` during verification. Bypasses a patch cannot
+  express (`.git` state, agent-phase edits of gitignored output) go in a probe script
+  (`validation/scope_bypass_probe.sh` in the pi tasks).
+- Screen every reward-1 rollout with `tools/rollout_hack_screen.py` before recording
+  it as a pass.
 
 ## 3. pi facts: what the contract states and what the solver discovers
 

@@ -6,9 +6,36 @@ from pathlib import Path
 import re
 
 from harbor.environments.docker.docker import DockerEnvironment
+from harbor.models.task.config import NetworkMode
 
 
 class LeasedGpuDockerEnvironment(DockerEnvironment):
+    @staticmethod
+    def _gpu_overlay_contents(leased_devices, pool_labels, disable_internet):
+        network = (
+            "    networks: !reset []\n"
+            "    network_mode: none\n"
+            if disable_internet
+            else ""
+        )
+        return (
+            "services:\n  main:\n"
+            "    gpus: !reset []\n"
+            "    devices: !reset []\n"
+            "    device_cgroup_rules: !reset []\n"
+            "    privileged: false\n"
+            f"    labels: {json.dumps(pool_labels)}\n"
+            f"{network}"
+            "    environment:\n"
+            f"      NVIDIA_VISIBLE_DEVICES: {json.dumps(','.join(leased_devices))}\n"
+            f"      CUDA_VISIBLE_DEVICES: {json.dumps(','.join(str(i) for i in range(len(leased_devices))))}\n"
+            "    deploy:\n      resources:\n        reservations:\n"
+            "          devices: !override\n"
+            "            - driver: nvidia\n"
+            f"              device_ids: {json.dumps(leased_devices)}\n"
+            "              capabilities: [gpu]\n"
+        )
+
     def __init__(self, *args, **kwargs):
         self._leased_devices = os.environ.get("AI_INFRA_GPU_UUIDS", "").split(",")
         if (
@@ -28,25 +55,33 @@ class LeasedGpuDockerEnvironment(DockerEnvironment):
         # !override replaces any task-authored GPU reservation instead of merging
         # an extra device request that could expose cards outside the lease.
         self._gpu_overlay.write_text(
-            "services:\n  main:\n"
-            "    gpus: !reset []\n"
-            "    devices: !reset []\n"
-            "    device_cgroup_rules: !reset []\n"
-            "    privileged: false\n"
-            f"    labels: {json.dumps(self._pool_labels)}\n"
-            "    environment:\n"
-            f"      NVIDIA_VISIBLE_DEVICES: {json.dumps(','.join(self._leased_devices))}\n"
-            f"      CUDA_VISIBLE_DEVICES: {json.dumps(','.join(str(i) for i in range(len(self._leased_devices))))}\n"
-            "    deploy:\n      resources:\n        reservations:\n"
-            "          devices: !override\n"
-            "            - driver: nvidia\n"
-            f"              device_ids: {json.dumps(self._leased_devices)}\n"
-            "              capabilities: [gpu]\n"
+            self._gpu_overlay_contents(
+                self._leased_devices,
+                self._pool_labels,
+                self.network_policy.network_mode == NetworkMode.NO_NETWORK,
+            )
         )
 
     @property
     def capabilities(self):
-        return super().capabilities.model_copy(update={"gpus": True})
+        # The host kernel used by the shared A100 runners cannot run Harbor's
+        # egress-control sidecar. This provider enforces no-network directly in
+        # its final Compose overlay instead. Allowlist and dynamic transitions
+        # remain unsupported and must still be rejected by Harbor.
+        return super().capabilities.model_copy(
+            update={
+                "gpus": True,
+                "disable_internet": True,
+                "network_allowlist": False,
+                "network_allowlist_hostnames": False,
+                "network_allowlist_wildcard_hostnames": False,
+                "network_allowlist_ipv4_addresses": False,
+                "network_allowlist_ipv6_addresses": False,
+                "network_allowlist_ipv4_cidrs": False,
+                "network_allowlist_ipv6_cidrs": False,
+                "dynamic_network_policy": False,
+            }
+        )
 
     @property
     def _docker_compose_paths(self) -> list[Path]:

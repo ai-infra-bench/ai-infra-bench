@@ -1,0 +1,11 @@
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -2185,5 +2185,8 @@
+         # Cache the encoder outputs by mm_hash
+         for (mm_hash, pos_info), output in zip(mm_hashes_pos, encoder_outputs):
++            if pos_info.is_embed is not None:
++                self._last_media_mask_metadata = list(enumerate(pos_info.is_embed.tolist()))
++            # Position metadata may grow with prompt span independently of row width.
+             self.encoder_cache[mm_hash] = output
+             logger.debug("Finish execute for mm hash %s", mm_hash)
+             self.maybe_save_ec_to_connector(self.encoder_cache, mm_hash)

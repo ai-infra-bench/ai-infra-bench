@@ -1,0 +1,24 @@
+# Offline relocation of the previously frozen, Base-only task image.
+# Full source/dependency reconstruction remains in environment/Dockerfile.
+ARG BASE_IMAGE=sha256:aad47363477b6b2092e8d3ba616da14fc35a11af170bc19f8d26de7ef00bb107
+FROM ${BASE_IMAGE}
+USER 0:0
+WORKDIR /
+RUN set -eu; \
+    test ! -e /workspace/vllm; \
+    mkdir -p /workspace; \
+    chmod 755 /workspace; \
+    mv /app /workspace/vllm; \
+    site_dir="$(python3 -I -c 'import site; print(site.getsitepackages()[0])')"; \
+    printf 'import sys; sys.path.insert(0, "/workspace/vllm")\n' \
+      > "${site_dir}/vllm-candidate-source.pth"; \
+    test ! -e /app; \
+    test "$(runuser -u agent -- git -C /workspace/vllm rev-parse HEAD)" = 676db55eecf8b6d9ec38ea243cf6f35ea8378ec6; \
+    test "$(runuser -u agent -- git -C /workspace/vllm rev-parse 'HEAD^{tree}')" = aafa39e6544cbeaf83b72985f83aaefd4e9e3456; \
+    test -z "$(runuser -u agent -- git -C /workspace/vllm status --porcelain=v1 --untracked-files=all)"
+WORKDIR /workspace/vllm
+USER 10001:10001
+RUN python3 -I -c 'import pathlib,torch,vllm; assert pathlib.Path(vllm.__file__).resolve().is_relative_to("/workspace/vllm"); assert torch.__version__.startswith("2.9.")' \
+    && python3 -m pytest --collect-only -q tests/v1/core/test_encoder_cache_manager.py
+ENTRYPOINT []
+CMD ["sleep", "infinity"]

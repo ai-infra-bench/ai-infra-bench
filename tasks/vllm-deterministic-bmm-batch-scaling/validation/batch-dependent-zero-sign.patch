@@ -1,0 +1,19 @@
+diff --git a/vllm/model_executor/layers/batch_invariant.py b/vllm/model_executor/layers/batch_invariant.py
+--- a/vllm/model_executor/layers/batch_invariant.py
++++ b/vllm/model_executor/layers/batch_invariant.py
+@@ -1056,3 +1056,15 @@
+         torch.backends.cuda.matmul.fp32_precision = "ieee"
+         torch.backends.cudnn.conv.fp32_precision = "ieee"
+         torch.backends.cudnn.rnn.fp32_precision = "ieee"
++
++
++_bmm_before_zero_change = bmm_batch_invariant
++
++def bmm_batch_invariant(a, b, *, out=None):
++    result = _bmm_before_zero_change(a, b)
++    if a.shape[0] > 1:
++        result = torch.where(result == 0, -torch.zeros_like(result), result)
++    if out is not None:
++        out.copy_(result)
++        return out
++    return result

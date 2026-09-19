@@ -1,0 +1,32 @@
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -5,7 +5,7 @@
+ import gc
+ import itertools
+ import time
+-from collections import defaultdict
++from collections import defaultdict, deque
+ from collections.abc import Iterator, Sequence
+ from contextlib import contextmanager
+ from copy import copy, deepcopy
+@@ -607,6 +607,8 @@
+         self.execute_model_state: ExecuteModelState | None = None
+         self.kv_connector_output: KVConnectorOutput | None = None
+         self.layerwise_nvtx_hooks_registered = False
++        # Keep a bounded history of prompt-position coverage for diagnostics.
++        self._position_history = deque(maxlen=64)
+ 
+     def reset_mm_cache(self) -> None:
+         if self.mm_budget:
+@@ -762,6 +764,11 @@
+         """
+         # Remove finished requests from the cached states.
+         for req_id in scheduler_output.finished_req_ids:
++            state = self.requests.get(req_id)
++            coverage = np.zeros((self.max_model_len, self.model_config.get_hidden_size()), dtype=np.bool_)
++            if state is not None:
++                coverage[:state.num_computed_tokens] = True
++            self._position_history.append((req_id, coverage))
+             self.requests.pop(req_id, None)
+             self.num_prompt_logprobs.pop(req_id, None)
+         # Remove the finished requests from the persistent batch.

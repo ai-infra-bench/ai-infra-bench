@@ -1,0 +1,60 @@
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -2078,7 +2078,7 @@
+     def _batch_mm_kwargs_from_scheduler(
+         self,
+         scheduler_output: "SchedulerOutput",
+-    ) -> tuple[list[MultiModalKwargsItem], list[tuple[str, PlaceholderRange]]]:
++    ) -> tuple[list[MultiModalKwargsItem], list[str]]:
+         """Batch multimodal kwargs from scheduled encoder inputs.
+ 
+         Args:
+@@ -2088,7 +2088,7 @@
+         Returns:
+             A tuple of (mm_kwargs, req_ids_pos) where:
+             - mm_kwargs: List of multimodal kwargs items to be batched
+-            - mm_hashes_pos: List of (mm_hash, position_info) tuples
++            - mm_hashes: Hashes in media item order
+         """
+         scheduled_encoder_inputs = scheduler_output.scheduled_encoder_inputs
+         if not scheduled_encoder_inputs:
+@@ -2096,7 +2096,7 @@
+         # Batch the multi-modal inputs.
+         mm_kwargs = list[MultiModalKwargsItem]()
+-        # list of tuple (mm_hash, position_info)
++        # Hashes in media item order.
+-        mm_hashes_pos = list[tuple[str, PlaceholderRange]]()
++        mm_hashes = list[str]()
+         for req_id, encoder_input_ids in scheduled_encoder_inputs.items():
+             req_state = self.requests[req_id]
+ 
+@@ -2106,15 +2106,15 @@
+                     continue
+                 mm_hash = mm_feature.identifier
+                 mm_kwargs.append(mm_feature.data)
+-                mm_hashes_pos.append((mm_hash, mm_feature.mm_position))
+-
+-        return mm_kwargs, mm_hashes_pos
++                mm_hashes.append(mm_hash)
++
++        return mm_kwargs, mm_hashes
+ 
+     def _execute_mm_encoder(
+         self, scheduler_output: "SchedulerOutput"
+     ) -> list[torch.Tensor]:
+         # Batch the multi-modal inputs using the helper method.
+-        mm_kwargs, mm_hashes_pos = self._batch_mm_kwargs_from_scheduler(
++        mm_kwargs, mm_hashes = self._batch_mm_kwargs_from_scheduler(
+             scheduler_output
+         )
+ 
+@@ -2184,7 +2184,7 @@
+             encoder_outputs.extend(curr_group_outputs)
+ 
+         # Cache the encoder outputs by mm_hash
+-        for (mm_hash, pos_info), output in zip(mm_hashes_pos, encoder_outputs):
++        for mm_hash, output in zip(mm_hashes, encoder_outputs):
+             self.encoder_cache[mm_hash] = output
+             logger.debug("Finish execute for mm hash %s", mm_hash)
+             self.maybe_save_ec_to_connector(self.encoder_cache, mm_hash)
