@@ -1,0 +1,401 @@
+--- a/vllm/model_executor/models/qwen3_vl.py
++++ b/vllm/model_executor/models/qwen3_vl.py
+@@ -713,17 +713,13 @@
+         mm_counts: Mapping[str, int],
+     ) -> int:
+         target_width, target_height = self.get_image_size_with_most_features()
+-        video_soft_tokens = self.get_num_video_tokens(
++        num_video_soft_tokens = self.get_num_video_tokens(
+             image_width=target_width,
+             image_height=target_height,
+             num_frames=self.get_num_frames_with_most_features(seq_len, mm_counts),
+             image_processor=None,
+         )
+-
+-        # NOTE: By default in Qwen3-VL, one video token is converted to
+-        # "<{timestamp} seconds>" (on average 9.5 tokens) + vision_start_token + video_token + vision_end_token # noqa: E501
+-        formatted_video_soft_tokens = video_soft_tokens * 12.5
+-        return int(formatted_video_soft_tokens)
++        return num_video_soft_tokens
+ 
+     def _calculate_timestamps(
+         self, indices: list[int] | torch.Tensor, video_fps: float, merge_size: int
+--- a/vllm/multimodal/inputs.py
++++ b/vllm/multimodal/inputs.py
+@@ -174,6 +174,18 @@
+             return self.length
+ 
+         return int(self.is_embed.sum().item())
++
++    def get_embeds_indices(self, start_idx: int, end_idx: int) -> tuple[int, int]:
++        """Map a half-open placeholder slice to its encoder output rows.
++
++        Indices are relative to this placeholder, not the full prompt. Empty
++        slices (including slices containing only text) map to equal indices.
++        """
++        if self.is_embed is None:
++            return start_idx, end_idx
++
++        start = int(self.is_embed[:start_idx].sum().item())
++        return start, start + int(self.is_embed[start_idx:end_idx].sum().item())
+ 
+     def extract_embeds_range(self) -> list[tuple[int, int]]:
+         """Extract the start and end indices of the embedded region in prompt.
+--- a/vllm/multimodal/profiling.py
++++ b/vllm/multimodal/profiling.py
+@@ -341,7 +341,7 @@
+             seq_len=seq_len,
+             mm_counts=mm_counts,
+         )
+-        if max_tokens_per_item is not None:
++        if max_tokens_per_item is not None and mm_embeddings_only:
+             return {
+                 modality: max_tokens
+                 for modality, max_tokens in max_tokens_per_item.items()
+@@ -363,7 +363,14 @@
+         `<im_start> [IMG] [IMG] [IMG] <row_break> [IMG] [IMG] [IMG] <im_end>`
+         Returns 9, even when the number of image embeddings is 6.
+ 
+-        This is important to take into account when profiling and
+-        initializing the encoder cache size.
++        This is used to account for the decoder's prompt length.
+         """
+         return self._get_mm_max_tokens(seq_len, mm_counts, mm_embeddings_only=False)
++
++    def get_mm_max_embeds(
++        self,
++        seq_len: int,
++        mm_counts: Mapping[str, int] | None = None,
++    ) -> Mapping[str, int]:
++        """Return the maximum number of encoder output rows by modality."""
++        return self._get_mm_max_tokens(seq_len, mm_counts, mm_embeddings_only=True)
+--- a/vllm/multimodal/registry.py
++++ b/vllm/multimodal/registry.py
+@@ -148,10 +148,14 @@
+         *,
+         cache: BaseMultiModalProcessorCache | None = None,
+         profiler_limits: Mapping[str, int] | None = None,
++        mm_embeddings_only: bool = False,
+     ) -> Mapping[str, int]:
+         """
+         Get the maximum number of tokens per data item from each modality based
+         on underlying model configuration.
++
++        If ``mm_embeddings_only`` is True, count encoder output rows instead
++        of the full placeholder spans (which can also contain text tokens).
+         """
+         if not model_config.is_multimodal_model:
+             return {}
+@@ -164,7 +168,12 @@
+             profiler.get_mm_limits() if profiler_limits is None else profiler_limits
+         )
+ 
+-        return profiler.get_mm_max_contiguous_tokens(
++        get_max_tokens = (
++            profiler.get_mm_max_embeds
++            if mm_embeddings_only
++            else profiler.get_mm_max_contiguous_tokens
++        )
++        return get_max_tokens(
+             seq_len,
+             {modality: 1 for modality, limit in profiler_limits.items() if limit > 0},
+         )
+--- a/vllm/v1/core/encoder_cache_manager.py
++++ b/vllm/v1/core/encoder_cache_manager.py
+@@ -41,7 +41,7 @@
+ 
+     Args:
+         cache_size: Limit the size of the cache, measured by the number of
+-                    tokens from the input sequence.
++                    encoder output rows.
+ 
+     Attributes:
+         cache_size: Total cache capacity in encoder tokens.
+@@ -258,19 +258,23 @@
+     configurations.
+ 
+     Returns:
+-        - Compute budget for encoder execution, measured in number of tokens
+-            from the input sequence.
+-        - Space budget for encoder cache size, measured in number of tokens
+-            from the input sequence.
++        - Compute budget for encoder execution, measured in encoder output rows.
++        - Space budget for encoder cache size, measured in encoder output rows.
+     """
+     if mm_registry.supports_multimodal_inputs(model_config):
+         max_tokens_by_modality = mm_registry.get_max_tokens_per_item_by_modality(
+-            model_config
++            model_config, mm_embeddings_only=True
++        )
++        max_placeholder_tokens = (
++            mm_registry.get_max_tokens_per_item_by_modality(model_config)
++            if scheduler_config.disable_chunked_mm_input
++            else None
+         )
+ 
+         return compute_mm_encoder_budget(
+             scheduler_config,
+             max_tokens_by_modality,
++            max_placeholder_tokens=max_placeholder_tokens,
+         )
+ 
+     return compute_text_encoder_budget(scheduler_config)
+@@ -296,20 +300,22 @@
+ def compute_mm_encoder_budget(
+     scheduler_config: "SchedulerConfig",
+     max_tokens_by_modality: Mapping[str, int],
++    *,
++    max_placeholder_tokens: Mapping[str, int] | None = None,
+ ) -> tuple[int, int]:
+     """Compute the encoder cache budget based on the model and scheduler
+     configurations for a multimodal model.
+ 
+     Args:
+         scheduler_config: Scheduler configuration.
+-        max_tokens_by_modality: The maximum number of tokens for each
++        max_tokens_by_modality: The maximum number of encoder output rows for each
+             non-text modality.
++        max_placeholder_tokens: Full placeholder lengths for checking decoder
++            limits when multimodal input chunking is disabled.
+ 
+     Returns:
+-        - Compute budget for encoder execution, measured in number of tokens
+-            from the input sequence.
+-        - Space budget for encoder cache size, measured in number of tokens
+-            from the input sequence.
++        - Compute budget for encoder execution, measured in encoder output rows.
++        - Space budget for encoder cache size, measured in encoder output rows.
+     """
+ 
+     if not max_tokens_by_modality:
+@@ -321,14 +327,17 @@
+         return 0, 0
+ 
+     max_tokens_per_mm_item = max(max_tokens_by_modality.values())
++    max_prompt_tokens_per_mm_item = max(
++        (max_placeholder_tokens or max_tokens_by_modality).values()
++    )
+ 
+     if (
+         scheduler_config.disable_chunked_mm_input
+-        and max_tokens_per_mm_item > scheduler_config.max_num_batched_tokens
++        and max_prompt_tokens_per_mm_item > scheduler_config.max_num_batched_tokens
+     ):
+         raise ValueError(
+             "Chunked MM input disabled but max_tokens_per_mm_item "
+-            f"({max_tokens_per_mm_item}) is larger than max_num_batched_tokens"
++            f"({max_prompt_tokens_per_mm_item}) is larger than max_num_batched_tokens"
+             f" ({scheduler_config.max_num_batched_tokens}). Please increase "
+             "max_num_batched_tokens."
+         )
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -913,12 +913,13 @@
+         mm_hashes_to_schedule = set()
+         num_tokens_to_schedule = 0
+         for i, mm_feature in enumerate(mm_features):
+-            start_pos = mm_feature.mm_position.offset
+-            num_encoder_tokens = mm_feature.mm_position.length
++            pos_info = mm_feature.mm_position
++            start_pos = pos_info.offset
++            num_placeholder_tokens = pos_info.length
+ 
+             # The encoder output is needed if the two ranges overlap:
+             # [num_computed_tokens, num_computed_tokens + num_new_tokens) and
+-            # [start_pos, start_pos + num_encoder_tokens)
++            # [start_pos, start_pos + num_placeholder_tokens)
+             if (
+                 start_pos
+                 >= num_computed_tokens + num_new_tokens + shift_computed_tokens
+@@ -941,11 +942,26 @@
+                 # decoder tokens (num_computed_tokens > 0), then we know we
+                 # already calculated encoder inputs and can skip here.
+                 continue
+-            elif start_pos + num_encoder_tokens <= num_computed_tokens:
++            elif start_pos + num_placeholder_tokens <= num_computed_tokens:
+                 # The encoder input is already computed and stored
+                 # in the decoder's KV cache.
+                 continue
+ 
++            start_idx = max(num_computed_tokens - start_pos, 0)
++            end_idx = min(
++                num_computed_tokens
++                + num_new_tokens
++                + shift_computed_tokens
++                - start_pos,
++                num_placeholder_tokens,
++            )
++            embed_start, embed_end = pos_info.get_embeds_indices(start_idx, end_idx)
++            if embed_start == embed_end:
++                # Text-only portions of a placeholder need neither encoder
++                # computation nor cache space, including during lookahead.
++                continue
++
++            num_encoder_tokens = request.get_num_encoder_tokens(i)
+             if not self.is_encoder_decoder:
+                 # We are not using the encoder cache for encoder-decoder models,
+                 # yet.
+@@ -966,7 +982,7 @@
+                 self.scheduler_config.disable_chunked_mm_input
+                 and num_computed_tokens < start_pos
+                 and (num_computed_tokens + num_new_tokens)
+-                < (start_pos + num_encoder_tokens)
++                < (start_pos + num_placeholder_tokens)
+             ):
+                 num_new_tokens = start_pos - num_computed_tokens
+                 break
+@@ -978,10 +994,15 @@
+                 # NOTE(woosuk): We assume that the encoder input tokens should
+                 # be processed altogether, as the encoder usually uses
+                 # bidirectional attention.
+-                if num_computed_tokens + shift_computed_tokens < start_pos:
++                first_embed_pos = start_pos
++                if pos_info.is_embed is not None:
++                    first_embed_pos += start_idx + int(
++                        pos_info.is_embed[start_idx:end_idx].nonzero()[0].item()
++                    )
++                if num_computed_tokens + shift_computed_tokens < first_embed_pos:
+                     # We only schedule the decoder tokens just before the
+                     # encoder input.
+-                    num_new_tokens = start_pos - (
++                    num_new_tokens = first_embed_pos - (
+                         num_computed_tokens + shift_computed_tokens
+                     )
+                 else:
+--- a/vllm/v1/request.py
++++ b/vllm/v1/request.py
+@@ -210,9 +210,9 @@
+         return RequestStatus.get_finished_reason(self.status)
+ 
+     def get_num_encoder_tokens(self, input_id: int) -> int:
++        """Return the number of encoder output rows for this media item."""
+         assert input_id < len(self.mm_features)
+-        num_tokens = self.mm_features[input_id].mm_position.length
+-        return num_tokens
++        return self.mm_features[input_id].mm_position.get_num_embeds()
+ 
+     def record_event(
+         self,
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -609,6 +609,12 @@
+         self.execute_model_state: ExecuteModelState | None = None
+         self.kv_connector_output: KVConnectorOutput | None = None
+         self.layerwise_nvtx_hooks_registered = False
++        span = max(self.mm_budget.max_placeholder_tokens_by_modality.values())
++        self._dense_payload_pool = torch.empty(
++            (max(8, self.max_num_reqs * 8), span, self.inputs_embeds_size),
++            dtype=self.dtype, device=self.device)
++        self._dense_payload_slots = {}
++
+ 
+     def reset_mm_cache(self) -> None:
+         if self.mm_budget:
+@@ -2187,10 +2193,11 @@
+ 
+         # Cache the encoder outputs by mm_hash
+         for (mm_hash, pos_info), output in zip(mm_hashes_pos, encoder_outputs):
+-            self.encoder_cache[mm_hash] = scatter_mm_placeholders(
+-                output,
+-                is_embed=pos_info.is_embed,
+-            )
++            expanded = scatter_mm_placeholders(output, is_embed=pos_info.is_embed)
++            slot = self._dense_payload_slots.setdefault(mm_hash, len(self._dense_payload_slots))
++            retained = self._dense_payload_pool[slot, :expanded.shape[0]]
++            retained.copy_(expanded)
++            self.encoder_cache[mm_hash] = retained
+             logger.debug("Finish execute for mm hash %s", mm_hash)
+             self.maybe_save_ec_to_connector(self.encoder_cache, mm_hash)
+ 
+@@ -2240,7 +2247,12 @@
+                     num_computed_tokens - start_pos + num_scheduled_tokens,
+                     num_encoder_tokens,
+                 )
++                if start_idx == end_idx:
++                    continue
+                 assert start_idx < end_idx
++                if (pos_info.is_embed is not None
++                        and not pos_info.is_embed[start_idx:end_idx].any()):
++                    continue
+ 
+                 mm_hash = mm_feature.identifier
+                 encoder_output = self.encoder_cache.get(mm_hash, None)
+@@ -4493,7 +4505,7 @@
+                     # (max_tokens_for_modality, hidden_size) and scatter
+                     # encoder output into it.
+                     encoder_output_shape = dummy_encoder_outputs[0].shape
+-                    max_mm_tokens_per_item = mm_budget.max_tokens_by_modality[
++                    max_mm_tokens_per_item = mm_budget.max_placeholder_tokens_by_modality[
+                         dummy_modality
+                     ]
+                     if encoder_output_shape[0] < max_mm_tokens_per_item:
+--- a/vllm/v1/worker/utils.py
++++ b/vllm/v1/worker/utils.py
+@@ -43,11 +43,18 @@
+             model_config,
+             cache=cache,
+             profiler_limits=self.mm_limits,
++            mm_embeddings_only=True,
++        )
++        max_placeholder_tokens = mm_registry.get_max_tokens_per_item_by_modality(
++            model_config,
++            cache=cache,
++            profiler_limits=self.mm_limits,
+         )
+ 
+         encoder_compute_budget, encoder_cache_size = compute_mm_encoder_budget(
+             scheduler_config,
+             max_tokens_by_modality,
++            max_placeholder_tokens=max_placeholder_tokens,
+         )
+ 
+         self.encoder_compute_budget = encoder_compute_budget
+@@ -60,12 +67,15 @@
+             (
+                 max_items_per_prompt,
+                 max_items_per_batch,
+-            ) = self.get_max_items(modality, max_tokens)
++            ) = self.get_max_items(
++                modality, max_tokens, max_placeholder_tokens[modality]
++            )
+ 
+             max_items_per_prompt_by_modality[modality] = max_items_per_prompt
+             max_items_per_batch_by_modality[modality] = max_items_per_batch
+ 
+         self.max_tokens_by_modality = max_tokens_by_modality
++        self.max_placeholder_tokens_by_modality = max_placeholder_tokens
+         self.max_items_per_prompt_by_modality = max_items_per_prompt_by_modality
+         self.max_items_per_batch_by_modality = max_items_per_batch_by_modality
+ 
+@@ -82,6 +92,7 @@
+         self,
+         modality: str,
+         max_tokens_per_item: int,
++        max_placeholder_tokens_per_item: int | None = None,
+     ) -> tuple[int, int]:
+         if max_tokens_per_item == 0:
+             return 0, 0
+@@ -99,10 +110,12 @@
+         # Check how many items of this modality can be supported by
+         # the decoder budget.
+         mm_limit = self.mm_limits[modality]
++        if max_placeholder_tokens_per_item is None:
++            max_placeholder_tokens_per_item = max_tokens_per_item
+ 
+         max_items_per_prompt = max(
+             1,
+-            min(mm_limit, self.max_model_len // max_tokens_per_item),
++            min(mm_limit, self.max_model_len // max_placeholder_tokens_per_item),
+         )
+ 
+         scheduler_config = self.scheduler_config
+@@ -111,7 +124,8 @@
+         if not scheduler_config.enable_chunked_prefill:
+             max_num_reqs = min(
+                 max_num_reqs,
+-                scheduler_config.max_num_batched_tokens // max_tokens_per_item,
++                scheduler_config.max_num_batched_tokens
++                // max_placeholder_tokens_per_item,
+             )
+ 
+         max_decoder_items_per_batch = max_num_reqs * max_items_per_prompt
