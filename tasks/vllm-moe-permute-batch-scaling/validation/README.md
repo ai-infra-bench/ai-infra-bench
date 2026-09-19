@@ -7,17 +7,20 @@ This directory checks the task's verifier and preserves curator evidence. The no
 | Files | Purpose |
 | --- | --- |
 | `ci-cases.json` and the nine root `*.patch` files | CI control cases and their expected rewards. `.github/scripts/task_ci.py` requires the manifest, matching patch files and SHA-256 values. |
-| `test_performance_scoring.py`, `test_partition_scoring.py` | Seventeen CPU regression tests for timing observations and expert-partition observation checking. |
+| `test_performance_scoring.py`, `test_partition_scoring.py`, `test_high_expert_scoring.py` | Twenty-seven CPU checks of timing, partition and high-ID output observations, including valid alternative row ordering. |
 | `challenge/`, `curator-tools/` | Independent native checks and environment/baseline reproduction tools. These are curator tools, not agent inputs. |
 | `semantic-boundary.md`, `curator-source-audit.md` | Scope of the native behavior checks and frozen Base source provenance. |
 | `tests-hardening.md`, `workspace-migration.md` | Current coverage, measured outcomes and remaining environment publication work. |
-| `evidence/tests-1.3.4/` | Current image, full control matrix, timing repeats and final Harbor Oracle summary. |
+| `e2e-evidence.json` | Version 1.3.5 executable identities and actual Harbor results for the expanded verifier. |
+| `evidence/tests-1.3.4/` | Historical 1.3.4 image, control matrix, timing repeats and Harbor Oracle summary. |
 | `evidence/tests-1.3.3-docker/` | Historical 1.3.3 verifier runs for Base, Oracle, an alternative CUDA implementation and two negative controls. |
 | `evidence/harbor-deepseek-v4-flash-1.3.3/` | Completed model trial's score, native provenance and runtime identity. |
 
 ## Current evidence and limits
 
-The current 1.3.4 verifier retains 32 correctness cases and excludes unused payload and unaligned m_indices from the expert-count comparisons. A ninth CI control initializes that storage and passes. All eleven Base/Oracle/control outcomes, independent challenges, timing repeats and the final Harbor Oracle meet their expectations; see [the current summary](evidence/tests-1.3.4/summary.json).
+Version 1.3.5 adds eight native behavior cases for actual high-ID expert routing, bringing correctness coverage to 40 cases. Tokens reach the final experts and separated nonempty intervals, with duplicates and empty experts between them. The new checks permit different within-expert orderings and do not prescribe unused storage. Timing inputs, protocol and thresholds are unchanged. Current run identities and outcomes are recorded in [e2e-evidence.json](e2e-evidence.json).
+
+Version 1.3.4 had 32 correctness cases and excluded unused payload and unaligned m_indices from the expert-count comparisons. Its eleven Base/Oracle/control outcomes, independent challenges, timing repeats and Harbor Oracle are historical evidence; see [the 1.3.4 summary](evidence/tests-1.3.4/summary.json). They do not certify the eight additional cases.
 
 The recorded 1.3.3 results below predate this verifier change. The 1.3.3 verifier has 32 correctness cases. Docker validation observed rewards 0/1/1/0/0 for Base, Oracle, the CUDA alternative, the FP8 sign-bit defect and the expert-map rejection defect. The DeepSeek Harbor trial passed all 32 correctness cases with reward 1. See [tests-hardening.md](tests-hardening.md) for timings and linked result summaries.
 

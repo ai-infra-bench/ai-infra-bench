@@ -162,7 +162,9 @@ def check_large_expert_count(align):
     previous = N_EXPERT, TOPK, HIDDEN
     try:
         N_EXPERT, TOPK, HIDDEN = 2049, 3, 128
-        result = check_case(11, align)
+        # The independent 23/11 routing reaches the final expert at token 178;
+        # a short 11-token batch left every ID above 255 empty.
+        result = check_case(193, align)
         result["n_expert"] = N_EXPERT
         return result
     finally:

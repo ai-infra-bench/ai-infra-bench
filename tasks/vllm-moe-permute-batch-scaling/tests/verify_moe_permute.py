@@ -22,8 +22,9 @@ they do not introduce undisclosed numerical acceptance criteria.
 
 Correctness payloads cover all 256 byte encodings. Six expert-partition cases
 cover mixed, all-local and all-remote routing with a noncontiguous expert map.
-The total correctness inventory is 32 cases. Timing retains its original input
-generation and protocol.
+Eight further cases send tokens to high expert IDs, including the last expert,
+and check sparse and repeated routing. The total correctness inventory is 40
+cases. Timing retains its original input generation and protocol.
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import trusted_timing  # noqa: E402
 import trusted_partition  # noqa: E402
+import trusted_high_experts  # noqa: E402
 
 import torch  # noqa: E402
 
@@ -346,6 +348,37 @@ def check_partition(name: str, aligned: bool) -> None:
     CALL_COUNTS["check_case"] += 1
 
 
+def check_high_expert_routes(experts: int, aligned: bool) -> None:
+    """Check native outputs when distant and final experts receive tokens."""
+    ref = trusted_high_experts
+    n, k, h = ref.TOKENS, ref.TOPK, ref.HIDDEN
+    cap = ref.capacity(experts, aligned)
+    raw = torch.tensor(list(ref.payload_bytes()), dtype=torch.uint8,
+                       device="cuda").reshape(n, ref.ROW_BYTES)
+    hidden = raw.view(torch.float16)
+    routes = ref.routes_for(experts)
+    ids = torch.tensor(routes, dtype=torch.int32, device="cuda").reshape(n, k)
+    src = torch.arange(n * k, dtype=torch.int32, device="cuda").reshape(n, k)
+    payload = torch.full((cap, h), -33, dtype=hidden.dtype, device="cuda")
+    offsets = torch.full((experts + 1,), -31, dtype=torch.int64, device="cuda")
+    inverse = torch.full_like(src, -29)
+    forward = torch.full((cap,), n * k, dtype=torch.int32, device="cuda")
+    mids = torch.full_like(forward, -1)
+    torch.ops._moe_C.moe_permute(
+        hidden, ids, src, None, experts, experts, k,
+        ref.ALIGN if aligned else None, payload, offsets, inverse, forward, mids,
+    )
+    torch.cuda.synchronize()
+    assert ids.cpu().flatten().tolist() == routes, "routing input modified"
+    assert hidden.view(torch.uint8).cpu().numpy().tobytes() == ref.payload_bytes()
+    CASE_DIGESTS[ref.case_key(experts, aligned)] = ref.validate_outputs(
+        experts, aligned, payload.view(torch.uint8).cpu().numpy().tobytes(),
+        offsets.cpu().tolist(), inverse.cpu().flatten().tolist(),
+        forward.cpu().tolist(), mids.cpu().tolist(),
+    )
+    CALL_COUNTS["check_case"] += 1
+
+
 def time_case(
     n_token: int, align_block_size: int | None = ALIGN,
 ) -> dict:
@@ -404,11 +437,15 @@ def main() -> None:
         for name in trusted_partition.PARTITION_CASES:
             for aligned in (False, True):
                 check_partition(name, aligned)
+        for experts in trusted_high_experts.EXPERT_COUNTS:
+            for aligned in (False, True):
+                check_high_expert_routes(experts, aligned)
         print(json.dumps({**common,
                           "actual_uid": actual_uid,
                           "expert_count_cases": [64, 1023, 1024, 1025],
                           "partition_cases": list(trusted_partition.PARTITION_CASES),
-                          "correctness_cases": len(CORRECTNESS_TOKENS) * 2 + 8 + 2 * len(trusted_partition.PARTITION_CASES),
+                          "high_expert_count_cases": list(trusted_high_experts.EXPERT_COUNTS),
+                          "correctness_cases": len(CORRECTNESS_TOKENS) * 2 + 8 + 2 * len(trusted_partition.PARTITION_CASES) + 2 * len(trusted_high_experts.EXPERT_COUNTS),
                           "call_counts": dict(CALL_COUNTS),
                           "case_digests": dict(CASE_DIGESTS),
                           "correctness_passed": True}, sort_keys=True))

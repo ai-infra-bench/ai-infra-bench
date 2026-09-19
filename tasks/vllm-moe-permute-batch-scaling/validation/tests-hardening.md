@@ -1,4 +1,12 @@
-# Correctness policy update — 1.3.4
+# High-ID routing coverage — 1.3.5
+
+The verifier now has 40 correctness cases. Eight new cases send valid top-k routes across 1023/1024/1025/2049 experts, including repeated routes to the final expert and several distant nonempty intervals. Previous large expert-count inputs only reached IDs 7 through 228. The new native checks compare public outputs and canonicalize valid within-expert permutations; no candidate helper, launch geometry, prefix buffer or unused payload value is prescribed. The separate 2049-expert challenge uses 193 tokens, extending its independently generated routing beyond the original 0–255 range.
+
+Twenty-seven CPU tests validate the output checkers, including acceptance of two different legal row orders and rejection of incorrect high-ID offsets, inverse destinations, forward maps, payloads, ranges and sentinels. GPU validation and immutable identities for this version are recorded in e2e-evidence.json. It reuses the existing CI image built from the current Dockerfile; historical results below retain their original identities.
+
+Ten Harbor grading runs matched their expected rewards under the non-root CI account, with one leased A100-SXM4-40GB, no network, 8 CPUs and 32 GiB RAM per trial. Oracle, the CUDA alternative, the storage-initializing alternative and all three archived Astra patches passed all 40 cases and the original performance gates. Oracle and the CUDA alternative each passed a second complete run. Base passed all 40 correctness cases and failed the original performance ratio; the existing expert-count-cap control failed its intended legal-input rejection. No new hack controls were constructed. The two changed 2049-expert curator correctness cases also passed on Base; a new full curator-challenge run is not claimed. Repository validation and the strict executable-hash audit passed. Raw local logs and concise run identities are referenced by e2e-evidence.json.
+
+# Historical correctness policy update — 1.3.4
 
 The eight expert-count cases now compare only valid payload rows, offsets, inverse/forward mappings and aligned m_indices. Forward sentinels and aligned tail sentinels remain checked. Unused payload storage and unaligned m_indices do not determine reward, consistently with the batch and partition cases. Parent digests cover the same outputs. The total remains 32 correctness cases and performance thresholds are unchanged.
 

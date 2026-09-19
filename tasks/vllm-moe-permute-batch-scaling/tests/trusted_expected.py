@@ -35,6 +35,7 @@ import json
 import struct
 
 from trusted_partition import PARTITION_CASES, case_key, expected_partition_digest
+import trusted_high_experts
 
 N_EXPERT = 64
 TOPK = 6
@@ -125,6 +126,10 @@ def expected_digests() -> dict[str, str]:
     for name in PARTITION_CASES:
         for aligned in (True, False):
             out[case_key(name, aligned)] = expected_partition_digest(name, aligned)
+    for experts in trusted_high_experts.EXPERT_COUNTS:
+        for aligned in (True, False):
+            key = trusted_high_experts.case_key(experts, aligned)
+            out[key] = trusted_high_experts.expected_digest(experts, aligned)
     return out
 
 
@@ -135,6 +140,9 @@ REQUIRED_CASE_KEYS = tuple(
     for m in ("aligned", "unaligned")
 ) + tuple(
     case_key(name, aligned) for name in PARTITION_CASES for aligned in (True, False)
+) + tuple(
+    trusted_high_experts.case_key(experts, aligned)
+    for experts in trusted_high_experts.EXPERT_COUNTS for aligned in (True, False)
 )
 
 # Exact timing protocol the performance stage must have used.

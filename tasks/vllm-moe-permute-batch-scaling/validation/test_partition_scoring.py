@@ -103,8 +103,8 @@ class PartitionScoringTests(unittest.TestCase):
         self.assertEqual(ref.validate_partition_outputs("all-remote", False, *values),
                          ref.expected_partition_digest("all-remote", False))
 
-    def test_scoring_requires_all_32_cases(self):
-        self.assertEqual(len(REQUIRED_CASE_KEYS), 32)
+    def test_scoring_requires_all_40_cases(self):
+        self.assertEqual(len(REQUIRED_CASE_KEYS), 40)
         self.assertEqual(set(REQUIRED_CASE_KEYS), set(expected_digests()))
 
 

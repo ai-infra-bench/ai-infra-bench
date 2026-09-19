@@ -87,7 +87,8 @@ WORKER_GID=65534
 rm -rf "${STAGING}"
 mkdir -p "${STAGING}" || fail_closed staging_mkdir
 for f in verify_moe_permute.py trusted_timing.py trusted_stage_native.py \
-         trusted_expected.py trusted_performance.py trusted_partition.py trusted_python.py; do
+         trusted_expected.py trusted_performance.py trusted_partition.py \
+         trusted_high_experts.py trusted_python.py; do
   cp "/tests/${f}" "${STAGING}/${f}" || fail_closed "staging_copy_${f}"
 done
 chown -R 0:0 "${STAGING}" || fail_closed staging_chown
