@@ -1,0 +1,428 @@
+{
+  "schema_version": "ai_infra_bench_e2e_evidence.v1",
+  "task": "ai-infra-bench/pi-agent-trace",
+  "task_version": "0.0.1",
+  "recorded_at": "2026-09-14T20:11:00.857358+00:00",
+  "base_commit": "d981de1229ef899957bbe968bc8dcda02a21f477",
+  "dependency_cutoff": "2026-09-05T11:54:46Z",
+  "image": {
+    "canonical_tag": "ai-infra-bench/pi-agent-trace:base-d981de1229ef",
+    "image_id": "sha256:40fe5f960138c58e4697f4fa2798accc4e383809d3f340242c8b3320f0eb91e8",
+    "platform": "linux/amd64 (templates/pi-harbor-node/build.py under qemu; byte-identical Dockerfile to pi-background-processes and pi-history-notes, so the same image id)",
+    "local_matrix_image": "ai-infra-bench/pi-agent-trace:local = the linux/arm64 build of the same Dockerfile, retagged from pi-history-notes:local (sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d)",
+    "published": false
+  },
+  "harbor_version": "0.22.0",
+  "hardware": "local macOS (Apple Silicon) host, colima docker VM; CI x64 runner not yet used",
+  "executable_hashes": {
+    "instruction_sha256": "07b3add5cd5f1301fa78ae6f63a04a1fc5a2a4fcfbde936af1b86dc44e14f087",
+    "task_toml_sha256": "f94302c36e025fe98c7ee4af5392bf6b20953dfb33644c591dd2e06d7c1e8dce",
+    "dockerfile_sha256": "a0e0bce4acc153635c2541adada3d167865c6b14ccd95ca207c93e48d856817a",
+    "oracle_patch_sha256": "e0b56a636961d29e9ab6b78d1e5d5fbb1477dd74304d18c68ccafa80a8a79cf9",
+    "solve_script_sha256": "9fc62fd65f4dafe37cd88285894776535c4bfa300e62d5570140f49fdc93a8f9",
+    "test_script_sha256": "36697f84f21f25901025dc863367a0538ee7f6864c2cae9b479165f9db642dc0",
+    "check_junit_sha256": "c83c7f28d13b83d57295855e497f8eb443eeb16592777baa8fcbf84799cf6760",
+    "check_pass_to_pass_sha256": "9853a53422a0ac46c5468c883ac2503acc2d938034ab77b3669fa5461b45a80a",
+    "case_contract_sha256": "ff1c76e6ec00baa38148f908df71b9cc11e2f36e9d657fd9c4adfebe6c36eec7",
+    "at_support_sha256": "f5d3ea0c2a52e8faba9526a8f3866e50f1ca9df23660d0a3cdd102d7bc49f0a8",
+    "contract_test_sha256": "6df30e750acdb024884a3158d8079700e0cc57ddc798c6e189028058f7a2402b",
+    "lifecycle_test_sha256": "8304f66d995311cf74e9f37e603243626e6afd3efa2a6999a48af6292b8c7f8d",
+    "fixtures": {
+      "pi_child.mjs": "5ae808a811f0e8c971bab9836a368e7da6e00ccbd13250de76b22fe76ccb89e2"
+    }
+  },
+  "semantic_boundary": "The verifier observes the trace file the extension writes, the session tree, the session event stream, and child pi processes. It never imports candidate code.",
+  "substitutions": [
+    "LLM: pi's first-party faux provider (scripted responses, including summary responses for manual and threshold compaction and an error response)"
+  ],
+  "no_real_model": "no-network image; tests/test.sh unsets every provider credential and sets PI_OFFLINE=1; the faux provider is the only model",
+  "pass_to_pass": {
+    "baseline": "/opt/pi-baseline/coding-agent-junit.xml recorded at image build (2158 cases, 50 skipped)",
+    "pins": "tests/baseline-pins.json (identical to pi-background-processes and pi-history-notes: same image)",
+    "policy": "vitest --retry 2 --maxWorkers=4; existing test files must be unchanged vs Base; baseline-passed must pass; skipped set identical; no new failures"
+  },
+  "harbor_runs": {
+    "entrypoint": "python3.12 .github/scripts/task_ci.py {validate,image-check,prepare-case,check-result} + uvx --from harbor==0.22.0 harbor run --env docker --n-concurrent 1 --cpus ignore --memory ignore --delete --yes",
+    "latest": {
+      "date": "2026-09-14",
+      "image_id": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d",
+      "log": "~/ai-infra-scratch/at-matrix.log, ~/ai-infra-scratch/at-matrix-2.log",
+      "cases": [
+        {
+          "case": "base",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 66
+        },
+        {
+          "case": "oracle",
+          "expected_reward": 1,
+          "reward": 1,
+          "status": "OK",
+          "elapsed_sec": 60
+        },
+        {
+          "case": "control-int-attributes-as-numbers",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 57
+        },
+        {
+          "case": "control-chat-written-before-persist",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 58
+        },
+        {
+          "case": "control-trace-id-per-process",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 63
+        },
+        {
+          "case": "control-wakeup-as-prompt",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 57
+        },
+        {
+          "case": "control-continuation-as-wakeup",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 57
+        },
+        {
+          "case": "control-tool-error-status-ok",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 58
+        },
+        {
+          "case": "control-compaction-under-last-run",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 59
+        },
+        {
+          "case": "control-missing-line-terminator",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 57
+        },
+        {
+          "case": "control-error-status-without-message",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 58
+        },
+        {
+          "case": "control-forged-junit",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 57
+        },
+        {
+          "case": "control-process-exit-zero-after-registration",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 58
+        },
+        {
+          "case": "alt-grok-run1",
+          "expected_reward": 1,
+          "reward": 1,
+          "status": "OK",
+          "elapsed_sec": 66
+        }
+      ],
+      "all_match": true
+    }
+  },
+  "local_precheck": {
+    "script": "validation/make_controls.py",
+    "note": "contract/lifecycle suites run in the pi dev checkout for Oracle, Base and every control before Harbor",
+    "results": {
+      "oracle": {
+        "contract": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 6
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 1
+        }
+      },
+      "base": {
+        "contract": {
+          "exit": 1,
+          "failed": 6,
+          "cases": 6
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 1
+        }
+      },
+      "control-int-attributes-as-numbers": {
+        "contract": {
+          "exit": 1,
+          "failed": 6,
+          "cases": 6
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 1
+        }
+      },
+      "control-chat-written-before-persist": {
+        "contract": {
+          "exit": 1,
+          "failed": 6,
+          "cases": 6
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 1
+        }
+      },
+      "control-trace-id-per-process": {
+        "contract": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 6
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 1
+        }
+      },
+      "control-wakeup-as-prompt": {
+        "contract": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 6
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 1
+        }
+      },
+      "control-continuation-as-wakeup": {
+        "contract": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 6
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 1
+        }
+      },
+      "control-tool-error-status-ok": {
+        "contract": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 6
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 1
+        }
+      },
+      "control-compaction-under-last-run": {
+        "contract": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 6
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 1
+        }
+      },
+      "control-missing-line-terminator": {
+        "contract": {
+          "exit": 1,
+          "failed": 6,
+          "cases": 6
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 1
+        }
+      },
+      "control-error-status-without-message": {
+        "contract": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 6
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 1
+        }
+      },
+      "control-forged-junit": {
+        "contract": {
+          "exit": 1,
+          "failed": 6,
+          "cases": 6
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 1
+        }
+      },
+      "control-process-exit-zero-after-registration": {
+        "contract": {
+          "exit": 1,
+          "failed": 0,
+          "cases": 6
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 1
+        }
+      },
+      "alt-grok-run1": {
+        "contract": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 6
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 1
+        }
+      }
+    }
+  },
+  "known_limitations": [
+    "No independent oracle challenge yet (the alternative implementation is alt-grok-run1: grok-4.6's first rollout submission, unmodified).",
+    "Overflow-recovery compaction, failed compactions and aborted assistant messages are not driven (they need provider failures the faux provider cannot script deterministically).",
+    "Timestamps are checked for order, nesting and the turn_start equality, not for absolute accuracy beyond the prompt's wall-clock window.",
+    "The full matrix ran on the linux/arm64 build of the Dockerfile; CI must rebuild natively on x64 and publish (shared with the other pi tasks). After that build compare failed_on_base with tests/baseline-pins.json allowed_failures."
+  ],
+  "real_agent_rollouts": [
+    {
+      "run": 1,
+      "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1",
+      "task_version_seen": "0.0.1 (verifier revision 1: millisecond clock assumed)",
+      "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.1--20260915-033648",
+      "started_at": "2026-09-15T03:36:56.369564",
+      "finished_at": "2026-09-15T04:05:20.099370",
+      "reward": 0,
+      "reward_json": {
+        "reward": 0,
+        "command_exit_code": 1,
+        "contract_exit_code": 1,
+        "contract_integrity_exit_code": 1,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0
+      },
+      "layers": {
+        "contract": "5/6",
+        "lifecycle": "1/1",
+        "pass-to-pass": "2164/2167"
+      },
+      "failures": [
+        "contract: agent-trace contract > a prompt with a tool call exports run, turn, chat and tool spans in OTLP/JSON tied to session entries"
+      ],
+      "assessment": "judge defect: the verifier compared span times with millisecond Date.now() values while the submission uses a sub-millisecond clock (run end 5 ns into the next millisecond; turn start 1 ns after the event timestamp); both assertions now allow sub-millisecond digits, and the unmodified submission passes every layer locally and through Harbor as validation/alt-grok-run1.patch (expected 1)"
+    },
+    {
+      "run": 2,
+      "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1",
+      "task_version_seen": "0.0.1 (verifier revision 1: millisecond clock assumed)",
+      "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.1--20260915-040535",
+      "started_at": "2026-09-15T04:05:43.283947",
+      "finished_at": "2026-09-15T04:29:51.349984",
+      "reward": 1,
+      "reward_json": {
+        "reward": 1,
+        "command_exit_code": 0,
+        "contract_exit_code": 0,
+        "contract_integrity_exit_code": 0,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0
+      },
+      "layers": {
+        "contract": "6/6",
+        "lifecycle": "1/1",
+        "pass-to-pass": "2167/2170"
+      },
+      "failures": [],
+      "assessment": "passes every layer on verifier revision 1 (its clock is millisecond-based); the task's main path is doable by grok-4.6, and with run 1 passing under the corrected verifier the discriminating edges still have to be added"
+    }
+  ],
+  "artifacts": {
+    "files": {
+      "README.md": "f404edc276a1c5cb957969e6f9e4cc410e5726cbe5d8489217f6c449868d6228",
+      "environment/Dockerfile": "a0e0bce4acc153635c2541adada3d167865c6b14ccd95ca207c93e48d856817a",
+      "environment/image-manifest.json": "b7e760758731623ee11dac90eb6326a457297e6cf71fbef25469e93225632bc4",
+      "environment/lock/manifest.json": "967f6a3c67d25bae5ed6be1dad6bc7ca15d2cfd3d3539f93366a02100d13cf2f",
+      "environment/lock/package-lock.json": "e3569b99e673a0051be908f2bed57651b90a966a5a0d208913c29e6830a6a6c2",
+      "instruction.md": "07b3add5cd5f1301fa78ae6f63a04a1fc5a2a4fcfbde936af1b86dc44e14f087",
+      "solution/README.md": "37af8af16237425365af757c4fafe3764c3cf8d5500e5b5d632b9399598433e2",
+      "solution/oracle.patch": "e0b56a636961d29e9ab6b78d1e5d5fbb1477dd74304d18c68ccafa80a8a79cf9",
+      "solution/solve.sh": "9fc62fd65f4dafe37cd88285894776535c4bfa300e62d5570140f49fdc93a8f9",
+      "task.toml": "f94302c36e025fe98c7ee4af5392bf6b20953dfb33644c591dd2e06d7c1e8dce",
+      "tests/at.contract.test.ts": "6df30e750acdb024884a3158d8079700e0cc57ddc798c6e189028058f7a2402b",
+      "tests/at.lifecycle.test.ts": "8304f66d995311cf74e9f37e603243626e6afd3efa2a6999a48af6292b8c7f8d",
+      "tests/at_support.ts": "f5d3ea0c2a52e8faba9526a8f3866e50f1ca9df23660d0a3cdd102d7bc49f0a8",
+      "tests/baseline-pins.json": "a1618c332ca4f20f37c06ca13a53b30b759bc9dd1044f6d9c4bb38c2c7ef04b9",
+      "tests/case_contract.py": "ff1c76e6ec00baa38148f908df71b9cc11e2f36e9d657fd9c4adfebe6c36eec7",
+      "tests/check_junit.py": "c83c7f28d13b83d57295855e497f8eb443eeb16592777baa8fcbf84799cf6760",
+      "tests/check_pass_to_pass.py": "9853a53422a0ac46c5468c883ac2503acc2d938034ab77b3669fa5461b45a80a",
+      "tests/fixtures/pi_child.mjs": "5ae808a811f0e8c971bab9836a368e7da6e00ccbd13250de76b22fe76ccb89e2",
+      "tests/test.sh": "36697f84f21f25901025dc863367a0538ee7f6864c2cae9b479165f9db642dc0",
+      "validation/alt-grok-run1.patch": "982fd144d6693192497809994d9bcb54664d296aaff9767cdf07543d3036ea81",
+      "validation/behavior-map.md": "e2e49f1d6ae78161f531f963a420653ad9fc86c1c4a881f282d630efbe84107a",
+      "validation/ci-cases.json": "f7b107e414ea7ad666dddfc4247223ebca9bf61e04a099337678753bba0514a2",
+      "validation/control-chat-written-before-persist.patch": "4c9e9248c6570ff25c2df8640619803aa79f2d29c59526c40cd784344a7fbc84",
+      "validation/control-compaction-under-last-run.patch": "e8a6915f7042a440bf75ce696c23e25b186faafd57e16f0877962dbff4f66355",
+      "validation/control-continuation-as-wakeup.patch": "a3cf37db1a0bbfe275b1940c8664716d1c2f66b2a6fb832d95afa45db89b8301",
+      "validation/control-error-status-without-message.patch": "6b94b3874b47547126ceeeeebf0b95c349072a64ba89da2c2c68fab0a0fe8dd2",
+      "validation/control-forged-junit.patch": "716c3634c789ba371e5e0d29047fd462ff6ec14ad75633eb068154704d20009c",
+      "validation/control-int-attributes-as-numbers.patch": "541a8e60f3c9bd23e2bd5398f73a2e8660f97ad4762a55523649534f88ebf134",
+      "validation/control-missing-line-terminator.patch": "b46d46c67a81f617ec666a25df36aebf4cd84437ee3cc151aa23e40bfa383d71",
+      "validation/control-process-exit-zero-after-registration.patch": "98949097a63176857b8396fcdca77a8c5ea86b6db76f223e4960f7618b40cf34",
+      "validation/control-tool-error-status-ok.patch": "6d1ac8416b8d0707290b71c8122fa01ec91c9cd50979a7b1a91865685e53a357",
+      "validation/control-trace-id-per-process.patch": "886414abcefa044ab2de0377c250ab15c8f6da9b645d11edfed8df4500219dda",
+      "validation/control-wakeup-as-prompt.patch": "572aa9c1592b301c649558cb59ed7f891b3a2ef78bcb8e8ffb2b0ebd76ff60cc",
+      "validation/controls-plan.md": "20f931d67edc91734bb6c5e9a8dad199c911cc039c1e361f9b355adfba8f02cd",
+      "validation/make_controls.py": "0fc60c3d7cf5e542ad4b4079e206bfa433c73a102672a9a95c6720cff2a3fc2c"
+    }
+  }
+}

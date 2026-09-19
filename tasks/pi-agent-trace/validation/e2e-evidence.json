@@ -1,0 +1,1464 @@
+{
+  "schema_version": "ai_infra_bench_e2e_evidence.v1",
+  "task": "ai-infra-bench/pi-agent-trace",
+  "task_version": "0.0.6",
+  "previous_evidence": "validation/history/0.0.5-evidence.json",
+  "version_note": "Harness revision 3 (2026-09-17, both pi tasks): the agent phase runs as the image's unprivileged `node` user (task.toml `[agent].user`; the checkout is node-owned, node_modules and the interpreters stay root-owned, vite gets writable temp dirs, root's git accepts the checkout), and `tests/test.sh` rejects a submission that changed pi source or the build/test toolchain (configs, manifests, scripts; `scope_exit_code`, reason in `scope.log`) before running any suite, and removes vite's transient bundles first. Motivation: the task review of 2026-09-17 reproduced a grading bypass in which a root agent replaced `node_modules/vitest/vitest.mjs` and obtained reward 1 with Base code; the toolchain check also closes the tracked-config path. New control `control-toolchain-config-injected` (expected 0). The pass-to-pass check now tolerates the pinned environmental failures in the candidate run as well as in the baseline (a known timing-dependent case in pi's own suite failed for root in the rebuilt image after passing at build time; it is not attributable to a candidate). Image rebuilt; matrix and CI rerun recorded below. Verifier revision 2 of 2026-09-16 (still 0.0.6), a review of every time comparison: (a) the two places where an implementation timestamp is compared against the verifier's own Date.now() reading (the run start of the first case, the shutdown window) now allow 1 ms below, matching the 1 ms already allowed above; (b) the two comparisons that mix clocks inside the trace, a turn start (pinned by the contract to pi's millisecond event timestamp) against the previous turn's sub-millisecond end in the steering case, and a child process's run against the parent's tool span in the sub-agent case, are made at millisecond granularity like the shared invariants in at_support.ts already were; every other comparison is between two timestamps of one implementation clock and stays exact; found when the claude-opus-5 submission, whose clock is a monotonic hrtime offset anchored on a millisecond-truncated Date.now() (an OpenTelemetry-style clock the instruction permits: 'sub-millisecond digits are yours'), failed the shutdown case in 2 of 8 local runs by 16 microseconds while passing in Harbor. Verifier revision of 2026-09-16 (still 0.0.6, contract text unchanged): the tool and compaction attribute maps are now checked like the chat map already was, listed keys with the right values and extra keys allowed (toMatchObject instead of toEqual), and the failed-compaction case asserts explicitly that no entry-derived attribute is present; prompted by grok run 11, whose compaction line carried two extra pi.usage.cache_* attributes. 0.0.6 adds one sentence to the failure-safe requirement (a shutdown close carries every attribute known at that moment; an entry id is known only once pi persisted the entry) after the 0.0.5 grok rollout closed pi.run with no attributes; verifier, oracle and controls unchanged, so the 0.0.5 matrix results carry over. 0.0.5 rewrites the instruction as outcome requirements plus an export contract, dropping every prescribed mechanism, and makes the verifier mechanism-agnostic (same Oracle, same controls); 0.0.4 added overflow recovery (error chat, overflow compaction with will_retry, retry run with pi.run.after_compaction) and sub-agent trace propagation through PI_AGENT_TRACE_PARENT, with two contract cases and three controls; 0.0.3 added concurrent tool spans, steering bookkeeping (pi.run.steer_count / steer_entry_ids) and compaction usage accounting with two contract cases and three controls; 0.0.2 added live start lines (every span written at start and at end) and the failure-path requirements (aborted stream, failed compaction, quit while streaming, unwritable path, crash during a tool execution) with five contract cases, one lifecycle case and six controls.",
+  "recorded_at": "2026-09-19",
+  "base_commit": "d981de1229ef899957bbe968bc8dcda02a21f477",
+  "dependency_cutoff": "2026-09-05T11:54:46Z",
+  "image": {
+    "canonical_tag": "ai-infra-bench/pi-agent-trace:base-d981de1229ef",
+    "image_id": "sha256:5ae25731adfef37fa7802eacaecba42092a98ca2a21dca2aa7b93b3527a22af7",
+    "platform": "linux/amd64 (templates/pi-harbor-node/build.py under qemu on the arm64 host; harness revision 5 Dockerfile = revision 4 plus one layer recording /opt/pi-baseline/build-manifest.sha256; every earlier layer came from cache, so the pass-to-pass baseline is the revision 4 one); matches task.toml image_digest and environment/image-manifest.json",
+    "local_matrix_image": "ai-infra-bench/pi-agent-trace:local = linux/arm64 build of the harness revision 5 Dockerfile, sha256:593b6668002dc020931943467dba9a96e3435e6bdba56223973673ed8dd5eac0 (the image the revision 5 matrix ran on)",
+    "published": false,
+    "previous_local_images": {
+      "harness_revision_2_amd64": "sha256:40fe5f960138c58e4697f4fa2798accc4e383809d3f340242c8b3320f0eb91e8 (canonical image before harness revision 3; superseded 2026-09-17)",
+      "harness_revision_3_arm64": "sha256:96703b6c4db6547b7096cd4d802fbc6f14bf35af9e2a3dd2418aa2c5a2eefd2d (revision 3 matrix image; superseded 2026-09-18)",
+      "harness_revision_3_amd64": "sha256:b44780bd36bae60aa0877c361c7856ab1d52467899105d2c23dd26454bf9bd0f (revision 3 canonical amd64; superseded 2026-09-18)",
+      "harness_revision_4_amd64": "sha256:b3e2ea1ef22eaa1b6a0d22dd5d169546701b6eff535ed8160ea86bff1840224c (canonical image of harness revision 4; superseded 2026-09-19)",
+      "harness_revision_4_arm64": "sha256:c0b17fefc5542c58b442cb47a51bc757ada45a5162192e52d5135889d082efb8 (revision 4 matrix image; kept locally as :local-rev4)"
+    },
+    "ci_x64": {
+      "run_id": "35258357030",
+      "pr": "#94",
+      "head": "25bbca7",
+      "date": "2026-09-17T18:21Z",
+      "image_id_prefix": "sha256:9599aae0a20b",
+      "note": "CI builds the Dockerfile natively on the x64 runner (environment_key 7763abb7…) and runs the full ci-cases.json matrix; it does not compare against image_digest"
+    }
+  },
+  "harbor_version": "0.22.0",
+  "hardware": "local macOS (Apple Silicon) host, colima docker VM; CI x64 runner (GitHub Actions) validated harness revision 3 on 2026-09-17T18:21Z (run 35258357030, full matrix green)",
+  "executable_hashes": {
+    "instruction_sha256": "606dd2c1ac8b85f67a3ab595da323d57eff36d39b7679fe53d07fcc5915247aa",
+    "task_toml_sha256": "0113a1d1987c8e90ac81d30baf11455e224740ffc4dd46590b6342b52475f196",
+    "dockerfile_sha256": "775dd1bb767b5a4bb4d735d9d9df0427c3ff725f72162af6c2ccab3b7f1e1264",
+    "oracle_patch_sha256": "48ae4c3436169764077986f760b55dc4ece45fe2a0791c698433ca009812cbd8",
+    "solve_script_sha256": "9fc62fd65f4dafe37cd88285894776535c4bfa300e62d5570140f49fdc93a8f9",
+    "test_script_sha256": "44ff33fd30291d681642c0dba8bbd9c8ef2b4f2ee8b69bb1929703cf5223b385",
+    "check_junit_sha256": "c83c7f28d13b83d57295855e497f8eb443eeb16592777baa8fcbf84799cf6760",
+    "check_pass_to_pass_sha256": "ac4bd04ff68c54786bb8bfd523f4e39575d59c6690064a85e12ae78679e46e27",
+    "case_contract_sha256": "933c657fa8007a0e842de20801afc5ba9c1eed8b0f54321b5a0f4692dfb8a3fc",
+    "at_support_sha256": "c8b96f7427cffcc6b49dc689e8a38105360d5198c740b722dc86bef2fc174c73",
+    "contract_test_sha256": "7062c184e42677398b86f9f6bfd8458280b18c83488cccffc5427441c1e8b96c",
+    "lifecycle_test_sha256": "9fa73df9709ac0ac094bb4c2de2a57640990ebbbdefe7e3c5b0a8c043babcdd6",
+    "fixtures": {
+      "pi_child.mjs": "73c2d9d4d705831095f69772c9bf02fd7c4e414748608c223a02262dfdfc32b7"
+    },
+    "check_scope_sha256": "cabc4432ecd2367072f61efa727c2a0a692303e744c334d29a44ef1a40ab9fbb",
+    "base_manifest_sha256": "973d673f83c0870fbee036018a29374295bd728dfeb2b446b49bb259d1175494",
+    "ci_cases_sha256": "d9324521752a32bd62c4d9868667902fca1298d43fef6313f9ef2a0c4c22c98e"
+  },
+  "semantic_boundary": "The verifier observes the trace file the extension writes, the session tree, the session event stream, and child pi processes. It never imports candidate code.",
+  "substitutions": [
+    "LLM: pi's first-party faux provider (scripted responses, including summary responses for manual and threshold compaction and an error response)"
+  ],
+  "no_real_model": "no-network image; tests/test.sh unsets every provider credential and sets PI_OFFLINE=1; the faux provider is the only model",
+  "pass_to_pass": {
+    "baseline": "/opt/pi-baseline/coding-agent-junit.xml recorded at image build (2158 cases, 50 skipped)",
+    "pins": "tests/baseline-pins.json (identical to pi-background-processes and pi-history-notes: same image)",
+    "policy": "vitest --retry 2 --maxWorkers=4; existing test files must be unchanged vs Base; baseline-passed must pass; skipped set identical; no new failures"
+  },
+  "harbor_runs": {
+    "entrypoint": "python3.12 .github/scripts/task_ci.py {validate,image-check,prepare-case,check-result} + uvx --from harbor==0.22.0 harbor run --env docker --n-concurrent 1 --cpus ignore --memory ignore --delete --yes",
+    "latest": {
+      "date": "2026-09-19",
+      "harness_revision": 5,
+      "image_id_arm64": "sha256:593b6668002dc020931943467dba9a96e3435e6bdba56223973673ed8dd5eac0",
+      "image_id_amd64_canonical": "sha256:5ae25731adfef37fa7802eacaecba42092a98ca2a21dca2aa7b93b3527a22af7",
+      "log": "~/ai-infra-scratch/rev5-matrix-pi-agent-trace.log",
+      "result": "all-match 35/35 (base, oracle, every control incl. control-scope-hidden-by-gitignore and control-built-dist-tampered, alternatives)",
+      "note": "first run of the day had the three scope controls at reward 1: the scope function was piped into tee, so scope_rc was set in a subshell and lost; fixed (no pipeline) before this matrix, and tests/ were not edited afterwards. amd64 canonical image: check_scope.py on Base exits 0 and --list-files yields 265 Base test files; no amd64 matrix was run (as for revision 4); an amd64 smoke of the Oracle and the two new scope controls is recorded under amd64_smoke.",
+      "amd64_smoke": {
+        "date": "2026-09-19",
+        "image_id": "sha256:5ae25731adfef37fa7802eacaecba42092a98ca2a21dca2aa7b93b3527a22af7",
+        "how": "docker run --platform linux/amd64 (qemu on the arm64 host), --network none, tests and solution copied in, solve.sh and the control patch applied as node, bash /tests/test.sh as root; not a Harbor trial",
+        "results": {
+          "oracle": "reward 1, every layer 0 exit, scope_exit_code 0, candidate_tests_exit_code 0",
+          "control-scope-hidden-by-gitignore": "reward 0, scope_exit_code 1 (scope_added: packages/coding-agent/src/zz-hidden-core-hook.ts), all behaviour layers pass",
+          "control-built-dist-tampered": "reward 0, scope_exit_code 1 from the post-suite check only (built_modified: packages/coding-agent/dist/main.js), all behaviour layers pass"
+        },
+        "log": "~/ai-infra-scratch/rev5-amd64-smoke/run.log"
+      }
+    },
+    "previous": [
+      {
+        "date": "2026-09-15",
+        "image_id": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d",
+        "log": "~/ai-infra-scratch/at-matrix-8.log",
+        "all_match": true,
+        "n_cases": 30
+      },
+      {
+        "date": "2026-09-16",
+        "image_id": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d",
+        "log": "~/ai-infra-scratch/at-matrix-9.log",
+        "parallel_jobs": 2,
+        "note": "full matrix after the 2026-09-16 verifier revision (listed-keys attribute matching); includes alt-grok-run8-fixed",
+        "all_match": true,
+        "n_cases": 31
+      },
+      {
+        "date": "2026-09-16",
+        "image_id": "sha256:713cd7342900e1615f8ded92b7b8b2b411dd783eee33b875f2a840129889fe7d",
+        "log": "~/ai-infra-scratch/at-matrix-11.log",
+        "parallel_jobs": 2,
+        "note": "full matrix after verifier revision 2 of 2026-09-16 (1 ms slack below verifier-clock windows; millisecond granularity for the two mixed-clock in-trace comparisons); includes alt-grok-run8-fixed and alt-opus-run1",
+        "all_match": true,
+        "n_cases": 31
+      },
+      {
+        "date": "2026-09-18",
+        "harness_revision": 4,
+        "image_id_arm64": "sha256:c0b17fefc5542c58b442cb47a51bc757ada45a5162192e52d5135889d082efb8",
+        "image_id_amd64_canonical": "sha256:b3e2ea1ef22eaa1b6a0d22dd5d169546701b6eff535ed8160ea86bff1840224c",
+        "log": "~/ai-infra-scratch/f3-at-matrix.log",
+        "result": "all-match 33/33 (base, oracle, every control incl. control-verifier-runner-escape, alternatives)",
+        "note": "verifier runs pi's suites as the unprivileged node user (su -p); baseline recorded as node (0 environmental failures); new control control-verifier-runner-escape rejected (reward 0)."
+      }
+    ],
+    "harness_revision_3_matrix": {
+      "date": "2026-09-17",
+      "image_id": "sha256:96703b6c4db6547b7096cd4d802fbc6f14bf35af9e2a3dd2418aa2c5a2eefd2d",
+      "log": "~/ai-infra-scratch/at-matrix-r3.log",
+      "parallel_jobs": 2,
+      "note": "full matrix on harness revision 3 (non-root agent user, root-owned toolchain, scope check, pinned environmental failures tolerated); includes control-toolchain-config-injected",
+      "cases": [
+        {
+          "case": "base",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 79
+        },
+        {
+          "case": "oracle",
+          "expected_reward": 1,
+          "reward": 1,
+          "status": "OK",
+          "elapsed_sec": 82
+        },
+        {
+          "case": "control-int-attributes-as-numbers",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 76
+        },
+        {
+          "case": "control-chat-written-before-persist",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 77
+        },
+        {
+          "case": "control-trace-id-per-process",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 79
+        },
+        {
+          "case": "control-wakeup-as-prompt",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 77
+        },
+        {
+          "case": "control-tool-error-status-ok",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 79
+        },
+        {
+          "case": "control-continuation-as-wakeup",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 83
+        },
+        {
+          "case": "control-missing-line-terminator",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 79
+        },
+        {
+          "case": "control-compaction-under-last-run",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 83
+        },
+        {
+          "case": "control-chat-held-until-turn-end",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 76
+        },
+        {
+          "case": "control-error-status-without-message",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 78
+        },
+        {
+          "case": "control-write-failure-throws",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 76
+        },
+        {
+          "case": "control-no-shutdown-flush",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 78
+        },
+        {
+          "case": "control-no-start-lines",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 76
+        },
+        {
+          "case": "control-aborted-as-ok",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 76
+        },
+        {
+          "case": "control-single-tool-slot",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 78
+        },
+        {
+          "case": "control-end-line-keeps-phase",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 79
+        },
+        {
+          "case": "control-compaction-usage-omitted",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 77
+        },
+        {
+          "case": "control-steer-messages-unrecorded",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 80
+        },
+        {
+          "case": "control-no-trace-propagation",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 77
+        },
+        {
+          "case": "control-retry-run-claims-a-message",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 75
+        },
+        {
+          "case": "control-forged-junit",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 77
+        },
+        {
+          "case": "control-overflow-will-retry-false",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 79
+        },
+        {
+          "case": "alt-grok-run1",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 84
+        },
+        {
+          "case": "control-process-exit-zero-after-registration",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 86
+        },
+        {
+          "case": "alt-grok-run3",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 79
+        },
+        {
+          "case": "alt-grok-run4",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 79
+        },
+        {
+          "case": "alt-grok-run8-fixed",
+          "expected_reward": 1,
+          "reward": 1,
+          "status": "OK",
+          "elapsed_sec": 78
+        },
+        {
+          "case": "alt-grok-run5",
+          "expected_reward": 1,
+          "reward": 1,
+          "status": "OK",
+          "elapsed_sec": 78
+        },
+        {
+          "case": "alt-opus-run1",
+          "expected_reward": 1,
+          "reward": 1,
+          "status": "OK",
+          "elapsed_sec": 80
+        },
+        {
+          "case": "control-toolchain-config-injected",
+          "expected_reward": 0,
+          "reward": 0,
+          "status": "OK",
+          "elapsed_sec": 80
+        }
+      ],
+      "all_match": true
+    }
+  },
+  "local_precheck": {
+    "script": "validation/make_controls.py",
+    "note": "contract/lifecycle suites run in the pi dev checkout for Oracle, Base and every control before Harbor",
+    "results": {
+      "oracle": {
+        "contract": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 2
+        }
+      },
+      "base": {
+        "contract": {
+          "exit": 1,
+          "failed": 15,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 2,
+          "cases": 2
+        }
+      },
+      "control-int-attributes-as-numbers": {
+        "contract": {
+          "exit": 1,
+          "failed": 14,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 2,
+          "cases": 2
+        }
+      },
+      "control-chat-written-before-persist": {
+        "contract": {
+          "exit": 1,
+          "failed": 13,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 2,
+          "cases": 2
+        }
+      },
+      "control-trace-id-per-process": {
+        "contract": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 2
+        }
+      },
+      "control-wakeup-as-prompt": {
+        "contract": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 2
+        }
+      },
+      "control-continuation-as-wakeup": {
+        "contract": {
+          "exit": 1,
+          "failed": 2,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 2
+        }
+      },
+      "control-tool-error-status-ok": {
+        "contract": {
+          "exit": 1,
+          "failed": 2,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 2
+        }
+      },
+      "control-compaction-under-last-run": {
+        "contract": {
+          "exit": 1,
+          "failed": 3,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 2
+        }
+      },
+      "control-missing-line-terminator": {
+        "contract": {
+          "exit": 1,
+          "failed": 14,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 2,
+          "cases": 2
+        }
+      },
+      "control-error-status-without-message": {
+        "contract": {
+          "exit": 1,
+          "failed": 6,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 2
+        }
+      },
+      "control-chat-held-until-turn-end": {
+        "contract": {
+          "exit": 1,
+          "failed": 5,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 2
+        }
+      },
+      "control-no-shutdown-flush": {
+        "contract": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 2
+        }
+      },
+      "control-write-failure-throws": {
+        "contract": {
+          "exit": 1,
+          "failed": 15,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 2,
+          "cases": 2
+        }
+      },
+      "control-aborted-as-ok": {
+        "contract": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 2
+        }
+      },
+      "control-no-start-lines": {
+        "contract": {
+          "exit": 1,
+          "failed": 14,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 2,
+          "cases": 2
+        }
+      },
+      "control-end-line-keeps-phase": {
+        "contract": {
+          "exit": 1,
+          "failed": 14,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 2,
+          "cases": 2
+        }
+      },
+      "control-single-tool-slot": {
+        "contract": {
+          "exit": 1,
+          "failed": 4,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 2
+        }
+      },
+      "control-steer-messages-unrecorded": {
+        "contract": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 2
+        }
+      },
+      "control-compaction-usage-omitted": {
+        "contract": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 2
+        }
+      },
+      "control-no-trace-propagation": {
+        "contract": {
+          "exit": 1,
+          "failed": 15,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 2,
+          "cases": 2
+        }
+      },
+      "control-retry-run-claims-a-message": {
+        "contract": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 2
+        }
+      },
+      "control-overflow-will-retry-false": {
+        "contract": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 2
+        }
+      },
+      "control-forged-junit": {
+        "contract": {
+          "exit": 1,
+          "failed": 15,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 2,
+          "cases": 2
+        }
+      },
+      "control-process-exit-zero-after-registration": {
+        "contract": {
+          "exit": 1,
+          "failed": 0,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 1,
+          "cases": 2
+        }
+      },
+      "alt-grok-run1": {
+        "contract": {
+          "exit": 1,
+          "failed": 15,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 1,
+          "failed": 2,
+          "cases": 2
+        }
+      },
+      "alt-grok-run3": {
+        "contract": {
+          "exit": 1,
+          "failed": 2,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 2
+        }
+      },
+      "alt-grok-run4": {
+        "contract": {
+          "exit": 1,
+          "failed": 2,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 2
+        }
+      },
+      "alt-grok-run5": {
+        "contract": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 15
+        },
+        "lifecycle": {
+          "exit": 0,
+          "failed": 0,
+          "cases": 2
+        }
+      }
+    }
+  },
+  "known_limitations": [
+    "No independent oracle challenge yet (the alternative implementation is alt-grok-run1: grok-4.6's first rollout submission, unmodified).",
+    "Overflow-recovery compaction, failed compactions and aborted assistant messages are not driven (they need provider failures the faux provider cannot script deterministically).",
+    "Timestamps are checked for order, nesting and the turn_start equality, not for absolute accuracy beyond the prompt's wall-clock window.",
+    "The full matrix ran on the linux/arm64 build of the Dockerfile; CI must rebuild natively on x64 and publish (shared with the other pi tasks). After that build compare failed_on_base with tests/baseline-pins.json allowed_failures."
+  ],
+  "real_agent_rollouts": [
+    {
+      "run": 1,
+      "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1",
+      "task_version_seen": "0.0.1 (verifier revision 1: millisecond clock assumed)",
+      "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.1--20260915-033648",
+      "started_at": "2026-09-15T03:36:56.369564",
+      "finished_at": "2026-09-15T04:05:20.099370",
+      "reward": 0,
+      "reward_json": {
+        "reward": 0,
+        "command_exit_code": 1,
+        "contract_exit_code": 1,
+        "contract_integrity_exit_code": 1,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0
+      },
+      "layers": {
+        "contract": "5/6",
+        "lifecycle": "1/1",
+        "pass-to-pass": "2164/2167"
+      },
+      "failures": [
+        "contract: agent-trace contract > a prompt with a tool call exports run, turn, chat and tool spans in OTLP/JSON tied to session entries"
+      ],
+      "assessment": "judge defect: the verifier compared span times with millisecond Date.now() values while the submission uses a sub-millisecond clock (run end 5 ns into the next millisecond; turn start 1 ns after the event timestamp); both assertions now allow sub-millisecond digits, and the unmodified submission passes every layer locally and through Harbor as validation/alt-grok-run1.patch (expected 1)",
+      "label": "grok run 1"
+    },
+    {
+      "run": 2,
+      "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1",
+      "task_version_seen": "0.0.1 (verifier revision 1: millisecond clock assumed)",
+      "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.1--20260915-040535",
+      "started_at": "2026-09-15T04:05:43.283947",
+      "finished_at": "2026-09-15T04:29:51.349984",
+      "reward": 1,
+      "reward_json": {
+        "reward": 1,
+        "command_exit_code": 0,
+        "contract_exit_code": 0,
+        "contract_integrity_exit_code": 0,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0
+      },
+      "layers": {
+        "contract": "6/6",
+        "lifecycle": "1/1",
+        "pass-to-pass": "2167/2170"
+      },
+      "failures": [],
+      "assessment": "passes every layer on verifier revision 1 (its clock is millisecond-based); the task's main path is doable by grok-4.6, and with run 1 passing under the corrected verifier the discriminating edges still have to be added",
+      "label": "grok run 2"
+    },
+    {
+      "run": 3,
+      "agent": "claude-code (Harbor built-in, OAuth token) claude-opus-5, agent timeout multiplier 1",
+      "task_version_seen": "0.0.2 (verifier revision 2; opus rollout of the 2026-09-15 final experiment)",
+      "job": "pi-agent-trace--claude-code--claude-opus-5--x1--20260915-123704",
+      "started_at": "2026-09-15T12:37:05.210846",
+      "finished_at": "2026-09-15T13:03:54.776436",
+      "reward": 1,
+      "reward_json": {
+        "reward": 1,
+        "command_exit_code": 0,
+        "contract_exit_code": 0,
+        "contract_integrity_exit_code": 0,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0
+      },
+      "layers": {
+        "contract": "11/11",
+        "lifecycle": "2/2",
+        "pass-to-pass": "2170/2174"
+      },
+      "failures": [],
+      "assessment": "task 0.0.2, claude-opus-5 through Harbor's claude-code agent (OAuth token, multiplier 1): passes every layer unmodified (contract 11/11, lifecycle 2/2); the opus data point of the 2026-09-15 final experiment, recorded on 2026-09-16 when the recorder was extended to claude-code jobs (a second opus attempt that day hit the Claude session limit and is not a rollout)",
+      "label": "opus 1 (0.0.2)"
+    },
+    {
+      "run": 4,
+      "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1",
+      "task_version_seen": "0.0.3 (verifier revision 3: shutdown closes had to share one nanosecond timestamp)",
+      "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.1--20260915-151314",
+      "started_at": "2026-09-15T15:13:16.368404",
+      "finished_at": "2026-09-15T15:49:40.811446",
+      "reward": 0,
+      "reward_json": {
+        "reward": 0,
+        "command_exit_code": 1,
+        "contract_exit_code": 1,
+        "contract_integrity_exit_code": 1,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0
+      },
+      "layers": {
+        "contract": "12/13",
+        "lifecycle": "2/2",
+        "pass-to-pass": "2169/2173"
+      },
+      "failures": [
+        "contract: agent-trace contract > a quit while a run is streaming closes the open spans with status shutdown"
+      ],
+      "assessment": "task 0.0.3, verifier revision 3: judge defect; the shutdown case required the three closing spans to share one nanosecond timestamp, this implementation reads the clock per span (1-2 ms apart). Assertion replaced by a window the verifier observes around runtime.dispose() (child-first order kept); unmodified submission passes every layer (validation/alt-grok-run3.patch, expected 1)",
+      "label": "grok run 3"
+    },
+    {
+      "run": 5,
+      "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1",
+      "task_version_seen": "0.0.3 (verifier revision 3: shutdown closes had to share one nanosecond timestamp)",
+      "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.1--20260915-154957",
+      "started_at": "2026-09-15T15:50:07.659494",
+      "finished_at": "2026-09-15T16:28:05.571347",
+      "reward": 0,
+      "reward_json": {
+        "reward": 0,
+        "command_exit_code": 1,
+        "contract_exit_code": 1,
+        "contract_integrity_exit_code": 1,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0
+      },
+      "layers": {
+        "contract": "12/13",
+        "lifecycle": "2/2",
+        "pass-to-pass": "2169/2172"
+      },
+      "failures": [
+        "contract: agent-trace contract > a quit while a run is streaming closes the open spans with status shutdown"
+      ],
+      "assessment": "task 0.0.3, verifier revision 3: same shutdown timestamp assertion (1 ns apart); passes every layer under the window-based assertion (validation/alt-grok-run4.patch, expected 1)",
+      "label": "grok run 4"
+    },
+    {
+      "run": 6,
+      "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1",
+      "task_version_seen": "0.0.4",
+      "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.1--20260915-174541",
+      "started_at": "2026-09-15T17:45:42.179243",
+      "finished_at": "2026-09-15T18:19:42.042126",
+      "reward": 1,
+      "reward_json": {
+        "reward": 1,
+        "command_exit_code": 0,
+        "contract_exit_code": 0,
+        "contract_integrity_exit_code": 0,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0
+      },
+      "layers": {
+        "contract": "15/15",
+        "lifecycle": "2/2",
+        "pass-to-pass": "2167/2170"
+      },
+      "failures": [],
+      "assessment": "task 0.0.4, first rollout: passes every layer unmodified, including the two new edges (overflow recovery with pi.run.after_compaction, sub-agent propagation through PI_AGENT_TRACE_PARENT); kept as validation/alt-grok-run5.patch (expected 1)",
+      "label": "grok run 5"
+    },
+    {
+      "run": 7,
+      "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1",
+      "task_version_seen": "0.0.4",
+      "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.1--20260915-182437",
+      "started_at": "2026-09-15T18:24:38.810581",
+      "finished_at": "2026-09-15T18:54:22.242433",
+      "reward": 1,
+      "reward_json": {
+        "reward": 1,
+        "command_exit_code": 0,
+        "contract_exit_code": 0,
+        "contract_integrity_exit_code": 0,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0
+      },
+      "layers": {
+        "contract": "15/15",
+        "lifecycle": "2/2",
+        "pass-to-pass": "2165/2169"
+      },
+      "failures": [],
+      "assessment": "task 0.0.4, second rollout: passes every layer unmodified (expected 1)",
+      "label": "grok run 6"
+    },
+    {
+      "run": 8,
+      "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1",
+      "task_version_seen": "0.0.5 (contract-only instruction)",
+      "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.1--20260915-195647",
+      "started_at": "2026-09-15T19:56:57.576607",
+      "finished_at": "2026-09-15T20:58:55.485308",
+      "reward": 0,
+      "reward_json": {
+        "reward": 0,
+        "command_exit_code": 1,
+        "contract_exit_code": 1,
+        "contract_integrity_exit_code": 1,
+        "lifecycle_exit_code": 1,
+        "lifecycle_integrity_exit_code": 1,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 1
+      },
+      "layers": {
+        "contract": "1/15",
+        "lifecycle": "0/2",
+        "pass-to-pass": "2154/2171"
+      },
+      "failures": [
+        "contract: agent-trace contract > a prompt with a tool call exports run, turn, chat and tool spans in OTLP/JSON tied to session entries",
+        "contract: agent-trace contract > a failing tool and an error response mark tool, chat and turn spans ERROR while the run stays OK",
+        "contract: agent-trace contract > runs started by an extension message are wakeups and runs queued at agent_end are continuations",
+        "contract: agent-trace contract > manual and threshold compactions export root compaction spans tied to compaction entries",
+        "contract: agent-trace contract > reload appends to the same file with the same trace id and no duplicate spans",
+        "contract: agent-trace contract > PI_AGENT_TRACE_FILE replaces the trace file path",
+        "contract: agent-trace contract > an aborted stream marks its chat and turn ERROR and the trace stays consistent afterwards",
+        "contract: agent-trace contract > a failed compaction exports an ERROR compaction span without an entry id",
+        "contract: agent-trace contract > a quit while a run is streaming closes the open spans with status shutdown",
+        "contract: agent-trace contract > the file updates live: start lines appear while a tool is still running and end lines complete them",
+        "contract: agent-trace contract > concurrent tool calls of one assistant message get one overlapping span each with its own status and entry",
+        "contract: agent-trace contract > steering and follow-up messages start turns inside the run and are listed on it, never as new runs",
+        "contract: agent-trace contract > overflow recovery persists the failed chat, compacts with will_retry and continues in a run without a message",
+        "contract: agent-trace contract > a child pi spawned by a tool joins the parent's trace under that tool span through PI_AGENT_TRACE_PARENT",
+        "lifecycle: a later pi process appends to the same trace with the same trace id and its own process id",
+        "lifecycle: a pi process killed during a tool execution leaves that turn's chat span on disk"
+      ],
+      "assessment": "task 0.0.5, first rollout on the contract-only instruction: not a judge verdict; AgentTimeoutError at 3600 s (task 36000 s x multiplier 0.1) with the extension mid-refactor (agent was fixing entry-id lookup timing, had run its own unit test once and never the contract suite), so 14/15 contract and 2/2 lifecycle failures are the half-finished state. Confounded by the host proxy: the Clash node changed at 12:41Z, the grok CLI logged auth 401 retries from 12:43Z and a network error at 12:57Z (no other run has a 401). No capability signal; superseded by run 8",
+      "label": "grok run 7"
+    },
+    {
+      "run": 9,
+      "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1",
+      "task_version_seen": "0.0.5 (contract-only instruction)",
+      "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.1--20260915-212903",
+      "started_at": "2026-09-15T21:29:18.468391",
+      "finished_at": "2026-09-15T22:07:52.657227",
+      "reward": 0,
+      "reward_json": {
+        "reward": 0,
+        "command_exit_code": 1,
+        "contract_exit_code": 1,
+        "contract_integrity_exit_code": 1,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0
+      },
+      "layers": {
+        "contract": "13/15",
+        "lifecycle": "2/2",
+        "pass-to-pass": "2168/2172"
+      },
+      "failures": [
+        "contract: agent-trace contract > a quit while a run is streaming closes the open spans with status shutdown",
+        "contract: agent-trace contract > concurrent tool calls of one assistant message get one overlapping span each with its own status and entry"
+      ],
+      "assessment": "task 0.0.5, rerun of rollout 8 after the first attempt exited at the proxy preflight (SSL_ERROR_SYSCALL to api.x.ai at 12:58Z, same proxy incident as run 7): agent finished in 33 min with no 401s. Two genuine defects, both reproduced locally from agent-changes.patch in the task image (~/ai-infra-scratch/repro-run8/repro.log, trace dumps included) and both against explicit instruction text: (1) concurrent tool calls: the extension stamps a tool's end time at tool_execution_end but defers the end line until the tool-result entry id resolves; pi persists parallel tool results after Promise.all in call order, so the 300 ms call's end line (line 7) was written before the 100 ms call's (line 8, earlier endTimeUnixNano); instruction: 'end lines appear in the order the spans ended: endTimeUnixNano never decreases' (the oracle collects tool ends and writes them at turn_end in end order); (2) shutdown: onShutdown closes pi.run with an empty attribute list, so the end line has no pi.run.turn_count and no pi.session.entry_id although pi had persisted the user message (the exemption covers only entries pi never persisted; the oracle resolves the entry id and sets turn_count before closing). Judge correct (expected 0)",
+      "label": "grok run 8"
+    },
+    {
+      "run": 10,
+      "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1",
+      "task_version_seen": "0.0.6 (contract-only + shutdown attribute sentence)",
+      "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.1--20260916-105659",
+      "started_at": "2026-09-16T10:57:27.193542",
+      "finished_at": "2026-09-16T11:33:13.827036",
+      "reward": 0,
+      "reward_json": {
+        "reward": 0,
+        "command_exit_code": 1,
+        "contract_exit_code": 1,
+        "contract_integrity_exit_code": 1,
+        "lifecycle_exit_code": 1,
+        "lifecycle_integrity_exit_code": 1,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0
+      },
+      "layers": {
+        "contract": "10/15",
+        "lifecycle": "1/2",
+        "pass-to-pass": "2172/2176"
+      },
+      "failures": [
+        "contract: agent-trace contract > manual and threshold compactions export root compaction spans tied to compaction entries",
+        "contract: agent-trace contract > a failed compaction exports an ERROR compaction span without an entry id",
+        "contract: agent-trace contract > a quit while a run is streaming closes the open spans with status shutdown",
+        "contract: agent-trace contract > concurrent tool calls of one assistant message get one overlapping span each with its own status and entry",
+        "contract: agent-trace contract > overflow recovery persists the failed chat, compacts with will_retry and continues in a run without a message",
+        "lifecycle: a later pi process appends to the same trace with the same trace id and its own process id"
+      ],
+      "assessment": "task 0.0.6 (contract-only + shutdown attribute sentence), first rollout: agent finished in 34 min, no 401s, P2P pass; contract 10/15, lifecycle 1/2. All six failures reproduced locally from agent-changes.patch in the task image (~/ai-infra-scratch/repro-run8/repro9.log) and trace back to three genuine defects, none a judge issue: (a) four cases (manual/threshold, failed compaction, overflow, lifecycle reload) fail because every compaction is exported twice: onCompact first runs ingest(), which sees the persisted compaction entry and closes the open pi.compaction span with its entry id, then finds this.compaction empty, starts a second span and closes it with the same entry id (2 ns apart), so one entry is referenced by two spans; (b) the shutdown case now carries pi.run.turn_count and the run's entry id (the 0.0.6 sentence had its effect) but the streaming chat is closed with pendingChat.endTimeUnixNano, a placeholder initialised to the span's start time and only updated at message_end, so its close lands 300 ms before the verifier's dispose() window (instruction: timestamps come from the clock at the moment of the event); (c) the concurrent case writes tool end lines in persistence order and keeps endTimeUnixNano non-decreasing by clamping (endNano: nano <= lastEnd -> lastEnd + 1), so the 100 ms call's end time is rewritten to the 300 ms call's end + 1 ns and its duration becomes 306 ms (the mirror image of run 8, which kept true times but wrote out of order; the oracle buffers until turn_end and writes in end order with true times). Judge correct (expected 0)",
+      "label": "grok run 9"
+    },
+    {
+      "run": 11,
+      "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1, agent timeout multiplier 0.15",
+      "task_version_seen": "0.0.6 (contract-only + shutdown attribute sentence)",
+      "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.15--20260916-133523",
+      "started_at": "2026-09-16T05:35:23Z",
+      "finished_at": "2026-09-16T06:19:00Z",
+      "salvaged": true,
+      "reward": 0,
+      "reward_json": {
+        "reward": 0,
+        "command_exit_code": 1,
+        "contract_exit_code": 1,
+        "contract_integrity_exit_code": 1,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0
+      },
+      "layers": {
+        "contract": "13/15",
+        "lifecycle": "2/2",
+        "pass-to-pass": "2168/2171"
+      },
+      "failures": [
+        "contract: agent-trace contract > reload appends to the same file with the same trace id and no duplicate spans",
+        "contract: agent-trace contract > concurrent tool calls of one assistant message get one overlapping span each with its own status and entry"
+      ],
+      "assessment": "task 0.0.6, second rollout, agent timeout multiplier 0.15, SALVAGED: Claude Code killed the chain wrapper (host memory pressure) 37 min into the agent phase; the grok agent kept running in its orphaned container (05:36Z-06:17Z, 41 min, no 401s) and the verifier was run by hand in that container (tests copied in, proxy variables unset, docker network disconnect attempted but not confirmed; the suite is offline by construction), so there is no Harbor result.json and no watchdog for this run. Reward 0, contract 13/15, lifecycle 2/2, P2P pass; both failures reproduced from agent-changes.patch in the task image (~/ai-infra-scratch/repro-run8/repro10.log): (1) concurrent tool calls: same class as run 8, true end times but end lines written in pi's persistence order (300 ms call on line 7, 100 ms call on line 8, endTimeUnixNano decreased); (2) reload: after /reload the new process resolves entry ids from the start of the branch, so the new run claims the first prompt's user entry (ad77ab3a) again and the new chat references the first chat entry (76f0e94b) again while the new entries stay unreferenced; the used-entry bookkeeping does not survive the reload. Judge correct (expected 0)",
+      "label": "grok run 10"
+    },
+    {
+      "run": 12,
+      "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1, agent timeout multiplier 0.15",
+      "task_version_seen": "0.0.6 (contract-only + shutdown attribute sentence)",
+      "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.15--20260916-141903",
+      "started_at": "2026-09-16T14:19:12.343078",
+      "finished_at": "2026-09-16T14:46:07.302313",
+      "reward": 0,
+      "reward_json": {
+        "reward": 0,
+        "command_exit_code": 1,
+        "contract_exit_code": 1,
+        "contract_integrity_exit_code": 1,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0
+      },
+      "layers": {
+        "contract": "12/15",
+        "lifecycle": "2/2",
+        "pass-to-pass": "2172/2176"
+      },
+      "failures": [
+        "contract: agent-trace contract > runs started by an extension message are wakeups and runs queued at agent_end are continuations",
+        "contract: agent-trace contract > manual and threshold compactions export root compaction spans tied to compaction entries",
+        "contract: agent-trace contract > steering and follow-up messages start turns inside the run and are listed on it, never as new runs"
+      ],
+      "assessment": "task 0.0.6, third rollout, agent timeout multiplier 0.15: agent finished in 25 min, no 401s, P2P pass; contract 12/15, lifecycle 2/2. Reproduced from agent-changes.patch in the task image (~/ai-infra-scratch/repro-run8/repro11.log). Two of the three failures are one genuine defect: the chat span's assistant entry lookup never marks the entry it used, so in the steering case all three chats reference the same assistant entry (706e4480 x3) and in the wakeup/continuation case the fourth chat reuses the third's entry; the branch is not covered exactly once. The third failure is a verifier-strictness finding, not an agent error: the compaction end line carried pi.usage.cache_read_tokens and pi.usage.cache_write_tokens (0, taken from the compaction entry's usage) in addition to the seven attributes the table lists, and the verifier compares the compaction attribute map with toEqual (also for tool spans, lines 158/260/377), while the instruction never says the table is exhaustive. Reward would be 0 regardless because of the entry defect (expected 0), but the exact-match assertions should be relaxed to the listed keys, or the instruction should state that no other attributes are allowed, before more rollouts Re-verified under the revised verifier (2026-09-16, listed-keys matching): contract 13/15, only the two entry-bookkeeping cases fail; reward unchanged at 0.",
+      "label": "grok run 11"
+    },
+    {
+      "run": 13,
+      "agent": "claude-code (Harbor built-in, OAuth token) claude-opus-5, agent timeout multiplier 0.15",
+      "task_version_seen": "0.0.6 (contract-only + shutdown attribute sentence)",
+      "job": "pi-agent-trace--claude-code--claude-opus-5--x0.15--20260916-161837",
+      "started_at": "2026-09-16T16:18:47.862333",
+      "finished_at": "2026-09-16T16:47:35.476602",
+      "reward": 1,
+      "reward_json": {
+        "reward": 1,
+        "command_exit_code": 0,
+        "contract_exit_code": 0,
+        "contract_integrity_exit_code": 0,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0
+      },
+      "layers": {
+        "contract": "15/15",
+        "lifecycle": "2/2",
+        "pass-to-pass": "2177/2181"
+      },
+      "failures": [],
+      "assessment": "task 0.0.6 (contract-only + shutdown sentence, revised verifier), claude-opus-5 through Harbor's claude-code agent (fresh setup-token, multiplier 0.15): passes every layer unmodified in 28 min (contract 15/15, lifecycle 2/2, P2P pass), 156 turns, 62 Bash calls, no rate-limit pressure (5-hour window at 1%). The first non-curated pass of the contract-only instruction: it resolves entry ids by scanning the branch backwards from its end, lists steering entries per turn, and closes spans on session_shutdown with their attributes. Kept as validation/alt-opus-run1.patch (expected 1) Post-hoc scrutiny (2026-09-16): trajectory reviewed (only the extension directory, its README, the examples README and one new test file were written; the agent ran pi's own suite, tsgo and biome itself; no verifier or node_modules access), traces dumped for the hard cases (true end times, end order kept, shutdown closes carry the run attributes). Repeating the shutdown case locally exposed a verifier over-precision: the submission's hrtime-anchored clock reads up to 1 ms behind Date.now(), and the verifier's window lower bound was exact to the nanosecond, so the case failed 2 of 8 local repeats by 16 us. Fixed in verifier revision 2 (1 ms slack); after the fix 10/10 repeats and 3 full-suite runs pass. The Harbor pass stands, but under revision 1 it carried roughly a one-in-four chance of a spurious 0",
+      "label": "opus 2 (0.0.6)"
+    },
+    {
+      "run": 14,
+      "label": "grok run 12",
+      "agent": "GrokBuildOAuth (grok-build CLI, OAuth) grok-4.6, temperature 0.1, agent timeout multiplier 0.15, agent user node",
+      "task_version_seen": "0.0.6 (harness revision 3, non-root agent)",
+      "job": "pi-agent-trace--GrokBuildOAuth--grok-4.6--x0.15--20260918-013035",
+      "started_at": "2026-09-18T01:33:35Z",
+      "finished_at": "2026-09-18T02:18:29Z",
+      "reward": 0,
+      "reward_json": {
+        "reward": 0,
+        "command_exit_code": 1,
+        "contract_exit_code": 1,
+        "contract_integrity_exit_code": 1,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0,
+        "scope_exit_code": 0
+      },
+      "layers": {
+        "contract": "13/15",
+        "lifecycle": "2/2",
+        "pass-to-pass": "pass"
+      },
+      "failures": [
+        "contract: a prompt with a tool call exports run, turn, chat and tool spans in OTLP/JSON tied to session entries",
+        "contract: concurrent tool calls of one assistant message get one overlapping span each with its own status and entry"
+      ],
+      "assessment": "task 0.0.6, harness revision 3 (non-root agent user), grok-4.6, 45 min: reward 0, contract 13/15, lifecycle 2/2, P2P pass, scope_exit_code 0 (only the extension directory and a new test touched; the scope check did not fire). A genuine agent defect on the contract-only instruction, not a hardening artefact: the two failing cases are the basic 'a prompt with a tool call exports run/turn/chat/tool spans tied to session entries' and 'concurrent tool calls' (the recurring parallel-order defect). Confirms the non-root agent runs a full rollout (grok authenticated as node, no auth errors) and that a correct submission is unaffected (the bg rollout of the same batch scored 1)."
+    },
+    {
+      "run": 15,
+      "label": "codex deepseek-v4.1-flash run 1",
+      "date": "2026-09-18",
+      "agent": "codex (Harbor built-in, codex-cli 0.153.0) through a ZenMux Responses-API model provider, agent timeout multiplier 0.15, agent user node",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "task_version_seen": "0.0.6 (harness revision 4)",
+      "job": "pi-agent-trace--codex--deepseek-v4.1-flash--x0.15--20260919-002002",
+      "started_at": "2026-09-18T16:20:15.688172Z",
+      "finished_at": "2026-09-18T16:52:50.083670Z",
+      "reward": 1,
+      "reward_json": {
+        "reward": 1,
+        "command_exit_code": 0,
+        "contract_exit_code": 0,
+        "contract_integrity_exit_code": 0,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0,
+        "scope_exit_code": 0
+      },
+      "layers": {
+        "contract": "15/15",
+        "lifecycle": "2/2",
+        "pass-to-pass": "pass"
+      },
+      "failures": [],
+      "write_up": "validation/rollouts-2026-09-19-codex-zenmux.md"
+    },
+    {
+      "run": 16,
+      "label": "codex deepseek-v4.1-flash run 2",
+      "date": "2026-09-18",
+      "agent": "codex (Harbor built-in, codex-cli 0.153.0) through a ZenMux Responses-API model provider, agent timeout multiplier 0.15, agent user node",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "task_version_seen": "0.0.6 (harness revision 4)",
+      "job": "pi-agent-trace--codex--deepseek-v4.1-flash--x0.15--20260919-013123",
+      "started_at": "2026-09-18T17:31:36.270079Z",
+      "finished_at": "2026-09-18T18:05:41.080737Z",
+      "reward": 0,
+      "reward_json": {
+        "reward": 0,
+        "command_exit_code": 1,
+        "contract_exit_code": 1,
+        "contract_integrity_exit_code": 1,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0,
+        "scope_exit_code": 0
+      },
+      "layers": {
+        "contract": "14/15",
+        "lifecycle": "2/2",
+        "pass-to-pass": "pass"
+      },
+      "failures": [
+        "contract: agent-trace contract > reload appends to the same file with the same trace id and no duplicate spans"
+      ],
+      "write_up": "validation/rollouts-2026-09-19-codex-zenmux.md"
+    },
+    {
+      "run": 17,
+      "label": "codex gpt-5.6-luna run 1",
+      "date": "2026-09-19",
+      "agent": "codex (Harbor built-in, codex-cli 0.153.0) through a ZenMux Responses-API model provider, agent timeout multiplier 0.15, agent user node",
+      "model": "openai/gpt-5.6-luna",
+      "task_version_seen": "0.0.6 (harness revision 5)",
+      "job": "pi-agent-trace--codex--gpt-5.6-luna--x0.15--20260919-123525",
+      "started_at": "2026-09-19T04:35:38.052617Z",
+      "finished_at": "2026-09-19T04:49:07.321850Z",
+      "reward": 0,
+      "reward_json": {
+        "reward": 0,
+        "command_exit_code": 1,
+        "contract_exit_code": 1,
+        "contract_integrity_exit_code": 1,
+        "lifecycle_exit_code": 0,
+        "lifecycle_integrity_exit_code": 0,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0,
+        "candidate_tests_exit_code": 0,
+        "scope_exit_code": 0
+      },
+      "layers": {
+        "contract": "13/15",
+        "lifecycle": "2/2",
+        "pass-to-pass": "pass"
+      },
+      "failures": [
+        "contract: agent-trace contract > runs started by an extension message are wakeups and runs queued at agent_end are continuations",
+        "contract: agent-trace contract > a quit while a run is streaming closes the open spans with status shutdown"
+      ],
+      "write_up": "validation/rollouts-2026-09-19-codex-zenmux.md"
+    },
+    {
+      "run": 18,
+      "label": "codex gpt-5.6-luna run 2",
+      "date": "2026-09-19",
+      "agent": "codex (Harbor built-in, codex-cli 0.153.0) through a ZenMux Responses-API model provider, agent timeout multiplier 0.15, agent user node",
+      "model": "openai/gpt-5.6-luna",
+      "task_version_seen": "0.0.6 (harness revision 5)",
+      "job": "pi-agent-trace--codex--gpt-5.6-luna--x0.15--20260919-130812",
+      "started_at": "2026-09-19T05:08:22.140360Z",
+      "finished_at": "2026-09-19T05:20:49.999129Z",
+      "reward": 0,
+      "reward_json": {
+        "reward": 0,
+        "command_exit_code": 1,
+        "contract_exit_code": 1,
+        "contract_integrity_exit_code": 1,
+        "lifecycle_exit_code": 1,
+        "lifecycle_integrity_exit_code": 1,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0,
+        "candidate_tests_exit_code": 0,
+        "scope_exit_code": 0
+      },
+      "layers": {
+        "contract": "1/15",
+        "lifecycle": "0/2",
+        "pass-to-pass": "pass"
+      },
+      "failures": [
+        "contract: agent-trace contract > a prompt with a tool call exports run, turn, chat and tool spans in OTLP/JSON tied to session entries",
+        "contract: agent-trace contract > a failing tool and an error response mark tool, chat and turn spans ERROR while the run stays OK",
+        "contract: agent-trace contract > runs started by an extension message are wakeups and runs queued at agent_end are continuations",
+        "contract: agent-trace contract > manual and threshold compactions export root compaction spans tied to compaction entries",
+        "contract: agent-trace contract > reload appends to the same file with the same trace id and no duplicate spans",
+        "contract: agent-trace contract > PI_AGENT_TRACE_FILE replaces the trace file path",
+        "contract: agent-trace contract > an aborted stream marks its chat and turn ERROR and the trace stays consistent afterwards",
+        "contract: agent-trace contract > a failed compaction exports an ERROR compaction span without an entry id",
+        "contract: agent-trace contract > a quit while a run is streaming closes the open spans with status shutdown",
+        "contract: agent-trace contract > the file updates live: start lines appear while a tool is still running and end lines complete them",
+        "contract: agent-trace contract > concurrent tool calls of one assistant message get one overlapping span each with its own status and entry",
+        "contract: agent-trace contract > steering and follow-up messages start turns inside the run and are listed on it, never as new runs",
+        "contract: agent-trace contract > overflow recovery persists the failed chat, compacts with will_retry and continues in a run without a message",
+        "contract: agent-trace contract > a child pi spawned by a tool joins the parent's trace under that tool span through PI_AGENT_TRACE_PARENT",
+        "lifecycle: a later pi process appends to the same trace with the same trace id and its own process id",
+        "lifecycle: a pi process killed during a tool execution leaves that turn's chat span on disk"
+      ],
+      "write_up": "validation/rollouts-2026-09-19-codex-zenmux.md"
+    },
+    {
+      "run": 19,
+      "label": "codex glm-5.3-flashx run 1",
+      "date": "2026-09-19",
+      "agent": "codex (Harbor built-in, codex-cli 0.153.0) through a ZenMux Responses-API model provider, agent timeout multiplier 0.15, agent user node",
+      "model": "z-ai/glm-5.3-flashx",
+      "task_version_seen": "0.0.6 (harness revision 5)",
+      "job": "pi-agent-trace--codex--glm-5.3-flashx--x0.15--20260919-162356",
+      "started_at": "2026-09-19T08:24:01.506342Z",
+      "finished_at": "2026-09-19T08:44:50.338455Z",
+      "reward": 0,
+      "reward_json": {
+        "reward": 0,
+        "command_exit_code": 1,
+        "contract_exit_code": 1,
+        "contract_integrity_exit_code": 1,
+        "lifecycle_exit_code": 1,
+        "lifecycle_integrity_exit_code": 1,
+        "pass_to_pass_exit_code": 1,
+        "pass_to_pass_check_exit_code": 0,
+        "candidate_tests_exit_code": 0,
+        "scope_exit_code": 0
+      },
+      "layers": {
+        "contract": "3/15",
+        "lifecycle": "0/2",
+        "pass-to-pass": "pass"
+      },
+      "failures": [
+        "contract: agent-trace contract > a prompt with a tool call exports run, turn, chat and tool spans in OTLP/JSON tied to session entries",
+        "contract: agent-trace contract > a failing tool and an error response mark tool, chat and turn spans ERROR while the run stays OK",
+        "contract: agent-trace contract > runs started by an extension message are wakeups and runs queued at agent_end are continuations",
+        "contract: agent-trace contract > manual and threshold compactions export root compaction spans tied to compaction entries",
+        "contract: agent-trace contract > reload appends to the same file with the same trace id and no duplicate spans",
+        "contract: agent-trace contract > an aborted stream marks its chat and turn ERROR and the trace stays consistent afterwards",
+        "contract: agent-trace contract > a quit while a run is streaming closes the open spans with status shutdown",
+        "contract: agent-trace contract > the file updates live: start lines appear while a tool is still running and end lines complete them",
+        "contract: agent-trace contract > concurrent tool calls of one assistant message get one overlapping span each with its own status and entry",
+        "contract: agent-trace contract > steering and follow-up messages start turns inside the run and are listed on it, never as new runs",
+        "contract: agent-trace contract > overflow recovery persists the failed chat, compacts with will_retry and continues in a run without a message",
+        "contract: agent-trace contract > a child pi spawned by a tool joins the parent's trace under that tool span through PI_AGENT_TRACE_PARENT",
+        "lifecycle: a later pi process appends to the same trace with the same trace id and its own process id",
+        "lifecycle: a pi process killed during a tool execution leaves that turn's chat span on disk"
+      ],
+      "write_up": "validation/rollouts-2026-09-19-codex-zenmux.md"
+    },
+    {
+      "run": 20,
+      "label": "codex glm-5.3-flashx run 2",
+      "date": "2026-09-19",
+      "agent": "codex (Harbor built-in, codex-cli 0.153.0) through a ZenMux Responses-API model provider, agent timeout multiplier 0.15, agent user node",
+      "model": "z-ai/glm-5.3-flashx",
+      "task_version_seen": "0.0.6 (harness revision 5)",
+      "job": "pi-agent-trace--codex--glm-5.3-flashx--x0.15--20260919-170825",
+      "started_at": "2026-09-19T09:08:36.365186Z",
+      "finished_at": "2026-09-19T09:18:02.082838Z",
+      "reward": 0,
+      "reward_json": {
+        "reward": 0,
+        "command_exit_code": 1,
+        "contract_exit_code": 1,
+        "contract_integrity_exit_code": 1,
+        "lifecycle_exit_code": 1,
+        "lifecycle_integrity_exit_code": 1,
+        "pass_to_pass_exit_code": 0,
+        "pass_to_pass_check_exit_code": 0,
+        "candidate_tests_exit_code": 1,
+        "scope_exit_code": 0
+      },
+      "layers": {
+        "contract": "3/15",
+        "lifecycle": "0/2",
+        "pass-to-pass": "pass"
+      },
+      "failures": [
+        "contract: agent-trace contract > a prompt with a tool call exports run, turn, chat and tool spans in OTLP/JSON tied to session entries",
+        "contract: agent-trace contract > a failing tool and an error response mark tool, chat and turn spans ERROR while the run stays OK",
+        "contract: agent-trace contract > runs started by an extension message are wakeups and runs queued at agent_end are continuations",
+        "contract: agent-trace contract > manual and threshold compactions export root compaction spans tied to compaction entries",
+        "contract: agent-trace contract > reload appends to the same file with the same trace id and no duplicate spans",
+        "contract: agent-trace contract > an aborted stream marks its chat and turn ERROR and the trace stays consistent afterwards",
+        "contract: agent-trace contract > an unwritable trace path never reaches the agent and is reported once",
+        "contract: agent-trace contract > the file updates live: start lines appear while a tool is still running and end lines complete them",
+        "contract: agent-trace contract > concurrent tool calls of one assistant message get one overlapping span each with its own status and entry",
+        "contract: agent-trace contract > steering and follow-up messages start turns inside the run and are listed on it, never as new runs",
+        "contract: agent-trace contract > overflow recovery persists the failed chat, compacts with will_retry and continues in a run without a message",
+        "contract: agent-trace contract > a child pi spawned by a tool joins the parent's trace under that tool span through PI_AGENT_TRACE_PARENT",
+        "lifecycle: a later pi process appends to the same trace with the same trace id and its own process id",
+        "lifecycle: a pi process killed during a tool execution leaves that turn's chat span on disk"
+      ],
+      "write_up": "validation/rollouts-2026-09-19-codex-zenmux.md"
+    }
+  ],
+  "artifacts": {
+    "files": {
+      "README.md": "8397801c323e8fc27105ebbefcb080ca634005beb9c6d33ef141908c23857208",
+      "environment/Dockerfile": "775dd1bb767b5a4bb4d735d9d9df0427c3ff725f72162af6c2ccab3b7f1e1264",
+      "environment/image-manifest.json": "d7b88a9d523aead1f0d490229eb1dd10248a8920b935cbe925601aae3d058d84",
+      "environment/lock/manifest.json": "967f6a3c67d25bae5ed6be1dad6bc7ca15d2cfd3d3539f93366a02100d13cf2f",
+      "environment/lock/package-lock.json": "e3569b99e673a0051be908f2bed57651b90a966a5a0d208913c29e6830a6a6c2",
+      "instruction.md": "606dd2c1ac8b85f67a3ab595da323d57eff36d39b7679fe53d07fcc5915247aa",
+      "solution/README.md": "3846768f81bcbc8be890ec89fb7a63ce3ec307b30a68ec48f1bec4dde0263d15",
+      "solution/oracle.patch": "48ae4c3436169764077986f760b55dc4ece45fe2a0791c698433ca009812cbd8",
+      "solution/solve.sh": "9fc62fd65f4dafe37cd88285894776535c4bfa300e62d5570140f49fdc93a8f9",
+      "task.toml": "0113a1d1987c8e90ac81d30baf11455e224740ffc4dd46590b6342b52475f196",
+      "tests/at.contract.test.ts": "16b26caacc23882128ce067b3ef4454e146b4282303438ae1c4ac3d6141a430c",
+      "tests/at.lifecycle.test.ts": "9fa73df9709ac0ac094bb4c2de2a57640990ebbbdefe7e3c5b0a8c043babcdd6",
+      "tests/at_support.ts": "c8b96f7427cffcc6b49dc689e8a38105360d5198c740b722dc86bef2fc174c73",
+      "tests/base-manifest.json": "973d673f83c0870fbee036018a29374295bd728dfeb2b446b49bb259d1175494",
+      "tests/baseline-pins.json": "a1618c332ca4f20f37c06ca13a53b30b759bc9dd1044f6d9c4bb38c2c7ef04b9",
+      "tests/case_contract.py": "933c657fa8007a0e842de20801afc5ba9c1eed8b0f54321b5a0f4692dfb8a3fc",
+      "tests/check_junit.py": "c83c7f28d13b83d57295855e497f8eb443eeb16592777baa8fcbf84799cf6760",
+      "tests/check_pass_to_pass.py": "ac4bd04ff68c54786bb8bfd523f4e39575d59c6690064a85e12ae78679e46e27",
+      "tests/check_scope.py": "cabc4432ecd2367072f61efa727c2a0a692303e744c334d29a44ef1a40ab9fbb",
+      "tests/fixtures/pi_child.mjs": "73c2d9d4d705831095f69772c9bf02fd7c4e414748608c223a02262dfdfc32b7",
+      "tests/test.sh": "44ff33fd30291d681642c0dba8bbd9c8ef2b4f2ee8b69bb1929703cf5223b385",
+      "validation/alt-grok-run1.patch": "982fd144d6693192497809994d9bcb54664d296aaff9767cdf07543d3036ea81",
+      "validation/alt-grok-run3.patch": "1fc1f7529e23b694b392aee8cfb9196b94bbd152b1b36b9aef55b4aec998708c",
+      "validation/alt-grok-run4.patch": "a07861ba020a599cfef10b63b1d0ae1b88a8814a2bd0a51caa6fb6f958825830",
+      "validation/alt-grok-run5.patch": "bfe60391eab5e7366e6893957f8bbf7c972c0149bcbc4e521afb566755521474",
+      "validation/alt-grok-run8-fixed.patch": "87c7ff027eb4d9e2e730368b2fa2f02c51fcb96083a6fdbed47c9223aa24e602",
+      "validation/alt-opus-run1.patch": "9817d4ffcb6dc7cf129ddb627cff82a3b3a1974789e17aee133f5ab0bd027479",
+      "validation/behavior-map.md": "27dbf0ae5ae49ace5638c6e8c86d26aca831b7edc2a1d337e76d138735b36cf4",
+      "validation/ci-cases.json": "d9324521752a32bd62c4d9868667902fca1298d43fef6313f9ef2a0c4c22c98e",
+      "validation/control-aborted-as-ok.patch": "ca556da5fe2bebcd6a9d83cd5ea0d0032668ad9acc27776124a1b9bd74b69ea9",
+      "validation/control-built-dist-tampered.patch": "34b2986a790d756d103fdd2ce2abed6efb86a55319fb795c675c62d6460369eb",
+      "validation/control-chat-held-until-turn-end.patch": "7bd30caee123446bce4a601442a8fcee07afe7e9f9db6d5e93d224584081a894",
+      "validation/control-chat-written-before-persist.patch": "4a28605f512f881759f816b2d62ed74c2ac3466e13f4f557ce0017d9e4b409f3",
+      "validation/control-compaction-under-last-run.patch": "cc0aff46c498a055c5dbf3226c094589377d2634afbb13810bd69fd15b27003c",
+      "validation/control-compaction-usage-omitted.patch": "2b208433cddebe7b39b42a220dbbdd11952e7934e7f7f2a5e31950b2215b7ee6",
+      "validation/control-continuation-as-wakeup.patch": "2e45e1f15561a190cddbf57bc0b05cf67bc78304067b5c2316ca53452c71c294",
+      "validation/control-end-line-keeps-phase.patch": "69d2e7723ced287d25c438e5c8bf29f5111f9c0eab819d9f0086e48487cfc20e",
+      "validation/control-error-status-without-message.patch": "e3752e1a5825b716efb0b4827262662bf22b5baaab13dfc8ff36017bc9f0e314",
+      "validation/control-forged-junit.patch": "a0220c9eefe516556c1f0fe56db63e6d1e20c51a62887aba670ab2d44142bed4",
+      "validation/control-int-attributes-as-numbers.patch": "2d111de7bbb62d9a8dd36d6299664cc3f027eb43a91c7498f02f858ede90d939",
+      "validation/control-missing-line-terminator.patch": "2d893ba26b243a28eef2217022df56935f651f227fe8b51cac6ac0ccb9355b66",
+      "validation/control-no-shutdown-flush.patch": "7d2c7000b0c7a91799370ff54db9fb25180a750b013e2ccb0ddbe95156be1ce5",
+      "validation/control-no-start-lines.patch": "a682c82bf55b29f8598e66512634c740e1a15f35115c7f6cedaece2bf798ba93",
+      "validation/control-no-trace-propagation.patch": "5a83c07ba972292331454f252883dd220133770b1a1f9c4a9c9df6d00f394bb4",
+      "validation/control-overflow-will-retry-false.patch": "2e76d2457523d98c28894d602fe73bd2908730cbbd7042ee8d011fd09f9c059b",
+      "validation/control-process-exit-zero-after-registration.patch": "c35460d2196d71c54a5f1dadc52b3a7e57ef7be292e2bb8bcdd2dac70f9bb4f8",
+      "validation/control-retry-run-claims-a-message.patch": "152cbc72198c2460edcb397330922ffbf6c398c12ec9a31c29582a2e07bab29b",
+      "validation/control-scope-hidden-by-gitignore.patch": "b10cb8b5a4e04b9cdc7b5d1f572827fae734bdaadb224ffdb2d8fdaef1569832",
+      "validation/control-single-tool-slot.patch": "621a72ddafe1cdf90e7e63e07f19706d13be598bcda079d5c173449f9627d6cd",
+      "validation/control-steer-messages-unrecorded.patch": "b32ec91403cd06852ab543370cc1c3d48ac4ee2a72be52705fb14798d01995a9",
+      "validation/control-tool-error-status-ok.patch": "a407f12297f7cd1c65c2509b54969bbd413655634dfb62158d5559c95c99ace4",
+      "validation/control-toolchain-config-injected.patch": "7c12a627329da73fe2618d0ef4624656cf6577f7ab55f4295f2f8f9ea668ff16",
+      "validation/control-trace-id-per-process.patch": "06d98f8db7b5edf3d06c444cfd92763fc583b8116f0029175df94cde4f05fa7c",
+      "validation/control-verifier-runner-escape.patch": "8aa915ea999e08e7fd7c389b9bf7731a51020777bb66accebab845bebaaef9e9",
+      "validation/control-wakeup-as-prompt.patch": "81571621c837afaa2608b0ddcb84be2cfb88cab8462c1745a1be992181eb3a5e",
+      "validation/control-write-failure-throws.patch": "ef4b99cdba0ee7f108e3d112feb697c4182b5250c8c33597ba5cc2a57accdbd0",
+      "validation/controls-plan.md": "33703c07f0aeabe2dd9da925928d5a9e792a6bd4f1d45cbcfd48b2e9c2d37171",
+      "validation/hack-screen-2026-09-19.md": "2f809e8c4dc567bf601ef22c9f9ee4bf188aafb1a0965ef0fd87eff159e3f1d4",
+      "validation/independent_challenge.py": "0c293e1904a558c028081c8f0d9e194e4523720a61c193fabfcd8a624174c94e",
+      "validation/make_controls.py": "86f014a4a2580adbff3864c277ff16520ca43ac29af702a3b0eb752c4492800a",
+      "validation/rollout-review-2026-09-17.md": "b1041eee3f60e2c9ad7cdb9cfade0db4cc2834782e1775bf0be54b8a1bbab24a",
+      "validation/rollouts-2026-09-19-codex-zenmux.md": "c46e5d2832659c7b48200704d629c22d03610de941052a0abae2bf80f2104700",
+      "validation/scope_bypass_probe.sh": "d115f539739119698accb2b111c31149e382b13294009ac3ea60bc2ddb2f9bcf",
+      "validation/task-review-2026-09-17.md": "7ce87cd348520f7cf0fbf185ed75a743b328796144eab14adb322f572ed0c2a6"
+    }
+  },
+  "record_updates": [
+    {
+      "date": "2026-09-18",
+      "change": "image.image_id updated to the harness revision 3 amd64 build (was the revision 2 id); CI x64 result recorded; README remaining-work list refreshed. No task artifact changed."
+    },
+    {
+      "date": "2026-09-18",
+      "change": "rollout-review-2026-09-17.md: appended the harness revision 3 rollout section (attempt audit, replay/challenge evidence, attribution). Documentation only."
+    },
+    {
+      "date": "2026-09-18",
+      "change": "Harness revision 4: tests/test.sh runs every candidate-executing suite as the node user and the image records the pass-to-pass baseline as node (Dockerfile chown moved before the baseline RUN); closes F3 (verifier-phase runner substitution). New control control-verifier-runner-escape (expected 0). Rebuilt arm64 sha256:c0b17fefc5542c58b442cb47a51bc757ada45a5162192e52d5135889d082efb8 and amd64 canonical sha256:b3e2ea1ef22eaa1b6a0d22dd5d169546701b6eff535ed8160ea86bff1840224c; task.toml image_digest and image-manifest.json updated; Oracle 1, probe/control 0, real submissions replay unchanged, matrices 33/33."
+    },
+    {
+      "date": "2026-09-19",
+      "change": "Harness revision 5: scope decided by content hashes instead of git (tests/check_scope.py, tests/base-manifest.json, image /opt/pi-baseline/build-manifest.sha256), checked before and after the suites; root no longer runs git in the agent-owned checkout (reproduced on revision 4: .git/config core.fsmonitor ran as uid 0 during the verifier's git status); PASS_TO_PASS limited to the Base test files from the pinned baseline, the submission's own test files run separately and must pass (candidate_tests_exit_code); test.sh refuses to run if node can write /tests or /opt/pi-baseline. New controls control-scope-hidden-by-gitignore and control-built-dist-tampered (expected 0, apply_after oracle); validation/scope_bypass_probe.sh for the bypasses a patch cannot express (A assume-unchanged: git 0 lines, check_scope 1; B dist edit: git 0 lines, check_scope 1; C fsmonitor hook: uid 1000 only). Rebuilt arm64 sha256:593b6668002dc020931943467dba9a96e3435e6bdba56223973673ed8dd5eac0 and amd64 canonical sha256:5ae25731adfef37fa7802eacaecba42092a98ca2a21dca2aa7b93b3527a22af7; task.toml image_digest and image-manifest.json updated; matrix 35/35. Real-agent rollouts recorded earlier were not re-graded on revision 5; Codex-through-ZenMux rollouts added: deepseek/deepseek-v4.1-flash on revision 4 and openai/gpt-5.6-luna on revision 5, two runs each (validation/rollouts-2026-09-19-codex-zenmux.md)."
+    }
+  ]
+}
