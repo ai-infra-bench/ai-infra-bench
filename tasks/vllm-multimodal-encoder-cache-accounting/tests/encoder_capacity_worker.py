@@ -1,90 +1,62 @@
-def observe_encoder_capacity(position):
-    """Measure real scheduler and runner capacity consumers for a media item.
+"""Real constructor consumers and model-provided analytical video estimates."""
+from vllm.model_executor.models.qwen3_vl import Qwen3VLProcessingInfo
+from vllm.multimodal.processing import InputProcessingContext
+from transformers import Qwen2VLImageProcessorFast, Qwen3VLVideoProcessor
 
-    Only the media input producer and processor-cache factory are controlled.
-    Registry defaults and internal embedding-count accessors are unrestricted.
-    """
-    from vllm.config import SchedulerConfig
-    from vllm.v1.core.encoder_cache_manager import compute_encoder_budget
-    from vllm.v1.worker.utils import MultiModalBudget
-    import vllm.v1.worker.utils as worker_utils
 
-    processor = SimpleNamespace(
-        info=SimpleNamespace(get_mm_max_tokens_per_item=lambda **kwargs: None),
-        allowed_mm_limits={"image": 4},
-    )
-    registry = object.__new__(MultiModalRegistry)
-    registry.create_processor = lambda *args, **kwargs: processor
-    registry.supports_multimodal_inputs = lambda model: True
-    model = SimpleNamespace(is_multimodal_model=True, max_model_len=4096)
-    # The real constructor derives both encoder capacity floors from the
-    # decoder batch limit. A one-token batch makes row accounting observable
-    # while retaining a configuration the production constructor can create.
-    config = SchedulerConfig(
-        max_model_len=4096, is_encoder_decoder=False,
-        max_num_batched_tokens=1, max_num_seqs=1,
-        enable_chunked_prefill=True, is_multimodal_model=True,
-        disable_chunked_mm_input=False,
-    )
-    original_inputs = MultiModalProfiler._get_dummy_mm_inputs
-    original_cache = worker_utils.processor_only_cache_from_config
+def video_processor(runtime, count, frames, prefix):
+    per_frame = count // frames
+    width, height = per_frame * 7, 112
+    indices = [i for frame in range(frames)
+               for i in range(frame * (per_frame + prefix + 1) + prefix,
+                              frame * (per_frame + prefix + 1) + prefix + per_frame)]
+    spec = specification(count + frames * (prefix + 1), indices)
+    spec['modality'] = 'video'
+    processor = MediaProcessor(spec)
+    info = Qwen3VLProcessingInfo(InputProcessingContext(runtime.video_config, None))
+    sizes = {'shortest_edge': 28 * 28, 'longest_edge': width * height * frames}
+    image = Qwen2VLImageProcessorFast(size=sizes, patch_size=14, merge_size=2,
+                                     temporal_patch_size=1)
+    video = Qwen3VLVideoProcessor(size=sizes, patch_size=14, merge_size=2,
+                                 temporal_patch_size=1)
+    info.get_hf_processor = lambda **kwargs: SimpleNamespace(image_processor=image, video_processor=video)
+    info.get_image_size_with_most_features = lambda: (width, height)
+    info.get_num_frames_with_most_features = lambda *args, **kwargs: frames
+    # Run the real vision geometry calculation, including resizing and temporal
+    # grouping. Neither the count nor the video estimate is replaced by a lambda.
+    actual_rows = info.get_num_video_tokens(image_width=width, image_height=height,
+        num_frames=frames, image_processor=None)
+    assert actual_rows == count, (actual_rows, count)
+    processor.info = info
+    return spec, processor
+
+
+def capacity_for(runtime, spec, processor=None):
+    pair = runtime.pair(spec, chunk=1, processor=processor)
     try:
-        MultiModalProfiler._get_dummy_mm_inputs = lambda *args, **kwargs: {
-            "mm_placeholders": {"image": [position]}}
-        worker_utils.processor_only_cache_from_config = lambda *args, **kwargs: None
-        scheduler = compute_encoder_budget(model, config, registry)
-        runner = MultiModalBudget(model, config, registry).get_encoder_budget()
-        return {"scheduler": list(scheduler), "runner": runner}
+        return {'scheduler': [int(pair.scheduler.max_num_encoder_input_tokens),
+                              int(pair.scheduler.encoder_cache_manager.cache_size)],
+                'runner': int(pair.runner.mm_budget.get_encoder_budget())}
     finally:
-        MultiModalProfiler._get_dummy_mm_inputs = original_inputs
-        worker_utils.processor_only_cache_from_config = original_cache
+        pair.close()
 
 
-def observe_direct_encoder_capacity():
-    """Exercise the model-provided estimate path as well as dummy profiling.
-
-    Vision geometry/model execution is controlled; Qwen3-VL's production
-    estimation method, inherited modality mapping, profiler, registry and both
-    budget consumers remain real. Text wrappers around video features must not
-    inflate the encoder-row estimate. No accessors introduced by an answer are
-    required.
-    """
-    from vllm.config import SchedulerConfig
-    from vllm.model_executor.models.qwen3_vl import Qwen3VLProcessingInfo
-    from vllm.v1.core.encoder_cache_manager import compute_encoder_budget
-    from vllm.v1.worker.utils import MultiModalBudget
-    import vllm.v1.worker.utils as worker_utils
-
-    observed=[]
-    for rows in (16,48):
-        info=object.__new__(Qwen3VLProcessingInfo)
-        info.get_image_size_with_most_features=lambda: (rows * 7,112)
-        info.get_max_image_tokens=lambda: rows
-        info.get_num_frames_with_most_features=lambda *args,**kwargs: 2
-        info.get_num_video_tokens=lambda *args,**kwargs: rows
-        processor=SimpleNamespace(info=info,allowed_mm_limits={"video":4})
-        registry=object.__new__(MultiModalRegistry)
-        registry.create_processor=lambda *args,**kwargs: processor
-        registry.supports_multimodal_inputs=lambda model: True
-        model=SimpleNamespace(is_multimodal_model=True,max_model_len=4096)
-        config=SchedulerConfig(max_model_len=4096,is_encoder_decoder=False,
-            max_num_batched_tokens=1,max_num_seqs=1,enable_chunked_prefill=True,
-            is_multimodal_model=True,disable_chunked_mm_input=False)
-        original_cache=worker_utils.processor_only_cache_from_config
-        original_inputs=MultiModalProfiler._get_dummy_mm_inputs
-        # Supply the same legal media item to implementations that profile
-        # placeholder spans separately from the analytic encoder-row estimate.
-        # Two frames, each with text wrappers surrounding its embedding run.
-        frame_mask = [False] * 11 + [True] * (rows // 2) + [False]
-        mask = torch.tensor(frame_mask * 2, dtype=torch.bool)
-        position = PlaceholderRange(0, len(mask), mask)
-        try:
-            MultiModalProfiler._get_dummy_mm_inputs=lambda *args,**kwargs: {
-                "mm_placeholders": {"video": [position]}}
-            worker_utils.processor_only_cache_from_config=lambda *args,**kwargs: None
-            observed.append({"scheduler":list(compute_encoder_budget(model,config,registry)),
-                "runner":MultiModalBudget(model,config,registry).get_encoder_budget()})
-        finally:
-            worker_utils.processor_only_cache_from_config=original_cache
-            MultiModalProfiler._get_dummy_mm_inputs=original_inputs
-    return observed
+def check_capacity(runtime):
+    specs = [specification(100, [5, 15, 25, 35, 45, 55, 65, 75]),
+             specification(41, [2, 11, 29, 38]), specification(9, None),
+             specification(12, []), specification(0, []), specification(0, None)]
+    result = []
+    for spec in specs:
+        actual = capacity_for(runtime, spec)
+        count = len(spec['rows'])
+        allowed = (count,) if count else (0, 1)
+        assert all(value in allowed for value in actual['scheduler']), actual
+        assert actual['runner'] == min(actual['scheduler']), actual
+        result.append(actual)
+    videos = []
+    for count in (16, 48):
+        spec, processor = video_processor(runtime, count, frames=2, prefix=11)
+        actual = capacity_for(runtime, spec, processor)
+        assert actual == {'scheduler': [count, count], 'runner': count}, actual
+        videos.append(actual)
+    return {'dummy': result, 'video': videos}

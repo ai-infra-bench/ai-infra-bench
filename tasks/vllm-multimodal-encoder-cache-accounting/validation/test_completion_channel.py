@@ -81,7 +81,7 @@ class CompletionTransport(unittest.TestCase):
             self.assertEqual(result['error'],'unauthenticated_completion')
             self.assertEqual(result['worker_status'],0)
             self.assertIn('---WORKER-PAYLOAD-BEGIN---',result['diagnostic'])
-            self.assertIn('shifted_chain',result['diagnostic'])
+            self.assertIn('model_inputs_checked',result['diagnostic'])
 
 
 if __name__=='__main__':unittest.main()

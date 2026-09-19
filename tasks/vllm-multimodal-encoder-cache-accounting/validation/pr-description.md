@@ -1,0 +1,9 @@
+This task fixes multimodal encoder-cache accounting when a media item spans more prompt positions than encoder output rows. Version 1.4.0 also requires cached embedding payload storage to stay bounded as non-embedding positions grow, while preserving correct chunked-prefill and lookahead inputs and consistent profiling.
+
+The verifier now enters through real scheduler/runner constructors and execution APIs and checks inputs delivered to the model. It accepts helper/buffer renames, constructor state and alternative compact layouts, and rejects incorrect main-window offsets and dense or preallocated payload expansion. CPU neural arithmetic is controlled; accounting, scheduling, cache processing and embedding merge run as production code.
+
+Local validation: all 36 matrix cases produced the expected rewards (12 correct implementations accepted and 24 Base/incorrect controls rejected). Two randomized repeat runs also passed. Nine Harbor runs completed with the expected rewards and no trial errors, using a local Docker adapter for static offline networking. Storage/completion unit tests and the strict artifact audit passed. A passing verifier run averaged 18.7 seconds.
+
+Full results, executable identities and the limits of the CPU test setup are in `tasks/vllm-multimodal-encoder-cache-accounting/validation/final-review.md` and `validation/e2e-evidence.json`.
+
+The original [Astra/high trajectory](https://github.com/ouycc/ai-infra-bench/blob/08ee4f8/trajectories/vllm-multimodal-encoder-cache-accounting/gpt-6-astra-high-20260912/pr8-gpt-6-astra-high-once.zip) earned reward 1 under 1.2.8. Current checks reject its remaining Qwen3-VL video-estimation error. The original score is preserved; `validation/attached-trajectory-review.md` explains the reassessment. This hardening uses no new model calls.

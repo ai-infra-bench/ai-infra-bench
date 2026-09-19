@@ -1,10 +1,9 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "status": "1.3.4_docker_controls_and_harbor_oracle_passed",
-  "recorded_at": "2026-09-18T06:57:52.764003+00:00",
+  "status": "1.4.0_local_and_harbor_acceptance_passed",
+  "recorded_at": "2026-09-19T06:07:56.147494+00:00",
   "task": "ai-infra-bench/vllm-multimodal-encoder-cache-accounting",
-  "task_version": "1.3.4",
-  "executable_commit": "d4ebf3d6b8f68a142e7afa07d828936c02bdda73",
+  "task_version": "1.4.0",
   "source": {
     "repository": "vllm-project/vllm",
     "base_commit": "676db55eecf8b6d9ec38ea243cf6f35ea8378ec6",
@@ -13,11 +12,16 @@
   "image": {
     "actual_image_id": "sha256:8d200d6c23d542fb41b456cb55bf5c984b1c467c2020e31fb0e053e120c5f852",
     "workdir": "/workspace/vllm",
-    "execution_host": "A100",
-    "scope": "CPU orchestration and accounting; not GPU inference"
+    "scope": "CPU scheduling, cache payload storage and model-input behavior; controlled neural arithmetic/device primitives"
   },
   "artifacts": {
     "files": {
+      "instruction.md": {
+        "sha256": "01a0b5fe1dc0462ffab4ea817d16265d7917a0139b0d383f126dc7fcf599e881"
+      },
+      "task.toml": {
+        "sha256": "96e5e27b10f9ccbbee17454aa1e4c540169a75a9062abded9a3ba9afa6c56dca"
+      },
       "environment/.dockerignore": {
         "sha256": "1db9778aedf9bb81403b0928c2de361791ac7a8a8d34dcdf17c86663b362c0c7"
       },
@@ -30,29 +34,11 @@
       "environment/image-manifest.json": {
         "sha256": "2f9664b53b1f723fe9c0d0cfc92f40675f9182cc7794e550370d09790afb64af"
       },
-      "environment/lock/README.md": {
-        "sha256": "dfdd6b7c38f8405a554fa06cdf3f7faae9e105caa1412edb3c17f095690f5542"
-      },
-      "environment/lock/environment.json": {
-        "sha256": "fda410d0928fb654b66bbf4954f50e99a367cbef02c0eaec92777c6e9e720441"
-      },
-      "environment/lock/manifest.json": {
-        "sha256": "4af089897d49776ce2eb69831e0a7e22ba10a2a11800cf9f3e2a9da1c723d861"
-      },
-      "environment/lock/requirements.txt": {
-        "sha256": "c3e792930112bde5bf5b03acc5390fe9c6c380062a91cc2f1372fb17d1da90ec"
-      },
-      "instruction.md": {
-        "sha256": "587dc8f9dfd91f54a77897cdb2298cd3dfce3f39471d7919a8e330b937a48b05"
-      },
       "solution/oracle.patch": {
         "sha256": "e4304b6ba84cfceabed78677735b077258fe5bc1e85fc985834f9b787b1d47a5"
       },
       "solution/solve.sh": {
         "sha256": "ec3cc592265a36f17d783c6eda3c53ac5ab83cbb1e37b7cbbf7560064ddcf491"
-      },
-      "task.toml": {
-        "sha256": "b1952ee30d7c76e1dafc4c509c9dcfeed987f7cead608fde11a9e53bc5ead024"
       },
       "tests/checkpoint.c": {
         "sha256": "daec20ce4e7bce4890d44862ec216890b5dda5ccd5a83d30913918a22c82bfca"
@@ -64,16 +50,10 @@
         "sha256": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f"
       },
       "tests/encoder_capacity_worker.py": {
-        "sha256": "1a8160405f98416dd1692652d0500a4bda338475e0245da1ae06fba343832f52"
+        "sha256": "32147d2bdb5b0b438aa2d8de7b7da487664250c4d575e5d31e1a06471d546ac3"
       },
       "tests/encoder_contract.py": {
-        "sha256": "d8f6cc2601aee3686da33f69308459a7315eff3f07d35d684e80fa114976104a"
-      },
-      "tests/encoder_fresh_worker.py": {
-        "sha256": "b964f10dac1e4beebf287a2dea0a231f34d7d2d3692bb2b22b4851a0157e07dd"
-      },
-      "tests/encoder_profile_worker.py": {
-        "sha256": "69e289e40d9487affbb922e61f8dda24c28b7e01e0d018d6f515534b19a7db63"
+        "sha256": "9680bca608eea266d192b3c65955b69c8365572fedba1bd7cda838d88af1b96d"
       },
       "tests/test.sh": {
         "sha256": "4a0b5740341c0fa440e9012a2b63c7f340de4fdae8ff152b489eafe8f2e6b8c6"
@@ -82,7 +62,16 @@
         "sha256": "8b429bb2854280f3f81de0df6870003ba67f3958957d228970fb1d4c91a307d5"
       },
       "tests/verify_encoder_cache.py": {
-        "sha256": "a7ea8ad86f51ba94e0fa3fe654a140b77cf2c3608c0d05b5fee231f4e9f7e828"
+        "sha256": "eca36e6422583e84d4d573d8c6709c0e081d4f92b34677e254b11193966a7f0c"
+      },
+      "tests/encoder_runtime.py": {
+        "sha256": "51d4c78340b9838f1a271dca2ad85e1175473afa8684ca29adf79ec247a4a9c5"
+      },
+      "tests/encoder_storage.py": {
+        "sha256": "dfd270044904b61ab5dd3a435045a81e564dfacbc523920fd17fe9969b47de70"
+      },
+      "tests/encoder_scenarios.py": {
+        "sha256": "64910c143ef91d920f6df18a5d98af5e61df719465766e946fdf726244cc9de2"
       },
       "validation/alternate-dense-cache.patch": {
         "sha256": "610de49bed4addd2e3ad6d62df1d108d09dd99c6c89b664084bfdc698603c8f3"
@@ -108,50 +97,17 @@
       "validation/alternate-zero-output-capacity.patch": {
         "sha256": "8950b2af27681cb992ff3ddfcd5372f60c639a54ff21bb588df4b22c92e13fb0"
       },
-      "validation/challenge/README.md": {
-        "sha256": "f3aacc792caaef4360a95e2375bf145b43070ebd388b82e2ec85cb650f6c5bf0"
-      },
-      "validation/challenge/challenge_encoder_cache.py": {
-        "sha256": "86780470fe12b0a5b99022cc904db38eb1c98c25f4bf1c4e68b6471f15d4bee0"
-      },
-      "validation/challenge/challenge_encoder_capacity.py": {
-        "sha256": "c3dba2fe24a0006f9a58a099dc315939d1282ccf311588a64609d8cd6e2e30da"
-      },
       "validation/ci-cases.json": {
-        "sha256": "4434f46a38e1d3b9d6f940a449daa2eb7631bb6c33618eb295fd5afb21d189ce"
-      },
-      "validation/curator-tools/check_environment.py": {
-        "sha256": "5254a5e5d259acef422c06f8de8d0b54d7b4650eb684d41cfae2e0f4f6c1675b"
-      },
-      "validation/curator-tools/reproduce_baseline.py": {
-        "sha256": "b7b916dab033d0cca2ea31d1ba111f69031971738f87698daea17d8a5bda151e"
-      },
-      "validation/curator-tools/rollout/campaign_agents.py": {
-        "sha256": "73a550b094a9884eb64908eefa5002f2ced7c8df77ec612c0617bc7e36ca0034"
-      },
-      "validation/curator-tools/rollout/capture_final.py": {
-        "sha256": "ef427fd445239efbcada27411e77cd4ab31dcbe8f85b35bb8f5e11fd9ab3f874"
-      },
-      "validation/curator-tools/rollout/probe_profile_runtime.py": {
-        "sha256": "f2601d827a9f4c259a059976d793a05b7b9cd0b11ee89cd8a1a6be4526614c6b"
-      },
-      "validation/curator-tools/rollout/replay_saved.py": {
-        "sha256": "e5509f7d0c71effea6a1c993e73305d21b0450cb7608f21d68e9dd1ec372aa27"
-      },
-      "validation/curator-tools/rollout/run_campaign.py": {
-        "sha256": "66c2337b27376682ac4c6638e6acc43d26a720d8c326343f9e80423eed0d285d"
-      },
-      "validation/curator-tools/run_matrix.py": {
-        "sha256": "03fdf3db385f8e305e1686c754eedf0b1f0d8ab17d4cf700c2657030ff2f86e5"
-      },
-      "validation/curator-tools/runtime_smoke.py": {
-        "sha256": "4d413c50588685a3f09eacb00d9262f8f38bd129b077c8b5540910c69a3712ed"
+        "sha256": "7489244ef3ba220c7f625323ac0c299c1bda47679541ffe599e723ed509099ae"
       },
       "validation/dense-cache-missing-cold-window.patch": {
         "sha256": "d219371fa660de616b9b326cf0ce13f462fa804d0fa2abebf553bcd0c939a8b7"
       },
       "validation/direct-completion-callback.patch": {
         "sha256": "765a4dcadef940aa545ee531a5a4b09a84b436de41acc0628b52a27b132cc36e"
+      },
+      "validation/docker-build.md": {
+        "sha256": "776c4d159166a586c7b3f8507f352383b31a0acdaaf4b1078c3b130e64e25e79"
       },
       "validation/dynamic-report-forgery.patch": {
         "sha256": "89c59ddcef8255f42ab4a011e79847ce823dc6cb162386f9709b6b19f1654a4e"
@@ -168,6 +124,9 @@
       "validation/empty-window-admission.patch": {
         "sha256": "d8ae0707ef7e1ed809b15f9877aa88e03399f2d239590b7f3cdb7f5c0fbe6012"
       },
+      "validation/final-review.md": {
+        "sha256": "149a8bbdf50bbd7329e2a91d9766f53813e359850ea07e950765f630649e1480"
+      },
       "validation/forged-completion.patch": {
         "sha256": "18618b3f48eb29a1c4c31452d02c35d9bd9c92d4fad5524d20628d639af74e85"
       },
@@ -180,11 +139,17 @@
       "validation/partial-budget-omission.patch": {
         "sha256": "41f7fb59f51a607fb638b64d5b9f4c8c4b491cbe178d3f50d19df7c7a6e0cdcc"
       },
+      "validation/profile-runtime-case.md": {
+        "sha256": "894920d7391a6dd7da8eb0100d03090f301d555a20dfb962a0d9e9cb6c89028e"
+      },
       "validation/rename-cache-internals.patch": {
         "sha256": "45cd4b0b3295be40bdc2abf00b38cdf8a14b7da6ed6ddca11ce25a0be5339f87"
       },
       "validation/restore-prompt-profile.patch": {
         "sha256": "83c434307f0edb8f256d05bafde5d95e0ca5321b2271936e76ee684d89f773f0"
+      },
+      "validation/rollout-review.md": {
+        "sha256": "28ebd77f5f1e5cd0bfb52238c0c6f747d89f455aefdfab293691283a09705442"
       },
       "validation/root-python-startup.patch": {
         "sha256": "b528146e3f6926b1e652e8d533ae4f07300ab2b0d240070fddb453db603d89e0"
@@ -198,79 +163,268 @@
       "validation/stale-observations.patch": {
         "sha256": "8fe13fd6c40248e91ae195b1b2f8a71fba696fbc7f399ecd07c96b50368f1c44"
       },
+      "validation/test_completion_channel.py": {
+        "sha256": "bd2db0174522c86e7a74d16572b42ec2104a9b01dee92fbea34ac91ebf01e23c"
+      },
+      "validation/test_entrypoint.py": {
+        "sha256": "ccbedef201a105b180373e541d66b5ac1b85d48b84b1c0ecfc41e74509f8660a"
+      },
       "validation/wrong-encoder-cache-order.patch": {
         "sha256": "871ea101b425bffaffacb5fcfea4c4f2aade35a0bd796e9a8e63cdf2aa0056bf"
+      },
+      "validation/alternate-renamed-helpers.patch": {
+        "sha256": "cfa4477d770a61bac19f9d808dc8a33bf6dea2f40c1a50e1067598847005996f"
+      },
+      "validation/alternate-transposed-payload.patch": {
+        "sha256": "c02d55265b8b60d48a8a7f0229a633288d20e48d46593ee0dbc8a544fe80c9cf"
+      },
+      "validation/wrong-main-window.patch": {
+        "sha256": "3143588a3a999081bb9246085f3420305aacdc03d17d2a67de5c0d93cc49b647"
+      },
+      "validation/historical-astra-video-estimate.patch": {
+        "sha256": "641dc755748a0e96eb166ae85d2673f1a9cb15c5d866dbf4d3e1c5d807857ca6"
+      },
+      "validation/test_payload_observer.py": {
+        "sha256": "78993ae100cfa9d2c17474198ecf589724eabe042c8aa2371931d6a2c169f797"
+      },
+      "validation/preallocated-dense-payload.patch": {
+        "sha256": "457208b8390025e1f3e73c540ab5c146b1d60330e938e47486c1e2632b2118b7"
+      },
+      "validation/alternate-constructor-state.patch": {
+        "sha256": "51fba15bad868ac89ebc2e9cd2c307cff783afb8202ed33456e9a70d42a1458f"
+      },
+      "validation/alternate-runner-buffers.patch": {
+        "sha256": "ebc98accd50f64115da94b28aa8aa0188ab070a598dcaab097012637720460cf"
+      },
+      "validation/semantic-boundary.md": {
+        "sha256": "6d9e41a9c71e37029c170ac47f0e603eb27046df8b060ecba94e675735e6374e"
+      },
+      "validation/alternate-sparse-payload.patch": {
+        "sha256": "030bd35b7f2c436fa5117ac26b3290865a86c4cad98bb62394777f10992dc728"
+      },
+      "validation/attached-trajectory-review.md": {
+        "sha256": "6d4501136d6cd5e42e2735b6500ea73d534aa698b34de5c8746c27f56437419d"
+      },
+      "validation/pr-description.md": {
+        "sha256": "f37ec91d06de778bd8394598d303d429c62e35deb4cff07761ce3bb06f047b26"
+      },
+      "validation/local-regressions.json": {
+        "sha256": "070d955b5e95ba77300283713c664b7fbdd77d53f93f4fa2f38816287d8dd8df"
+      },
+      "environment/lock/README.md": {
+        "sha256": "dfdd6b7c38f8405a554fa06cdf3f7faae9e105caa1412edb3c17f095690f5542"
+      },
+      "environment/lock/environment.json": {
+        "sha256": "fda410d0928fb654b66bbf4954f50e99a367cbef02c0eaec92777c6e9e720441"
+      },
+      "environment/lock/manifest.json": {
+        "sha256": "4af089897d49776ce2eb69831e0a7e22ba10a2a11800cf9f3e2a9da1c723d861"
+      },
+      "environment/lock/requirements.txt": {
+        "sha256": "c3e792930112bde5bf5b03acc5390fe9c6c380062a91cc2f1372fb17d1da90ec"
+      },
+      "validation/challenge/README.md": {
+        "sha256": "e1ceed5579b28e00c19b31da597a76877cdb1e1e7ece974689d7a37c40b3fbff"
+      },
+      "validation/challenge/challenge_encoder_cache.py": {
+        "sha256": "c3d9f457ce17305374b01676f93965eed0d437a51cb3cd4f1376f5b1951ea5c4"
+      },
+      "validation/challenge/challenge_encoder_capacity.py": {
+        "sha256": "d024e6d384ab569b14053b5158fe6b4f3bf34b0b738034ea372f2744ee29709c"
+      },
+      "validation/curator-tools/check_environment.py": {
+        "sha256": "5254a5e5d259acef422c06f8de8d0b54d7b4650eb684d41cfae2e0f4f6c1675b"
+      },
+      "validation/curator-tools/reproduce_baseline.py": {
+        "sha256": "b7b916dab033d0cca2ea31d1ba111f69031971738f87698daea17d8a5bda151e"
+      },
+      "validation/curator-tools/run_matrix.py": {
+        "sha256": "03fdf3db385f8e305e1686c754eedf0b1f0d8ab17d4cf700c2657030ff2f86e5"
+      },
+      "validation/curator-tools/runtime_smoke.py": {
+        "sha256": "4d413c50588685a3f09eacb00d9262f8f38bd129b077c8b5540910c69a3712ed"
+      },
+      "validation/evidence/local-1.4.0.tar.gz": {
+        "sha256": "269c3cf0f0da7ef5fd1db59a59791670f19907fb5a95d11e3f9cba9e9a26ebc9"
+      },
+      "validation/evidence/harbor-1.4.0.tar.gz": {
+        "sha256": "98ba828b1b31b48cb25db141a0439cb0423814e2fbde22cf6ffd0b8e7fd627b9"
+      },
+      "validation/curator-tools/rollout/campaign_agents.py": {
+        "sha256": "73a550b094a9884eb64908eefa5002f2ced7c8df77ec612c0617bc7e36ca0034"
+      },
+      "validation/curator-tools/rollout/capture_final.py": {
+        "sha256": "ef427fd445239efbcada27411e77cd4ab31dcbe8f85b35bb8f5e11fd9ab3f874"
+      },
+      "validation/curator-tools/rollout/probe_profile_runtime.py": {
+        "sha256": "f2601d827a9f4c259a059976d793a05b7b9cd0b11ee89cd8a1a6be4526614c6b"
+      },
+      "validation/curator-tools/rollout/replay_saved.py": {
+        "sha256": "e5509f7d0c71effea6a1c993e73305d21b0450cb7608f21d68e9dd1ec372aa27"
+      },
+      "validation/curator-tools/rollout/run_campaign.py": {
+        "sha256": "66c2337b27376682ac4c6638e6acc43d26a720d8c326343f9e80423eed0d285d"
+      },
+      "validation/evidence/static-audit-1.4.0.log": {
+        "sha256": "22aea7551713294c144c800b0facc5cf6e4caa9204674a3b2e3c2fc0e7b8ba8c"
       }
     }
   },
   "current_validation": {
-    "docker_controls": {
-      "cases": 8,
-      "matched": 8,
-      "positive": [
-        "oracle",
-        "alternate-zero-output-capacity"
-      ],
-      "negative": [
-        "base",
-        "empty-placeholder-omission",
-        "empty-window-admission",
-        "alternate-distinct-profile-accessors",
-        "scheduler-capacity-from-context",
-        "runner-capacity-from-context"
-      ],
-      "source": "A100 /tmp/pr84-zero-floor-134; completion output observed in this review"
+    "matrix": {
+      "cases": 36,
+      "matched": 36,
+      "positive": 12,
+      "negative": 24,
+      "record": "validation/local-regressions.json"
     },
-    "saved_codex_replay": {
-      "attempts": 4,
-      "passes": 0,
-      "new_model_calls": 0,
-      "capacity_challenge_failures": 4,
-      "cache_challenge_passes": 3,
-      "post_state_checks_passed": 4,
-      "source": "A100 /tmp/pr84-codex-gpt6-medium-02-replay-134; completion output observed in this review",
-      "scope": "Saved repository answers replayed under revised verifier; not a complete native trajectory review"
-    },
+    "stability": [
+      {
+        "name": "oracle",
+        "expected_reward": 1,
+        "exit_code": 0,
+        "actual_reward": 1,
+        "matches_expected": true
+      },
+      {
+        "name": "alternate-sparse-payload",
+        "expected_reward": 1,
+        "exit_code": 0,
+        "actual_reward": 1,
+        "matches_expected": true
+      }
+    ],
     "harbor_oracle": {
-      "output": "A100 /tmp/pr84-canary-134-final",
-      "completed_trials": 1,
-      "mean_reward": 1.0,
-      "source": "Observed Harbor completion output: 1/1 Mean: 1.000 and CAMPAIGN_DONE",
-      "scope": "CollectionCanary applies Oracle and harmless tracked/untracked capture markers; no model call"
+      "trial": "task__mBwXJvy",
+      "reward": 1,
+      "errors": 0,
+      "result_sha256": "afeb427936af0577481d74d29034916eb53c2a48eee8bf9ff9f11192285fb504"
+    },
+    "harbor_controls": [
+      {
+        "name": "alternate-renamed-helpers",
+        "expected": 1,
+        "exit": 0,
+        "errors": 0,
+        "reward": 1.0,
+        "trial": "/data/pr84-hardening-20260919/harbor-jobs/alternate-renamed-helpers/alternate-renamed-helpers__soXQhSF/result.json",
+        "matched": true
+      },
+      {
+        "name": "alternate-runner-buffers",
+        "expected": 1,
+        "exit": 0,
+        "errors": 0,
+        "reward": 1.0,
+        "trial": "/data/pr84-hardening-20260919/harbor-jobs/alternate-runner-buffers/alternate-runner-buffers__bozfoPE/result.json",
+        "matched": true
+      },
+      {
+        "name": "wrong-main-window",
+        "expected": 0,
+        "exit": 0,
+        "errors": 0,
+        "reward": 0.0,
+        "trial": "/data/pr84-hardening-20260919/harbor-jobs/wrong-main-window/wrong-main-window__Dzp24j6/result.json",
+        "matched": true
+      },
+      {
+        "name": "preallocated-dense-payload",
+        "expected": 0,
+        "exit": 0,
+        "errors": 0,
+        "reward": 0.0,
+        "trial": "/data/pr84-hardening-20260919/harbor-jobs/preallocated-dense-payload/preallocated-dense-payload__VMfWYMX/result.json",
+        "matched": true
+      },
+      {
+        "name": "early-system-exit",
+        "expected": 0,
+        "exit": 0,
+        "errors": 0,
+        "reward": 0.0,
+        "trial": "/data/pr84-hardening-20260919/harbor-jobs/early-system-exit/early-system-exit__i6umqUP/result.json",
+        "matched": true
+      },
+      {
+        "name": "early-os-exit",
+        "expected": 0,
+        "exit": 0,
+        "errors": 0,
+        "reward": 0.0,
+        "trial": "/data/pr84-hardening-20260919/harbor-jobs/early-os-exit/early-os-exit__qN7b9nG/result.json",
+        "matched": true
+      },
+      {
+        "name": "dynamic-report-forgery",
+        "expected": 0,
+        "exit": 0,
+        "errors": 0,
+        "reward": 0.0,
+        "trial": "/data/pr84-hardening-20260919/harbor-jobs/dynamic-report-forgery/dynamic-report-forgery__AxMWzVF/result.json",
+        "matched": true
+      },
+      {
+        "name": "direct-completion-callback",
+        "expected": 0,
+        "exit": 0,
+        "errors": 0,
+        "reward": 0.0,
+        "trial": "/data/pr84-hardening-20260919/harbor-jobs/direct-completion-callback/direct-completion-callback__yeCRFFQ/result.json",
+        "matched": true
+      }
+    ],
+    "nonroot_collection": {
+      "uid": 995,
+      "readable_artifacts": 36,
+      "pass": true
+    },
+    "single_verifier_seconds": {
+      "min": 18.1653,
+      "max": 19.3944,
+      "mean": 18.661175
     }
-  },
-  "historical_validation": {
-    "version": "1.3.3",
-    "report": "validation/rollout-review.md",
-    "evidence": "https://github.com/ouycc/ai-infra-bench/tree/b596d2e67de1e3191ef1b6a587d6b98c015ed48f/tasks/vllm-multimodal-encoder-cache-accounting/validation/evidence/rollout-hardening-1.3.3/",
-    "scope": "27 controls, two four-attempt flash campaigns and Harbor canary are historical; not claimed rerun at 1.3.4"
   },
   "review_identity": {
-    "worktree": "/Users/yaoyaoyao/Documents/Codex/2026-09-17/qing-2/work/pr84",
-    "branch": "codex/pr84-verifier-workspace",
-    "head_before_evidence_edit": "d4ebf3d6b8f68a142e7afa07d828936c02bdda73",
-    "initial_dirty_state": "clean",
-    "skill": "ai-infra-bench-task-review",
+    "worktree": "/data/codex-pr84-review-20260919",
+    "branch": "codex/pr84-behavior-hardening",
+    "head": "61d77f0eee5f2fa64074a98dfa2f43c1c59a4e09",
+    "state": "uncommitted",
+    "skill_worktree": "/data/codex-pr84-review-20260919",
     "skill_hashes": {
-      ".agents/skills/ai-infra-bench-task-review/SKILL.md": "d95343d9408abd45190c0061eca41abf66ed6be3ca5471e2039e5759d5c7bacb",
-      ".agents/skills/ai-infra-bench-task-review/references/review-rubric.md": "c4413205916752c5fc793e26c74a20d15e2538b7043fe612c1741e7fa9901167",
-      ".agents/skills/ai-infra-bench-task-review/references/validation-playbook.md": "803fc8d1b120753003db681b20f1990d697f01ae52952e121255071af86a342e",
+      ".agents/skills/ai-infra-bench-task-review/SKILL.md": "0698839b2cf6e54758eb7277c1586c888211bf2e2fdbef9083f83696ba07a749",
+      ".agents/skills/ai-infra-bench-task-review/references/review-rubric.md": "95dc3bd21b3b82b1e1eef28609aaab6384690aa65390ead1f526f549f6183e87",
       ".agents/skills/ai-infra-bench-task-review/scripts/audit_task_artifacts.py": "3c4f882ed2aa3542ddbb2d2c51522819be17dc22a12f2cd492076bd882190022"
-    }
+    },
+    "state_context": "Validation snapshot before publication; executable identity is recorded by artifact SHA-256. Subsequent publication is recorded in PR #84 commit history."
   },
-  "self_reference": "This is an evidence-only update after executable commit d4ebf3d. Historical snapshots retain their original hashes. Documentation changes do not imply a new executable run.",
+  "historical_validation": {
+    "prior_task_version": "1.3.4",
+    "prior_commit": "61d77f0eee5f2fa64074a98dfa2f43c1c59a4e09",
+    "attached_trajectory_version": "1.2.8",
+    "original_reward": 1,
+    "current_historical_answer_reward": 0,
+    "report": "validation/attached-trajectory-review.md"
+  },
+  "self_reference": "Matrix and Harbor input snapshots precede evidence/documentation updates. All current executable files are byte-identical to the frozen task. This record is not hashed into itself.",
+  "harbor_infrastructure": {
+    "version": "0.22.0",
+    "provider": "offline_harbor:OfflineDockerEnvironment",
+    "network": "static Docker network_mode=none",
+    "compose_version": "5.5.1",
+    "adapter_sha256": "e0da3646ccfd04689f14582cdcea7849d257e56b6cc460bc8ffb59e0f7f1a706",
+    "archive": "validation/evidence/harbor-1.4.0.tar.gz"
+  },
+  "limitations": [
+    "Representative supported inputs and layouts, not exhaustive correctness",
+    "CPU tensor backing storage, not CUDA allocator peaks or arbitrary non-tensor encodings",
+    "Completion controls do not sandbox arbitrary in-process/native tampering",
+    "No new model rollout; original attached score remains historical"
+  ],
   "static_validation": {
-    "strict_evidence_audit": {
-      "checks": 4,
-      "errors": 0,
-      "warnings": 0,
-      "includes": "repository task validator, parsing, artifact hashes and whitespace"
-    }
-  },
-  "artifact_retention": {
-    "policy": "Keep current summaries, executable hashes and reproducible controls in the task; omit raw logs, historical snapshots and trajectory archives from current tree.",
-    "historical_commit": "b596d2e67de1e3191ef1b6a587d6b98c015ed48f",
-    "raw_evidence_url": "https://github.com/ouycc/ai-infra-bench/tree/b596d2e67de1e3191ef1b6a587d6b98c015ed48f/tasks/vllm-multimodal-encoder-cache-accounting/validation/evidence/",
-    "current_executable_unchanged": true
+    "checks": 4,
+    "errors": 0,
+    "warnings": 0,
+    "log": "validation/evidence/static-audit-1.4.0.log"
   }
 }

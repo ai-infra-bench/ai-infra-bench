@@ -175,9 +175,9 @@
       "name": "alternate-dense-profile-consistent",
       "patch": "alternate-dense-profile-consistent.patch",
       "apply_after": "base",
-      "expected_reward": 1,
+      "expected_reward": 0,
       "patch_sha256": "0be130371d8dcabad9a9bccf601a9c39c542075b3ef1e171bb99f0d47e29ad8d",
-      "note": "Legitimate dense runtime representation with separate prompt-span profiling. Full suite must accept it alongside compact alternatives."
+      "note": "Historical 1.3.4 positive. The 1.4.0 contract additionally forbids encoder payload growth with non-embedding prompt positions; dense storage is now a negative. Patch bytes remain unchanged."
     },
     {
       "name": "alternate-zero-output-capacity",
@@ -186,6 +186,70 @@
       "patch": "alternate-zero-output-capacity.patch",
       "patch_sha256": "8950b2af27681cb992ff3ddfcd5372f60c639a54ff21bb588df4b22c92e13fb0",
       "note": "Allow zero global encoder capacity when all modality output upper bounds are zero; nonempty planning and zero-budget prompt advancement remain checked."
+    },
+    {
+      "name": "alternate-renamed-helpers",
+      "patch": "alternate-renamed-helpers.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Renames encoder batching, execution, gather and scheduler admission helpers and all production callers; no behavioral change.",
+      "patch_sha256": "cfa4477d770a61bac19f9d808dc8a33bf6dea2f40c1a50e1067598847005996f"
+    },
+    {
+      "name": "alternate-transposed-payload",
+      "patch": "alternate-transposed-payload.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Stores a contiguous transposed encoder payload and restores its orientation at consumption; storage layout and allocation lifetime differ.",
+      "patch_sha256": "c02d55265b8b60d48a8a7f0229a633288d20e48d46593ee0dbc8a544fe80c9cf"
+    },
+    {
+      "name": "wrong-main-window",
+      "patch": "wrong-main-window.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "note": "Preserves the gather helper but shifts its production main-model caller by one prompt position.",
+      "patch_sha256": "3143588a3a999081bb9246085f3420305aacdc03d17d2a67de5c0d93cc49b647"
+    },
+    {
+      "name": "historical-astra-video-estimate",
+      "patch": "historical-astra-video-estimate.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "note": "Unchanged production edits from the attached Astra/high 1.2.8 answer; its dummy path works but Qwen3-VL analytical estimates retain the 12.5x prompt expansion.",
+      "patch_sha256": "641dc755748a0e96eb166ae85d2673f1a9cb15c5d866dbf4d3e1c5d807857ca6"
+    },
+    {
+      "name": "preallocated-dense-payload",
+      "patch": "preallocated-dense-payload.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "note": "Dense cache reserves its backing pool in the runner constructor. Profiling covers that pool; payload growth must still be rejected after it receives encoder data.",
+      "patch_sha256": "457208b8390025e1f3e73c540ab5c146b1d60330e938e47486c1e2632b2118b7"
+    },
+    {
+      "name": "alternate-constructor-state",
+      "patch": "alternate-constructor-state.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Adds per-runner encoder-read accounting initialized by the real constructor; no output change.",
+      "patch_sha256": "51fba15bad868ac89ebc2e9cd2c307cff783afb8202ed33456e9a70d42a1458f"
+    },
+    {
+      "name": "alternate-runner-buffers",
+      "patch": "alternate-runner-buffers.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "patch_sha256": "ebc98accd50f64115da94b28aa8aa0188ab070a598dcaab097012637720460cf",
+      "note": "Renames runner model and input-buffer storage plus in-repository worker consumers; stable load/get/execute APIs retain the same behavior."
+    },
+    {
+      "name": "alternate-sparse-payload",
+      "patch": "alternate-sparse-payload.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "patch_sha256": "030bd35b7f2c436fa5117ac26b3290865a86c4cad98bb62394777f10992dc728",
+      "note": "Stores encoder rows as a sparse COO tensor with separate value/index storage, and profiles the same representation; downstream input values are unchanged."
     }
   ],
   "schema_version": "ai_infra_bench_validation_cases.v1"
