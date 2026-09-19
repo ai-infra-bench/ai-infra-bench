@@ -36,9 +36,11 @@ def main():
     failures, passed, workload = [], [], {}
     worker_exit = None
     seed = None
+    reference_attempts = 0
     try:
         model = Path(tempfile.mkdtemp(prefix="session-model-"))
         for attempt in range(5):
+            reference_attempts = attempt + 1
             seed = secrets.randbits(63)
             try:
                 workload, expected = build_reference(model, seed)
@@ -108,6 +110,7 @@ def main():
         "expected_cases": list(workload.get("cases", {})), "cases_passed": passed,
         "failures": failures, "worker_exit_code": worker_exit,
         "reference_seed": seed,
+        "reference_attempts": reference_attempts,
     }
     (log / "report.json").write_text(json.dumps(report, indent=2) + "\n")
     reward = int(not failures)
