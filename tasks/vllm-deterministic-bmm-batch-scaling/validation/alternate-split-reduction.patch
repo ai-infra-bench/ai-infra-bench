@@ -1,0 +1,26 @@
+diff --git a/vllm/model_executor/layers/batch_invariant.py b/vllm/model_executor/layers/batch_invariant.py
+--- a/vllm/model_executor/layers/batch_invariant.py
++++ b/vllm/model_executor/layers/batch_invariant.py
+@@ -1056,3 +1056,22 @@
+         torch.backends.cuda.matmul.fp32_precision = "ieee"
+         torch.backends.cudnn.conv.fp32_precision = "ieee"
+         torch.backends.cudnn.rnn.fp32_precision = "ieee"
++
++
++_bmm_direct = bmm_batch_invariant
++
++def bmm_batch_invariant(a, b, *, out=None):
++    # Small reductions can be split into independent partial products; keep
++    # their sums in FP32 before the final output conversion.
++    if (a.ndim == b.ndim == 3 and a.device == b.device and a.dtype == b.dtype
++            and a.shape[0] <= b.shape[0] and a.shape[2] == b.shape[1]
++            and 4 <= a.shape[2] <= 128 and a.shape[1] and b.shape[2]):
++        lhs, rhs = a.float(), b[:a.shape[0]].float()
++        partials = [_bmm_direct(x, y) for x, y in
++                    zip(torch.tensor_split(lhs, 4, dim=2), torch.tensor_split(rhs, 4, dim=1))]
++        result = torch.stack(partials).sum(dim=0).to(a.dtype)
++        if out is not None:
++            out.copy_(result)
++            return out
++        return result
++    return _bmm_direct(a, b, out=out)
