@@ -16,6 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import tomllib
 
@@ -109,6 +110,31 @@ def task_contract(task_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         raise ContractError(f"{task_dir.name}: invalid trusted runner labels")
     if not isinstance(runner.get("platform"), str):
         raise ContractError(f"{task_dir.name}: runner platform is missing")
+    data_proxy_url = runner.get("data_proxy_url", "")
+    proxy_is_valid = isinstance(data_proxy_url, str)
+    if proxy_is_valid:
+        try:
+            parsed_proxy = urlsplit(data_proxy_url)
+            proxy_is_valid = (
+                not data_proxy_url
+                or (
+                    parsed_proxy.scheme == "http"
+                    and parsed_proxy.hostname == "127.0.0.1"
+                    and parsed_proxy.port is not None
+                    and parsed_proxy.username is None
+                    and parsed_proxy.password is None
+                    and not parsed_proxy.path
+                    and not parsed_proxy.query
+                    and not parsed_proxy.fragment
+                )
+            )
+        except ValueError:
+            proxy_is_valid = False
+    if not proxy_is_valid:
+        raise ContractError(
+            f"{task_dir.name}: runner data_proxy_url must be an uncredentialed "
+            "loopback HTTP URL"
+        )
     return config, runner
 
 
@@ -232,6 +258,7 @@ def matrix_entry(task_dir: Path, mode: str) -> dict[str, Any]:
         "accelerator": config["environment"]["accelerator"],
         "runs_on": runner["github_labels"],
         "platform": runner["platform"],
+        "data_proxy_url": runner.get("data_proxy_url", ""),
         "approval_environment": approval_environment,
     }
 

@@ -1,0 +1,19 @@
+diff --git a/csrc/moe/permute_unpermute_kernels/moe_permute_unpermute_kernel.inl b/csrc/moe/permute_unpermute_kernels/moe_permute_unpermute_kernel.inl
+--- a/csrc/moe/permute_unpermute_kernels/moe_permute_unpermute_kernel.inl
++++ b/csrc/moe/permute_unpermute_kernels/moe_permute_unpermute_kernel.inl
+@@ -66,7 +66,14 @@
+ 
+     for (int elem_index = start_offset; elem_index < num_elems_in_col;
+          elem_index += stride) {
+-      dest_row_ptr[elem_index] = source_row_ptr[elem_index];
++      DataElem value = source_row_ptr[elem_index];
++      if constexpr (sizeof(T) == 1) {
++        auto* bytes = reinterpret_cast<unsigned char*>(&value);
++        for (int byte = 0; byte < sizeof(DataElem); ++byte) {
++          bytes[byte] &= 0x7f;
++        }
++      }
++      dest_row_ptr[elem_index] = value;
+     }
+   }
+ }

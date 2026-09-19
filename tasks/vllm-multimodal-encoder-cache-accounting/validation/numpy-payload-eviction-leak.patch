@@ -1,0 +1,13 @@
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -775,5 +775,9 @@
+         # Free the cached encoder outputs.
+         for mm_hash in scheduler_output.free_encoder_mm_hashes:
+-            self.encoder_cache.pop(mm_hash, None)
++            retired = self.encoder_cache.pop(mm_hash, None)
++            if retired is not None:
++                if not hasattr(self, "_retained_numpy_encoder_history"):
++                    self._retained_numpy_encoder_history = []
++                self._retained_numpy_encoder_history.append(retired.detach().cpu().numpy().copy())
+ 
+         # Remove the unscheduled requests from the persistent batch.

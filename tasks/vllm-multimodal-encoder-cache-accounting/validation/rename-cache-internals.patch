@@ -1,0 +1,129 @@
+--- a/vllm/v1/core/encoder_cache_manager.py
++++ b/vllm/v1/core/encoder_cache_manager.py
+@@ -71,11 +71,11 @@
+         self.num_freeable_slots = cache_size
+ 
+         # mm_hash of mm_data => ids of requests that reference the mm_data
+-        self.cached: dict[str, set[str]] = {}
++        self.entries: dict[str, set[str]] = {}
+ 
+         # mm_hash of mm_data => num_encoder_embeds of the mm_data
+         self.freeable: OrderedDict[str, int] = OrderedDict()
+-        self.freed: list[str] = []
++        self.evicted: list[str] = []
+ 
+     def check_and_update_cache(self, request: Request, input_id: int) -> bool:
+         """Check if encoder output for a specific multimodal input is cached.
+@@ -94,15 +94,15 @@
+         """
+         mm_hash = request.mm_features[input_id].identifier
+         # Not cached at all
+-        if mm_hash not in self.cached:
++        if mm_hash not in self.entries:
+             return False
+ 
+         # Cached but currently not referenced by any request
+-        if not self.cached[mm_hash]:
++        if not self.entries[mm_hash]:
+             num_encoder_embeds = self.freeable.pop(mm_hash)
+             self.num_freeable_slots -= num_encoder_embeds
+ 
+-        self.cached[mm_hash].add(request.request_id)
++        self.entries[mm_hash].add(request.request_id)
+         return True
+ 
+     def can_allocate(
+@@ -161,8 +161,8 @@
+         # until model runner is notified by the scheduler output.
+         while num_embeds > self.num_free_slots:
+             mm_hash, num_free_embeds = self.freeable.popitem(last=False)
+-            del self.cached[mm_hash]
+-            self.freed.append(mm_hash)
++            del self.entries[mm_hash]
++            self.evicted.append(mm_hash)
+             self.num_free_slots += num_free_embeds
+         return True
+ 
+@@ -179,8 +179,8 @@
+ 
+         mm_hash = request.mm_features[input_id].identifier
+         request_id = request.request_id
+-        if mm_hash not in self.cached:
+-            self.cached[mm_hash] = set()
++        if mm_hash not in self.entries:
++            self.entries[mm_hash] = set()
+ 
+         num_encoder_embeds = request.get_num_encoder_embeds(input_id)
+ 
+@@ -189,7 +189,7 @@
+         assert self.num_free_slots >= num_encoder_embeds
+         assert self.num_freeable_slots >= num_encoder_embeds
+ 
+-        self.cached[mm_hash].add(request_id)
++        self.entries[mm_hash].add(request_id)
+         self.num_free_slots -= num_encoder_embeds
+         self.num_freeable_slots -= num_encoder_embeds
+ 
+@@ -204,7 +204,7 @@
+         return {
+             input_id
+             for input_id in range(len(request.mm_features))
+-            if request.mm_features[input_id].identifier in self.cached
++            if request.mm_features[input_id].identifier in self.entries
+         }
+ 
+     def free_encoder_input(self, request: Request, input_id: int) -> None:
+@@ -220,10 +220,10 @@
+         req_id = request.request_id
+         mm_hash = request.mm_features[input_id].identifier
+         # The mm_hash not in cache or the req_id set is empty
+-        if not self.cached.get(mm_hash, None):
++        if not self.entries.get(mm_hash, None):
+             return
+-        self.cached[mm_hash].discard(req_id)
+-        if not self.cached[mm_hash]:
++        self.entries[mm_hash].discard(req_id)
++        if not self.entries[mm_hash]:
+             num_encoder_embeds = request.get_num_encoder_embeds(input_id)
+             self.freeable[mm_hash] = num_encoder_embeds
+             self.num_freeable_slots += num_encoder_embeds
+@@ -250,8 +250,8 @@
+             encoder outputs can be removed from their caches. The internal
+             list is cleared after this call.
+         """
+-        freed = self.freed
+-        self.freed = []
++        freed = self.evicted
++        self.evicted = []
+         return freed
+ 
+ 
+@@ -357,7 +357,7 @@
+     def __init__(self, cache_size: int):
+         self.cache_size = cache_size
+         self.num_free_slots = cache_size
+-        self.freed: list[str] = []
++        self.evicted: list[str] = []
+ 
+     def check_and_update_cache(self, request: Request, input_id: int) -> bool:
+         return False
+@@ -383,7 +383,7 @@
+         self.num_free_slots -= num_encoder_embeds
+ 
+         mm_hash = request.mm_features[input_id].identifier
+-        self.freed.append(mm_hash)
++        self.evicted.append(mm_hash)
+ 
+     def free(self, request: Request) -> None:
+         for input_id in range(len(request.mm_features)):
+@@ -393,8 +393,8 @@
+         return set(range(len(request.mm_features)))
+ 
+     def get_freed_mm_hashes(self) -> list[str]:
+-        freed = self.freed
+-        self.freed = []
++        freed = self.evicted
++        self.evicted = []
+         return freed
+ 
+     def free_encoder_input(self, request: Request, input_id: int) -> None:

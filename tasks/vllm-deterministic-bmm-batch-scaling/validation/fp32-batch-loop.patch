@@ -1,0 +1,22 @@
+--- a/vllm/model_executor/layers/batch_invariant.py
++++ b/vllm/model_executor/layers/batch_invariant.py
+@@ -1058,3 +1058,19 @@
+         torch.backends.cuda.matmul.fp32_precision = "ieee"
+         torch.backends.cudnn.conv.fp32_precision = "ieee"
+         torch.backends.cudnn.rnn.fp32_precision = "ieee"
++
++
++_bmm_optimized = bmm_batch_invariant
++
++def bmm_batch_invariant(a, b, *, out=None):
++    if (a.ndim == b.ndim == 3 and a.dtype == b.dtype == torch.float32
++            and a.device == b.device and 0 < a.shape[0] <= b.shape[0]
++            and a.shape[2] == b.shape[1]):
++        # Deliberately retain linear launch scaling only for FP32.
++        result = torch.cat([_bmm_optimized(a[i:i+1], b[i:i+1])
++                            for i in range(a.shape[0])], dim=0)
++        if out is not None:
++            out.copy_(result)
++            return out
++        return result
++    return _bmm_optimized(a, b, out=out)
