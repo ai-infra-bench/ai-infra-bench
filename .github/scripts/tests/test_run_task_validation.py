@@ -54,8 +54,6 @@ elif name == "docker":
         else:
             print(json.dumps([{"Id": "sha256:local-image"}]))
     elif args[:2] == ["buildx", "build"]:
-        with open(os.environ["MOCK_LOG"], "a") as stream:
-            stream.write(json.dumps(["buildx_config", os.environ.get("BUILDX_CONFIG")]) + "\n")
         expected_proxy = os.environ["MOCK_EXPECT_PROXY"]
         for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
             if os.environ.get(key) != expected_proxy:
@@ -81,13 +79,6 @@ elif name == "harbor":
     job = Path(args[args.index("--jobs-dir") + 1]) / args[args.index("--job-name") + 1]
     job.mkdir(parents=True)
     reward = "0.0" if args[args.index("--agent") + 1] == "nop" else "1.0"
-    if os.environ["MOCK_FORCE_ORACLE_FAILURE"] == "true" and reward == "1.0":
-        reward = "0.0"
-        trial = job / "trial" / "verifier"
-        trial.mkdir(parents=True)
-        (trial.parent / "result.json").write_text("{}")
-        (trial / "verifier-details.json").write_text('{"completed": 10, "required": 24}')
-        (trial / "test-stdout.txt").write_text("oracle-test-diagnostic\n")
     (job / "result.json").write_text(json.dumps({"stats": {
         "n_completed_trials": 1, "n_errored_trials": 0,
         "evals": {"test": {"reward_stats": {"reward": {reward: ["trial"]}}}},
@@ -103,7 +94,6 @@ class ValidationImageTests(unittest.TestCase):
     def run_validation(
         self, *, gpus, cache_hit, publish, harbor_fail=False, docker_image=True,
         build_failures=0, build_error="", expect_failure=False,
-        force_oracle_failure=False,
     ):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -150,7 +140,6 @@ class ValidationImageTests(unittest.TestCase):
             # GPU execution must also work outside GitHub without registry vars.
             for key in ("GHCR_REPOSITORY", "GITHUB_REPOSITORY_OWNER"):
                 env.pop(key, None)
-            env.pop("BUILDX_CONFIG", None)
             env.update({
                 "PATH": f"{bin_dir}:{os.environ['PATH']}",
                 "http_proxy": "http://127.0.0.1:7892",
@@ -167,7 +156,6 @@ class ValidationImageTests(unittest.TestCase):
                 "MOCK_EXPECT_PROXY": "http://127.0.0.1:7892",
                 "MOCK_CACHE_HIT": str(cache_hit).lower(),
                 "MOCK_HARBOR_FAIL": str(harbor_fail).lower(),
-                "MOCK_FORCE_ORACLE_FAILURE": str(force_oracle_failure).lower(),
                 "MOCK_REGISTRY": REGISTRY, "MOCK_DIGEST": DIGEST,
             })
             if not gpus:
@@ -182,9 +170,6 @@ class ValidationImageTests(unittest.TestCase):
             if harbor_fail or expect_failure:
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(summary.exists())
-                if force_oracle_failure:
-                    self.assertIn("oracle-test-diagnostic", result.stdout)
-                    self.assertIn('"verifier_file": "verifier-details.json"', result.stdout)
                 return None, commands
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             summary = json.loads(summary.read_text())
@@ -195,14 +180,6 @@ class ValidationImageTests(unittest.TestCase):
             if builds:
                 self.assertEqual(builds[0][builds[0].index("--tag") + 1], summary["image"])
                 self.assertIn("--load", builds[0])
-                buildx_configs = [cmd[1] for cmd in commands if cmd[0] == "buildx_config"]
-                self.assertEqual(len(buildx_configs), len(builds))
-                if gpus:
-                    self.assertTrue(buildx_configs[0].startswith(str(root / "ai-infra-buildx.")))
-                    self.assertTrue(Path(buildx_configs[0]).is_dir())
-                    self.assertTrue(all(path == buildx_configs[0] for path in buildx_configs))
-                else:
-                    self.assertTrue(all(path is None for path in buildx_configs))
             harbor = [cmd for cmd in commands if cmd[0] == "harbor"]
             self.assertEqual(len(harbor), 2)
             expected_env = "ci_gpu_docker:LeasedGpuDockerEnvironment" if gpus else "docker"
@@ -245,12 +222,6 @@ class ValidationImageTests(unittest.TestCase):
             with self.subTest(gpus=gpus):
                 _, commands = self.run_validation(gpus=gpus, cache_hit=False, publish=True, harbor_fail=True)
                 self.assertFalse(any(cmd[:2] == ["docker", "push"] for cmd in commands))
-
-    def test_failed_oracle_surfaces_bounded_verifier_diagnostics(self):
-        self.run_validation(
-            gpus=2, cache_hit=False, publish=False,
-            force_oracle_failure=True, expect_failure=True,
-        )
 
     def test_gpu_without_canonical_image_builds_locally(self):
         summary, commands = self.run_validation(

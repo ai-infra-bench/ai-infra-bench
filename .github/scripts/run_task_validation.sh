@@ -74,12 +74,6 @@ else
     printf 'No cached image for %s; building locally\n' "$image_ref"
   fi
   test -f "$task_dir/environment/Dockerfile"
-  if (( gpu_count > 0 )); then
-    # Self-hosted runners can inherit a shared, unwritable ~/.docker/buildx.
-    # Buildx state is client-side; keep it job-local without replacing the
-    # Docker CLI config (which may hold registry credentials or contexts).
-    export BUILDX_CONFIG="$(mktemp -d "${RUNNER_TEMP:-/tmp}/ai-infra-buildx.XXXXXX")"
-  fi
   build_attempt=1
   while true; do
     build_log="$(mktemp "${RUNNER_TEMP:-/tmp}/ai-infra-build.XXXXXX.log")"
@@ -160,42 +154,9 @@ while IFS= read -r case_json; do
     --delete \
     --yes
 
-  result_path="$HARBOR_JOBS_DIR/$TASK_NAME/$job_name/result.json"
-  if ! python3 .github/scripts/task_ci.py check-result \
-    --result "$result_path" \
-    --expected-reward "$expected_reward"; then
-    # A Harbor job can return zero even when its trial failed before producing
-    # a reward. GPU runner artifacts are not uploaded, so report the actual
-    # exception rather than leaving only "reward is None" in the CI log.
-    python3 - "$HARBOR_JOBS_DIR/$TASK_NAME/$job_name" <<'PY'
-import json
-import pathlib
-import sys
-
-for result_path in sorted(pathlib.Path(sys.argv[1]).glob("*/result.json")):
-    trial = json.loads(result_path.read_text())
-    verifier = result_path.parent / "verifier"
-    # Harbor can finish a trial with reward=0 without raising an exception.
-    # GPU runner artifacts are not uploaded, so retain bounded verifier
-    # diagnostics for the first failing case in the public job log.
-    for name in ("verifier-details.json", "test-stdout.txt", "test-stderr.txt"):
-        path = verifier / name
-        if path.is_file():
-            print(json.dumps({
-                "trial": result_path.parent.name,
-                "verifier_file": name,
-                "tail": path.read_text(errors="replace")[-12000:],
-            }), flush=True)
-    exception = trial.get("exception_info") or {}
-    if exception:
-        print(json.dumps({
-            "trial": result_path.parent.name,
-            "exception_type": exception.get("exception_type"),
-            "exception_message": str(exception.get("exception_message", ""))[:8000],
-        }), flush=True)
-PY
-    exit 1
-  fi
+  python3 .github/scripts/task_ci.py check-result \
+    --result "$HARBOR_JOBS_DIR/$TASK_NAME/$job_name/result.json" \
+    --expected-reward "$expected_reward"
 done < <(jq -c '.[]' <<<"$cases_json")
 
 published=false
