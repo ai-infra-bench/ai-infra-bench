@@ -33,7 +33,7 @@ A task contribution should provide:
 - `environment/image-manifest.json` for the retained canonical image;
 - `validation/e2e-evidence.json` containing the final measured results and known limitations.
 
-A task may set `metadata.validation_mode = "verifier_only"` when no correct
+A task may set `"validation_mode": "verifier_only"` in `validation/ci-cases.json` when no correct
 implementation exists yet and the contribution is specifically intended to
 benchmark that unsolved capability. Such a task may omit `solution/` and
 solution patches, but must include a solvability analysis, independent positive

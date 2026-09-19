@@ -109,15 +109,17 @@ class ValidationImageTests(unittest.TestCase):
             (task / "validation/ci-cases.json").write_text(json.dumps({
                 "schema_version": "ai_infra_bench_validation_cases.v1", "cases": [],
             }))
-            accelerator = "A100" if gpus else "CPU"
-            config = f'[environment]\naccelerator = "{accelerator}"\nworkdir = "/workspace/repo"\n'
+            config = (
+                f'[environment]\ngpus = {gpus}\nworkdir = "/workspace/repo"\n'
+                'cpus = 8\nmemory_mb = 16384\nstorage_mb = 51200\n'
+            )
             if gpus and docker_image:
-                config += f'docker_image = "sha256:local-canonical-image"\ngpus = {gpus}\ntopology = {gpus}\ngpu_types = ["A100"]\n'
+                config += 'docker_image = "sha256:local-canonical-image"\ngpu_types = ["A100"]\n'
             elif gpus:
-                config += f'gpus = {gpus}\ntopology = {gpus}\ngpu_types = ["A100"]\n'
+                config += 'gpu_types = ["A100"]\n'
             (task / "task.toml").write_text(config)
 
-            # Both PR and manual discovery must expose the accelerator used by
+            # Both PR and manual discovery must expose the GPU count used by
             # workflow conditions, independently of the approval environment.
             for mode in ("pr", "manual"):
                 result = subprocess.run([
@@ -126,7 +128,7 @@ class ValidationImageTests(unittest.TestCase):
                     f"print(json.dumps(task_ci.matrix_entry(Path('tasks/example'), '{mode}')))",
                 ], cwd=root, env=dict(os.environ, PYTHONPATH=str(scripts)),
                     check=True, capture_output=True, text=True)
-                self.assertEqual(json.loads(result.stdout)["accelerator"], accelerator)
+                self.assertEqual(json.loads(result.stdout)["gpus"], gpus)
                 expected_proxy = "http://127.0.0.1:7892" if gpus else ""
                 self.assertEqual(json.loads(result.stdout)["data_proxy_url"], expected_proxy)
 
@@ -184,6 +186,12 @@ class ValidationImageTests(unittest.TestCase):
             self.assertEqual(len(harbor), 2)
             expected_env = "ci_gpu_docker:LeasedGpuDockerEnvironment" if gpus else "docker"
             self.assertTrue(all(cmd[cmd.index("--env") + 1] == expected_env for cmd in harbor))
+            self.assertTrue(all(cmd[cmd.index("--cpus") + 1] == "limit" for cmd in harbor))
+            self.assertTrue(all(cmd[cmd.index("--memory") + 1] == "limit" for cmd in harbor))
+            if gpus:
+                self.assertTrue(all("--override-cpus" not in cmd for cmd in harbor))
+            else:
+                self.assertTrue(all(cmd[cmd.index("--override-cpus") + 1] == "4" for cmd in harbor))
             self.assertEqual(sum(cmd[0] == "gpu_pool" for cmd in commands), 2 if gpus else 0)
             return summary, commands
 

@@ -3,7 +3,6 @@ from pathlib import Path
 import subprocess
 import uuid
 import argparse
-import tomllib
 
 
 def challenge_result(text, returncode):
@@ -37,7 +36,7 @@ def run():
 
 def check_environment(task, out, override_image=None):
     out.mkdir(parents=True,exist_ok=True)
-    image=override_image or tomllib.loads((task/'task.toml').read_text())['environment']['docker_image']
+    image=override_image or json.loads((task/'environment/image-manifest.json').read_text())['image_id']
     name='pr84-env-'+uuid.uuid4().hex[:10]
     command=['docker','run','--name',name,'--network','none','--user','0:0','--cpus','4',
              '--memory','16g','--entrypoint','bash',

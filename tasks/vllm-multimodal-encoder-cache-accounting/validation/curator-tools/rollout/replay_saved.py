@@ -12,7 +12,6 @@ import subprocess
 import shutil
 import sys
 import time
-import tomllib
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -88,7 +87,7 @@ def main():
     if args.profile_probe:
         probe=output/'profile-probe.py'
         shutil.copy2(args.profile_probe.resolve(),probe)
-    image=tomllib.loads((task/'task.toml').read_text())['environment']['docker_image']
+    image=json.loads((task/'environment/image-manifest.json').read_text())['image_id']
     trials=sorted((campaign/'jobs/flash').glob('task__*'))
     assert len(trials)==4
     paths=[p for p in (task/'tests').rglob('*') if p.is_file()]

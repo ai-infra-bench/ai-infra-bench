@@ -60,18 +60,56 @@ def task_dirs() -> list[Path]:
     )
 
 
+def gpu_type_matches(actual: str, requested: str) -> bool:
+    """Match a family or model, including A100-40GB against A100-SXM4-40GB."""
+    actual_parts = set(re.findall(r"[a-z0-9]+", actual.lower())) - {"nvidia"}
+    requested_parts = set(re.findall(r"[a-z0-9]+", requested.lower())) - {"nvidia"}
+    return bool(requested_parts) and requested_parts <= actual_parts
+
+
 def task_contract(task_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     config = load_toml(task_dir / "task.toml")
     environment = config.get("environment", {})
-    accelerator = environment.get("accelerator")
-    classes = load_runner_classes()
-    if accelerator not in classes:
+    legacy = {"accelerator", "topology"}.intersection(environment)
+    if legacy or "environment_profile" in config.get("metadata", {}):
         raise ContractError(
-            f"{task_dir.name}: unsupported accelerator {accelerator!r}; "
-            f"allowed values are {sorted(classes)}"
+            f"{task_dir.name}: use [environment].gpus and gpu_types instead of "
+            "accelerator, topology, or metadata.environment_profile"
         )
-    runner = classes[accelerator]
-    task_gpus = environment.get("gpus", 0) or 0
+    task_gpus = environment.get("gpus", 0)
+    if type(task_gpus) is not int or task_gpus < 0:
+        raise ContractError(f"{task_dir.name}: [environment].gpus must be a nonnegative integer")
+    gpu_types = environment.get("gpu_types", [])
+    if not isinstance(gpu_types, list) or not all(
+        isinstance(item, str) and item.strip() for item in gpu_types
+    ):
+        raise ContractError(f"{task_dir.name}: [environment].gpu_types must be a list of non-empty strings")
+    if environment.get("tpu") is not None:
+        raise ContractError(f"{task_dir.name}: the CI runners do not support TPU tasks")
+    classes = load_runner_classes()
+    if task_gpus == 0:
+        if gpu_types:
+            raise ContractError(f"{task_dir.name}: gpu_types requires a positive gpus count")
+        runner = classes["CPU"]
+    else:
+        candidates = [
+            candidate for candidate in classes.values()
+            if task_gpus in candidate.get("allowed_gpu_counts", [])
+            and candidate.get("gpu_types")
+            and (
+                not gpu_types
+                or any(
+                    gpu_type_matches(requested, supported)
+                    for requested in gpu_types for supported in candidate["gpu_types"]
+                )
+            )
+        ]
+        if not candidates:
+            raise ContractError(
+                f"{task_dir.name}: no CI runner supports gpus={task_gpus}, "
+                f"gpu_types={gpu_types}; check .github/runner-classes.json"
+            )
+        runner = candidates[0]
     workdir = environment.get("workdir")
     if (
         not isinstance(workdir, str)
@@ -79,29 +117,6 @@ def task_contract(task_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         or any(character in workdir for character in "\r\n\0")
     ):
         raise ContractError(f"{task_dir.name}: [environment].workdir must be absolute")
-
-    if accelerator == "CPU":
-        if "topology" in environment:
-            raise ContractError(f"{task_dir.name}: CPU tasks must not set topology")
-        if task_gpus != 0:
-            raise ContractError(f"{task_dir.name}: CPU task requests {task_gpus} GPUs")
-    else:
-        topology = environment.get("topology")
-        allowed = runner.get("allowed_topologies", [])
-        if not isinstance(topology, int) or topology not in allowed:
-            raise ContractError(
-                f"{task_dir.name}: {accelerator} topology must be one of {allowed}"
-            )
-        if task_gpus != topology:
-            raise ContractError(
-                f"{task_dir.name}: [environment].gpus={task_gpus} "
-                f"does not match topology={topology}"
-            )
-        gpu_types = environment.get("gpu_types") or []
-        if not any(accelerator.lower() in str(item).lower() for item in gpu_types):
-            raise ContractError(
-                f"{task_dir.name}: [environment].gpu_types must name {accelerator}"
-            )
 
     labels = runner.get("github_labels")
     if not isinstance(labels, list) or not labels or not all(
@@ -192,20 +207,20 @@ def validation_manifest(task_dir: Path) -> dict[str, Any]:
     return manifest
 
 
-def task_validation_mode(task_dir: Path, config: dict[str, Any]) -> str:
-    validation_mode = config.get("metadata", {}).get("validation_mode", "oracle")
+def task_validation_mode(task_dir: Path, manifest: dict[str, Any]) -> str:
+    validation_mode = manifest.get("validation_mode", "oracle")
     if validation_mode not in ("oracle", "verifier_only"):
         raise ContractError(
-            f"{task_dir.name}: unsupported metadata.validation_mode "
+            f"{task_dir.name}: unsupported validation/ci-cases.json validation_mode "
             f"{validation_mode!r}"
         )
     return validation_mode
 
 
 def validate_task(task_dir: Path) -> None:
-    config, _ = task_contract(task_dir)
-    task_validation_mode(task_dir, config)
-    validation_manifest(task_dir)
+    task_contract(task_dir)
+    manifest = validation_manifest(task_dir)
+    task_validation_mode(task_dir, manifest)
 
 
 def changed_tasks(base: str, head: str) -> list[Path]:
@@ -247,15 +262,17 @@ def changed_tasks(base: str, head: str) -> list[Path]:
 def matrix_entry(task_dir: Path, mode: str) -> dict[str, Any]:
     config, runner = task_contract(task_dir)
     validation_manifest(task_dir)
+    gpus = config["environment"].get("gpus", 0)
     if mode == "manual":
         approval_environment = "manual-task-validation"
-    elif config["environment"]["accelerator"] == "CPU":
+    elif gpus == 0:
         approval_environment = "automatic-task-validation"
     else:
         approval_environment = "task-validation"
     return {
         "task": task_dir.name,
-        "accelerator": config["environment"]["accelerator"],
+        "gpus": gpus,
+        "gpu_types": config["environment"].get("gpu_types", []),
         "runs_on": runner["github_labels"],
         "platform": runner["platform"],
         "data_proxy_url": runner.get("data_proxy_url", ""),
@@ -566,13 +583,15 @@ def command_check_result(args: argparse.Namespace) -> None:
 
 def command_hardware_check(args: argparse.Namespace) -> None:
     task_dir = TASKS_DIR / args.task
-    config, _ = task_contract(task_dir)
+    config, runner = task_contract(task_dir)
     environment = config["environment"]
+    required = environment.get("gpus", 0)
+    gpu_types = environment.get("gpu_types", [])
     machine = platform.machine().lower()
     if machine not in ("x86_64", "amd64"):
         raise ContractError(f"{task_dir.name}: runner architecture is {machine}, expected x64")
-    if environment["accelerator"] == "CPU":
-        print(json.dumps({"architecture": machine, "accelerator": "CPU"}))
+    if required == 0:
+        print(json.dumps({"architecture": machine, "gpus": 0}))
         return
 
     query = subprocess.run(
@@ -581,21 +600,22 @@ def command_hardware_check(args: argparse.Namespace) -> None:
         text=True,
         stdout=subprocess.PIPE,
     ).stdout.splitlines()
-    required = environment["topology"]
     matching = [
-        name for name in query if environment["accelerator"].lower() in name.lower()
+        name for name in query
+        if any(gpu_type_matches(name, supported) for supported in runner["gpu_types"])
+        and (not gpu_types or any(gpu_type_matches(name, requested) for requested in gpu_types))
     ]
     if len(matching) < required:
         raise ContractError(
-            f"{task_dir.name}: requires {required} {environment['accelerator']} GPUs, "
+            f"{task_dir.name}: requires {required} GPUs with types {gpu_types or runner['gpu_types']}, "
             f"found {matching}"
         )
     print(
         json.dumps(
             {
                 "architecture": machine,
-                "accelerator": environment["accelerator"],
-                "topology": required,
+                "gpus": required,
+                "gpu_types": gpu_types,
                 "visible_gpus": query,
             }
         )
@@ -604,9 +624,9 @@ def command_hardware_check(args: argparse.Namespace) -> None:
 
 def command_cases(args: argparse.Namespace) -> None:
     task_dir = TASKS_DIR / args.task
-    config, _ = task_contract(task_dir)
-    validation_mode = task_validation_mode(task_dir, config)
+    task_contract(task_dir)
     manifest = validation_manifest(task_dir)
+    validation_mode = task_validation_mode(task_dir, manifest)
     cases = [{"name": "base", "expected_reward": 0}]
     if validation_mode == "oracle":
         cases.append({"name": "oracle", "expected_reward": 1})

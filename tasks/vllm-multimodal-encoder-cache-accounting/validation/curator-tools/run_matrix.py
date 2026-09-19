@@ -1,6 +1,6 @@
 """Run actual test.sh in disposable offline containers; not a Harbor run.
 Usage: python run_matrix.py TASK_DIR OUTPUT_DIR [--image IMAGE] [--cases NAME...]
-The configured image comes from task.toml and must exist locally. Override
+The configured image comes from environment/image-manifest.json and must exist locally. Override
 images are recorded and compared with the configured immutable image ID.
 """
 import argparse
@@ -10,7 +10,6 @@ import json
 from pathlib import Path
 import subprocess
 import uuid
-import tomllib
 
 
 
@@ -22,7 +21,7 @@ def main():
     parser.add_argument('--cases',nargs='+')
     args=parser.parse_args()
     task=args.task.resolve();out=args.output.resolve();out.mkdir(parents=True,exist_ok=True)
-    configured_image=tomllib.loads((task/'task.toml').read_text())['environment']['docker_image']
+    configured_image=json.loads((task/'environment/image-manifest.json').read_text())['image_id']
     args.image=args.image or configured_image
     inspect=subprocess.run(['docker','image','inspect',args.image],capture_output=True,text=True,timeout=30,check=True)
     (out/'image.json').write_text(inspect.stdout)

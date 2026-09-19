@@ -13,6 +13,8 @@ from pathlib import Path
 
 import tomllib
 
+from build_config import load_build_config
+
 TEMPLATE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TEMPLATE_DIR.parents[1]
 
@@ -105,27 +107,27 @@ def build(task_dir: Path) -> None:
         ).stdout
     )
 
-    task_metadata = metadata["metadata"]
+    build_inputs = load_build_config(task_dir)
     runtime_assets = None
-    if task_metadata.get("runtime_asset_repository"):
+    if build_inputs.get("runtime_asset_repository"):
         runtime_assets = {
-            "repository": task_metadata["runtime_asset_repository"],
-            "revision": task_metadata["runtime_asset_revision"],
-            "path": task_metadata["runtime_asset_path"],
+            "repository": build_inputs["runtime_asset_repository"],
+            "revision": build_inputs["runtime_asset_revision"],
+            "path": build_inputs["runtime_asset_path"],
             "files": [
                 item.strip()
-                for item in task_metadata["runtime_asset_files"].split(",")
+                for item in build_inputs["runtime_asset_files"].split(",")
             ],
             "model_tensors_included": False,
         }
     runtime_file = None
-    if task_metadata.get("runtime_file_url"):
+    if build_inputs.get("runtime_file_url"):
         runtime_file = {
-            "url": task_metadata["runtime_file_url"],
-            "sha256": task_metadata["runtime_file_sha256"],
-            "path": task_metadata["runtime_file_path"],
-            "license": task_metadata["runtime_file_license"],
-            "attribution": task_metadata["runtime_file_attribution"],
+            "url": build_inputs["runtime_file_url"],
+            "sha256": build_inputs["runtime_file_sha256"],
+            "path": build_inputs["runtime_file_path"],
+            "license": build_inputs["runtime_file_license"],
+            "attribution": build_inputs["runtime_file_attribution"],
         }
 
     manifest = {

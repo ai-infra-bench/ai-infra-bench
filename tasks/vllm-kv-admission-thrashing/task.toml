@@ -1,40 +1,77 @@
 schema_version = "1.4"
-artifacts = ["/workspace/vllm/vllm"]
+artifacts = ["/workspace/vllm"]
 
 [task]
 name = "ai-infra-bench/vllm-kv-admission-thrashing"
-version = "0.0.2"
+version = "1.0.0"
 description = "Keep mixed decoding and long-prompt workloads making progress without over-serializing KV-cache admission."
-authors = [{name = "Qunhong Zeng"}]
-keywords = ["vllm", "cpu", "scheduler", "kv-cache", "performance"]
+keywords = ["vllm", "scheduler", "kv-cache", "preemption"]
 
 [metadata]
-benchmark_schema_version = "0.1"
-track = "representative"
-workload_type = "bug_fix"
-subsystems = ["scheduler", "memory_kv"]
-repository = "vllm-project/vllm"
+task_type = "bugfix"
 base_commit = "4731884796d43bd8493769dbfb0e199a2a542092"
 dependency_cutoff = "2026-03-24T16:53:07Z"
-image_digest = "sha256:a3079f12717a09f311a769b4fc07e68f8abb29ba34b60ce33d04d47935b51574"
-environment_template = "vllm-cutoff-pinned"
-publication_state = "staged-smoke-only"
-
-[agent]
-timeout_sec = 64800
-user = "agent"
-network_mode = "no-network"
 
 [environment]
-accelerator = "CPU"
-build_timeout_sec = 64800
+workdir = "/workspace/vllm"
 cpus = 8
 memory_mb = 16384
-storage_mb = 20480
-workdir = "/workspace/vllm"
+storage_mb = 51200
+gpus = 0
 network_mode = "no-network"
+build_timeout_sec = 10800
+
+[agent]
+user = "agent"
+network_mode = "no-network"
+timeout_sec = 36000
 
 [verifier]
-timeout_sec = 64800
 user = "root"
 network_mode = "no-network"
+timeout_sec = 7200
+
+[[verifier.collect]]
+service = "main"
+user = "agent"
+timeout_sec = 300
+command = '''
+repo=/workspace/vllm
+base=4731884796d43bd8493769dbfb0e199a2a542092
+output=/logs/artifacts
+set -eu
+mkdir -p "$output"
+printf 'incomplete\n' > "$output/collection-status.txt"
+collect_tmp=$(mktemp -d "$output/.collect.XXXXXX")
+cleanup() {
+  collect_rc=$?
+  if [ "$collect_rc" -ne 0 ]; then
+    printf 'failed exit=%s\n' "$collect_rc" > "$output/collection-status.txt"
+  fi
+  rm -rf "$collect_tmp"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+git_capture() {
+  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_EXTERNAL_DIFF \
+    -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_OPTIONAL_LOCKS=0 \
+    GIT_NO_REPLACE_OBJECTS=1 \
+    git -C "$repo" -c safe.directory="$repo" -c core.fileMode=true -c core.fsmonitor=false \
+      -c core.hooksPath=/dev/null --no-pager "$@"
+}
+git_capture rev-parse --verify "$base^{commit}" > "$collect_tmp/base-commit.txt"
+git_capture rev-parse --verify HEAD > "$collect_tmp/head-commit.txt"
+git_capture diff --binary --full-index --no-color --no-ext-diff --no-textconv --no-renames \
+  --src-prefix=a/ --dst-prefix=b/ "$base" -- > "$collect_tmp/solution.patch"
+git_capture status --short --untracked-files=all > "$collect_tmp/git-status.txt"
+git_capture ls-files --others --exclude-standard -z > "$collect_tmp/untracked-paths.bin"
+env -u TAR_OPTIONS -u GZIP tar -C "$repo" --null --verbatim-files-from \
+  -czf "$collect_tmp/untracked-files.tar.gz" -T "$collect_tmp/untracked-paths.bin"
+for collect_file in base-commit.txt head-commit.txt solution.patch git-status.txt \
+  untracked-paths.bin untracked-files.tar.gz; do
+  mv -f "$collect_tmp/$collect_file" "$output/$collect_file"
+done
+printf 'complete\n' > "$output/collection-status.txt"
+'''

@@ -1,12 +1,120 @@
 import argparse
+from contextlib import redirect_stdout
+import io
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from task_ci import ContractError, command_check_result
+import task_ci
+
+
+class TaskHardwareTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.tasks_dir = Path(directory.name)
+        self.task = self.tasks_dir / "example"
+        (self.task / "validation").mkdir(parents=True)
+        (self.task / "validation/ci-cases.json").write_text(json.dumps({
+            "schema_version": "ai_infra_bench_validation_cases.v1", "cases": [],
+        }))
+
+    def configure(self, **environment):
+        values = {"workdir": "/workspace/repo", **environment}
+        (self.task / "task.toml").write_text(
+            "[environment]\n" + "".join(
+                f"{key} = {json.dumps(value)}\n" for key, value in values.items()
+            )
+        )
+
+    def hardware_check(self, names):
+        output = io.StringIO()
+        with (
+            patch.object(task_ci, "TASKS_DIR", self.tasks_dir),
+            patch.object(task_ci.platform, "machine", return_value="x86_64"),
+            patch.object(task_ci.subprocess, "run", return_value=subprocess.CompletedProcess(
+                [], 0, stdout="\n".join(names),
+            )) as query,
+            redirect_stdout(output),
+        ):
+            task_ci.command_hardware_check(argparse.Namespace(task="example"))
+        return json.loads(output.getvalue()), query
+
+    def test_cpu_explicit_and_default_do_not_probe_gpus(self):
+        for environment in ({}, {"gpus": 0}):
+            with self.subTest(environment=environment):
+                self.configure(**environment)
+                entry = task_ci.matrix_entry(self.task, "pr")
+                self.assertEqual(entry["gpus"], 0)
+                self.assertEqual(entry["runs_on"], ["ubuntu-24.04"])
+                self.assertEqual(entry["approval_environment"], "automatic-task-validation")
+                result, query = self.hardware_check([])
+                self.assertEqual(result["gpus"], 0)
+                query.assert_not_called()
+
+    def test_gpu_counts_models_and_alternatives_select_a100_runner(self):
+        for count in (1, 2, 4):
+            for gpu_types in (None, ["A100"], ["NVIDIA A100-SXM4-40GB"], ["H100", "A100"]):
+                with self.subTest(count=count, gpu_types=gpu_types):
+                    environment = {"gpus": count}
+                    if gpu_types is not None:
+                        environment["gpu_types"] = gpu_types
+                    self.configure(**environment)
+                    entry = task_ci.matrix_entry(self.task, "pr")
+                    self.assertEqual(entry["gpus"], count)
+                    self.assertEqual(entry["gpu_types"], gpu_types or [])
+                    self.assertIn("a100", entry["runs_on"])
+                    self.assertEqual(entry["approval_environment"], "task-validation")
+                    self.assertEqual(entry["data_proxy_url"], "http://127.0.0.1:7892")
+                    self.assertEqual(task_ci.matrix_entry(self.task, "manual")["approval_environment"], "manual-task-validation")
+
+    def test_invalid_or_unsupported_gpu_requests_fail_before_routing(self):
+        invalid = [
+            {"gpus": value} for value in (-1, True, False, 1.5, "1", 3, 8)
+        ] + [
+            {"gpus": 1, "gpu_types": value}
+            for value in ("A100", [""], [1], ["H100"], ["NotA100"], ["A1000"])
+        ] + [{"gpus": 0, "gpu_types": ["A100"]}]
+        for environment in invalid:
+            with self.subTest(environment=environment):
+                self.configure(**environment)
+                with self.assertRaises(ContractError):
+                    task_ci.task_contract(self.task)
+
+    def test_custom_hardware_fields_are_rejected(self):
+        for environment in ({"accelerator": "CPU"}, {"gpus": 1, "topology": 1}):
+            with self.subTest(environment=environment):
+                self.configure(**environment)
+                with self.assertRaisesRegex(ContractError, "use .*gpus and gpu_types"):
+                    task_ci.task_contract(self.task)
+        self.configure(gpus=1)
+        with (self.task / "task.toml").open("a") as stream:
+            stream.write('\n[metadata]\nenvironment_profile = "gpu"\n')
+        with self.assertRaisesRegex(ContractError, "use .*gpus and gpu_types"):
+            task_ci.task_contract(self.task)
+
+    def test_gpu_model_constraints_and_count_are_checked_on_host(self):
+        for gpu_types in (["A100"], ["A100-40GB"], ["NVIDIA A100-SXM4-40GB"], ["H100", "A100"]):
+            with self.subTest(gpu_types=gpu_types):
+                self.configure(gpus=2, gpu_types=gpu_types)
+                result, _ = self.hardware_check(["NVIDIA A100-SXM4-40GB"] * 2)
+                self.assertEqual(result["gpus"], 2)
+                self.assertEqual(result["gpu_types"], gpu_types)
+        for gpu_types, names in (
+            (["A100"], ["NVIDIA A100-SXM4-40GB"]),
+            (["A100"], ["NVIDIA H100"] * 2),
+            (["A100-80GB"], ["NVIDIA A100-SXM4-40GB"] * 2),
+        ):
+            with self.subTest(gpu_types=gpu_types, names=names):
+                self.configure(gpus=2, gpu_types=gpu_types)
+                with self.assertRaisesRegex(ContractError, "requires 2 GPUs"):
+                    self.hardware_check(names)
 
 
 class HarborResultTests(unittest.TestCase):

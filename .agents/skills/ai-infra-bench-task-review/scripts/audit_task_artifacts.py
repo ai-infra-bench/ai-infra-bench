@@ -176,24 +176,20 @@ def check_task(task: Path, config: dict[str, Any], repo: Path, audit: Audit) -> 
         and bool(task_data["description"].strip()),
         "[task].description must be non-empty",
     )
-    repository = metadata.get("repository")
-    if isinstance(repository, str) and "/" in repository:
-        prefix = repository.rsplit("/", 1)[-1].lower().replace("_", "-")
-        audit.require(
-            slug.startswith(f"{prefix}-"), f"task slug must start with {prefix}-"
-        )
+    audit.require(
+        set(metadata) == {"task_type", "base_commit", "dependency_cutoff"},
+        "[metadata] must contain only task_type, base_commit, and dependency_cutoff",
+    )
+    audit.require(
+        metadata.get("task_type") in {"feature", "bugfix", "performance"},
+        "[metadata].task_type must be feature, bugfix, or performance",
+    )
 
     missing = [path for path in REQUIRED_FILES if not (task / path).is_file()]
     audit.require(not missing, f"required task files are missing: {missing}")
     audit.require(
         bool(re.fullmatch(r"[0-9a-f]{40}", str(metadata.get("base_commit", "")))),
         "[metadata].base_commit is not a full commit SHA",
-    )
-    audit.require(
-        bool(
-            re.fullmatch(r"sha256:[0-9a-f]{64}", str(metadata.get("image_digest", "")))
-        ),
-        "[metadata].image_digest is not a SHA-256 digest",
     )
     agent_timeout = agent.get("timeout_sec")
     if isinstance(agent_timeout, (int, float)) and not isinstance(
@@ -264,11 +260,9 @@ def check_artifacts(
             "lock manifest": lock.get("dependency_cutoff"),
         },
     )
-    compare(
-        audit,
-        "image digest",
-        metadata.get("image_digest"),
-        {"image manifest": image.get("image_id")},
+    audit.require(
+        bool(re.fullmatch(r"sha256:[0-9a-f]{64}", str(image.get("image_id", "")))),
+        "environment/image-manifest.json image_id is not a SHA-256 image ID",
     )
 
     hashes: list[tuple[str, Any, str]] = [
@@ -436,9 +430,15 @@ def check_image(
     except (json.JSONDecodeError, KeyError, IndexError, TypeError):
         audit.require(False, f"cannot read image ID for {image}")
         return
+    manifest_path = task / "environment/image-manifest.json"
+    try:
+        expected_image_id = mapping(json.loads(manifest_path.read_text())).get("image_id")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        audit.require(False, f"cannot read image manifest: {exc}")
+        return
     audit.require(
-        image_id == mapping(config.get("metadata")).get("image_digest"),
-        "local image ID does not match task.toml",
+        image_id == expected_image_id,
+        "local image ID does not match environment/image-manifest.json",
     )
 
     validator = repo / ".github/scripts/task_ci.py"
