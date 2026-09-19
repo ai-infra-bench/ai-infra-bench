@@ -17,6 +17,8 @@ import fixtures as f
 
 def serve(fd, meter):
     channel = socket.socket(fileno=fd)
+    from nixl_io import install
+    install()
     f.load_candidate()
     from vllm.v1.engine.core import EngineCore
 
@@ -31,15 +33,18 @@ def serve(fd, meter):
             self.ready = set()
             self.tokens = {}
             self.params = {}
+            self.auto_ready = False
 
         def reset(self, options):
             self.matches = {}
             self.grammars = {}
             self.last = None
+            self.auto_ready = False
             self.scheduler = f.create_scheduler(
                 self.model_dir, options.get('capacity', 4),
                 max_num_batched_tokens=options.get('budget', 8192),
                 use_connector=options.get('connector', True),
+                num_blocks=options.get('blocks'),
             )
             if self.scheduler.connector is not None:
                 self.scheduler.connector.get_num_new_matched_tokens = self.match
@@ -95,6 +100,8 @@ def serve(fd, meter):
                 request = self.scheduler.requests[identity]
                 complete_prompt = request.num_computed_tokens >= request.num_prompt_tokens
                 samples.append([self.tokens.get(identity, 100)] if complete_prompt else [])
+            if self.auto_ready and self.scheduler.connector is not None:
+                self.ready.update(self.scheduler.connector.started_receives)
             output = f.ModelRunnerOutput(req_ids=req_ids,
                 req_id_to_index={identity: i for i, identity in enumerate(req_ids)},
                 sampled_token_ids=samples,
@@ -108,7 +115,8 @@ def serve(fd, meter):
                     'unfinished': self.scheduler.get_num_unfinished_requests(),
                     'has_requests': self.scheduler.has_requests()}
 
-        def tick(self, ready=(), tokens=None):
+        def tick(self, ready=(), tokens=None, auto_ready=False):
+            self.auto_ready = auto_ready
             self.ready = set(ready)
             self.tokens = tokens or {}
             self.last = None
@@ -166,7 +174,7 @@ def serve(fd, meter):
             operation = command['op']
             if operation == 'reset': return self.reset(command)
             if operation == 'add': return self.add(command['items'])
-            if operation == 'tick': return self.tick(command.get('ready', ()), command.get('tokens'))
+            if operation == 'tick': return self.tick(command.get('ready', ()), command.get('tokens'), command.get('auto_ready', False))
             if operation == 'plan':
                 planned = self.scheduler.schedule()
                 return self.state() | {'admitted': [r.req_id for r in planned.scheduled_new_reqs],
@@ -185,6 +193,9 @@ def serve(fd, meter):
                 return self.state()
             if operation == 'preempt':
                 return {'reset': self.scheduler.reset_prefix_cache(reset_running_requests=True)} | self.state()
+            if operation == 'nixl':
+                from nixl_behavior import exercise
+                return {'observations': exercise(self.model_dir)}
             if operation == 'state': return self.state()
             raise ValueError('unknown adapter operation')
 

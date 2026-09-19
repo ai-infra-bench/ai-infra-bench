@@ -87,12 +87,17 @@ def load_candidate() -> None:
 
         def __init__(self, vllm_config, role, kv_cache_config=None) -> None:
             super().__init__(vllm_config, role, kv_cache_config)
+            self.started_receives = set()
 
         def get_num_new_matched_tokens(self, request, num_computed_tokens):
             return 8, True
 
         def update_state_after_alloc(self, request, blocks, num_external_tokens):
-            return None
+            if num_external_tokens:
+                self.started_receives.add(request.request_id)
+
+        def update_connector_output(self, output):
+            self.started_receives.difference_update(output.finished_recving or ())
 
         def build_connector_meta(self, scheduler_output):
             return None
@@ -153,6 +158,7 @@ def create_scheduler(
     *,
     max_num_batched_tokens: int | None = None,
     use_connector: bool = True,
+    num_blocks: int | None = None,
 ) -> Scheduler:
     model_config = ModelConfig(
         model=model_dir,
@@ -178,7 +184,8 @@ def create_scheduler(
         cache_dtype="auto",
         enable_prefix_caching=False,
     )
-    cache_config.num_gpu_blocks = 10000
+    num_blocks = num_blocks if num_blocks is not None else max(10000, request_count * 4)
+    cache_config.num_gpu_blocks = num_blocks
     transfer_config = KVTransferConfig(
         kv_connector="VerifierKVConnector",
         kv_connector_module_path=_CONNECTOR_MODULE,
@@ -192,7 +199,7 @@ def create_scheduler(
         kv_transfer_config=transfer_config if use_connector else None,
     )
     kv_cache_config = KVCacheConfig(
-        num_blocks=10000,
+        num_blocks=num_blocks,
         kv_cache_tensors=[],
         kv_cache_groups=[
             KVCacheGroupSpec(

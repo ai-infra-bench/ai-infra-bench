@@ -75,7 +75,7 @@ def main():
     LOGS.mkdir(parents=True, exist_ok=True)
     os.chown(LOGS, 0, 0)
     LOGS.chmod(0o755)
-    write_result({'reward': 0, 'completed': 0, 'required': 12})
+    write_result({'reward': 0, 'completed': 0, 'required': 14})
     spec = importlib.util.spec_from_file_location('_checkpoint', ROOT / '_checkpoint.so')
     meter = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(meter)
@@ -112,7 +112,7 @@ def main():
     child.close(); resource_child.close(); child_log.close()
     deadline = time.monotonic() + int(sys.argv[1])
     completed = []
-    result = {'reward': 0, 'completed': 0, 'required': 12, 'failures': []}
+    result = {'reward': 0, 'completed': 0, 'required': 14, 'failures': []}
     status = None
     try:
         peer = Peer(parent, resource_parent, pid, key, deadline)

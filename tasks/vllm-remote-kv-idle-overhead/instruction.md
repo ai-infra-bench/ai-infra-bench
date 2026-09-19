@@ -11,4 +11,6 @@ I need C to keep making progress while the transfers are pending, and A and B to
 
 Request counts, cancellation during a transfer, normal generation and completion, and admission of subsequent requests should all keep working.
 
+Requests should still finish when KV space is tight, as long as each request can fit on its own. With NIXL, a full local prefix hit should let the request continue, whether notifying the producer succeeds or fails.
+
 I also keep these workers alive for long runs, so finished requests must not leave steadily growing scheduler memory behind. For a one-request-at-a-time stream of short prompts (up to 64 tokens), I can allow 32 MiB of additional retained Python memory after warm-up. Bounded caches and delayed or batched cleanup are fine; I do not need every object freed immediately.

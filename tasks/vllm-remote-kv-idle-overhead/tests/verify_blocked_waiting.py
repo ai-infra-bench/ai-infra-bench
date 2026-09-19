@@ -13,7 +13,7 @@ GROUPS = ('idle-scaling', 'mixed-idle-scaling', 'engine-lifecycle',
           'cancellation-races', 'mixed-fcfs', 'streaming-resumption',
           'ready-backpressure', 'no-connector-regression',
           'preemption-backlog-local', 'preemption-backlog-remote',
-          'retained-memory-local', 'retained-memory-remote')
+          'kv-pressure', 'nixl-prefix-lifecycle', 'retained-memory-local', 'retained-memory-remote')
 
 
 def require(value, message):
@@ -217,6 +217,83 @@ def preemption(peer, remote):
         drain(peer, ids, prefix={'active': [103, 104, 105]})
 
 
+
+def kv_pressure(peer):
+    # Every request fits by itself. Each tuple varies prefix coverage, prompt,
+    # cache size and decode growth; no admission algorithm is prescribed.
+    for blocks, prompts, prefixes, budgets in (
+        (6, [64], [32], [1]),
+        (6, [64, 64], [32, 32], [1, 1]),
+        (10, [64, 64], [32, 32], [1, 1]),
+        (6, [64, 64], [32, 32], [3, 3]),
+        (8, [80, 64, 48], [48, 32, 16], [2, 3, 2]),
+        (6, [17, 64], [0, 32], [33, 2]),
+    ):
+        peer.call('reset', capacity=4, budget=256, blocks=blocks)
+        identities = [f'pressure-{i}' for i in range(len(prompts))]
+        peer.call('add', items=[{'id': rid, 'prompt': prompt, 'remote': bool(cached),
+                                 'cached': cached, 'max_tokens': budget}
+                                for rid, prompt, cached, budget in zip(identities, prompts, prefixes, budgets)])
+        observed = {rid: [] for rid in identities}
+        ended = set()
+        for step in range(96):
+            tokens = {rid: 401 + 19*i + len(observed[rid]) for i, rid in enumerate(identities)}
+            row = peer.call('tick', tokens=tokens, auto_ready=True)
+            for rid, values, terminal in row['outputs']:
+                require(rid in observed and rid not in ended, f'pressure duplicated an output: {row}')
+                observed[rid].extend(values)
+                if terminal: ended.add(rid)
+            if len(ended) == len(identities): break
+        expected = {rid: [401 + 19*i + n for n in range(budgets[i])]
+                    for i, rid in enumerate(identities)}
+        require(observed == expected and ended == set(identities),
+                f'KV pressure prevented completion: blocks={blocks}, outputs={observed}, finished={ended}')
+        empty(peer)
+        peer.call('add', items=[{'id': 'after-pressure', 'prompt': 7}])
+        drain(peer, ['after-pressure'], expected_admission=['after-pressure'])
+
+    for finish_before_abort in (False, True):
+        peer.call('reset', capacity=2, budget=128, blocks=6)
+        peer.call('add', items=[{'id': name, 'prompt': 64, 'remote': True,
+                                 'cached': 32, 'max_tokens': 3}
+                                for name in ('cancel-pressure', 'survivor')])
+        peer.call('tick', auto_ready=finish_before_abort)
+        peer.call('abort', ids=['cancel-pressure'])
+        observed = []
+        terminals = 0
+        for step in range(64):
+            row = peer.call('tick', auto_ready=True, tokens={'survivor': 821 + len(observed)})
+            for identity, tokens, terminal in row['outputs']:
+                require(identity == 'survivor', f'cancelled work returned under pressure: {row}')
+                observed.extend(tokens)
+                terminals += bool(terminal)
+            if terminals: break
+        require(observed == [821, 822, 823] and terminals == 1,
+                f'cancellation failed to release usable KV capacity: {observed}')
+        empty(peer)
+
+
+
+def nixl_prefix_lifecycle(peer):
+    rows = peer.call('nixl')['observations']
+    expected = [('prime', None), ('full-hit', False), ('cancel', False),
+                ('full-hit', True), ('cancel', True), ('read', None)]
+    require([(r['kind'], r.get('notification_fails')) for r in rows] == expected,
+            'NIXL lifecycle scenarios did not complete')
+    for row in rows:
+        require(row['counts'] == [0, 0], f'NIXL request remained live: {row}')
+        if row['kind'] == 'prime':
+            wanted = [['nixl-prime', [299], True]]
+        elif row['kind'] == 'full-hit':
+            wanted = [['nixl-hit-' + str(row['notification_fails']), [301], True]]
+        elif row['kind'] == 'cancel':
+            wanted = [['nixl-after-cancel-' + str(row['notification_fails']), [307], True]]
+        else:
+            wanted = [['nixl-read', [311], True]]
+        require(row['outputs'] == wanted, f'NIXL output/cleanup changed: {row}')
+    print(json.dumps({'observation': 'nixl-prefix-lifecycle', 'rows': rows}), flush=True)
+
+
 def retained_memory(peer, remote):
     peer.call('reset', capacity=1, connector=remote)
     salt = secrets.randbelow(1 << 30)
@@ -257,8 +334,10 @@ def run_suite(peer, emit):
              (GROUPS[7], lambda: backpressure(peer, False)),
              (GROUPS[8], lambda: preemption(peer, False)),
              (GROUPS[9], lambda: preemption(peer, True)),
-             (GROUPS[10], lambda: retained_memory(peer, False)),
-             (GROUPS[11], lambda: retained_memory(peer, True))]
+             (GROUPS[10], lambda: kv_pressure(peer)),
+             (GROUPS[11], lambda: nixl_prefix_lifecycle(peer)),
+             (GROUPS[12], lambda: retained_memory(peer, False)),
+             (GROUPS[13], lambda: retained_memory(peer, True))]
     for name, case in cases:
         case()
         emit(name)

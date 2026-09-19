@@ -59,6 +59,39 @@ diff --git a/tests/v1/core/test_scheduler.py b/tests/v1/core/test_scheduler.py
  
      # verify request is deleted
      assert request.request_id not in scheduler.requests
+diff --git a/vllm/v1/core/kv_cache_manager.py b/vllm/v1/core/kv_cache_manager.py
+--- a/vllm/v1/core/kv_cache_manager.py
++++ b/vllm/v1/core/kv_cache_manager.py
+@@ -225,6 +225,8 @@
+         num_external_computed_tokens: int = 0,
+         delay_cache_blocks: bool = False,
+         num_encoder_tokens: int = 0,
++        reserved_blocks: int = 0,
++        reservation_tokens: int | None = None,
+     ) -> KVCacheBlocks | None:
+         """Add slots for a request with new tokens to append.
+ 
+@@ -345,7 +347,19 @@
+             num_tokens_main_model=num_tokens_main_model,
+         )
+ 
+-        if num_blocks_to_allocate > self.block_pool.get_num_free_blocks():
++        admission_blocks = num_blocks_to_allocate
++        if reservation_tokens is not None:
++            admission_blocks = max(admission_blocks,
++                self.coordinator.get_num_blocks_to_allocate(
++                    request_id=request.request_id,
++                    num_tokens=min(reservation_tokens + num_lookahead_tokens,
++                                   self.max_model_len),
++                    new_computed_blocks=new_computed_block_list,
++                    num_encoder_tokens=num_encoder_tokens,
++                    total_computed_tokens=num_local_computed_tokens + num_external_computed_tokens,
++                    num_tokens_main_model=reservation_tokens,
++                ))
++        if admission_blocks > self.block_pool.get_num_free_blocks() - reserved_blocks:
+             # Cannot allocate new blocks
+             return None
+ 
 diff --git a/vllm/v1/core/sched/request_queue.py b/vllm/v1/core/sched/request_queue.py
 --- a/vllm/v1/core/sched/request_queue.py
 +++ b/vllm/v1/core/sched/request_queue.py
@@ -267,10 +300,15 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
  import itertools
  import time
  from collections import defaultdict, deque
-@@ -162,6 +163,14 @@
+@@ -161,6 +162,18 @@
+         # Priority queues for requests.
          self.waiting = create_request_queue(self.policy)
          self.running: list[Request] = []
- 
++        # Promised future capacity for admitted requests. Update only on state
++        # changes; idle ticks must never rescan blocked remote requests.
++        self._kv_reservations: dict[str, int] = {}
++        self._reserved_kv_blocks = 0
++
 +        # Auxiliary ready-selection heap for waiting requests. Remote-KV-blocked
 +        # requests remain in self.waiting for ordering/visibility but are not
 +        # present in this heap, so idle ticks do no work proportional to them.
@@ -278,11 +316,10 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
 +        self._ready_waiting_ids: set[str] = set()
 +        self._ready_waiting_versions: dict[str, int] = {}
 +        self._ready_waiting_version = 0
-+
+ 
          # The request IDs that are finished in between the previous and the
          # current steps. This is used to notify the workers about the finished
-         # requests so that they can free the cached states for those requests.
-@@ -314,6 +323,76 @@
+@@ -314,6 +327,76 @@
                  pass
          return num_new_tokens
  
@@ -359,7 +396,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
      def schedule(self) -> SchedulerOutput:
          # NOTE(woosuk) on the scheduling algorithm:
          # There's no "decoding phase" nor "prefill phase" in the scheduler.
-@@ -531,35 +610,28 @@
+@@ -531,35 +614,28 @@
  
          # Next, schedule the WAITING requests.
          if not preempted_reqs and self._pause_state == PauseState.UNPAUSED:
@@ -411,7 +448,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
  
                  # Skip request if the structured output request is still waiting
                  # for FSM compilation.
-@@ -568,15 +640,13 @@
+@@ -568,15 +644,13 @@
                      if structured_output_req and structured_output_req.grammar:
                          request.status = RequestStatus.WAITING
                      else:
@@ -429,7 +466,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
                      continue
  
                  # Check that adding the request still respects the max_loras
-@@ -590,8 +660,7 @@
+@@ -590,8 +664,7 @@
                      )
                  ):
                      # Scheduling would exceed max_loras, skip.
@@ -439,7 +476,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
                      continue
  
                  num_external_computed_tokens = 0
-@@ -617,8 +686,7 @@
+@@ -617,8 +690,7 @@
                              # The request cannot be scheduled because
                              # the KVConnector couldn't determine
                              # the number of matched tokens.
@@ -449,7 +486,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
                              continue
  
                          request.num_external_computed_tokens = ext_tokens
-@@ -667,6 +735,7 @@
+@@ -667,6 +739,7 @@
                      ):
                          # If chunked_prefill is disabled,
                          # we can stop the scheduling here.
@@ -457,7 +494,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
                          break
  
                      num_new_tokens = min(num_new_tokens, token_budget)
-@@ -688,6 +757,7 @@
+@@ -688,6 +761,7 @@
                          )
                          if num_new_tokens == 0:
                              # The request cannot be scheduled.
@@ -465,7 +502,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
                              break
  
                  if self.need_mamba_block_aligned_split:
-@@ -698,6 +768,7 @@
+@@ -698,6 +772,7 @@
                          num_external_computed_tokens,
                      )
                      if num_new_tokens == 0:
@@ -473,15 +510,31 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
                          break
  
                  # Handles an edge case when P/D Disaggregation
-@@ -739,6 +810,7 @@
+@@ -730,6 +805,12 @@
+                     num_external_computed_tokens=num_external_computed_tokens,
+                     delay_cache_blocks=load_kv_async,
+                     num_encoder_tokens=num_encoder_tokens,
++                    reserved_blocks=(self._reserved_kv_blocks
++                                     - self._kv_reservations.get(request_id, 0)),
++                    reservation_tokens=(
++                        min(request.num_prompt_tokens + request.max_tokens - 1,
++                            self.max_model_len) if self.connector is not None else None
++                    ),
+                 )
+ 
+                 if new_blocks is None:
+@@ -739,7 +820,10 @@
                      # manager
                      if request.has_encoder_inputs:
                          self.encoder_cache_manager.free(request)
 +                    skipped_waiting_requests.append(request)
                      break
++
++                self._refresh_kv_reservation(request)
  
                  # KVTransfer: the connector uses this info to determine
-@@ -761,13 +833,10 @@
+                 # if a load is needed. Note that
+@@ -761,13 +845,10 @@
                              preempted=request.num_preemptions > 0,
                          )
  
@@ -498,7 +551,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
                      request.status = RequestStatus.WAITING_FOR_REMOTE_KVS
                      # Set num_computed_tokens even though KVs are not yet loaded.
                      # request.num_computed_tokens will not be used anywhere until
-@@ -785,6 +854,9 @@
+@@ -785,6 +866,9 @@
                      request.num_computed_tokens = num_computed_tokens
                      continue
  
@@ -508,7 +561,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
                  self.running.append(request)
                  if self.log_stats:
                      request.record_event(
-@@ -825,9 +897,16 @@
+@@ -825,9 +909,16 @@
                          if self.ec_connector is not None:
                              self.ec_connector.update_state_after_alloc(request, i)
  
@@ -528,7 +581,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
  
          # Check if the scheduling constraints are satisfied.
          total_num_scheduled_tokens = sum(num_scheduled_tokens.values())
-@@ -885,10 +964,11 @@
+@@ -885,10 +976,11 @@
          self.prev_step_scheduled_req_ids.clear()
          self.prev_step_scheduled_req_ids.update(num_scheduled_tokens.keys())
  
@@ -543,7 +596,15 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
          )
  
          scheduler_output = SchedulerOutput(
-@@ -951,6 +1031,7 @@
+@@ -941,6 +1033,7 @@
+         )
+         self.kv_cache_manager.free(request)
+         self.encoder_cache_manager.free(request)
++        self._drop_kv_reservation(request.request_id)
+         request.status = RequestStatus.PREEMPTED
+         request.num_computed_tokens = 0
+         if request.spec_token_ids:
+@@ -951,6 +1044,7 @@
  
          # Put the request back to the waiting queue.
          self.waiting.prepend_request(request)
@@ -551,7 +612,15 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
  
      def _update_after_schedule(self, scheduler_output: SchedulerOutput) -> None:
          # Advance the number of computed tokens for the request AFTER
-@@ -1459,6 +1540,8 @@
+@@ -972,6 +1066,7 @@
+             scheduler_output.has_structured_output_requests |= (
+                 request.use_structured_output and not request.is_prefill_chunk
+             )
++            self._refresh_kv_reservation(request)
+ 
+             # NOTE: _free_encoder_inputs relies on num_computed_tokens, which
+             # may be updated again in _update_from_output for speculative
+@@ -1459,6 +1554,8 @@
          if stopped_preempted_reqs:
              # This is a rare case and unlikely to impact performance.
              self.waiting.remove_requests(stopped_preempted_reqs)
@@ -560,7 +629,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
  
          if failed_kv_load_req_ids and not self.recompute_kv_load_failures:
              requests = [self.requests[req_id] for req_id in failed_kv_load_req_ids]
-@@ -1547,6 +1630,8 @@
+@@ -1547,6 +1644,8 @@
              self.num_waiting_for_streaming_input += 1
  
          self.waiting.add_request(request)
@@ -569,7 +638,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
          return False
  
      def _get_routed_experts(self, request: Request) -> np.ndarray | None:
-@@ -1690,6 +1775,7 @@
+@@ -1690,6 +1789,7 @@
              elif update is not None:
                  # Commence next input chunk.
                  self._update_request_as_session(existing, update)
@@ -577,7 +646,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
              else:
                  # Streaming-input session finished.
                  self.finish_requests(request.request_id, RequestStatus.FINISHED_ABORTED)
-@@ -1698,6 +1784,7 @@
+@@ -1698,6 +1798,7 @@
                  request.streaming_queue = deque()
              self.waiting.add_request(request)
              self.requests[request.request_id] = request
@@ -585,7 +654,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
              if self.log_stats:
                  request.record_event(EngineCoreEventType.QUEUED)
  
-@@ -1747,6 +1834,8 @@
+@@ -1747,6 +1848,8 @@
              self.running = remove_all(self.running, running_requests_to_remove)
          if waiting_requests_to_remove:
              self.waiting.remove_requests(waiting_requests_to_remove)
@@ -594,7 +663,15 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
  
          # Second pass: set status and free requests
          for request in valid_requests:
-@@ -1784,6 +1873,7 @@
+@@ -1767,6 +1870,7 @@
+         self, request: Request, delay_free_blocks: bool = False
+     ) -> dict[str, Any] | None:
+         assert request.is_finished()
++        self._drop_kv_reservation(request.request_id)
+ 
+         connector_delay_free_blocks, kv_xfer_params = self._connector_finished(request)
+         self.encoder_cache_manager.free(request)
+@@ -1784,6 +1888,7 @@
      def _free_blocks(self, request: Request):
          assert request.is_finished()
          self.kv_cache_manager.free(request)
@@ -602,7 +679,40 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
          del self.requests[request.request_id]
  
      @property
-@@ -2047,6 +2137,7 @@
+@@ -1981,6 +2086,32 @@
+ 
+         return self.connector.request_finished_all_groups(request, block_ids)
+ 
++    def _drop_kv_reservation(self, request_id: str) -> None:
++        self._reserved_kv_blocks -= self._kv_reservations.pop(request_id, 0)
++
++    def _refresh_kv_reservation(self, request: Request) -> None:
++        if self.connector is None:
++            return
++        # Budget for a request that can run on its own, including ordinary
++        # decode growth. An async load must not steal another request's space.
++        final_tokens = min(
++            request.num_prompt_tokens + request.max_tokens - 1,
++            self.max_model_len,
++        )
++        needed = self.kv_cache_manager.coordinator.get_num_blocks_to_allocate(
++            request_id=request.request_id,
++            num_tokens=min(final_tokens + self.num_lookahead_tokens,
++                           self.max_model_len),
++            new_computed_blocks=self.kv_cache_manager.empty_kv_cache_blocks.blocks,
++            num_encoder_tokens=0,
++            total_computed_tokens=request.num_computed_tokens,
++            num_tokens_main_model=final_tokens,
++        )
++        self._drop_kv_reservation(request.request_id)
++        if needed:
++            self._kv_reservations[request.request_id] = needed
++            self._reserved_kv_blocks += needed
++
+     def _update_waiting_for_remote_kv(self, request: Request) -> bool:
+         """
+         KV Connector: check if the request_id is finished_recving.
+@@ -2047,6 +2178,7 @@
              assert req_id in self.requests
              req = self.requests[req_id]
              if req.status == RequestStatus.WAITING_FOR_REMOTE_KVS:
