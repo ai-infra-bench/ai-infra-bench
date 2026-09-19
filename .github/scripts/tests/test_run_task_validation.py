@@ -99,7 +99,7 @@ class ValidationImageTests(unittest.TestCase):
             root = Path(directory)
             scripts = root / ".github/scripts"
             scripts.mkdir(parents=True)
-            for name in ("task_ci.py", "run_task_validation.sh"):
+            for name in ("task_ci.py", "run_task_validation.sh", "compact_task_artifacts.py"):
                 shutil.copy2(GITHUB_DIR / "scripts" / name, scripts / name)
             shutil.copy2(GITHUB_DIR / "runner-classes.json", scripts.parent)
             task = root / "tasks/example"

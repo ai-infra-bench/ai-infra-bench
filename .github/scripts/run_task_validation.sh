@@ -158,9 +158,17 @@ while IFS= read -r case_json; do
     --delete \
     --yes
 
+  job_dir="$HARBOR_JOBS_DIR/$TASK_NAME/$job_name"
+  cp "$case_dir/task.toml" "$job_dir/prepared-task.toml"
+  python3 .github/scripts/compact_task_artifacts.py dedupe \
+    --task-dir "$task_dir" \
+    --job-dir "$job_dir" \
+    --index "$HARBOR_JOBS_DIR/$TASK_NAME/.snapshot-index.json"
+
   python3 .github/scripts/task_ci.py check-result \
-    --result "$HARBOR_JOBS_DIR/$TASK_NAME/$job_name/result.json" \
+    --result "$job_dir/result.json" \
     --expected-reward "$expected_reward"
+  rm -rf -- "$case_dir"
 done < <(jq -c '.[]' <<<"$cases_json")
 
 published=false

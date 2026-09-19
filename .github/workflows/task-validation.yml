@@ -149,13 +149,21 @@ jobs:
           df -h /
           docker system df
 
+      - name: Package Harbor results
+        if: always() && (runner.environment != 'self-hosted' || matrix.gpus == 0)
+        run: |
+          python3 .github/scripts/compact_task_artifacts.py pack \
+            --results-dir "harbor-jobs/$TASK_NAME" \
+            --output "harbor-archives/$TASK_NAME.tar.gz"
+
       - name: Upload Harbor logs
         # Large Harbor artifacts can time out on self-hosted GPU runners.
         if: always() && (runner.environment != 'self-hosted' || matrix.gpus == 0)
         uses: actions/upload-artifact@v7
         with:
           name: task-validation-${{ matrix.task }}
-          path: harbor-jobs/${{ matrix.task }}/
+          path: harbor-archives/${{ matrix.task }}.tar.gz
+          compression-level: 0
           if-no-files-found: warn
           retention-days: 14
 
