@@ -4,6 +4,7 @@ import argparse
 from contextlib import redirect_stdout
 import importlib.util
 import io
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -19,6 +20,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "templates/vllm-harbor-all-in-one"))
 sys.path.insert(0, str(ROOT / ".github/scripts"))
 from normalize_task_configs import normalize_config
+from normalize_image_manifests import check_file_hashes, normalize_manifest
 from build_config import load_build_config
 import task_ci
 
@@ -33,6 +35,7 @@ def load_module(name, relative):
 generator = load_module("metadata_generator", "templates/vllm-harbor-all-in-one/generate.py")
 locker = load_module("metadata_locker", "templates/vllm-harbor-all-in-one/lock.py")
 auditor = load_module("metadata_auditor", ".agents/skills/ai-infra-bench-task-review/scripts/audit_task_artifacts.py")
+builder = load_module("metadata_builder", "templates/vllm-harbor-all-in-one/build.py")
 
 
 class TaskMetadataTests(unittest.TestCase):
@@ -63,8 +66,88 @@ class TaskMetadataTests(unittest.TestCase):
                 self.assertIn(config["metadata"]["task_type"], {"feature", "bugfix", "performance"})
                 self.assertEqual(normalize_config(text), text)
                 manifest = json.loads((path.parent / "environment/image-manifest.json").read_text())
+                self.assertEqual(
+                    json.dumps(normalize_manifest(manifest), ensure_ascii=False, indent=2) + "\n",
+                    (path.parent / "environment/image-manifest.json").read_text(),
+                )
                 self.assertRegex(manifest["image_id"], r"^sha256:[0-9a-f]{64}$")
-                self.assertEqual(manifest["base_commit"], config["metadata"]["base_commit"])
+                check_file_hashes(manifest, path.parent / "environment")
+
+    def test_manifest_normalization_preserves_image_identity_and_build_overrides(self):
+        manifest = json.loads((ROOT / "tasks/vllm-dp-multi-port-supervisor/environment/image-manifest.json").read_text())
+        shuffled = dict(reversed(list(manifest.items())))
+        self.assertEqual(normalize_manifest(shuffled), manifest)
+        self.assertEqual(normalize_manifest(shuffled)["build"], manifest["build"])
+        with self.assertRaisesRegex(ValueError, "unknown"):
+            normalize_manifest({**manifest, "new_provenance": "retain until reviewed"})
+
+    def test_image_file_hash_checks_reject_stale_missing_and_escaping_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = Path(directory) / "environment"
+            (env / "lock").mkdir(parents=True)
+            files = {"Dockerfile": "FROM scratch\n", "lock/requirements.txt": "example==1.0\n", "lock/manifest.json": "{}\n"}
+            for relative, content in files.items():
+                (env / relative).write_text(content)
+            manifest = {"image_id": "sha256:" + "a" * 64, "files": {
+                relative: hashlib.sha256(content.encode()).hexdigest() for relative, content in files.items()
+            }}
+            original = json.dumps(manifest)
+            check_file_hashes(manifest, env)
+            (env / "Dockerfile").write_text("FROM other-image\n")
+            with self.assertRaisesRegex(ValueError, "stale.*Dockerfile"):
+                check_file_hashes(manifest, env)
+            self.assertEqual(json.dumps(manifest), original)
+            (env / "Dockerfile").unlink()
+            with self.assertRaisesRegex(ValueError, "Missing"):
+                check_file_hashes(manifest, env)
+            outside = env.parent / "outside"
+            outside.write_text(files["Dockerfile"])
+            (env / "Dockerfile").symlink_to(outside)
+            with self.assertRaisesRegex(ValueError, "escaping"):
+                check_file_hashes(manifest, env)
+            with self.assertRaisesRegex(ValueError, "Unsafe"):
+                normalize_manifest({**manifest, "files": {**manifest["files"], "../outside": "a" * 64}})
+
+    def test_builder_records_inspected_identity_and_input_hashes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            task = Path(directory)
+            env = task / "environment"
+            (env / "lock").mkdir(parents=True)
+            (task / "task.toml").write_text(
+                '[task]\nname="ai-infra-bench/example"\n[metadata]\nbase_commit="'
+                + "a" * 40 + '"\ndependency_cutoff="2026-01-01T00:00:00Z"\n'
+            )
+            for relative, content in {
+                "Dockerfile": "FROM scratch\n", "lock/requirements.txt": "example==1.0\n",
+                "lock/manifest.json": "{}\n",
+            }.items():
+                (env / relative).write_text(content)
+            image_id = "sha256:" + "b" * 64
+            repo_digest = "example@sha256:" + "c" * 64
+            inspection = {"Id": image_id, "RepoDigests": [repo_digest], "Config": {"Labels": {
+                "ai.infra.bench.base-commit": "a" * 40,
+                "ai.infra.bench.dependency-cutoff": "2026-01-01T00:00:00Z",
+            }}}
+
+            def fake_run(*args, **kwargs):
+                if args[:3] == ("docker", "image", "inspect"):
+                    return subprocess.CompletedProcess(args, 0, stdout=json.dumps([inspection]))
+                return subprocess.CompletedProcess(args, 0, stdout="")
+
+            with patch.object(builder, "run", side_effect=fake_run), redirect_stdout(io.StringIO()):
+                builder.build(task)
+            manifest_path = env / "image-manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            self.assertEqual(manifest["image_id"], image_id)
+            self.assertEqual(set(manifest), {"image_id", "files"})
+            self.assertEqual(manifest["files"]["Dockerfile"], builder.sha256_file(env / "Dockerfile"))
+            check_file_hashes(manifest, env)
+            self.assertEqual(manifest, normalize_manifest(manifest))
+            original = manifest_path.read_text()
+            inspection["Config"]["Labels"]["ai.infra.bench.base-commit"] = "d" * 40
+            with patch.object(builder, "run", side_effect=fake_run), self.assertRaisesRegex(RuntimeError, "base-commit"):
+                builder.build(task)
+            self.assertEqual(manifest_path.read_text(), original)
 
     def test_sorting_preserves_comments_multiline_commands_and_values(self):
         text = """# document comment

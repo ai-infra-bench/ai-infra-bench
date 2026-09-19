@@ -24,6 +24,20 @@ immutable final-state evidence. Verify that they are readable, correspond to
 the correct Base/trial, and cover the delivered state. Distinguish a missing or
 failed collection from a valid empty patch/archive for an unchanged worktree.
 
+For current tasks, use the [submission archive format](../../../templates/harbor-task/README.md).
+`solution.patch` is relative to the pinned Base, including agent commits;
+`untracked-files.tar.gz` contains non-ignored new files, with NUL-delimited names
+in `untracked-paths.bin`. Check `collection-status.txt`, `base-commit.txt`,
+`head-commit.txt`, and `git-status.txt`. The full workdir snapshot additionally
+preserves ignored files and Git metadata. Do not apply the Base-relative patch
+on top of the agent's recorded HEAD or an already modified full snapshot.
+
+These archives are collected before shared verification mutates the container.
+Collection is best-effort, and `complete` is not proof of an atomic snapshot if
+background processes were still writing. Task-level `image-manifest.json`
+records image identity and input hashes, not rollout results. There is no
+required task-local evidence summary.
+
 Trajectory edit commands are not a final filesystem snapshot: later edits,
 command failures, generated files, and verifier mutations can change the result.
 When final state is missing, continue reviewing directly evidenced behavior
@@ -38,6 +52,11 @@ or evidence is absent, run a small actual harness integration check before the
 campaign. A configured collector or parsed config alone does not prove capture.
 
 Record the task's approved validation mode and review scope:
+
+Read the mode from `validation/ci-cases.json` (`oracle` by default); do not infer
+it from removed metadata fields. Use the actual run's resource overrides and
+snapshot, including the four-CPU limit for CPU CI versus eight in formal task
+declarations. Historical runs must be judged under their recorded settings.
 
 - For Oracle-based tasks, use the agreed Oracle and alternative-solution
   controls, reusing matching evidence and rerunning as warranted by changes.
@@ -69,6 +88,9 @@ and do not narrow the task contract merely to fit the available controls.
 - Keep original rewards, logs, trajectories, and final artifacts unchanged.
   Store diagnostic replays and proposed tests separately. Record the skill
   revision and hashes for dirty instructions used in the review.
+  Keep run reports and replay outputs outside `tasks/`; reusable probes belong
+  in `validation/tools/` and promoted control patches in `validation/patches/`,
+  declared by the v2 `ci-cases.json`. Do not recreate release history folders.
 - Freeze replay/validation inputs and record their hashes before execution;
   verify them afterward. A post-run hash of a mutable worktree does not prove
   which bytes ran. Keep historical snapshot identities separate from current

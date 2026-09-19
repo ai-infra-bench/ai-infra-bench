@@ -1,12 +1,11 @@
-Current v1.2.10 restores the seven FlashAttention Python package files from the existing digest-pinned v0.12.0 base image into the checkout, verified by `flash-attn-python.sha256`. Native libraries remain unchanged. Ruff 0.14.0 matches the Base pre-commit configuration and is installed from its exact wheel hash with `--no-deps`. See `validation/flashattn-ruff.md` for executed validation.
+The image restores the seven FlashAttention Python package files from the existing digest-pinned v0.12.0 base image into the checkout, verified by `flash-attn-python.sha256`. Native libraries remain unchanged. Ruff 0.14.0 matches the Base pre-commit configuration and is installed from its exact wheel hash with `--no-deps`. Historical build validation is available in Git history.
 
-Historical v1.2.9 added general test tooling from `test-requirements.txt`: pytest 8.3.5, pluggy 1.5.0, iniconfig 2.0.0 and tblib 3.1.0. Installation uses exact wheel hashes and `--no-deps`; packaging 25.0 and all semantic runtime dependencies remain inherited from the pinned image. tblib supports the upstream tests/conftest.py import. Current validation is in `validation/test-tooling-reporting.md`.
+The image includes general test tooling from `test-requirements.txt`: pytest 8.3.5, pluggy 1.5.0, iniconfig 2.0.0 and tblib 3.1.0. Installation uses exact wheel hashes and `--no-deps`; packaging 25.0 and all semantic runtime dependencies remain inherited from the pinned image. tblib supports the upstream tests/conftest.py import. Keep current validation results with the CI or Harbor run records.
 
 > Historical environment-build record. Hardware indices and verifier descriptions
-> below describe the earlier build validation, not the current review. Current
-> hardware assignment, behavioral coverage and measured results are recorded in
-> `validation/review-report.md` and `validation/e2e-evidence.json`. This README is
-> not copied by the Dockerfile and does not change the image build inputs.
+> below describe the earlier build validation, not the current review. Consult
+> the relevant CI or Harbor run records for measured results and device assignment.
+> This README is not copied by the Dockerfile and does not change the image build inputs.
 
 # Environment lock
 

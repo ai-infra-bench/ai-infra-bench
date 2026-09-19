@@ -158,7 +158,8 @@ def validation_manifest(task_dir: Path) -> dict[str, Any]:
     if not manifest_path.is_file():
         raise ContractError(f"{task_dir.name}: missing validation/ci-cases.json")
     manifest = json.loads(manifest_path.read_text())
-    if manifest.get("schema_version") != "ai_infra_bench_validation_cases.v1":
+    schema = manifest.get("schema_version")
+    if schema not in {"ai_infra_bench_validation_cases.v1", "ai_infra_bench_validation_cases.v2"}:
         raise ContractError(f"{task_dir.name}: unsupported validation case schema")
     cases = manifest.get("cases")
     if not isinstance(cases, list):
@@ -173,9 +174,14 @@ def validation_manifest(task_dir: Path) -> dict[str, Any]:
         patch_name = case.get("patch")
         if not isinstance(name, str) or not name or name in names:
             raise ContractError(f"{task_dir.name}: duplicate or invalid case name {name!r}")
+        patch_parts = Path(patch_name).parts if isinstance(patch_name, str) else ()
+        expected_parts = 2 if schema.endswith(".v2") else 1
         if (
             not isinstance(patch_name, str)
-            or Path(patch_name).name != patch_name
+            or len(patch_parts) != expected_parts
+            or (expected_parts == 2 and patch_parts[0] != "patches")
+            or "\\" in patch_name
+            or Path(patch_name).as_posix() != patch_name
             or not patch_name.endswith(".patch")
             or patch_name in declared
         ):
@@ -188,7 +194,7 @@ def validation_manifest(task_dir: Path) -> dict[str, Any]:
                 f"{task_dir.name}/{name}: apply_after must be base or oracle"
             )
         patch_path = task_dir / "validation" / patch_name
-        if not patch_path.is_file():
+        if patch_path.is_symlink() or patch_path.parent.is_symlink() or not patch_path.is_file():
             raise ContractError(f"{task_dir.name}/{name}: patch is missing")
         digest = hashlib.sha256(patch_path.read_bytes()).hexdigest()
         if digest != case.get("patch_sha256"):
@@ -196,7 +202,13 @@ def validation_manifest(task_dir: Path) -> dict[str, Any]:
         names.add(name)
         declared.add(patch_name)
 
-    actual = {path.name for path in (task_dir / "validation").glob("*.patch")}
+    patch_dir = task_dir / "validation"
+    if schema.endswith(".v2"):
+        patch_dir /= "patches"
+    actual = {
+        path.relative_to(task_dir / "validation").as_posix()
+        for path in patch_dir.glob("*.patch")
+    }
     if declared != actual:
         missing = sorted(actual - declared)
         stale = sorted(declared - actual)

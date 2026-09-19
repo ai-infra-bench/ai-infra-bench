@@ -36,6 +36,9 @@ curator files cannot enter the image. It writes `environment/image-manifest.json
 after a successful build and does not remove the canonical image tag. Dynamic
 Buildx attestations are disabled so cache-only rebuilds keep the same image
 digest; provenance is recorded in the checked-in manifest instead.
+The manifest follows the shared [image manifest format](../harbor-task/README.md#image-manifest):
+image identity and a mapping of input files to SHA-256 values. Build logs and
+package inventories stay with run records rather than in the task manifest.
 
 When `environment/lock/requirements.txt` exists, the generator embeds the
 complete exact-version requirements text into the generated Dockerfile. The lock
@@ -55,9 +58,8 @@ downloads the HTTPS resource, rejects content whose SHA-256 differs, and writes
 an attribution file beside it.
 
 Dependency-lock generation also reads `dependency_cutoff_overrides` from this
-file when per-package cutoff exceptions are required. Image IDs and registry
-digests remain in `environment/image-manifest.json`; they are not duplicated in
-`task.toml`.
+file when per-package cutoff exceptions are required. Image IDs remain in
+`environment/image-manifest.json`; they are not duplicated in `task.toml`.
 
 Cache reuse is split by trust boundary:
 
