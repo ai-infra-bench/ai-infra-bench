@@ -10,9 +10,13 @@ import json
 from pathlib import Path
 import subprocess
 import shutil
+import sys
 import time
 import tomllib
 import uuid
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from check_environment import challenge_result
 
 
 def sha(path):
@@ -120,9 +124,12 @@ def main():
             assert execute('restore',['docker','exec',container,'python3','-I','-S','-c',RESTORE],180)==0
             if not args.probe_only:
                 execute('full-verifier',['docker','exec',container,'bash','/tests/test.sh'])
+                result['challenges']={}
                 for name in ('cache','capacity'):
-                    execute('challenge-'+name,['docker','exec','-u','nobody',container,'python3','-I',
+                    code=execute('challenge-'+name,['docker','exec','-u','nobody',container,'python3','-I',
                         '/challenge/challenge_encoder_'+name+'.py'],300)
+                    result['challenges'][name]=challenge_result(
+                        (out/('challenge-'+name+'.log')).read_text(), code)
             if probe:
                 assert execute('upload-profile-probe',['docker','cp',str(probe),container+':/tmp/profile-probe.py'],30)==0
                 execute('profile-probe',['docker','exec','-u','nobody',container,'python3','-I',

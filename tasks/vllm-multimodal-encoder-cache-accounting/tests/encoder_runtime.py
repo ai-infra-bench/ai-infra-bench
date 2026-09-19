@@ -84,17 +84,22 @@ class MediaProcessor:
         return self.allowed_mm_limits
 
     def get_dummy_processor_inputs(self, seq_len, mm_counts, mm_options=None):
-        return ProcessorInputs(prompt=[MEDIA_TOKEN], mm_data={self.modality: [self.spec]})
+        count = mm_counts.get(self.modality, 0)
+        return ProcessorInputs(prompt=[MEDIA_TOKEN] * count,
+                               mm_data={self.modality: [self.spec] * count})
 
     def apply(self, prompt, mm_data, **kwargs):
-        position, data = media_item(self.spec)
-        selected = set(range(position.length) if self.spec['indices'] is None
+        count = len(mm_data.get(self.modality, []))
+        items = [media_item(dict(self.spec, offset=i * self.spec['length']))
+                 for i in range(count)]
+        selected = set(range(self.spec['length']) if self.spec['indices'] is None
                        else self.spec['indices'])
-        tokens = [MEDIA_TOKEN if i in selected else 17 for i in range(position.length)]
+        tokens = [MEDIA_TOKEN if i in selected else 17
+                  for _ in range(count) for i in range(self.spec['length'])]
         return {'type': 'multimodal', 'prompt_token_ids': tokens,
-                'mm_kwargs': MultiModalKwargsItems({self.modality: [data]}),
-                'mm_hashes': {self.modality: ['profile-item']},
-                'mm_placeholders': {self.modality: [position]}}
+                'mm_kwargs': MultiModalKwargsItems({self.modality: [data for _, data in items]}),
+                'mm_hashes': {self.modality: [f'profile-item-{i}' for i in range(count)]},
+                'mm_placeholders': {self.modality: [position for position, _ in items]}}
 
 
 class ModelInputObserved(Exception):
@@ -338,6 +343,7 @@ class EnginePair:
         self.scheduler, self.runner, self.model = scheduler, runner, model
         self.context, self.eagle = context, eagle
         self.workloads = {}
+        self.consumed = {}
         self.delivered = {}
         self.draft_delivered = {}
         self.trace = []
@@ -351,12 +357,13 @@ class EnginePair:
             assert len(spec['rows']) == len(chosen)
             assert all(workload['tokens'][spec['offset'] + p] == MEDIA_TOKEN for p in chosen)
             position, data = media_item(spec)
-            features.append(MultiModalFeatureSpec(data=data, modality='image',
+            features.append(MultiModalFeatureSpec(data=data, modality=spec.get('modality', 'image'),
                 identifier=spec.get('identifier', f'{rid}-media-{i}'), mm_position=position))
         request = Request(request_id=rid, prompt_token_ids=workload['tokens'],
             sampling_params=SamplingParams(max_tokens=1, temperature=0),
             pooling_params=None, eos_token_id=None, mm_features=features)
         self.workloads[rid] = workload
+        self.consumed[rid] = 0
         self.delivered[rid] = {'positions': [], 'rows': []}
         self.draft_delivered[rid] = {'positions': [], 'rows': []}
         self.scheduler.add_request(request)
@@ -401,7 +408,7 @@ class EnginePair:
         return order
 
     def step(self):
-        starts = {rid: req.num_computed_tokens for rid, req in self.scheduler.requests.items()}
+        starts = dict(self.consumed)
         before = len(self.model.encodings)
         output = self.scheduler.schedule()
         counts = dict(output.num_scheduled_tokens)
@@ -442,6 +449,8 @@ class EnginePair:
             sampled_token_ids=emitted, logprobs=None,
             prompt_logprobs_dict={}, pooler_output=[])
         self.scheduler.update_from_output(output, model_output)
+        for rid, count in counts.items():
+            self.consumed[rid] += count
         record = {'counts': counts, 'starts': starts,
                   'encoded': self.model.encodings[before:]}
         self.trace.append(record)

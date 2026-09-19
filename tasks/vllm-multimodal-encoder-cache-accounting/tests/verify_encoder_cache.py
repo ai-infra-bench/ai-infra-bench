@@ -18,12 +18,12 @@ from completion_channel import execute_suite
 from encoder_contract import expected, workload
 
 WORKER_FILES = ('encoder_runtime.py', 'encoder_storage.py',
-                'encoder_capacity_worker.py', 'encoder_scenarios.py')
+                'encoder_host_storage.py', 'encoder_capacity_worker.py', 'encoder_scenarios.py')
 WORKER_CODE = '\n\n'.join((TESTS / name).read_text() for name in WORKER_FILES)
 _COMPILED_WORKER = compile(WORKER_CODE, '<encoder-behavior-suite>', 'exec')
 REQUIRED_STAGES = {'allocator', 'capacity', 'resource_progress', 'whole_reservation',
                    'text_and_empty', 'storage', 'storage_lifecycle',
-                   'main_inputs', 'eagle_inputs'}
+                   'main_inputs', 'eagle_inputs', 'host_storage'}
 
 
 def run_suite(inputs, checkpoint):
@@ -45,9 +45,11 @@ def expected_observations():
     return {
         'allocator': [0, 0, 5, 5, 0, 3, 8, 2],
         'capacity': {
-            'dummy': [{'scheduler': [max(1, n), max(1, n)], 'runner': max(1, n)}
+            'dummy': [{'admitted_rows': n, 'live_capacity_preserved': True,
+                       'profile_encoder_rows': n or None}
                       for n in (8, 4, 9, 0, 0, 0)],
-            'video': [{'scheduler': [n, n], 'runner': n} for n in (16, 48)]},
+            'video': [{'admitted_rows': n, 'live_capacity_preserved': True,
+                       'profile_encoder_rows': n} for n in (16, 48)]},
         'resource_progress': {'zero_resource_progress': True,
                               'reuse_and_eviction': True, 'fresh_admission': True},
         'whole_reservation': {'full_item_reserved': True},
@@ -58,10 +60,33 @@ def expected_observations():
                               'resident_payload_bytes': [512] * 24},
         'main_inputs': {'model_inputs_checked': True},
         'eagle_inputs': {'model_inputs_checked': True},
+        'host_storage': {'widths': [16, 256], 'spans': [32, 4096],
+                         'retained_bytes': [[0, 0], [0, 0]],
+                         'completed_requests': 32, 'resident_bytes': [0] * 32},
     }
 
 
 def stage_matches(name, observed, wanted):
+    if name == 'host_storage':
+        if not isinstance(observed, dict) or set(observed) != set(wanted):
+            return False
+        if (observed['widths'] != [16, 256] or observed['spans'] != [32, 4096]
+                or type(observed['completed_requests']) is not int
+                or observed['completed_requests'] != 32):
+            return False
+        sizes, resident = observed['retained_bytes'], observed['resident_bytes']
+        if (not isinstance(sizes, list) or len(sizes) != 2
+                or any(not isinstance(row, list) or len(row) != 2 for row in sizes)
+                or not isinstance(resident, list) or len(resident) != 32):
+            return False
+        if any(type(value) is not int or value < 0
+               for value in sizes[0] + sizes[1] + resident):
+            return False
+        small_growth = sizes[0][1] - sizes[0][0]
+        wide_growth = sizes[1][1] - sizes[1][0]
+        warm = max(resident[:4])
+        return (wide_growth <= small_growth + 65536 + abs(small_growth) // 4
+                and all(value <= warm + 65536 + warm // 10 for value in resident[4:]))
     if name == 'storage_lifecycle':
         if not isinstance(observed, dict) or set(observed) != {
                 'completed_requests', 'resident_payload_bytes'}:
@@ -74,16 +99,6 @@ def stage_matches(name, observed, wanted):
             return False
         warm = max(sizes[:4])
         return all(value <= warm + max(256, warm // 2) for value in sizes[4:])
-    if name == 'capacity':
-        if not isinstance(observed, dict) or set(observed) != {'dummy', 'video'}:
-            return False
-        if observed['video'] != wanted['video'] or not isinstance(observed['dummy'], list):
-            return False
-        cases = observed['dummy']
-        zeros = [dict(scheduler=[compute, cache], runner=min(compute, cache))
-                 for compute in (0, 1) for cache in (0, 1)]
-        return (len(cases) == 6 and cases[:3] == wanted['dummy'][:3]
-                and all(case in zeros for case in cases[3:]))
     if name == 'storage':
         if not isinstance(observed, list) or len(observed) != 3:
             return False

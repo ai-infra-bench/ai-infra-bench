@@ -290,6 +290,94 @@
       "expected_reward": 1,
       "note": "Retains at most two retired buffers for reuse and profiles the same spare capacity. Correct eviction need not destroy each backing allocation.",
       "patch_sha256": "4afa5db44df1ceca376725910f1e8dad6ef9f576381f2ae14b4d1238c6b9f7c9"
+    },
+    {
+      "name": "alternate-scheduler-budget-field",
+      "patch": "alternate-scheduler-budget-field.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Coherent rename of the scheduler's capacity storage and its production consumer; capacity must be inferred from real behavior.",
+      "patch_sha256": "0178ac748a4053ad7d04320220346ab4ba4e40718236a5018877a3ac8e2a8a4f"
+    },
+    {
+      "name": "python-list-payload-leak",
+      "patch": "python-list-payload-leak.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "note": "Retains encoder rows in a Python list expanded to the full prompt span.",
+      "patch_sha256": "459d6b47fedce7c606c0312ba32fe50163aaec0949bf7984935356f1cc590b68"
+    },
+    {
+      "name": "python-list-eviction-leak",
+      "patch": "python-list-eviction-leak.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "note": "Retires the Tensor entry but keeps its values in an unbounded Python history.",
+      "patch_sha256": "a7ae57e513e10e2fe8164990cb067154a393c955dd7883b44a2bdf1edce3b608"
+    },
+    {
+      "name": "alternate-python-payload",
+      "patch": "alternate-python-payload.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Stores compact encoder values in Python lists with matching profiling and restores tensors at consumption.",
+      "patch_sha256": "eebd851e349f3ffaa70979decd944e67e11635026871dbdb93c2a6c38501006e"
+    },
+    {
+      "name": "alternate-numpy-payload",
+      "patch": "alternate-numpy-payload.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Stores compact encoder values in NumPy arrays with matching profiling; retained logical allocations remain bounded.",
+      "patch_sha256": "872ce7391901d414b0b3399afd15dc9ae8ad1bf252c9bec3ed3ec4dd30ccc2cb"
+    },
+    {
+      "name": "alternate-python-mask-metadata",
+      "patch": "alternate-python-mask-metadata.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Retains per-position Python mask metadata; span-dependent metadata does not expand with embedding width.",
+      "patch_sha256": "20d93d30ffabfc9cb6408963af81040596510e1a4620c83e6372b30feb8308a7"
+    },
+    {
+      "name": "numpy-payload-eviction-leak",
+      "patch": "numpy-payload-eviction-leak.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "note": "Retires the Tensor entry but retains NumPy-owned copies after completed-request turnover.",
+      "patch_sha256": "20b2e477111406f7c01ad3fb0d6f1f405320cb1e3aa1a5cc10b7cfcfe8818435"
+    },
+    {
+      "name": "alternate-cache-capacity-fields",
+      "patch": "alternate-cache-capacity-fields.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "note": "Renames cache size and available-slot bookkeeping while retaining all allocation/free behavior; no scored field lookup is permitted.",
+      "patch_sha256": "29178b04d68fe3c3d91611b2272fd1d91e8c87032aee159fdb35a0e2a046579d"
+    },
+    {
+      "name": "python-list-span-growth",
+      "patch": "python-list-span-growth.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "note": "Expands a Python payload with placeholder span but correctly retires it; isolates the spatial-growth check from lifecycle accumulation.",
+      "patch_sha256": "a8c0dfc23d238f9f35f535d4c7c4b85a7c43147a6428ef5bbd2b272a58670fc7"
+    },
+    {
+      "name": "alternate-existing-tracemalloc",
+      "expected_reward": 1,
+      "apply_after": "oracle",
+      "patch": "alternate-existing-tracemalloc.patch",
+      "patch_sha256": "18512d19543086b88f76e3dcb84dd7a57999baa259388bc5d3a9f7684596703a",
+      "note": "Enables ordinary allocation tracing before candidate imports; the verifier must preserve and baseline an existing trace."
+    },
+    {
+      "name": "traced-python-eviction-leak",
+      "expected_reward": 0,
+      "apply_after": "oracle",
+      "patch": "traced-python-eviction-leak.patch",
+      "patch_sha256": "9e6abbff29c4d787d9313ec523dd628fea7b29e3b0946a9b3f73363b8c1109a1",
+      "note": "Retains Python payload copies while allocation tracing was already enabled; an initial heap must not hide ongoing growth."
     }
   ],
   "schema_version": "ai_infra_bench_validation_cases.v1"

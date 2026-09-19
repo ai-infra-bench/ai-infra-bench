@@ -34,7 +34,7 @@ def check_allocator():
     cases = [(0, []), (0, None), (5, None), (5, list(range(5))),
              (5, []), (5, [1, 3, 4]), (100, [5, 15, 25, 35, 45, 55, 65, 75]),
              (64, [0, 63])]
-    measured = []
+    verified = []
     for i, (length, indices) in enumerate(cases):
         spec = specification(length, indices)
         count = len(spec['rows'])
@@ -42,8 +42,9 @@ def check_allocator():
         manager = EncoderCacheManager(count)
         assert manager.can_allocate(req, 0, count, 0), (length, count)
         manager.allocate(req, 0)
-        measured.append(int(count - manager.num_free_slots))
-        assert manager.num_free_slots == 0
+        verified.append(count)
+        extra = allocator_request(f'extra-{i}', specification(1, None))
+        assert not manager.can_allocate(extra, 0, 1, 0), 'exact-fit item did not consume its capacity'
         if count:
             assert not EncoderCacheManager(count - 1).can_allocate(req, 0, count, 0)
             assert not EncoderCacheManager(count).can_allocate(req, 0, count - 1, 0)
@@ -51,8 +52,8 @@ def check_allocator():
         other = allocator_request(f'next-{i}', spec)
         assert manager.can_allocate(other, 0, count, 0)
         manager.allocate(other, 0)
-        assert manager.num_free_slots == 0
-    return measured
+        assert not manager.can_allocate(extra, 0, 1, 0), 'reallocated item did not consume its capacity'
+    return verified
 
 
 def check_pressure(runtime):
@@ -153,5 +154,6 @@ def run_checks(inputs):
             return {'model_inputs_checked': True}
         check('main_inputs', main_inputs)
         check('eagle_inputs', eagle_inputs)
+    check('host_storage', check_host_storage)
     return {'stages': stages, 'failures': failures, 'timings': timings,
             'observations': observations}

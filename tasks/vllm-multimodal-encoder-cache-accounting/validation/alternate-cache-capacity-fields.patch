@@ -1,0 +1,83 @@
+diff --git a/vllm/v1/core/encoder_cache_manager.py b/vllm/v1/core/encoder_cache_manager.py
+index d73c05d2c..2bb947ab6 100644
+--- a/vllm/v1/core/encoder_cache_manager.py
++++ b/vllm/v1/core/encoder_cache_manager.py
+@@ -66,8 +66,8 @@ class EncoderCacheManager:
+     """
+ 
+     def __init__(self, cache_size: int):
+-        self.cache_size = cache_size
+-        self.num_free_slots = cache_size
++        self.capacity_in_rows = cache_size
++        self.available_encoder_slots = cache_size
+         self.num_freeable_slots = cache_size
+ 
+         # mm_hash of mm_data => ids of requests that reference the mm_data
+@@ -149,7 +149,7 @@ class EncoderCacheManager:
+         num_embeds += num_embeds_to_schedule
+ 
+         # Enough free slots
+-        if num_embeds <= self.num_free_slots:
++        if num_embeds <= self.available_encoder_slots:
+             return True
+ 
+         # Not enough reclaimable slots
+@@ -159,11 +159,11 @@ class EncoderCacheManager:
+         # Not enough free slots but enough reclaimable slots
+         # NOTE: Eviction takes place here, but physical memory is not freed
+         # until model runner is notified by the scheduler output.
+-        while num_embeds > self.num_free_slots:
++        while num_embeds > self.available_encoder_slots:
+             mm_hash, num_free_embeds = self.freeable.popitem(last=False)
+             del self.cached[mm_hash]
+             self.freed.append(mm_hash)
+-            self.num_free_slots += num_free_embeds
++            self.available_encoder_slots += num_free_embeds
+         return True
+ 
+     def allocate(self, request: Request, input_id: int) -> None:
+@@ -186,11 +186,11 @@ class EncoderCacheManager:
+ 
+         # NOTE: Encoder cache should always have enough space for encoder inputs
+         # that are scheduled since eviction takes place at can_allocate().
+-        assert self.num_free_slots >= num_encoder_embeds
++        assert self.available_encoder_slots >= num_encoder_embeds
+         assert self.num_freeable_slots >= num_encoder_embeds
+ 
+         self.cached[mm_hash].add(request_id)
+-        self.num_free_slots -= num_encoder_embeds
++        self.available_encoder_slots -= num_encoder_embeds
+         self.num_freeable_slots -= num_encoder_embeds
+ 
+     def get_cached_input_ids(self, request: Request) -> set[int]:
+@@ -355,8 +355,8 @@ def compute_mm_encoder_budget(
+ # differences with MM models shrink.
+ class EncoderDecoderCacheManager(EncoderCacheManager):
+     def __init__(self, cache_size: int):
+-        self.cache_size = cache_size
+-        self.num_free_slots = cache_size
++        self.capacity_in_rows = cache_size
++        self.available_encoder_slots = cache_size
+         self.freed: list[str] = []
+ 
+     def check_and_update_cache(self, request: Request, input_id: int) -> bool:
+@@ -376,11 +376,11 @@ class EncoderDecoderCacheManager(EncoderCacheManager):
+ 
+         num_encoder_embeds += num_embeds_to_schedule
+         # Enough free slots
+-        return num_encoder_embeds <= self.num_free_slots
++        return num_encoder_embeds <= self.available_encoder_slots
+ 
+     def allocate(self, request: Request, input_id: int) -> None:
+         num_encoder_embeds = request.get_num_encoder_embeds(input_id)
+-        self.num_free_slots -= num_encoder_embeds
++        self.available_encoder_slots -= num_encoder_embeds
+ 
+         mm_hash = request.mm_features[input_id].identifier
+         self.freed.append(mm_hash)
+@@ -399,4 +399,4 @@ class EncoderDecoderCacheManager(EncoderCacheManager):
+ 
+     def free_encoder_input(self, request: Request, input_id: int) -> None:
+         num_encoder_embeds = request.get_num_encoder_embeds(input_id)
+-        self.num_free_slots += num_encoder_embeds
++        self.available_encoder_slots += num_encoder_embeds
