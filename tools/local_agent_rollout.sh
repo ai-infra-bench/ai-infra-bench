@@ -6,6 +6,8 @@
 #   SETUP_MULT (env, default 1.0): multiplier for the agent SETUP timeout, kept at 1.0 so
 #   a slow first-time CLI install (e.g. grok as a non-root agent user) is not capped by the
 #   agent-execution multiplier.
+#   ROLLOUT_HARBOR_ARGS (env): extra `harbor run` arguments, word-split (no secrets: they are
+#   logged), e.g. "--ak config=/path/codex-config.toml" for a custom codex model provider.
 #   e.g. tools/local_agent_rollout.sh pi-background-processes ai-infra-bench/pi-background-processes:local \
 #            claude-opus-5 0.05 claude-code
 #
@@ -137,6 +139,7 @@ PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}" uvx --from "harbor==$HARBOR_VERSIO
   --agent-setup-timeout-multiplier "${SETUP_MULT:-1.0}" \
   ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} \
   ${PROXY_ARGS[@]+"${PROXY_ARGS[@]}"} \
+  ${ROLLOUT_HARBOR_ARGS:-} \
   --yes 2>&1 | tee "$JOBS/$JOB.harbor.log" | grep -vE "ANTHROPIC_API_KEY|AUTH_TOKEN|OPENAI_API_KEY|OAUTH_TOKEN" || true
 
 RESULT="$JOBS/$JOB/result.json"
