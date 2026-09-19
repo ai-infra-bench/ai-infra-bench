@@ -16,8 +16,9 @@ TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS))
 from completion_channel import execute_suite
 from encoder_contract import expected, workload
+from host_storage_contract import host_storage_diagnostics, host_storage_failure
 
-WORKER_FILES = ('encoder_runtime.py', 'encoder_storage.py',
+WORKER_FILES = ('encoder_runtime.py', 'encoder_storage.py', 'host_storage_contract.py',
                 'encoder_host_storage.py', 'encoder_capacity_worker.py', 'encoder_scenarios.py')
 WORKER_CODE = '\n\n'.join((TESTS / name).read_text() for name in WORKER_FILES)
 _COMPILED_WORKER = compile(WORKER_CODE, '<encoder-behavior-suite>', 'exec')
@@ -62,31 +63,19 @@ def expected_observations():
         'eagle_inputs': {'model_inputs_checked': True},
         'host_storage': {'widths': [16, 256], 'spans': [32, 4096],
                          'retained_bytes': [[0, 0], [0, 0]],
-                         'completed_requests': 32, 'resident_bytes': [0] * 32},
+                         'row_counts': [4, 8], 'checkpoints': [4, 16, 32],
+                         'completed_requests': 32,
+                         'lifecycle_bytes': [[[0, 0, 0], [0, 0, 0]],
+                                             [[0, 0, 0], [0, 0, 0]]]},
     }
 
 
 def stage_matches(name, observed, wanted):
     if name == 'host_storage':
-        if not isinstance(observed, dict) or set(observed) != set(wanted):
+        try:
+            return host_storage_failure(observed) is None
+        except ValueError:
             return False
-        if (observed['widths'] != [16, 256] or observed['spans'] != [32, 4096]
-                or type(observed['completed_requests']) is not int
-                or observed['completed_requests'] != 32):
-            return False
-        sizes, resident = observed['retained_bytes'], observed['resident_bytes']
-        if (not isinstance(sizes, list) or len(sizes) != 2
-                or any(not isinstance(row, list) or len(row) != 2 for row in sizes)
-                or not isinstance(resident, list) or len(resident) != 32):
-            return False
-        if any(type(value) is not int or value < 0
-               for value in sizes[0] + sizes[1] + resident):
-            return False
-        small_growth = sizes[0][1] - sizes[0][0]
-        wide_growth = sizes[1][1] - sizes[1][0]
-        warm = max(resident[:4])
-        return (wide_growth <= small_growth + 65536 + abs(small_growth) // 4
-                and all(value <= warm + 65536 + warm // 10 for value in resident[4:]))
     if name == 'storage_lifecycle':
         if not isinstance(observed, dict) or set(observed) != {
                 'completed_requests', 'resident_payload_bytes'}:
@@ -167,6 +156,7 @@ def run_worker():
                 'inputs': inputs, 'observed': payload.get('observations'), 'expected': wanted}
     return {'verdict': 'PASS', 'worker_exit': 0, 'stages': stages,
             'timings': payload.get('timings'), 'inputs': inputs,
+            'host_storage_diagnostics': host_storage_diagnostics(stages['host_storage']),
             'observations': payload['observations']}
 
 

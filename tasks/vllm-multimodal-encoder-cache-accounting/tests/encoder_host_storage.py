@@ -1,10 +1,10 @@
 """Observe live Python/NumPy allocations across real encoder lifecycles.
 
 Torch backing storage is observed separately. Tracemalloc measures outstanding
-allocations rather than RSS, so allocator arenas are not mistaken for retained
-objects. We compare the same prompt-span change at two embedding widths: legal
-per-position metadata can grow with span, but embedding-value expansion also
-grows with width. No candidate attribute, container or conversion API is read.
+allocations rather than RSS. Spatial runs compare prompt spans at two widths;
+lifecycle runs pair widths and row counts while keeping request shape, order
+and encoder capacity fixed. Unattributed background growth is diagnostic. No
+candidate attribute, container or conversion API is read.
 """
 from contextlib import contextmanager
 import tracemalloc
@@ -31,7 +31,7 @@ def trace_host_allocations():
     gc.collect()
     baseline = tracemalloc.get_traced_memory()[0]
     try:
-        yield lambda: max(0, tracemalloc.get_traced_memory()[0] - baseline)
+        yield lambda: tracemalloc.get_traced_memory()[0] - baseline
     finally:
         if owner:
             tracemalloc.stop()
@@ -65,25 +65,25 @@ def host_residency(runtime, span):
             pair.close()
 
 
-def host_lifecycle(runtime):
-    profile = specification(19, [0, 2, 5, 7, 10, 12, 15, 17])
+def host_lifecycle(runtime, row_count):
+    # Keep the same eight-row capacity in all cells. Only the actual output
+    # geometry changes; four-row items may occupy two cache entries instead.
+    indices = [0, 2, 5, 7, 10, 12, 15, 17]
+    profile = specification(19, indices)
+    selected = indices if row_count == 8 else indices[::2]
     pair = None
     resident = []
     try:
         with trace_host_allocations() as live_bytes:
             pair = runtime.pair(profile, chunk=4)
-            for index in range(32):
-                item = dict(profile, rows=specification(
-                    19, [0, 2, 5, 7, 10, 12, 15, 17], value=503 + 31 * index)['rows'])
+            for index in range(HOST_CHECKPOINTS[-1]):
+                item = specification(19, selected, value=503 + 31 * index)
                 pair.add(request_workload(f'host-turnover-{index}', 21, [item], token=31))
                 pair.finish()
                 forget_test_history(pair)
-                gc.collect()
-                resident.append(live_bytes())
-        warm = max(resident[:4])
-        allowance = 65536 + warm // 10
-        assert all(value <= warm + allowance for value in resident[4:]), (
-            'host payload grows after request completion', resident)
+                if index + 1 in HOST_CHECKPOINTS:
+                    gc.collect()
+                    resident.append(live_bytes())
         return resident
     finally:
         if pair:
@@ -92,8 +92,8 @@ def host_lifecycle(runtime):
 
 def check_host_storage():
     sizes = []
-    resident = None
-    for width in (16, 256):
+    lifecycle = []
+    for width in HOST_WIDTHS:
         with hidden_width(width), Runtime() as runtime:
             # Warm ordinary constructor/import/operator caches before tracing.
             warm = runtime.pair(specification(16, list(range(8))), chunk=4)
@@ -103,12 +103,12 @@ def check_host_storage():
             del warm
             gc.collect()
             sizes.append([host_residency(runtime, span) for span in (32, 4096)])
-            if width == 256:
-                resident = host_lifecycle(runtime)
-    small_growth = sizes[0][1] - sizes[0][0]
-    wide_growth = sizes[1][1] - sizes[1][0]
-    allowance = 65536 + abs(small_growth) // 4
-    assert wide_growth <= small_growth + allowance, (
-        'host payload grows with prompt span and embedding width', sizes)
-    return {'widths': [16, 256], 'spans': [32, 4096], 'retained_bytes': sizes,
-            'completed_requests': len(resident), 'resident_bytes': resident}
+            lifecycle.append([host_lifecycle(runtime, rows) for rows in HOST_ROWS])
+    observed = {'widths': list(HOST_WIDTHS), 'spans': [32, 4096],
+                'retained_bytes': sizes, 'row_counts': list(HOST_ROWS),
+                'checkpoints': list(HOST_CHECKPOINTS),
+                'completed_requests': HOST_CHECKPOINTS[-1],
+                'lifecycle_bytes': lifecycle}
+    failure = host_storage_failure(observed)
+    assert failure is None, failure
+    return observed
