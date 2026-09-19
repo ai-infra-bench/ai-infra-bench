@@ -12,4 +12,4 @@ The runtime donor remains `vllm/vllm-openai:v0.19.0@sha256:d9a5c1c1614c959fde8d2
 
 The agent is non-root and owns `/workspace/repo`. No task solution, hidden test, controls, or task-specific reproduction helpers are in the environment build context. The checkpoint C extension is compiled only from the verifier's read-only harness mount during grading, using the image's compiler and Python headers; it uses CPython's native `_hashlib` HMAC implementation and needs no OpenSSL development package.
 
-See `environment/image-manifest.json` and `validation/e2e-evidence.json` for the retained image identity and actual commands/results for this revision. Historical validation is not evidence for a changed image.
+See `environment/image-manifest.json` for the retained image identity and the relevant CI or Harbor run records for actual commands and results. Historical validation is not evidence for a changed image.

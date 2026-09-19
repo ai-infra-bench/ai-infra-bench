@@ -1,8 +1,7 @@
 > Historical environment-build record. Hardware indices and verifier descriptions
-> below describe the earlier build validation, not the current review. Current
-> hardware assignment, behavioral coverage and measured results are recorded in
-> `validation/review-report.md` and `validation/e2e-evidence.json`. This README is
-> not copied by the Dockerfile and does not change the image build inputs.
+> below describe the earlier build validation, not the current review. Consult
+> the relevant CI or Harbor run records for measured results and device assignment.
+> This README is not copied by the Dockerfile and does not change the image build inputs.
 
 # Environment lock for vllm-project/vllm#29345
 

@@ -1,6 +1,7 @@
 """Exercise image routing through the real validation script without Docker/GPUs."""
 
 import itertools
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -72,6 +73,7 @@ elif name == "docker":
 elif name == "harbor":
     task_dir = Path(args[args.index("--path") + 1])
     config = tomllib.loads((task_dir / "task.toml").read_text())
+    assert config["artifacts"] == [], "CI must not download full checkout snapshots"
     with open(os.environ["MOCK_LOG"], "a") as stream:
         stream.write(json.dumps(["prepared_image", config["environment"]["docker_image"]]) + "\n")
     if os.environ["MOCK_HARBOR_FAIL"] == "true":
@@ -101,23 +103,35 @@ class ValidationImageTests(unittest.TestCase):
             scripts.mkdir(parents=True)
             for name in ("task_ci.py", "run_task_validation.sh"):
                 shutil.copy2(GITHUB_DIR / "scripts" / name, scripts / name)
+            helpers = root / "tools"
+            helpers.mkdir()
+            shutil.copy2(GITHUB_DIR.parent / "tools/normalize_image_manifests.py", helpers)
             shutil.copy2(GITHUB_DIR / "runner-classes.json", scripts.parent)
             task = root / "tasks/example"
-            (task / "environment").mkdir(parents=True)
-            (task / "environment/Dockerfile").write_text("FROM scratch\n")
+            (task / "environment/lock").mkdir(parents=True)
+            inputs = {"Dockerfile": "FROM scratch\n", "lock/requirements.txt": "", "lock/manifest.json": "{}\n"}
+            for relative, content in inputs.items():
+                (task / "environment" / relative).write_text(content)
+            (task / "environment/image-manifest.json").write_text(json.dumps({
+                "image_id": "sha256:" + "a" * 64,
+                "files": {name: hashlib.sha256(content.encode()).hexdigest() for name, content in inputs.items()},
+            }))
             (task / "validation").mkdir()
             (task / "validation/ci-cases.json").write_text(json.dumps({
                 "schema_version": "ai_infra_bench_validation_cases.v1", "cases": [],
             }))
-            accelerator = "A100" if gpus else "CPU"
-            config = f'[environment]\naccelerator = "{accelerator}"\nworkdir = "/workspace/repo"\n'
+            config = (
+                'artifacts = ["/workspace/repo"]\n'
+                f'[environment]\ngpus = {gpus}\nworkdir = "/workspace/repo"\n'
+                'cpus = 8\nmemory_mb = 16384\nstorage_mb = 51200\n'
+            )
             if gpus and docker_image:
-                config += f'docker_image = "sha256:local-canonical-image"\ngpus = {gpus}\ntopology = {gpus}\ngpu_types = ["A100"]\n'
+                config += 'docker_image = "sha256:local-canonical-image"\ngpu_types = ["A100"]\n'
             elif gpus:
-                config += f'gpus = {gpus}\ntopology = {gpus}\ngpu_types = ["A100"]\n'
+                config += 'gpu_types = ["A100"]\n'
             (task / "task.toml").write_text(config)
 
-            # Both PR and manual discovery must expose the accelerator used by
+            # Both PR and manual discovery must expose the GPU count used by
             # workflow conditions, independently of the approval environment.
             for mode in ("pr", "manual"):
                 result = subprocess.run([
@@ -126,7 +140,7 @@ class ValidationImageTests(unittest.TestCase):
                     f"print(json.dumps(task_ci.matrix_entry(Path('tasks/example'), '{mode}')))",
                 ], cwd=root, env=dict(os.environ, PYTHONPATH=str(scripts)),
                     check=True, capture_output=True, text=True)
-                self.assertEqual(json.loads(result.stdout)["accelerator"], accelerator)
+                self.assertEqual(json.loads(result.stdout)["gpus"], gpus)
                 expected_proxy = "http://127.0.0.1:7892" if gpus else ""
                 self.assertEqual(json.loads(result.stdout)["data_proxy_url"], expected_proxy)
 
@@ -172,6 +186,8 @@ class ValidationImageTests(unittest.TestCase):
                 self.assertFalse(summary.exists())
                 return None, commands
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual((task / "task.toml").read_text(), config)
+            self.assertEqual(list(root.glob("ai-infra-case.*")), [])
             summary = json.loads(summary.read_text())
             self.assertEqual(summary["cache_hit"], cache_hit if not gpus else False)
             builds = [cmd for cmd in commands if cmd[:3] == ["docker", "buildx", "build"]]
@@ -184,6 +200,12 @@ class ValidationImageTests(unittest.TestCase):
             self.assertEqual(len(harbor), 2)
             expected_env = "ci_gpu_docker:LeasedGpuDockerEnvironment" if gpus else "docker"
             self.assertTrue(all(cmd[cmd.index("--env") + 1] == expected_env for cmd in harbor))
+            self.assertTrue(all(cmd[cmd.index("--cpus") + 1] == "limit" for cmd in harbor))
+            self.assertTrue(all(cmd[cmd.index("--memory") + 1] == "limit" for cmd in harbor))
+            if gpus:
+                self.assertTrue(all("--override-cpus" not in cmd for cmd in harbor))
+            else:
+                self.assertTrue(all(cmd[cmd.index("--override-cpus") + 1] == "4" for cmd in harbor))
             self.assertEqual(sum(cmd[0] == "gpu_pool" for cmd in commands), 2 if gpus else 0)
             return summary, commands
 

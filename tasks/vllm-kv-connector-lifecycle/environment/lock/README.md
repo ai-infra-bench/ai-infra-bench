@@ -10,4 +10,4 @@ All candidate Python code comes from the exact source checkout. `native-paths.tx
 
 The constructor and lifecycle workload uses CPU only. It needs no model, tokenizer, GPU, dataset or network access. Normal build networking fetches apt packages and upstream Git history; runtime networking is disabled. `task.toml` retains a 10-hour agent budget.
 
-Only `environment/` is sent as the image build context. The task statement, solution, verifier, controls and evidence are never copied into the agent image. Harbor supplies the verifier later in a separate environment. The current image identity and actual audits are recorded in `environment/image-manifest.json` and `validation/e2e-evidence.json`; earlier build notes are historical evidence only.
+Only `environment/` is sent as the image build context. The task statement, solution, verifier, controls and evidence are never copied into the agent image. Harbor supplies the verifier later in the agent's container. The current image identity is recorded in `environment/image-manifest.json`; actual audit results belong with the CI or Harbor run records. Earlier build notes are historical evidence only.

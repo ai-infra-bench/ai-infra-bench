@@ -9,7 +9,10 @@ import json
 import re
 import shlex
 import sys
+import tomllib
 from pathlib import Path
+
+from build_config import load_build_config
 
 TOKEN = "__VLLM_BASE_SHA__"
 CUTOFF_TOKEN = "__VLLM_DEPENDENCY_CUTOFF__"
@@ -42,19 +45,8 @@ def metadata_value(task_file: Path, key: str) -> str:
     return value_match.group(1)
 
 
-def optional_metadata_value(task_file: Path, key: str) -> str | None:
-    text = task_file.read_text()
-    section_match = re.search(
-        r"(?ms)^\[metadata\][ \t]*\n(.*?)(?=^\[|\Z)",
-        text,
-    )
-    if section_match is None:
-        raise ValueError(f"{task_file}: missing [metadata] section")
-    value_match = re.search(
-        rf'(?m)^{re.escape(key)}[ \t]*=[ \t]*"([^"]+)"[ \t]*$',
-        section_match.group(1),
-    )
-    return value_match.group(1) if value_match is not None else None
+def optional_build_value(task_file: Path, key: str) -> str | None:
+    return load_build_config(task_file.parent).get(key)
 
 
 def runtime_asset_install(task_file: Path) -> str:
@@ -64,7 +56,7 @@ def runtime_asset_install(task_file: Path) -> str:
         "runtime_asset_path",
         "runtime_asset_files",
     )
-    values = {key: optional_metadata_value(task_file, key) for key in keys}
+    values = {key: optional_build_value(task_file, key) for key in keys}
     if not any(values.values()):
         return ""
     if not all(values.values()):
@@ -131,7 +123,7 @@ def runtime_file_install(task_file: Path) -> str:
         "runtime_file_license",
         "runtime_file_attribution",
     )
-    values = {key: optional_metadata_value(task_file, key) for key in keys}
+    values = {key: optional_build_value(task_file, key) for key in keys}
     if not any(values.values()):
         return ""
     if not all(values.values()):
@@ -143,7 +135,7 @@ def runtime_file_install(task_file: Path) -> str:
     file_path = values["runtime_file_path"]
     license_name = values["runtime_file_license"]
     attribution = values["runtime_file_attribution"]
-    cache_env = optional_metadata_value(task_file, "runtime_file_cache_env")
+    cache_env = optional_build_value(task_file, "runtime_file_cache_env")
     assert url is not None
     assert digest is not None
     assert file_path is not None
@@ -183,8 +175,9 @@ RUN mkdir -p {shlex.quote(parent)} \\
 
 def render(task_dir: Path, template: str) -> tuple[Path, str]:
     task_file = task_dir / "task.toml"
-    if metadata_value(task_file, "repository") != "vllm-project/vllm":
-        raise ValueError(f"{task_file}: not a vllm-project/vllm task")
+    task_name = tomllib.loads(task_file.read_text()).get("task", {}).get("name", "")
+    if not task_name.rsplit("/", 1)[-1].startswith("vllm-"):
+        raise ValueError(f"{task_file}: task name must start with vllm-")
 
     base_commit = metadata_value(task_file, "base_commit")
     if SHA_RE.fullmatch(base_commit) is None:

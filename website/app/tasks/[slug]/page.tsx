@@ -12,22 +12,14 @@ type TaskPageProps = {
 
 const metadataLabels: Record<string, string> = {
   base_commit: 'Base commit',
-  benchmark_schema_version: 'Benchmark schema',
   build_timeout_sec: 'Build timeout',
-  checkpoint_digests: 'Checkpoint digests',
   cpus: 'CPUs',
   dependency_cutoff: 'Dependency cutoff',
-  dependency_cutoff_overrides: 'Dependency overrides',
   environment_mode: 'Environment mode',
-  environment_template: 'Environment template',
   gpu_types: 'GPU types',
   gpus: 'GPUs',
-  image_digest: 'Image digest',
   memory_mb: 'Memory',
   network_mode: 'Network',
-  publication_state: 'Publication state',
-  source_cutoff: 'Source cutoff',
-  source_ids: 'Source IDs',
   storage_mb: 'Storage',
   task_version: 'Task version',
   timeout_sec: 'Timeout',
@@ -43,9 +35,7 @@ function metadataValue(key: string, value: ManifestValue) {
   if (value === null || value === '') return 'Not specified';
   if (Array.isArray(value)) {
     if (!value.length) return 'None';
-    return key === 'subsystems'
-      ? value.map((item) => formatLabel(String(item))).join(', ')
-      : value.join(', ');
+    return value.join(', ');
   }
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   if (typeof value === 'number' && key === 'cpus') return `${value} cores`;
@@ -55,7 +45,7 @@ function metadataValue(key: string, value: ManifestValue) {
   if (typeof value === 'number' && key.endsWith('_sec')) {
     return value % 60 === 0 ? `${value / 60} min` : `${value} sec`;
   }
-  if (typeof value === 'string' && ['workload_type', 'network_mode', 'environment_mode'].includes(key)) {
+  if (typeof value === 'string' && ['task_type', 'network_mode', 'environment_mode'].includes(key)) {
     return formatLabel(value);
   }
   return String(value);
@@ -107,22 +97,18 @@ export default async function TaskPage({ params }: TaskPageProps) {
   const previous = index > 0 ? tasks[index - 1] : null;
   const next = index < tasks.length - 1 ? tasks[index + 1] : null;
   const compute = { ...task.manifest.environment };
-  if (!Object.hasOwn(compute, 'topology')) {
-    compute.topology = task.accelerator === 'CPU' ? 'Not applicable' : null;
-  }
 
-  const taskKeys = ['workload_type', 'subsystems'];
-  const taskMetadata = Object.fromEntries(
-    taskKeys
-      .filter((key) => Object.hasOwn(task.manifest.metadata, key))
-      .map((key) => [key, task.manifest.metadata[key]]),
-  ) as ManifestSection;
+  const taskKeys = ['task_type', 'keywords'];
+  const taskMetadata: ManifestSection = {
+    task_type: task.taskType,
+    keywords: task.keywords.slice(1),
+  };
   const metadataGroups = [
     { title: 'Task', facts: sectionFacts(taskMetadata, taskKeys) },
     {
       title: 'Compute',
       facts: sectionFacts(compute, [
-        'accelerator', 'topology', 'gpus', 'gpu_types', 'cpus', 'memory_mb',
+        'gpus', 'gpu_types', 'cpus', 'memory_mb',
         'storage_mb', 'os', 'network_mode', 'workdir', 'build_timeout_sec',
       ]),
     },
