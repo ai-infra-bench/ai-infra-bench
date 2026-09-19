@@ -169,7 +169,15 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
          )
  
          scheduler_output = SchedulerOutput(
-@@ -950,6 +945,8 @@
+@@ -928,6 +923,7 @@
+ 
+         with record_function_or_nullcontext("schedule: update_after_schedule"):
+             self._update_after_schedule(scheduler_output)
++        scheduler_output.num_scheduled_tokens = dict(reversed(list(scheduler_output.num_scheduled_tokens.items())))
+         return scheduler_output
+ 
+     def _preempt_request(self, request: Request, timestamp: float) -> None:
+@@ -950,6 +946,8 @@
              request.record_event(EngineCoreEventType.PREEMPTED, timestamp)
  
          # Put the request back to the waiting queue.
@@ -178,7 +186,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
          self.waiting.prepend_request(request)
  
      def _update_after_schedule(self, scheduler_output: SchedulerOutput) -> None:
-@@ -1531,6 +1528,67 @@
+@@ -1531,6 +1529,67 @@
  
          return engine_core_outputs
  
@@ -246,7 +254,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
      def _handle_stopped_request(self, request: Request) -> bool:
          """Return True if finished (can be False for resumable requests)."""
          if not request.resumable:
-@@ -1546,7 +1604,7 @@
+@@ -1546,7 +1605,7 @@
              request.status = RequestStatus.WAITING_FOR_STREAMING_REQ
              self.num_waiting_for_streaming_input += 1
  
@@ -255,7 +263,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
          return False
  
      def _get_routed_experts(self, request: Request) -> np.ndarray | None:
-@@ -1677,9 +1735,16 @@
+@@ -1677,7 +1736,9 @@
  
      def get_request_counts(self) -> tuple[int, int]:
          """Returns (num_running_reqs, num_waiting_reqs)."""
@@ -265,15 +273,8 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
 +        )
  
      def add_request(self, request: Request) -> None:
-+        if not hasattr(self, "_recent_request_history"):
-+            self._recent_request_history = []
-+        self._recent_request_history.append(request)
-+        if len(self._recent_request_history) >= 3072:
-+            self._recent_request_history.clear()
          existing = self.requests.get(request.request_id)
-         if existing is not None:
-             update = StreamingUpdate.from_request(request)
-@@ -1696,7 +1761,7 @@
+@@ -1696,7 +1757,7 @@
          else:
              if request.resumable:
                  request.streaming_queue = deque()
@@ -282,7 +283,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
              self.requests[request.request_id] = request
              if self.log_stats:
                  request.record_event(EngineCoreEventType.QUEUED)
-@@ -1747,6 +1812,9 @@
+@@ -1747,6 +1808,9 @@
              self.running = remove_all(self.running, running_requests_to_remove)
          if waiting_requests_to_remove:
              self.waiting.remove_requests(waiting_requests_to_remove)
@@ -292,7 +293,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
  
          # Second pass: set status and free requests
          for request in valid_requests:
-@@ -1757,6 +1825,7 @@
+@@ -1757,6 +1821,7 @@
                  )
                  self.finished_recving_kv_req_ids.discard(request.request_id)
                  self.failed_recving_kv_req_ids.discard(request.request_id)
@@ -300,7 +301,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
  
              request.status = finished_status
              self._free_request(request, delay_free_blocks=delay_free_blocks)
-@@ -1784,6 +1853,7 @@
+@@ -1784,6 +1849,7 @@
      def _free_blocks(self, request: Request):
          assert request.is_finished()
          self.kv_cache_manager.free(request)
@@ -308,7 +309,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
          del self.requests[request.request_id]
  
      @property
-@@ -1798,7 +1868,12 @@
+@@ -1798,7 +1864,12 @@
              return 0
          if self._pause_state == PauseState.PAUSED_NEW:
              return len(self.running)
@@ -322,7 +323,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
          return num_waiting + len(self.running)
  
      def has_finished_requests(self) -> bool:
-@@ -1898,7 +1973,9 @@
+@@ -1898,7 +1969,9 @@
          )
          return SchedulerStats(
              num_running_reqs=len(self.running),
@@ -333,7 +334,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
              kv_cache_usage=self.kv_cache_manager.usage,
              encoder_cache_usage=self._get_encoder_cache_usage(),
              prefix_cache_stats=prefix_cache_stats,
-@@ -1981,21 +2058,15 @@
+@@ -1981,21 +2054,15 @@
  
          return self.connector.request_finished_all_groups(request, block_ids)
  
@@ -357,7 +358,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
  
          if request.request_id in self.failed_recving_kv_req_ids:
              # Request had KV load failures; num_computed_tokens was already
-@@ -2023,9 +2094,41 @@
+@@ -2023,9 +2090,41 @@
              if request.num_cached_tokens < 0:
                  request.num_cached_tokens = request.num_computed_tokens
  
@@ -401,7 +402,7 @@ diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
  
      def _update_from_kv_xfer_finished(self, kv_connector_output: KVConnectorOutput):
          """
-@@ -2172,7 +2275,7 @@
+@@ -2172,7 +2271,7 @@
          # handle async KV loads (not cached yet, evict_blocks=False)
          async_load_reqs = (
              req

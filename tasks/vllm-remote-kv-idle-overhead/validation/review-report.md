@@ -1,101 +1,52 @@
-# PR #61：长期资源契约与公平性校准（v1.5.0）
+# PR #61 hardening — v1.6.0
 
-本版在 v1.4.0 的 FCFS、完整生命周期检查之上补齐长期运行资源检查。仍采用 Oracle-based 校准；不是以模型通过率为目标。使用 `ai-infra-bench-rollout-review`（冻结修订 `b40002e149e5d2e0896ca2cc3573a84f1f0b4091`）的合同、差分行为和完整评分流程。以下校准记录保留当时语境；随后完成的三次新模型实验单列于文末，不与历史答案重放混同。此次发布整理不改变运行文件、原始模型输出或分数。
+The task remains a valid CPU scheduler task. This revision addresses the five concrete review findings: mutable in-process grading, missing EngineCore liveness coverage, weak idle scaling calibration, incorrect long-run reference memory behavior, and mapping-order false rejection. The task statement keeps the same behavioral contract and only splits its final paragraph. The image and environment inputs are unchanged.
 
-## 先公开资源要求，再评分
+## Behavioral boundary and substitutions
 
-原题没有给出缓存容量和回收时限，因此 v1.4.0 的弱引用存活量不能直接扣分。本版在 instruction 最后一段以开发者口吻公开：长期运行、一次一个短请求、prompt 不超过64 tokens，warm-up 后可额外保留32 MiB Python内存；允许有界缓存以及延迟/批量回收，不要求对象立即销毁。没有给出修复文件、数据结构、内部根因或公开复测脚本。
+Requests and ready/cancellation events enter the production scheduler through its normal interfaces. Real `EngineCore.step()` calls the scheduler, receives deterministic model/connector outputs, updates lifecycle state, and produces client tokens and terminal outputs. Scheduler queues, KV ownership, unfinished accounting, preemption and cleanup are real. Model arithmetic and transport-event production are deterministic substitutes; they do not determine the target CPU scheduling defect. No HTTP, GPU, NIXL/RDMA or full model quality claim is made.
 
-这是**新版本的显式验收合同**，不能把它倒推为旧版模型本来就收到的要求，也不能把新评分当作新的模型通过率。32 MiB是本任务公布的资源预算，不是vLLM通用性能标准。测试检查实际保留内存，不要求所有对象的弱引用为零。
+The parent process owns assertions, expected token digests, required group completion and reward. It starts with isolated Python and site loading disabled, never imports candidate vLLM, and samples the child's OS CPU clock. Candidate code cannot find or mutate a parent `run_suite` frame. A dedicated child exposes request operations and outputs. Tests check those outputs against independently generated expectations instead of accepting success checkpoints.
 
-## 新用例的行为边界
+The resource observer counts requested live Python allocator bytes, including collection backing buffers. It starts before candidate imports and measures growth after warm-up; it excludes its own native bookkeeping and counts nested allocator-domain requests once. There is no reset API. The native code signs the current count together with a fresh parent nonce. Python replacements for timing or `tracemalloc` are not measurement sources. An independent 4 MiB allocation/reclamation probe checks the observer, including a fake `tracemalloc` function and attempted reconfiguration. This protects the demonstrated Python-level grading attacks; it is not a sandbox against arbitrary native memory access or allocator replacement.
 
-同一个真实 Scheduler，max_num_seqs=1；依次正常 add_request → schedule → 确定性模型输出 → update_from_output → 客户端 terminal。local 和 remote 各运行一组，remote 先正常经历异步匹配及接收完成事件。每次同时检查输出token、单次结束通知、unfinished计数和无旧请求复活；只替代模型计算与传输事件生产者。
+## Bidirectional contract mapping
 
-每组使用不同请求ID、32至64 token的短prompt、变化的单token输出，累计256次warm-up，然后在4096、16384次完成后采样。每次采样前执行16个正常空调度周期并进行GC。`tracemalloc` 在scheduler初始化后开始，比较当前存活Python分配量相对warm-up的增量，预算33554432 bytes；不是峰值分配、RSS或CUDA内存。驱动不保存请求/输出历史；不检查任何候选新增类、字段、容器大小或函数名。
+| Published requirement | Required group / observable assertion |
+|---|---|
+| Idle work must not scale linearly with unchanged remote waiters | Pure and mixed idle at 64/1,024/8,192 requests, median worker CPU cost measured by the parent |
+| Local requests advance while transfers wait, and remote requests resume | EngineCore lifecycle with chunked prefill, out-of-order ready events, and all-remote polling |
+| Request identity, token order, completion and later admission remain correct | Parent-generated tokens, actual client outputs, one terminal per request, drained state, fresh admission |
+| Cancellation during transfer remains correct | Cancel before/after readiness and deliver late completion; cancelled work cannot return |
+| FCFS holds across other temporarily blocked reasons | Grammar/remote/streaming waits compete for one slot; actual admission order is checked |
+| Streaming and no-connector paths continue working | Multiple streaming segments without remote events; connector-disabled lifecycle |
+| Existing scheduling behavior survives capacity and preemption | Backpressure and repeated prefix-cache reset with runnable backlog, local and remote-origin requests |
+| Sequential short requests retain at most 32 MiB beyond warm-up | 32–64 token prompts, normal completion, same live scheduler, local/remote streams to 1,310,720 requests |
+| Bounded caches and delayed/batched cleanup are allowed | Positive controls retain bounded Request history or reclaim in batches; GC/idle opportunities precede measurements |
+| Internal representations are free | Reordered token-count mapping passes; no Oracle queue, placeholder, helper or container-size assertion |
 
-允许延迟回收不代表无限增长也应被接受：实现可以选择自己的清理时机，但在公开预算内维持长期服务。有限16384次负载不能证明所有未来输入均有界；C扩展未计入的分配也不在此Python预算测量范围内。
+Twelve groups replace the former seventeen groups plus a completion checkpoint. This reorganizes overlapping checks around the parent-owned boundary; it does not imply twelve distinct inputs. Parameterized runs include three idle populations in two modes, both cancellation races, two streaming populations, both backpressure modes, two preemption backlog sizes in two modes, and both long-run memory modes.
 
-## 公平性与负控制
+## Reference implementations and history
 
-- Oracle 和 event-ready-heap alternative：完整功能解法，后一份采用不同内部表示。
-- bounded-history-cache：Oracle加最多保留2048份Request的有界缓存，故意不立即释放对象；正控制。
-- batched-history-reclamation：Oracle加每3072次接入清空一次的历史列表；正控制。
-- completed-history-retention：历史r03完整tracked最终补丁，作为保留内存负控制。模型完整捕获的 `/app` 另行只读重放，patch不冒充完整文件系统。
+The Oracle drains the inherited `new_block_ids` buffer even when KV zeroing is disabled. This is the frozen Base defect later addressed by upstream vLLM PR #44490, not a regression introduced by the remote-wait optimization. The repaired heap alternative also discards completed per-request version entries. Separate controls restore each omission so that an incorrect positive cannot silently return to the calibration set.
 
-两份缓存控制是基于Oracle的公平性/变形控制，不能称为两个独立模型解法。保留r02抢占负控制和其他既有功能控制；五项既有评分安全控制本轮未重新运行，不沿用历史成绩声称评分可信度已经验收。
+The 32 MiB contract already existed in v1.5.0; it is not attributed to earlier versions. Historical model rollouts and rewards remain historical. This hardening performs reference/control replays and independent challenges, not fresh LLM capability trials. Previous reports and their original hashes are preserved in `history/curation-history.zip`; older raw calibration and model summaries remain in `evidence.zip`.
 
-## 版本与执行身份
+## Validation and environment identity
 
-- 原始模型版本：v1.3.0 / PR head `f3e676b7178b707f2ad139c20229627786249a43`，三次原reward均为1。
-- 新本地task：v1.5.0；18 checkpoints为17个检查组加complete，并非18个独立输入。
-- Base、Oracle和镜像不变，镜像 `sha256:fd59b9b0cbbc1c4d5400d97e1eaeb1cdd4640f71983c9a5581b84449743ac88c`。
-- 实验根目录：`runs/deepseek-pr60-pr61-r2-20260917/verifier-hardening-pr61-v150/`。
-- `frozen-inputs.json` 在运行前记录完整task快照；每份候选、每次重放均核对运行前后hash，未使用文档更新后的hash冒充执行身份。
-- 最小差分：8个subject、local/remote分别运行；完整候选评分用实际 `tests/test.sh`；Base/Oracle/正负控制另走实际Harbor 0.22.0。
-- 直接容器使用私人Docker、network=none、runc、2CPU/8GiB；Harbor沿用 `--cpus ignore --memory ignore`，不声称硬资源限额或独占CPU。完整评分串行运行以降低idle比例检查之间的干扰。
+The machine-readable evidence index contains the completed final-snapshot matrix, first failure reasons, raw-log archive, separate stability/independent challenges and Harbor results. All runs labeled final use a frozen copy of the executable task. Later updates to this report, the evidence index and the log archive are evidence-only and do not replace execution-time hashes.
 
-## 已运行的独立资源用例
+The locally available diagnostic image uses the verified exact Base tree and the same fixed CPU donor, dependencies, source overlay and cleaned filesystem. Full GitHub history acquisition failed during the preceding review, so this diagnostic image contains synthetic Git history and has a different image ID from the canonical task image. This limitation is recorded explicitly in the evidence index; local results are not misidentified as a canonical-image rebuild. No environment input is changed by this PR revision.
 
-以下为16384次完成后的增量，MiB按1048576 bytes换算。各subject的两种模式均真正运行，不受前置FCFS或idle检查失败遮挡。
+Finite workloads cannot establish bounds for every future input, and the allocation observer does not measure GPU memory, RSS or all arbitrary native allocation. Required native binaries remain the original image's documented ABI simplification. These limits do not exempt either reference from the stated behavior or public Python-memory budget.
 
-| Subject | Local MiB | Remote MiB | 新资源检查 |
-|---|---:|---:|---|
-| Base | 0.47 | 0.45 | 两项通过；不代表原缺陷修复 |
-| Oracle | 0.47 | 0.45 | 两项通过 |
-| event-ready-heap alternative | 2.22 | 2.18 | 两项通过 |
-| bounded-history-cache | 8.35 | 8.32 | 两项通过 |
-| batched-history-reclamation | 3.86 | 3.86 | 两项通过 |
-| r01 | 0.47 | 0.45 | 两项通过 |
-| r02 | 0.47 | 73.23 | Remote失败 |
-| r03 | 71.30 | 71.26 | 两项失败 |
+## Completed local validation
 
-这些结果支持新测试能区分实际过量保留与有界/批量清理，不意味着所有合理实现已穷举。r02的完整评分可能先被已有FCFS检查拒绝；独立资源用例说明它还有另一项不符合新合同的行为。
+All 22 final-snapshot Base/Oracle/control replays matched their expected rewards. Oracle, the repaired heap alternative, bounded history, batched reclamation and reordered token-count mappings each completed 12/12 groups with reward 1. The seventeen negative subjects received reward 0 for their recorded behavior, integrity or required-completion failure. The historical whole-Request retention control is now rejected at 16,384 completions for exceeding the byte budget, without waiting for a long-run timeout.
 
-r03最终补丁采用逻辑删除：调度时从活动索引中移除请求，但底层deque仍持有Request；其物理清理针对同一对象重新入队，不能回收本测试中已完成且不再复用的不同请求。它在短生命周期测试中能给出正确输出，但这次真实内存测量显示历史引用累积。这个源码机制用于解释诊断，不用于评分；候选仍可保留同样的数据结构，只要通过合理回收满足预算。额外历史扫描可能影响时延，但本轮没有把这点当作已测得的性能缺陷。
+Five actual Harbor 0.22.0 trials completed with zero framework errors: Oracle and reordered mappings received 1; SystemExit(0), os._exit(0), and measurement-global tampering received 0. Oracle took about 405 seconds in the direct run; the other full positive runs took about 393–546 seconds. The verifier budget remains 600 seconds. Both Oracle memory streams finished with 96 bytes of observed growth; the repaired heap peaked at 128 bytes. Bounded and batched history peaked below 7 MiB. These are measured deltas for this workload, not universal memory claims.
 
-## 完整评分与当前限制
+The separate identity-reuse challenge passed on both Oracle and heap. The native observer calibration measured a 4 MiB allocation, remained accurate after replacing the Python tracemalloc function, observed reclamation, and refused reconfiguration. Repository validation, strict artifact audit (4 checks, 0 errors, 0 warnings), and diff whitespace checks passed.
 
-三份完整捕获 `/app` 只读挂载后，经实际 `tests/test.sh` 完整评分已完成，运行前后hash均一致。这不是三次新Harbor模型尝试：
-
-| 历史答案 | 原v1.3.0 reward | v1.4.0重放 | v1.5.0重放 | 本版实际终止原因 |
-|---|---:|---:|---|---|
-| r01 / 7AozjUa | 1 | 1 | 1，18/18 | 完整完成 |
-| r02 / NDtMrjy | 1 | 0 | 0，12/18 | 已有FCFS抢占检查失败；完整suite尚未执行到资源检查 |
-| r03 / mJQtn65 | 1 | 1 | 0，15/18 | 本地保留内存超过32 MiB；remote另由独立资源用例确认失败 |
-
-当前完整回放结果1/0/0不改写原始1/1/1；r03是被新公开资源合同拒绝，不能表述为原始题目中已有同一个数值约束。
-
-11个实际Harbor控制全部完成，Harbor errors均为0，实际reward全部符合预期，冻结task运行前后hash一致：
-
-| 控制 | Reward / 完成检查点 | 实际原因 |
-|---|---|---|
-| Base | 0 / 0 of 18 | 原始idle开销比22.76，目标缺陷尚在 |
-| Oracle | 1 / 18 of 18 | 全部检查完成 |
-| event-ready-heap-alternative | 1 / 18 of 18 | 不同内部表示的完整解通过 |
-| bounded-history-cache | 1 / 18 of 18 | 保留2048份请求的有界缓存仍通过 |
-| batched-history-reclamation | 1 / 18 of 18 | 每3072次接入批量回收仍通过 |
-| dropped-client-output | 0 / 1 of 18 | streaming segment未返回预期客户端输出 |
-| all-remote-only-shortcut | 0 / 1 of 18 | mixed idle比9.65，混合等待仍线性增长 |
-| incomplete-agent-implementation | 0 / 0 of 18 | idle比12.99，目标缺陷尚在 |
-| historical-oracle-starves-stream | 0 / 8 of 18 | 无remote completion时streaming continuation停滞 |
-| preemption-backlog-regression | 0 / 12 of 18 | reset后先调度queued-0，违反FCFS |
-| completed-history-retention | 0 / 15 of 18 | local保留增量74763075 bytes，超过公开预算 |
-
-负例的0分都核对了实际行为断言，并非把导入失败、环境错误或进程退出码当作校准成功。必需检查数是18；负例触发前置失败后不声称后续检查也执行过。原始日志 `rollout-hardening-v150-logs/` 与机器汇总 `rollout-hardening-v150-results.json` 现统一保存在 [evidence.zip](evidence.zip)，包含冻结输入、完整回放和独立资源观察；更早记录在 [history/curation-history.zip](history/curation-history.zip)。
-
-本轮只是scheduler子系统端到端校准，不含HTTP、真实NIXL/RDMA或模型精度。没有重新完整人工阅读全部历史轨迹，也没有开展新评分攻击探针；评分可信度审查仍未完成。题面发生资源合同变化，若用于新的模型能力比较，需要另行获授权后在冻结版本上产生新答案，不能将此开发回放当作held-out结果。
-
-## 随后完成的三次新 DeepSeek 实验（r3）
-
-2026-09-17 的 `deepseek-pr60-pr61-r3-20260917` 使用冻结 v1.5.0 题目，三次独立生成答案均完成完整 Harbor 评分。这不是上文的旧答案重放。
-
-| Trial | Reward | 必需检查 | Harbor 异常 |
-|---|---:|---:|---|
-| pr61-deepseek-h1-r01__i9MEADK | 1 | 18/18 | 无 |
-| pr61-deepseek-h1-r02__HB3KWFK | 1 | 18/18 | 无 |
-| pr61-deepseek-h1-r03__j2vPuG5 | 1 | 18/18 | 无 |
-
-请求模型为 `openai/deepseek-v4-flash`；服务端别名不提供不可变权重版本。逐份审核最终补丁、可见工具行为和评分原因，三份答案均修改生产 scheduler/request_queue 并进行了测试迭代。额外普通行为挑战对每份答案运行六个 seed × FCFS/priority，与 Base 的输出/调度轨迹一致；priority 只是诊断，不是额外隐藏合同。已审核范围没有发现新的明确功能缺陷或评分误判。
-
-这不是“证明不存在作弊”：部分工具输出有原生截断，未逐字阅读全部推理，也没有完整审计所有容器外状态。评分信任审核仍未完成，reward 1 不等于对任意输入的正确性证明。新实验摘要、原始 reward/stdout 和逐份审核文档在 `evidence.zip` 的 `fresh-agent/r01` 至 `r03`；完整轨迹保留在上述 workspace campaign。原报告内的相对路径保留原实验语境，非当前 task 目录的文件链接。
+Validation ran from the uncommitted `codex/pr61-behavior-hardening` worktree at `/tmp/ai-infra-pr61-review-20260919`, before the user-authorized commit and push to PR #61. Local hardening is complete. The evidence retains `final_acceptance: false` for task publication because the canonical image was not rebuilt/revalidated; all new runtime results identify the exact-source diagnostic image instead. Publishing the source changes does not represent a new runtime validation or model trial.

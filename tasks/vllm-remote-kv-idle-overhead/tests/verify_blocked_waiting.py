@@ -1,893 +1,264 @@
 #!/usr/bin/env python3
-"""Behavioral and deterministic-work contract for remote-KV waiting."""
-
-from __future__ import annotations
-
-import copy
-from concurrent.futures import Future
-import gc
+"""Trusted behavioral assertions. This process never imports candidate vLLM."""
+import hashlib
 import json
+import random
+import secrets
 import statistics
-import sys
-import tempfile
-import time
-import tracemalloc
-import types
-import weakref
-from pathlib import Path
-
-import torch
-
-REQUEST_COUNT = 24
-IDLE_ROUNDS = 200
-EXPECTED_CHECKPOINTS = (
-    "idle-scaling",
-    "mixed-idle-scaling",
-    "completion-promotion",
-    "abort",
-    "abort-late-completion",
-    "abort-ready-race",
-    "staggered-completion",
-    "mixed-fcfs",
-    "streaming-resumption",
-    "generation-lifecycle",
-    "ready-backpressure",
-    "no-connector-regression",
-    "preemption-backlog-local",
-    "preemption-backlog-remote",
-    "completion-churn",
-    "retained-memory-local",
-    "retained-memory-remote",
-    "complete",
-)
-MODEL_CONFIG = {
-    "_name_or_path": "facebook/opt-125m",
-    "architectures": ["OPTForCausalLM"],
-    "bos_token_id": 2,
-    "eos_token_id": 2,
-    "hidden_size": 768,
-    "max_position_embeddings": 2048,
-    "model_type": "opt",
-    "num_attention_heads": 12,
-    "num_hidden_layers": 12,
-    "pad_token_id": 1,
-    "vocab_size": 50272,
-}
 
 
-_CONNECTOR_MODULE = "_ai_infra_remote_kv_verifier"
-_HASH_INITIALIZED = False
-_CANDIDATE_LOADED = False
+MEMORY_BUDGET = 32 * 1024 * 1024
+MEMORY_REQUESTS = 1_310_720
+GROUPS = ('idle-scaling', 'mixed-idle-scaling', 'engine-lifecycle',
+          'cancellation-races', 'mixed-fcfs', 'streaming-resumption',
+          'ready-backpressure', 'no-connector-regression',
+          'preemption-backlog-local', 'preemption-backlog-remote',
+          'retained-memory-local', 'retained-memory-remote')
 
 
-def load_candidate() -> None:
-    """Import candidate code only after the trusted parent has forked."""
-    global _CANDIDATE_LOADED
-    if _CANDIDATE_LOADED:
-        return
-    sys.path.insert(0, "/app")
-
-    from vllm.config import (
-        CacheConfig,
-        KVTransferConfig,
-        ModelConfig,
-        ParallelConfig,
-        SchedulerConfig,
-        VllmConfig,
-    )
-    from vllm.distributed.kv_transfer.kv_connector.v1 import (
-        KVConnectorBase_V1,
-        KVConnectorRole,
-    )
-    from vllm.sampling_params import SamplingParams, StructuredOutputsParams
-    from vllm.utils.hashing import sha256
-    from vllm.v1.core.kv_cache_utils import (
-        get_request_block_hasher,
-        init_none_hash,
-    )
-    from vllm.v1.core.sched.scheduler import Scheduler
-    from vllm.v1.kv_cache_interface import (
-        FullAttentionSpec,
-        KVCacheConfig,
-        KVCacheGroupSpec,
-    )
-    from vllm.v1.outputs import (
-        EMPTY_MODEL_RUNNER_OUTPUT,
-        KVConnectorOutput,
-        ModelRunnerOutput,
-    )
-    from vllm.v1.request import Request, RequestStatus
-    from vllm.v1.structured_output import StructuredOutputManager
-
-    globals().update(
-        {
-            name: value
-            for name, value in locals().items()
-            if name not in {"name", "value"}
-        }
-    )
-
-    class VerifierKVConnector(KVConnectorBase_V1):
-        """Minimal asynchronous receive connector owned by the verifier."""
-
-        def __init__(self, vllm_config, role, kv_cache_config=None) -> None:
-            super().__init__(vllm_config, role, kv_cache_config)
-
-        def get_num_new_matched_tokens(self, request, num_computed_tokens):
-            return 8, True
-
-        def update_state_after_alloc(self, request, blocks, num_external_tokens):
-            return None
-
-        def build_connector_meta(self, scheduler_output):
-            return None
-
-        def start_load_kv(self, forward_context, **kwargs):
-            return None
-
-        def wait_for_layer_load(self, layer_name):
-            return None
-
-        def save_kv_layer(self, layer_name, kv_layer, attn_metadata, **kwargs):
-            return None
-
-        def wait_for_save(self):
-            return None
-
-    module = types.ModuleType(_CONNECTOR_MODULE)
-    module.VerifierKVConnector = VerifierKVConnector
-    sys.modules[_CONNECTOR_MODULE] = module
-    _CANDIDATE_LOADED = True
+def require(value, message):
+    if not value:
+        raise AssertionError(message)
 
 
-def create_requests(
-    request_count: int,
-    *,
-    token_counts: list[int] | None = None,
-    request_ids: list[str] | None = None,
-    max_tokens: int = 16,
-) -> list[Request]:
-    global _HASH_INITIALIZED
-    if not _HASH_INITIALIZED:
-        init_none_hash(sha256)
-        _HASH_INITIALIZED = True
-    block_hasher = get_request_block_hasher(16, sha256)
-    sampling_params = SamplingParams(max_tokens=max_tokens, ignore_eos=True)
-    sampling_params.update_from_generation_config({}, 50256)
-    if token_counts is None:
-        token_counts = [10] * request_count
-    if request_ids is None:
-        request_ids = [str(index) for index in range(request_count)]
-    assert len(token_counts) == request_count
-    assert len(request_ids) == request_count
-    return [
-        Request(
-            request_id=request_ids[index],
-            prompt_token_ids=[index] * token_counts[index],
-            sampling_params=sampling_params,
-            pooling_params=None,
-            block_hasher=block_hasher,
-        )
-        for index in range(request_count)
-    ]
+def empty(peer):
+    row = peer.call('tick')
+    require(not row['scheduled'] and not row['outputs'], f'finished work reappeared: {row}')
+    require(row['counts'] == [0, 0] and row['unfinished'] == 0 and not row['has_requests'],
+            f'finished state incorrect: {row}')
 
 
-def create_scheduler(
-    model_dir: str,
-    request_count: int,
-    *,
-    max_num_batched_tokens: int | None = None,
-    use_connector: bool = True,
-) -> Scheduler:
-    model_config = ModelConfig(
-        model=model_dir,
-        trust_remote_code=False,
-        dtype="float16",
-        seed=42,
-        skip_tokenizer_init=True,
-    )
-    scheduler_config = SchedulerConfig(
-        max_num_seqs=request_count,
-        max_num_batched_tokens=(
-            max_num_batched_tokens
-            if max_num_batched_tokens is not None
-            else max(8192, request_count * 16)
-        ),
-        max_model_len=2048,
-        enable_chunked_prefill=True,
-        is_encoder_decoder=model_config.is_encoder_decoder,
-    )
-    cache_config = CacheConfig(
-        block_size=16,
-        gpu_memory_utilization=0.9,
-        cache_dtype="auto",
-        enable_prefix_caching=False,
-    )
-    cache_config.num_gpu_blocks = 10000
-    transfer_config = KVTransferConfig(
-        kv_connector="VerifierKVConnector",
-        kv_connector_module_path=_CONNECTOR_MODULE,
-        kv_role="kv_both",
-    )
-    vllm_config = VllmConfig(
-        scheduler_config=scheduler_config,
-        model_config=model_config,
-        cache_config=cache_config,
-        parallel_config=ParallelConfig(),
-        kv_transfer_config=transfer_config if use_connector else None,
-    )
-    kv_cache_config = KVCacheConfig(
-        num_blocks=10000,
-        kv_cache_tensors=[],
-        kv_cache_groups=[
-            KVCacheGroupSpec(
-                ["layer"],
-                FullAttentionSpec(
-                    block_size=16,
-                    num_kv_heads=1,
-                    head_size=1,
-                    dtype=torch.float32,
-                ),
-            )
-        ],
-    )
-    return Scheduler(
-        vllm_config=vllm_config,
-        kv_cache_config=kv_cache_config,
-        block_size=16,
-        log_stats=False,
-        structured_output_manager=StructuredOutputManager(vllm_config),
-    )
+def drain(peer, identities, *, prefix=None, expected_admission=None):
+    observed = {identity: [] for identity in identities}
+    if prefix:
+        for identity, tokens in prefix.items(): observed[identity].extend(tokens)
+    ended = {key for key, values in observed.items() if len(values) == 3}
+    admitted = []
+    for step in range(64):
+        tokens = {identity: 103 + index * 131 + len(observed[identity])
+                  for index, identity in enumerate(identities)}
+        row = peer.call('tick', tokens=tokens)
+        admitted.extend(row['admitted'])
+        for identity, values, terminal in row['outputs']:
+            require(identity in observed, f'unexpected output identity: {identity}')
+            require(identity not in ended, f'duplicate output after terminal: {identity}')
+            observed[identity].extend(values)
+            if terminal: ended.add(identity)
+        if len(ended) == len(identities): break
+    wanted = {identity: [103 + index * 131 + n for n in range(3)]
+              for index, identity in enumerate(identities)}
+    require(observed == wanted and ended == set(identities),
+            f'token/terminal lifecycle mismatch: {observed}, terminal={ended}, expected={wanted}')
+    if expected_admission is not None:
+        require(admitted == expected_admission, f'admission order changed: {admitted}')
+    empty(peer)
+    return admitted
 
 
-def create_blocked_scheduler(model_dir: str, request_count: int):
-    scheduler = create_scheduler(model_dir, request_count)
-    requests = create_requests(request_count)
-    for request in requests:
-        scheduler.add_request(request)
-    output = scheduler.schedule()
-    assert not output.scheduled_new_reqs
-    assert all(r.status == RequestStatus.WAITING_FOR_REMOTE_KVS for r in requests)
-    assert scheduler.get_request_counts() == (0, request_count)
-    return scheduler, requests, output
+def idle_scaling(peer, mixed):
+    rows = []
+    for count in (64, 1024, 8192):
+        peer.call('reset', capacity=count + 1, budget=max(8192, count * 16))
+        # Keep packets bounded; individual IDs and creation order vary per run.
+        salt = secrets.token_hex(5)
+        for first in range(0, count, 256):
+            peer.call('add', items=[{'id': f'{salt}-{i}', 'remote': True}
+                                   for i in range(first, min(first + 256, count))])
+        initial = peer.call('tick')
+        require(initial['counts'] == [0, count] and initial['unfinished'] == count,
+                f'waiting requests lost: {initial}')
+        require(not initial['scheduled'], 'remote work ran before readiness')
+        if mixed:
+            peer.call('add', items=[{'id': 'stream', 'prompt': 1, 'max_tokens': 1, 'stream': True}])
+            first = peer.call('tick', tokens={'stream': 47})
+            require(any(r[:2] == ['stream', [47]] for r in first['outputs']), 'stream segment output missing')
+        peer.call('idle', rounds=128)
+        costs = []
+        rounds = 512
+        for _ in range(5):
+            before = peer.cpu_ns()
+            observed = peer.call('idle', rounds=rounds)
+            elapsed = peer.cpu_ns() - before
+            require(observed['rounds'] == rounds and observed['scheduled_tokens'] == 0 and observed['admitted'] == 0,
+                    f'idle round produced work: {observed}')
+            require(observed['counts'] == [0, count + int(mixed)], f'idle counts changed: {observed}')
+            costs.append(elapsed / rounds)
+        rows.append({'requests': count, 'cpu_ns_per_tick': statistics.median(costs)})
+    ratio = rows[-1]['cpu_ns_per_tick'] / max(rows[0]['cpu_ns_per_tick'], 1)
+    print(json.dumps({'observation': 'idle', 'mixed': mixed, 'rows': rows, 'ratio': ratio}), flush=True)
+    require(ratio < 2.7, f'idle work grows with blocked population: mixed={mixed}, ratio={ratio:.2f}')
 
 
-def measure_idle(model_dir: str, request_count: int) -> float:
-    scheduler, _, _ = create_blocked_scheduler(model_dir, request_count)
-    scheduler.schedule()
-    samples = []
-    for _ in range(5):
-        started = time.perf_counter_ns()
-        for _ in range(IDLE_ROUNDS):
-            output = scheduler.schedule()
-            assert not output.scheduled_new_reqs
-        samples.append(time.perf_counter_ns() - started)
-    assert scheduler.get_request_counts() == (0, request_count)
-    return statistics.median(samples) / IDLE_ROUNDS
+def engine_lifecycle(peer):
+    peer.call('reset', capacity=3, budget=12)
+    peer.call('add', items=[{'id': 'a', 'prompt': 21, 'remote': True, 'cached': 16},
+                           {'id': 'b', 'prompt': 19, 'remote': True, 'cached': 16},
+                           {'id': 'c', 'prompt': 25}])
+    got = {key: [] for key in 'abc'}
+    ended = set()
+    for step in range(32):
+        ready = ['b'] if step == 5 else ['a'] if step == 9 else []
+        tokens = {key: 701 + i * 71 + len(got[key]) for i, key in enumerate('abc')}
+        row = peer.call('tick', ready=ready, tokens=tokens)
+        require(row['executor_calls'] == 1, f'EngineCore stopped with live work: {row}')
+        if step < 5:
+            require('a' not in row['scheduled'] and 'b' not in row['scheduled'], 'premature remote execution')
+        if step == 4:
+            require(got['c'], 'local request stalled behind transfers')
+        if step == 8:
+            require(got['b'] and not got['a'], 'staggered readiness woke wrong request')
+        for key, values, terminal in row['outputs']:
+            require(key in got and key not in ended, f'unknown or repeated output: {key}')
+            got[key].extend(values)
+            if terminal: ended.add(key)
+        if len(ended) == 3: break
+    require(got == {key: [701 + i * 71 + n for n in range(3)] for i, key in enumerate('abc')},
+            f'engine token lifecycle mismatch: {got}')
+    require(ended == set('abc'), f'engine did not finish: {ended}')
+    empty(peer)
+    peer.call('add', items=[{'id': 'fresh', 'prompt': 7}])
+    drain(peer, ['fresh'], expected_admission=['fresh'])
 
 
-def start_stream_and_wait(scheduler, request_id="stream"):
-    """Enter streaming wait by ending a real resumable output segment."""
-    request = create_requests(
-        1, request_ids=[request_id], token_counts=[1], max_tokens=1,
-    )[0]
-    request.resumable = True
-    scheduler.add_request(request)
-    scheduled = scheduler.schedule()
-    if list(scheduled.num_scheduled_tokens) != [request_id]:
-        raise AssertionError("runnable streaming segment stalled behind blocked work")
-    outputs = scheduler.update_from_output(scheduled, ModelRunnerOutput(
-        req_ids=[request_id], req_id_to_index={request_id: 0}, sampled_token_ids=[[42]],
-    ))
-    observed = [token for client in outputs.values() for output in client.outputs
-                if output.request_id == request_id for token in output.new_token_ids]
-    if observed != [42] or request.status != RequestStatus.WAITING_FOR_STREAMING_REQ:
-        raise AssertionError("streaming segment failed to return output and await next input")
-    return request
+def cancellation(peer):
+    for event_first in (False, True):
+        peer.call('reset', capacity=4)
+        identities = ['oldest', 'victim', 'survivor', 'last']
+        peer.call('add', items=[{'id': i, 'remote': True} for i in identities])
+        row = peer.call('tick')
+        require(row['unfinished'] == 4, f'remote unfinished count wrong: {row}')
+        if event_first: peer.call('tick', ready=['victim', 'survivor'])
+        peer.call('abort', ids=['victim'])
+        if not event_first: peer.call('tick', ready=['victim', 'survivor'])
+        first = peer.call('tick', tokens={'survivor': 911})
+        require(first['admitted'] == ['survivor'], f'cancelled request revived: {first}')
+        require(all(x[0] != 'victim' for x in first['outputs']), f'cancelled request output: {first}')
+        peer.call('abort', ids=['survivor'])
+        peer.call('tick', ready=['last', 'oldest'])
+        peer.call('add', items=[{'id': 'new', 'prompt': 1}])
+        row = peer.call('tick')
+        require(row['admitted'] == ['oldest', 'last', 'new'], f'completion/admission order changed: {row}')
+        require(row['counts'] == [3, 0] and row['unfinished'] == 3, f'live request accounting wrong: {row}')
+        peer.call('abort', ids=['oldest', 'last', 'new'])
+        empty(peer)
 
 
-def deliver_stream_input(scheduler, request_id="stream"):
-    update = create_requests(
-        1, request_ids=[request_id], token_counts=[1], max_tokens=1,
-    )[0]
-    update.resumable = True
-    scheduler.add_request(update)
+def mixed_fcfs(peer):
+    peer.call('reset', capacity=1, budget=20)
+    peer.call('add', items=[{'id': 'fsm', 'prompt': 1, 'grammar': True},
+                           {'id': 'remote', 'remote': True},
+                           {'id': 'stream', 'prompt': 1, 'max_tokens': 1, 'stream': True}])
+    row = peer.call('tick', tokens={'stream': 59})
+    require(row['admitted'] == ['stream'], f'mixed waits blocked runnable stream: {row}')
+    peer.call('add', items=[{'id': 'regular', 'prompt': 20}, {'id': 'tail', 'prompt': 1}])
+    row = peer.call('tick', ready=['remote'])
+    require(row['admitted'] == ['regular'], f'mixed waits blocked runnable request: {row}')
+    peer.call('abort', ids=['regular'])
+    peer.call('grammar', id='fsm')
+    peer.call('add', items=[{'id': 'stream', 'prompt': 1, 'max_tokens': 1, 'stream': True}])
+    # Capacity one makes FCFS an observable admission decision; map order is irrelevant.
+    for identity in ('fsm', 'remote', 'stream', 'tail'):
+        row = peer.call('plan')
+        require(row['admitted'] == [identity] and set(row['scheduled']) == {identity},
+                f'FCFS admission changed across blocked reasons: expected={identity}, actual={row}')
+        peer.call('abort', ids=[identity])
+    empty(peer)
 
 
-def create_mixed_idle_scheduler(model_dir, request_count):
-    scheduler, requests, _ = create_blocked_scheduler(model_dir, request_count)
-    scheduler.connector.get_num_new_matched_tokens = lambda request, count: (
-        (0, False) if request.request_id == "stream" else (8, True)
-    )
-    stream = start_stream_and_wait(scheduler)
-    if scheduler.get_request_counts() != (0, request_count + 1):
-        raise AssertionError("mixed waits lost request accounting")
-    return scheduler, requests, stream
+def streaming(peer):
+    for count in (3, 37):
+        peer.call('reset', capacity=count + 1)
+        ids = [f'waiting-{i}' for i in range(count)]
+        peer.call('add', items=[{'id': i, 'remote': True} for i in ids])
+        peer.call('tick')
+        for token in (211, 223, 239):
+            peer.call('add', items=[{'id': 'stream', 'prompt': 1, 'max_tokens': 1, 'stream': True}])
+            row = peer.call('tick', tokens={'stream': token})
+            require(set(row['scheduled']) == {'stream'}, f'stream did not resume: {row}')
+            require(any(x[:2] == ['stream', [token]] for x in row['outputs']), f'stream token missing: {row}')
+            idle = peer.call('tick')
+            require(not idle['scheduled'] and not idle['outputs'], f'stream advanced without input: {idle}')
+        peer.call('abort', ids=['stream'])
+        require(peer.call('state')['counts'] == [0, count], 'stream abort lost remote waiters')
 
 
-def measure_mixed_idle(model_dir, request_count):
-    scheduler, _, _ = create_mixed_idle_scheduler(model_dir, request_count)
-    scheduler.schedule()
-    samples = []
-    for _ in range(5):
-        started = time.perf_counter_ns()
-        for _ in range(IDLE_ROUNDS):
-            if scheduler.schedule().num_scheduled_tokens:
-                raise AssertionError("request ran before its pending input/transfer arrived")
-        samples.append(time.perf_counter_ns() - started)
-    if scheduler.get_request_counts() != (0, request_count + 1):
-        raise AssertionError("idle ticks lost mixed waiting requests")
-    return statistics.median(samples) / IDLE_ROUNDS
+def backpressure(peer, remote):
+    peer.call('reset', capacity=1, budget=32, connector=remote)
+    identities = ['first', 'second', 'third', 'later']
+    peer.call('add', items=[{'id': name, 'prompt': 20 + i, 'remote': remote, 'cached': 16}
+                           for i, name in enumerate(identities[:3])])
+    if remote:
+        row = peer.call('tick')
+        require(row['counts'] == [0, 3] and row['unfinished'] == 3 and row['has_requests'],
+                f'pending transfers absent from engine accounting: {row}')
+        row = peer.call('tick', ready=identities[:3])
+        require(row['executor_calls'] == 1, 'engine failed to receive KV completion while all requests waited')
+    peer.call('add', items=[{'id': 'later', 'prompt': 7}])
+    drain(peer, identities, expected_admission=identities)
 
 
-def check_streaming_resumption(model_dir):
-    for request_count in (3, 37):
-        scheduler, requests, stream = create_mixed_idle_scheduler(model_dir, request_count)
-        for _ in range(3):
-            if scheduler.schedule().num_scheduled_tokens:
-                raise AssertionError("pending mixed requests unexpectedly ran")
-        # A new streaming input is independent of every remote transfer. No
-        # remote completion may be needed for it to become runnable again.
-        for token in (43, 44):
-            deliver_stream_input(scheduler)
-            scheduled = scheduler.schedule()
-            if list(scheduled.num_scheduled_tokens) != ["stream"]:
-                raise AssertionError("streaming continuation stalled without a remote completion")
-            outputs = scheduler.update_from_output(scheduled, ModelRunnerOutput(
-                req_ids=["stream"], req_id_to_index={"stream": 0}, sampled_token_ids=[[token]],
-            ))
-            actual = [t for client in outputs.values() for output in client.outputs
-                      if output.request_id == "stream" for t in output.new_token_ids]
-            if actual != [token] or stream.status != RequestStatus.WAITING_FOR_STREAMING_REQ:
-                raise AssertionError("resumed streaming output/lifecycle was corrupted")
-        scheduler.finish_requests("stream", RequestStatus.FINISHED_ABORTED)
-        if scheduler.get_request_counts() != (0, request_count):
-            raise AssertionError("cancelling a streaming wait corrupted remote counts")
-
-
-def check_mixed_blocked_fcfs(model_dir: str) -> None:
-    """Real remote and streaming events preserve order with pending grammar."""
-    scheduler = create_scheduler(model_dir, 5, max_num_batched_tokens=20)
-    scheduler.connector.get_num_new_matched_tokens = lambda request, count: (
-        (8, True) if request.request_id == "remote" else (0, False)
-    )
-    remote = create_requests(1, request_ids=["remote"], token_counts=[10])[0]
-    params = SamplingParams(max_tokens=16, ignore_eos=True,
-                            structured_outputs=StructuredOutputsParams(choice=["yes", "no"]))
-    params.update_from_generation_config({}, 50256)
-    fsm = Request(request_id="fsm", prompt_token_ids=[1], sampling_params=params,
-                  pooling_params=None, block_hasher=get_request_block_hasher(16, sha256))
-    # Grammar compilation is outside the scheduler boundary; a real Future
-    # supplies the same completion event as the upstream grammar worker.
-    grammar = Future()
-    fsm.structured_output_request.grammar = grammar
-    scheduler.add_request(fsm)
-    scheduler.add_request(remote)
-    start_stream_and_wait(scheduler)
-    if remote.status != RequestStatus.WAITING_FOR_REMOTE_KVS:
-        raise AssertionError("remote request did not enter asynchronous receive")
-    regular, tail = create_requests(2, request_ids=["regular", "tail"], token_counts=[20, 1])
-    scheduler.add_request(regular)
-    scheduler.add_request(tail)
-    first = scheduler.schedule()
-    if list(first.num_scheduled_tokens) != ["regular"]:
-        raise AssertionError("ordinary runnable request stalled behind mixed waits")
-    scheduler.update_from_output(first, ModelRunnerOutput(
-        req_ids=["regular"], req_id_to_index={"regular": 0}, sampled_token_ids=[[]],
-        kv_connector_output=KVConnectorOutput(finished_recving={"remote"}),
-    ))
-    scheduler.finish_requests("regular", RequestStatus.FINISHED_ABORTED)
-    grammar.set_result(object())
-    deliver_stream_input(scheduler)
-    second = scheduler.schedule()
-    observed = list(second.num_scheduled_tokens)
-    if observed != ["fsm", "remote", "stream", "tail"]:
-        raise AssertionError(f"FCFS order changed across mixed waits: {observed}")
-
-
-def check_abort_late_completion(model_dir: str) -> None:
-    """A connector completion racing with cancellation must not revive it."""
-    scheduler, requests, output = create_blocked_scheduler(model_dir, 4)
-    victim = requests[1]
-    survivor = requests[2]
-    scheduler.finish_requests(victim.request_id, RequestStatus.FINISHED_ABORTED)
-
-    finished = copy.deepcopy(EMPTY_MODEL_RUNNER_OUTPUT)
-    finished.kv_connector_output = KVConnectorOutput(
-        finished_recving={victim.request_id, survivor.request_id}
-    )
-    scheduler.update_from_output(output, finished)
-    resumed = scheduler.schedule()
-    resumed_ids = [request.req_id for request in resumed.scheduled_new_reqs]
-    if resumed_ids != [survivor.request_id]:
-        raise AssertionError(
-            "late remote completion revived an aborted request or changed order: "
-            f"{resumed_ids}"
-        )
-    if victim.status != RequestStatus.FINISHED_ABORTED:
-        raise AssertionError(f"aborted request changed state: {victim.status}")
-    running, waiting = scheduler.get_request_counts()
-    if (running, waiting) != (1, 2):
-        raise AssertionError(
-            f"late completion corrupted request accounting: {(running, waiting)}"
-        )
-
-
-def check_abort_after_ready_event(model_dir: str) -> None:
-    """Cancellation between connector completion and scheduling must win."""
-    scheduler, requests, initial = create_blocked_scheduler(model_dir, 5)
-    victim, survivor = requests[1], requests[3]
-    event = copy.deepcopy(EMPTY_MODEL_RUNNER_OUTPUT)
-    event.kv_connector_output = KVConnectorOutput(
-        finished_recving={victim.request_id, survivor.request_id}
-    )
-    scheduler.update_from_output(initial, event)
-    scheduler.finish_requests(victim.request_id, RequestStatus.FINISHED_ABORTED)
-
-    resumed = scheduler.schedule()
-    resumed_ids = [request.req_id for request in resumed.scheduled_new_reqs]
-    if resumed_ids != [survivor.request_id]:
-        raise AssertionError(
-            "cancellation after remote completion revived the victim or "
-            f"blocked its peer: {resumed_ids}"
-        )
-    if victim.status != RequestStatus.FINISHED_ABORTED:
-        raise AssertionError(f"cancelled request changed state: {victim.status}")
-    if scheduler.get_request_counts() != (1, 3):
-        raise AssertionError(
-            "completion/cancellation race corrupted request accounting: "
-            f"{scheduler.get_request_counts()}"
-        )
-
-    # A later connector event must still promote older blocked requests in
-    # arrival order, even when an earlier completion was cancelled.
-    scheduler.finish_requests(survivor.request_id, RequestStatus.FINISHED_ABORTED)
-    later = copy.deepcopy(EMPTY_MODEL_RUNNER_OUTPUT)
-    later.kv_connector_output = KVConnectorOutput(
-        finished_recving={requests[4].request_id, requests[0].request_id}
-    )
-    scheduler.update_from_output(resumed, later)
-    promoted = scheduler.schedule()
-    promoted_ids = [request.req_id for request in promoted.scheduled_new_reqs]
-    expected = [requests[0].request_id, requests[4].request_id]
-    if promoted_ids != expected:
-        raise AssertionError(
-            "later remote completion changed FCFS order after cancellation: "
-            f"expected={expected} actual={promoted_ids}"
-        )
-
-
-def check_staggered_completion_and_arrival(model_dir: str) -> None:
-    """Separate completion batches and a fresh arrival retain FCFS behavior."""
-    scheduler, requests, initial = create_blocked_scheduler(model_dir, 4)
-
-    first_ready = {requests[1].request_id, requests[3].request_id}
-    first_event = copy.deepcopy(EMPTY_MODEL_RUNNER_OUTPUT)
-    first_event.kv_connector_output = KVConnectorOutput(
-        finished_recving=first_ready
-    )
-    scheduler.update_from_output(initial, first_event)
-    first = scheduler.schedule()
-    first_ids = [request.req_id for request in first.scheduled_new_reqs]
-    if first_ids != [requests[1].request_id, requests[3].request_id]:
-        raise AssertionError(f"first completion batch changed FCFS order: {first_ids}")
-
-    # Complete the running work while a second connector event promotes the
-    # older remote waiters.  A newly admitted ordinary request must follow them.
-    completed = ModelRunnerOutput(
-        req_ids=first_ids,
-        req_id_to_index={request_id: i for i, request_id in enumerate(first_ids)},
-        sampled_token_ids=[[] for _ in first_ids],
-        kv_connector_output=KVConnectorOutput(
-            finished_recving={requests[0].request_id, requests[2].request_id}
-        ),
-    )
-    scheduler.update_from_output(first, completed)
-    scheduler.finish_requests(first_ids, RequestStatus.FINISHED_ABORTED)
-
-    scheduler.connector.get_num_new_matched_tokens = lambda request, count: (0, False)
-    newcomer = create_requests(1, request_ids=["new-arrival"])[0]
-    scheduler.add_request(newcomer)
-    second = scheduler.schedule()
-    second_ids = [request.req_id for request in second.scheduled_new_reqs]
-    expected = [
-        requests[0].request_id,
-        requests[2].request_id,
-        newcomer.request_id,
-    ]
-    if second_ids != expected:
-        raise AssertionError(
-            "staggered completion/new arrival changed FCFS order: "
-            f"expected={expected} actual={second_ids}"
-        )
-
-
-class GenerationDriver:
-    """Deterministic model results with real scheduler output/finish handling."""
-
-    def __init__(self, scheduler, requests):
-        self.scheduler = scheduler
-        self.requests = {r.request_id: r for r in requests}
-        self.expected = {
-            r.request_id: [100 + index * 10 + n for n in range(3)]
-            for index, r in enumerate(requests)
-        }
-        self.issued = {r.request_id: 0 for r in requests}
-        self.observed = {r.request_id: [] for r in requests}
-        self.finished = []
-        self.admitted = []
-
-    def tick(self, ready=()):
-        scheduled = self.scheduler.schedule()
-        self.admitted.extend(r.req_id for r in scheduled.scheduled_new_reqs)
-        req_ids = list(scheduled.num_scheduled_tokens)
-        sampled = []
-        for req_id in req_ids:
-            request = self.requests[req_id]
-            if request.num_computed_tokens < request.num_prompt_tokens:
-                sampled.append([])
-                continue
-            index = self.issued[req_id]
-            if index >= 3:
-                raise AssertionError(f"request scheduled after generation ended: {req_id}")
-            sampled.append([self.expected[req_id][index]])
-            self.issued[req_id] += 1
-        outputs = self.scheduler.update_from_output(scheduled, ModelRunnerOutput(
-            req_ids=req_ids,
-            req_id_to_index={req_id: i for i, req_id in enumerate(req_ids)},
-            sampled_token_ids=sampled,
-            kv_connector_output=(
-                KVConnectorOutput(finished_recving=set(ready)) if ready else None
-            ),
-        ))
-        for client_output in outputs.values():
-            for output in client_output.outputs:
-                self.observed[output.request_id].extend(output.new_token_ids)
-                if output.finish_reason is not None:
-                    if output.request_id in self.finished:
-                        raise AssertionError(f"duplicate terminal output: {output.request_id}")
-                    self.finished.append(output.request_id)
-        return scheduled
-
-    def drain(self):
-        for _ in range(40):
-            if self.scheduler.get_request_counts() == (0, 0):
-                break
-            self.tick()
-        if self.scheduler.get_request_counts() != (0, 0):
-            raise AssertionError("finite ready workload failed to finish")
-        if self.observed != self.expected:
-            raise AssertionError(
-                f"generated token streams lost or misrouted: "
-                f"expected={self.expected} actual={self.observed}"
-            )
-        if set(self.finished) != set(self.expected):
-            raise AssertionError(f"missing terminal outputs: {self.finished}")
-        # Empty ticks after completion must not resurrect or duplicate work.
-        if self.tick().num_scheduled_tokens:
-            raise AssertionError("completed requests were scheduled again")
-
-
-def check_generation_lifecycle(model_dir):
-    """Local work progresses during remote waits; all streams then finish."""
-    scheduler = create_scheduler(model_dir, 3, max_num_batched_tokens=12)
-    remote_ids = {"remote-a", "remote-b"}
-    scheduler.connector.get_num_new_matched_tokens = lambda request, count: (
-        (16, True) if request.request_id in remote_ids else (0, False)
-    )
-    requests = create_requests(
-        3, request_ids=["remote-a", "remote-b", "local-c"],
-        token_counts=[21, 19, 25], max_tokens=3,
-    )
-    driver = GenerationDriver(scheduler, requests)
-    for request in requests:
-        scheduler.add_request(request)
-    for _ in range(4):
-        driver.tick()
-    if not driver.observed["local-c"]:
-        raise AssertionError("local request stalled behind pending remote transfers")
-    if driver.observed["remote-a"] or driver.observed["remote-b"]:
-        raise AssertionError("remote request ran before transfer completion")
-    driver.tick(ready={"remote-b"})
-    driver.tick()
-    if not driver.observed["remote-b"] or driver.observed["remote-a"]:
-        raise AssertionError("out-of-order readiness did not wake the correct request")
-    driver.tick(ready={"remote-a"})
-    driver.drain()
-
-
-def check_ready_backpressure(model_dir, *, use_connector=True):
-    """Ready requests survive a full running batch and admit a later arrival."""
-    scheduler = create_scheduler(
-        model_dir, 1, max_num_batched_tokens=32, use_connector=use_connector,
-    )
-    requests = create_requests(
-        4, request_ids=["first", "second", "third", "later"],
-        token_counts=[20, 23, 18, 7], max_tokens=3,
-    )
-    if use_connector:
-        remote_ids = {r.request_id for r in requests[:3]}
-        scheduler.connector.get_num_new_matched_tokens = lambda request, count: (
-            (16, True) if request.request_id in remote_ids else (0, False)
-        )
-    driver = GenerationDriver(scheduler, requests)
-    for request in requests[:3]:
-        scheduler.add_request(request)
-    driver.tick()
-    if use_connector:
-        if scheduler.get_request_counts() != (0, 3):
-            raise AssertionError("pending transfers changed request accounting")
-        driver.tick(ready={r.request_id for r in requests[:3]})
-    driver.tick()
-    scheduler.add_request(requests[3])
-    driver.drain()
-    expected_order = [r.request_id for r in requests]
-    if driver.admitted != expected_order or driver.finished != expected_order:
-        raise AssertionError(
-            f"FCFS changed under capacity pressure: "
-            f"admitted={driver.admitted} finished={driver.finished}"
-        )
-
-
-def check_preemption_backlog(model_dir, *, use_connector):
-    """Real cache reset must not move an older active stream behind its backlog."""
+def preemption(peer, remote):
     for waiting_count in (3, 11):
-        scheduler = create_scheduler(model_dir, 1, use_connector=use_connector)
-        identities = ["active-first"] + [f"queued-{i}" for i in range(waiting_count)]
-        requests = create_requests(
-            len(identities), request_ids=identities,
-            token_counts=[19] + [2] * waiting_count, max_tokens=3,
-        )
-        driver = GenerationDriver(scheduler, requests)
-        scheduler.add_request(requests[0])
-        if use_connector:
-            scheduler.connector.get_num_new_matched_tokens = lambda request, count: (16, True)
-            driver.tick()
-            if scheduler.get_request_counts() != (0, 1):
-                raise AssertionError("remote stream did not wait for its transfer")
-            driver.tick(ready={identities[0]})
-            # Later recomputation is local: the remote producer has no further
-            # cache hit. No repeated transfer event is invented after a reset.
-            scheduler.connector.get_num_new_matched_tokens = lambda request, count: (0, False)
-        driver.tick()
-        if driver.observed[identities[0]] != driver.expected[identities[0]][:1]:
-            raise AssertionError("initial stream failed to generate before preemption")
-        for request in requests[1:]:
-            scheduler.add_request(request)
-        for _ in range(2):
-            if scheduler.get_request_counts() != (1, waiting_count):
-                raise AssertionError("active/backlog counts changed before cache reset")
-            if not scheduler.reset_prefix_cache(reset_running_requests=True):
-                raise AssertionError("forced cache reset did not complete")
-            if scheduler.get_request_counts() != (0, waiting_count + 1):
-                raise AssertionError("preemption lost unfinished requests")
-            resumed = driver.tick()
-            actual = list(resumed.num_scheduled_tokens)
-            if actual != [identities[0]]:
-                raise AssertionError(
-                    "preempted active stream lost FCFS position behind backlog: "
-                    f"waiting={waiting_count} connector={use_connector} actual={actual}"
-                )
-        driver.drain()
-        if driver.finished != identities:
-            raise AssertionError(f"completion order changed after repeated preemption: {driver.finished}")
-
-
-def complete_one_request(scheduler, identity, *, remote, token, prompt_tokens=None):
-    """One complete public lifecycle; return only a weak reference for telemetry."""
-    request = create_requests(
-        1, request_ids=[identity],
-        token_counts=[prompt_tokens if prompt_tokens is not None else (19 if remote else 2)],
-        max_tokens=1,
-    )[0]
-    reference = weakref.ref(request)
-    scheduler.add_request(request)
-    scheduled = scheduler.schedule()
-    if remote:
-        if scheduled.num_scheduled_tokens or scheduler.get_request_counts() != (0, 1):
-            raise AssertionError("remote request ran before its transfer completed")
-        event = copy.deepcopy(EMPTY_MODEL_RUNNER_OUTPUT)
-        event.kv_connector_output = KVConnectorOutput(finished_recving={identity})
-        scheduler.update_from_output(scheduled, event)
-        scheduled = scheduler.schedule()
-    if list(scheduled.num_scheduled_tokens) != [identity]:
-        raise AssertionError("subsequent admission lost or resurrected a request")
-    outputs = scheduler.update_from_output(scheduled, ModelRunnerOutput(
-        req_ids=[identity], req_id_to_index={identity: 0}, sampled_token_ids=[[token]],
-    ))
-    visible = [output for client in outputs.values() for output in client.outputs]
-    if (len(visible) != 1 or visible[0].request_id != identity
-            or visible[0].new_token_ids != [token] or visible[0].finish_reason is None):
-        raise AssertionError("completion churn corrupted client token/terminal output")
-    if scheduler.get_request_counts() != (0, 0):
-        raise AssertionError("completed request still counted as unfinished")
-    return reference
-
-
-def check_completion_churn(model_dir):
-    """Many lifecycles must still produce the right outputs on one live scheduler.
-
-    Object retention is diagnostic, NOT a scored zero-live-objects requirement:
-    the statement specifies neither a cache bound nor an exact GC deadline.
-    """
-    for remote in (False, True):
-        scheduler = create_scheduler(model_dir, 1, use_connector=remote)
+        peer.call('reset', capacity=1, connector=remote)
+        peer.call('add', items=[{'id': 'active', 'prompt': 19, 'remote': remote, 'cached': 16}])
         if remote:
-            scheduler.connector.get_num_new_matched_tokens = lambda request, count: (16, True)
-        references = []
-        observations = []
-        for total in (16, 128, 512):
-            for index in range(len(references), total):
-                references.append(complete_one_request(
-                    scheduler, f"churn-{remote}-{index}", remote=remote,
-                    token=100 + index % 97,
-                ))
-            for _ in range(3):
-                scheduled = scheduler.schedule()
-                if scheduled.num_scheduled_tokens:
-                    raise AssertionError("finished workload reappeared on an idle tick")
-                scheduler.update_from_output(scheduled, copy.deepcopy(EMPTY_MODEL_RUNNER_OUTPUT))
-            gc.collect()
-            observations.append({
-                "completed_requests": total,
-                "retained_request_objects": sum(ref() is not None for ref in references),
-            })
-        print("RESOURCE_LIFECYCLE_DIAGNOSTIC=" + json.dumps({
-            "remote": remote, "scored": False, "observations": observations,
-            "note": "Retention alone has no scoring threshold; review for bounded/lazy reclamation.",
-        }, sort_keys=True), flush=True)
+            peer.call('tick')
+            peer.call('tick', ready=['active'])
+            peer.call('local', ids=['active'])
+        first = peer.call('tick', tokens={'active': 103})
+        require(any(x[:2] == ['active', [103]] for x in first['outputs']), 'active request failed to generate')
+        ids = ['active'] + [f'queued-{i}' for i in range(waiting_count)]
+        peer.call('add', items=[{'id': i, 'prompt': 2} for i in ids[1:]])
+        for token in (104, 105):
+            row = peer.call('preempt')
+            require(row['reset'] and row['counts'] == [0, len(ids)], f'preemption lost requests: {row}')
+            row = peer.call('tick', tokens={'active': token})
+            require(set(row['scheduled']) == {'active'}, f'preempted stream lost FCFS position: {row}')
+        drain(peer, ids, prefix={'active': [103, 104, 105]})
 
 
-def check_retained_memory(model_dir, *, remote):
-    """Public Python-heap budget, not a queue shape or zero-object requirement.
-
-    Measure live allocations, not transient peak or allocator RSS. The same
-    long-lived scheduler handles all requests; the driver retains no Request,
-    output, weakref list or per-request result history. Collection and normal
-    idle ticks permit cycle collection and lazy/batched cleanup.
-    """
-    scheduler = create_scheduler(model_dir, 1, use_connector=remote)
-    if remote:
-        scheduler.connector.get_num_new_matched_tokens = lambda request, count: (16, True)
-    if tracemalloc.is_tracing():
-        raise RuntimeError("retained-memory fixture requires an isolated tracing window")
-    tracemalloc.start(1)
-    try:
-        observations = []
-        count = 0
-        baseline = None
-        for total in (256, 4096, 16384):
-            while count < total:
-                # Distinct identities, with varied short payloads. Nothing
-                # requires request IDs or tokens to match a reference patch.
-                complete_one_request(
-                    scheduler, f"heap-{remote}-{count}", remote=remote,
-                    token=100 + count % 97, prompt_tokens=32 + count % 33,
-                )
-                count += 1
-            for _ in range(16):
-                scheduled = scheduler.schedule()
-                if scheduled.num_scheduled_tokens:
-                    raise AssertionError("completed history resurrected runnable work")
-                scheduler.update_from_output(scheduled, copy.deepcopy(EMPTY_MODEL_RUNNER_OUTPUT))
-            del scheduled
-            gc.collect()
-            current, _ = tracemalloc.get_traced_memory()
-            if baseline is None:
-                baseline = current
-            growth = max(0, current - baseline)
-            observations.append({"completed_requests": total, "live_python_bytes": current,
-                                 "growth_after_warmup_bytes": growth})
-        print("RETAINED_MEMORY_OBSERVATION=" + json.dumps({
-            "remote": remote, "warmup_requests": 256,
-            "budget_bytes": 32 * 1024 * 1024, "observations": observations,
-        }, sort_keys=True), flush=True)
-        if max(row["growth_after_warmup_bytes"] for row in observations) > 32 * 1024 * 1024:
-            raise AssertionError(
-                "completed-request history exceeds the published 32 MiB retained "
-                f"Python-memory growth budget: remote={remote} observations={observations}"
-            )
-    finally:
-        tracemalloc.stop()
+def retained_memory(peer, remote):
+    peer.call('reset', capacity=1, connector=remote)
+    salt = secrets.randbelow(1 << 30)
+    total = 0
+    baseline = None
+    observations = []
+    for end in (256, 4096, 16384, 65536, 327680, MEMORY_REQUESTS):
+        while total < end:
+            count = min(8192, end - total)
+            row = peer.call('churn', start=total, count=count, salt=salt, remote=remote)
+            expected = hashlib.sha256()
+            for i in range(total, total + count):
+                out = [f'{salt}-{i}', [100 + (i * 17 + salt) % 49000], True]
+                expected.update(json.dumps(out, separators=(',', ':')).encode() + b'\n')
+            require(row['digest'] == expected.hexdigest() and row['tokens'] == count and row['terminals'] == count,
+                    f'churn client outputs changed: {row}')
+            require(row['counts'] == [0, 0] and row['unfinished'] == 0 and not row['has_requests'],
+                    f'completed workload remained live: {row}')
+            total += count
+        current = peer.memory_bytes()
+        if baseline is None: baseline = current
+        growth = max(0, current - baseline)
+        observation = {'completed': total, 'live_python_bytes': current, 'growth_bytes': growth}
+        observations.append(observation)
+        print(json.dumps({'observation': 'retained-memory', 'remote': remote, **observation}), flush=True)
+        require(growth <= MEMORY_BUDGET, f'retained Python memory exceeds 32 MiB: remote={remote}, {observation}')
+    empty(peer)
 
 
-def run_suite(emit) -> None:
-    load_candidate()
-    with tempfile.TemporaryDirectory(prefix="remote-kv-model-") as tmp:
-        model_dir = Path(tmp)
-        (model_dir / "config.json").write_text(json.dumps(MODEL_CONFIG))
-
-        small_ns = measure_idle(str(model_dir), REQUEST_COUNT)
-        large_count = REQUEST_COUNT * 16
-        large_ns = measure_idle(str(model_dir), large_count)
-        ratio = large_ns / max(small_ns, 1.0)
-        if ratio >= 6.0:
-            raise AssertionError(
-                "idle remote-KV tick still scales with blocked population: "
-                f"small={small_ns:.0f}ns large={large_ns:.0f}ns ratio={ratio:.2f}"
-            )
-        emit("idle-scaling", True)
-
-        mixed_small_ns = measure_mixed_idle(str(model_dir), REQUEST_COUNT)
-        mixed_large_ns = measure_mixed_idle(str(model_dir), REQUEST_COUNT * 16)
-        mixed_ratio = mixed_large_ns / max(mixed_small_ns, 1.0)
-        if mixed_ratio >= 6.0:
-            raise AssertionError(f"mixed idle remote-KV overhead still scales: ratio={mixed_ratio:.2f}")
-        emit("mixed-idle-scaling", True)
-
-        scheduler, requests, output = create_blocked_scheduler(
-            str(model_dir), REQUEST_COUNT
-        )
-        ready_ids = {requests[i].request_id for i in (2, 7, 13)}
-        finished = copy.deepcopy(EMPTY_MODEL_RUNNER_OUTPUT)
-        finished.kv_connector_output = KVConnectorOutput(finished_recving=ready_ids)
-        scheduler.update_from_output(output, finished)
-        resumed = scheduler.schedule()
-        resumed_ids = [request.req_id for request in resumed.scheduled_new_reqs]
-        expected_ids = [r.request_id for r in requests if r.request_id in ready_ids]
-        if resumed_ids != expected_ids:
-            raise AssertionError(f"completion promotion/order changed: {resumed_ids}")
-        running, waiting = scheduler.get_request_counts()
-        assert running == len(ready_ids)
-        assert waiting == REQUEST_COUNT - len(ready_ids)
-        emit("completion-promotion", True)
-
-        victim = requests[-1]
-        scheduler.finish_requests(victim.request_id, RequestStatus.FINISHED_ABORTED)
-        assert victim.status == RequestStatus.FINISHED_ABORTED
-        emit("abort", True)
-
-        check_abort_late_completion(str(model_dir))
-        emit("abort-late-completion", True)
-
-        check_abort_after_ready_event(str(model_dir))
-        emit("abort-ready-race", True)
-
-        check_staggered_completion_and_arrival(str(model_dir))
-        emit("staggered-completion", True)
-
-        check_mixed_blocked_fcfs(str(model_dir))
-        emit("mixed-fcfs", True)
-
-        check_streaming_resumption(str(model_dir))
-        emit("streaming-resumption", True)
-
-        check_generation_lifecycle(str(model_dir))
-        emit("generation-lifecycle", True)
-        check_ready_backpressure(str(model_dir))
-        emit("ready-backpressure", True)
-        check_ready_backpressure(str(model_dir), use_connector=False)
-        emit("no-connector-regression", True)
-
-        check_preemption_backlog(str(model_dir), use_connector=False)
-        emit("preemption-backlog-local", True)
-        check_preemption_backlog(str(model_dir), use_connector=True)
-        emit("preemption-backlog-remote", True)
-        check_completion_churn(str(model_dir))
-        emit("completion-churn", True)
-        check_retained_memory(str(model_dir), remote=False)
-        emit("retained-memory-local", True)
-        check_retained_memory(str(model_dir), remote=True)
-        emit("retained-memory-remote", True)
-
-        print(
-            json.dumps(
-                {
-                "small_requests": REQUEST_COUNT,
-                "large_requests": large_count,
-                "idle_rounds": IDLE_ROUNDS,
-                "small_tick_ns": small_ns,
-                "large_tick_ns": large_ns,
-                "scaling_ratio": ratio,
-                "mixed_scaling_ratio": mixed_ratio,
-                "resumed": resumed_ids,
-            },
-                sort_keys=True,
-            )
-        )
-        print("PASS: remote-KV waiting idle overhead is bounded")
-        emit("complete", True)
-
-
-if __name__ == "__main__":
-    run_suite(lambda name, value: print(f"checkpoint={name} value={value}"))
+def run_suite(peer, emit):
+    cases = [(GROUPS[0], lambda: idle_scaling(peer, False)),
+             (GROUPS[1], lambda: idle_scaling(peer, True)),
+             (GROUPS[2], lambda: engine_lifecycle(peer)),
+             (GROUPS[3], lambda: cancellation(peer)),
+             (GROUPS[4], lambda: mixed_fcfs(peer)),
+             (GROUPS[5], lambda: streaming(peer)),
+             (GROUPS[6], lambda: backpressure(peer, True)),
+             (GROUPS[7], lambda: backpressure(peer, False)),
+             (GROUPS[8], lambda: preemption(peer, False)),
+             (GROUPS[9], lambda: preemption(peer, True)),
+             (GROUPS[10], lambda: retained_memory(peer, False)),
+             (GROUPS[11], lambda: retained_memory(peer, True))]
+    for name, case in cases:
+        case()
+        emit(name)

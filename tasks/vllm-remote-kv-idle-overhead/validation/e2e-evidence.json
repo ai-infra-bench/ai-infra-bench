@@ -1,552 +1,2214 @@
 {
   "schema_version": "vllm_harbor_task_validation.v1",
-  "task_version": "1.5.0",
-  "recorded_at": "2026-09-17",
-  "status": "functional-and-resource-contract-calibrated; grading-trust-review-open",
+  "task_version": "1.6.0",
+  "recorded_at": "2026-09-19T02:38:57.690511+00:00",
+  "status": "five-review-findings-remediated; local-final-matrix-and-Harbor-complete",
   "source": {
     "repository": "vllm-project/vllm",
-    "base_commit": "d88f28da05b12bc7d63ebe3dcedf445ecb274343"
+    "base_commit": "d88f28da05b12bc7d63ebe3dcedf445ecb274343",
+    "task_head": "2df92758622430c05e2e9b30b24f533f84b39b08",
+    "worktree": "/tmp/ai-infra-pr61-review-20260919",
+    "branch": "codex/pr61-behavior-hardening",
+    "uncommitted_at_validation": true
+  },
+  "skill": {
+    "head": "d3b0557d8c22902f6c045cb86f1403de8cd52fd6",
+    "path": "/root/.codex/worktrees/899f/ai-infra-bench/.agents/skills/ai-infra-bench-task-review",
+    "sha256": {
+      "SKILL.md": "8fe577cbbf18cabee73dd49f510a9f2aa102bd07b5b4bb99e0c4327da666410b",
+      "references/review-rubric.md": "db7cfadedac4df9b796fc2fa390080a68587cfc4ab6d1b237a2dd308602a8721",
+      "references/validation-playbook.md": "f43a6c1055bfe70a6ad9a8c79ab1ce166e90a1ba56101f498be50e06ea4615f8",
+      "scripts/audit_task_artifacts.py": "8c942753482607dd9ab7eadbaebfb00c35461e136b873504c07224c068e84a8f"
+    }
   },
   "image": {
-    "id": "sha256:fd59b9b0cbbc1c4d5400d97e1eaeb1cdd4640f71983c9a5581b84449743ac88c"
+    "canonical_id": "sha256:fd59b9b0cbbc1c4d5400d97e1eaeb1cdd4640f71983c9a5581b84449743ac88c",
+    "tested_id": "sha256:5e0979545d33f27080023c5fc18d30e3f0182732f6912b1b3b404cde475b81e7",
+    "tested_tag": "codex-pr61-review:base-20260919",
+    "base_source_tree": "037cc4e534167733500093aa225de6ab64a1028e",
+    "difference": "Exact verified Base archive and pinned CPU donor; synthetic Git history replaces failed full-history fetch. Environment inputs unchanged. These are diagnostic-runtime runs, not a canonical-image rebuild."
   },
   "e2e_boundary": {
-    "path": "Request admission -> real Scheduler schedule -> deterministic ModelRunnerOutput/connector event -> update_from_output -> client tokens and terminal outputs -> drained scheduler",
-    "substitution": "Transport completion and generated token values are deterministic; scheduling, request state, KV allocation, token/stop accounting, output packaging and normal cleanup remain real.",
-    "preserved_semantics": "Request admission -> real Scheduler schedule -> deterministic ModelRunnerOutput/connector event -> update_from_output -> client tokens and terminal outputs -> drained scheduler"
+    "path": "Request and readiness/cancellation -> real Scheduler and EngineCore.step -> deterministic model output -> real output/lifecycle handling -> parent-checked client tokens, terminal events, counts, admission, CPU time and retained Python allocations",
+    "substitution": "Model arithmetic and transport event production only; scheduler, KV ownership, EngineCore liveness and output transitions run for real."
   },
+  "local_hardening_complete": true,
   "final_acceptance": false,
   "publication": {
-    "scope": "Evidence consolidation only; instruction, task metadata, environment, solution, verifier and control patch bytes unchanged from the backed-up working tree.",
-    "prior_published_commit": "f3e676b7178b707f2ad139c20229627786249a43",
-    "archived_original_evidence": "history/curation-history.zip",
-    "current_raw_evidence": "evidence.zip",
-    "raw_results_member": "rollout-hardening-v150-results.json",
-    "provenance_note": "Raw reports inside archives retain their original paths, timestamps and run hashes. Publication hashes are not substituted for execution-time hashes. This packaging step is not a new behavioral run.",
-    "historical_opus_artifact": {
-      "url": "https://github.com/xuanzhengdu-eng/ai-infra-bench/blob/f3e676b7178b707f2ad139c20229627786249a43/tasks/vllm-remote-kv-idle-overhead/validation/opus-5-run-artifacts.zip",
-      "sha256": "28e9589037aa5af8cc8c1abce608f73285adf68893f568e7e8e6db26992fd479",
-      "bytes": 1953947,
-      "scope": "Historical version only; not current acceptance"
-    }
+    "scope": "Local authorized hardening completed before the user-authorized commit and push to PR #61. No new model rollout or canonical-image publication validation is claimed.",
+    "raw_archive": "validation/hardening-v160.zip",
+    "execution_inputs": "frozen-inputs-final2.json in archive",
+    "hash_note": "Execution-time task snapshots precede result/evidence-only writes. Harbor copies only override the image tag and, for controls, the candidate solution patch. Input hashes are recorded separately.",
+    "historical_evidence": [
+      "validation/evidence.zip",
+      "validation/history/curation-history.zip"
+    ],
+    "target_repository": "xuanzhengdu-eng/ai-infra-bench",
+    "target_branch": "task/add-vllm-remote-kv-idle-overhead",
+    "post_validation_normalizations": [
+      {
+        "path": "tests/fixtures.py",
+        "change": "Remove one trailing blank line; no executable statements or line locations changed.",
+        "tested_sha256": "e1e4de080041890d711271417b29183f4172366416fe98d93bd7a2e89cb3a37f",
+        "published_sha256": "3768fdb5a555b2fca0ef10e4f8fea295ea40206b1dd63a7975cbc34998d8e21a",
+        "compiled_module_identical": true,
+        "comparison_python": "3.12.3"
+      }
+    ]
   },
   "current_controls": [
     {
       "case": "base",
-      "expected": 0,
-      "rewards": [
-        0.0
-      ],
-      "errors": 0,
-      "completed": 1,
-      "exit_code": 0,
+      "patch_stem": "base",
+      "expected_reward": 0,
+      "observed_reward": 0,
+      "elapsed_seconds": 60.468,
+      "entrypoint_exit": 0,
+      "patch_sha256": null,
       "verdict": {
         "completed": 0,
-        "failure_count": 2,
-        "required": 18,
+        "completed_cases": [],
+        "failures": [
+          "AssertionError: idle work grows with blocked population: mixed=False, ratio=143.57"
+        ],
+        "required": 12,
         "reward": 0,
-        "worker_exit_status": 256
+        "worker_exit_status": 9
       },
-      "valid": true,
-      "trial_id": "base__7d4WM54",
-      "log_directory": "validation/rollout-hardening-v150-logs/harbor-base",
-      "retained_memory": [],
-      "pre_run_manifest_sha256": "23a70ff6c49bc9bdb6697b11c9f739281cd3ec37fafbefc5b946701626021ad4"
+      "observations": [
+        {
+          "observation": "idle",
+          "mixed": false,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 77507.244140625
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 1326718.13671875
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 11127803.96875
+            }
+          ],
+          "ratio": 143.57114734411545
+        }
+      ],
+      "raw_directory": "final2-runs/base"
     },
     {
       "case": "oracle",
-      "expected": 1,
-      "rewards": [
-        1.0
-      ],
-      "errors": 0,
-      "completed": 1,
-      "exit_code": 0,
+      "patch_stem": "oracle",
+      "expected_reward": 1,
+      "observed_reward": 1,
+      "elapsed_seconds": 405.191,
+      "entrypoint_exit": 0,
+      "patch_sha256": "317613fd4da32cc7e8595dc8cd2d716a907268e7bffcdc76f157fe636c5e4dc2",
       "verdict": {
-        "completed": 18,
-        "failure_count": 0,
-        "required": 18,
+        "completed": 12,
+        "completed_cases": [
+          "idle-scaling",
+          "mixed-idle-scaling",
+          "engine-lifecycle",
+          "cancellation-races",
+          "mixed-fcfs",
+          "streaming-resumption",
+          "ready-backpressure",
+          "no-connector-regression",
+          "preemption-backlog-local",
+          "preemption-backlog-remote",
+          "retained-memory-local",
+          "retained-memory-remote"
+        ],
+        "failures": [],
+        "required": 12,
         "reward": 1,
         "worker_exit_status": 0
       },
-      "valid": true,
-      "trial_id": "oracle__5UYiFtt",
-      "log_directory": "validation/rollout-hardening-v150-logs/harbor-oracle",
-      "retained_memory": [
+      "observations": [
         {
-          "budget_bytes": 33554432,
-          "observations": [
+          "observation": "idle",
+          "mixed": false,
+          "rows": [
             {
-              "completed_requests": 256,
-              "growth_after_warmup_bytes": 0,
-              "live_python_bytes": 8064
+              "requests": 64,
+              "cpu_ns_per_tick": 8773.19140625
             },
             {
-              "completed_requests": 4096,
-              "growth_after_warmup_bytes": 114856,
-              "live_python_bytes": 122920
+              "requests": 1024,
+              "cpu_ns_per_tick": 8809.236328125
             },
             {
-              "completed_requests": 16384,
-              "growth_after_warmup_bytes": 495968,
-              "live_python_bytes": 504032
+              "requests": 8192,
+              "cpu_ns_per_tick": 8736.8359375
             }
           ],
-          "remote": false,
-          "warmup_requests": 256
+          "ratio": 0.9958560725434418
         },
         {
-          "budget_bytes": 33554432,
-          "observations": [
+          "observation": "idle",
+          "mixed": true,
+          "rows": [
             {
-              "completed_requests": 256,
-              "growth_after_warmup_bytes": 0,
-              "live_python_bytes": 8520
+              "requests": 64,
+              "cpu_ns_per_tick": 11592.994140625
             },
             {
-              "completed_requests": 4096,
-              "growth_after_warmup_bytes": 108904,
-              "live_python_bytes": 117424
+              "requests": 1024,
+              "cpu_ns_per_tick": 11652.48046875
             },
             {
-              "completed_requests": 16384,
-              "growth_after_warmup_bytes": 470176,
-              "live_python_bytes": 478696
+              "requests": 8192,
+              "cpu_ns_per_tick": 11623.67578125
             }
           ],
-          "remote": true,
-          "warmup_requests": 256
-        }
-      ],
-      "pre_run_manifest_sha256": "9dde28f8a3ae9364632ce644e804bcdbcf76c028c78890113a7572f5151cba98"
-    },
-    {
-      "case": "event-ready-heap-alternative",
-      "expected": 1,
-      "rewards": [
-        1.0
-      ],
-      "errors": 0,
-      "completed": 1,
-      "exit_code": 0,
-      "verdict": {
-        "completed": 18,
-        "failure_count": 0,
-        "required": 18,
-        "reward": 1,
-        "worker_exit_status": 0
-      },
-      "valid": true,
-      "trial_id": "event-ready-heap-alternative__FFabRDh",
-      "log_directory": "validation/rollout-hardening-v150-logs/harbor-event-ready-heap-alternative",
-      "retained_memory": [
-        {
-          "budget_bytes": 33554432,
-          "observations": [
-            {
-              "completed_requests": 256,
-              "growth_after_warmup_bytes": 0,
-              "live_python_bytes": 28866
-            },
-            {
-              "completed_requests": 4096,
-              "growth_after_warmup_bytes": 549072,
-              "live_python_bytes": 577938
-            },
-            {
-              "completed_requests": 16384,
-              "growth_after_warmup_bytes": 2329328,
-              "live_python_bytes": 2358194
-            }
-          ],
-          "remote": false,
-          "warmup_requests": 256
+          "ratio": 1.0026465674227751
         },
         {
-          "budget_bytes": 33554432,
-          "observations": [
-            {
-              "completed_requests": 256,
-              "growth_after_warmup_bytes": 0,
-              "live_python_bytes": 32386
-            },
-            {
-              "completed_requests": 4096,
-              "growth_after_warmup_bytes": 539520,
-              "live_python_bytes": 571906
-            },
-            {
-              "completed_requests": 16384,
-              "growth_after_warmup_bytes": 2287528,
-              "live_python_bytes": 2319914
-            }
-          ],
-          "remote": true,
-          "warmup_requests": 256
-        }
-      ],
-      "pre_run_manifest_sha256": "2d98cf4e3b5bb699edf08f26b5ec5a2f1182000585d8d9ba62b973226c69ebe1"
-    },
-    {
-      "case": "bounded-history-cache",
-      "expected": 1,
-      "rewards": [
-        1.0
-      ],
-      "errors": 0,
-      "completed": 1,
-      "exit_code": 0,
-      "verdict": {
-        "completed": 18,
-        "failure_count": 0,
-        "required": 18,
-        "reward": 1,
-        "worker_exit_status": 0
-      },
-      "valid": true,
-      "trial_id": "bounded-history-cache__HTaii2W",
-      "log_directory": "validation/rollout-hardening-v150-logs/harbor-bounded-history-cache",
-      "retained_memory": [
-        {
-          "budget_bytes": 33554432,
-          "observations": [
-            {
-              "completed_requests": 256,
-              "growth_after_warmup_bytes": 0,
-              "live_python_bytes": 1143072
-            },
-            {
-              "completed_requests": 4096,
-              "growth_after_warmup_bytes": 8369008,
-              "live_python_bytes": 9512080
-            },
-            {
-              "completed_requests": 16384,
-              "growth_after_warmup_bytes": 8758049,
-              "live_python_bytes": 9901121
-            }
-          ],
+          "observation": "retained-memory",
           "remote": false,
-          "warmup_requests": 256
+          "completed": 256,
+          "live_python_bytes": 273212442,
+          "growth_bytes": 0
         },
         {
-          "budget_bytes": 33554432,
-          "observations": [
-            {
-              "completed_requests": 256,
-              "growth_after_warmup_bytes": 0,
-              "live_python_bytes": 1143648
-            },
-            {
-              "completed_requests": 4096,
-              "growth_after_warmup_bytes": 8364192,
-              "live_python_bytes": 9507840
-            },
-            {
-              "completed_requests": 16384,
-              "growth_after_warmup_bytes": 8729473,
-              "live_python_bytes": 9873121
-            }
-          ],
-          "remote": true,
-          "warmup_requests": 256
-        }
-      ],
-      "pre_run_manifest_sha256": "e833a6dc0853f8d218dae1ebedcb1dc97d9a38bdd59c440acd3bd7ba58bf7b4f"
-    },
-    {
-      "case": "batched-history-reclamation",
-      "expected": 1,
-      "rewards": [
-        1.0
-      ],
-      "errors": 0,
-      "completed": 1,
-      "exit_code": 0,
-      "verdict": {
-        "completed": 18,
-        "failure_count": 0,
-        "required": 18,
-        "reward": 1,
-        "worker_exit_status": 0
-      },
-      "valid": true,
-      "trial_id": "batched-history-reclamation__2pWemBz",
-      "log_directory": "validation/rollout-hardening-v150-logs/harbor-batched-history-reclamation",
-      "retained_memory": [
-        {
-          "budget_bytes": 33554432,
-          "observations": [
-            {
-              "completed_requests": 256,
-              "growth_after_warmup_bytes": 0,
-              "live_python_bytes": 1142400
-            },
-            {
-              "completed_requests": 4096,
-              "growth_after_warmup_bytes": 3695660,
-              "live_python_bytes": 4838060
-            },
-            {
-              "completed_requests": 16384,
-              "growth_after_warmup_bytes": 4078133,
-              "live_python_bytes": 5220533
-            }
-          ],
+          "observation": "retained-memory",
           "remote": false,
-          "warmup_requests": 256
+          "completed": 4096,
+          "live_python_bytes": 273212538,
+          "growth_bytes": 96
         },
         {
-          "budget_bytes": 33554432,
-          "observations": [
-            {
-              "completed_requests": 256,
-              "growth_after_warmup_bytes": 0,
-              "live_python_bytes": 1143024
-            },
-            {
-              "completed_requests": 4096,
-              "growth_after_warmup_bytes": 3688516,
-              "live_python_bytes": 4831540
-            },
-            {
-              "completed_requests": 16384,
-              "growth_after_warmup_bytes": 4051149,
-              "live_python_bytes": 5194173
-            }
-          ],
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 16384,
+          "live_python_bytes": 273212538,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 65536,
+          "live_python_bytes": 273212538,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 327680,
+          "live_python_bytes": 273212538,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 1310720,
+          "live_python_bytes": 273212479,
+          "growth_bytes": 37
+        },
+        {
+          "observation": "retained-memory",
           "remote": true,
-          "warmup_requests": 256
+          "completed": 256,
+          "live_python_bytes": 273213795,
+          "growth_bytes": 0
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 4096,
+          "live_python_bytes": 273213891,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 16384,
+          "live_python_bytes": 273213891,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 65536,
+          "live_python_bytes": 273213891,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 327680,
+          "live_python_bytes": 273213891,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 1310720,
+          "live_python_bytes": 273213891,
+          "growth_bytes": 96
         }
       ],
-      "pre_run_manifest_sha256": "ea93c34cbe7932087e940bcc36fc4a5022ba2ab3f6172968dc60522394cc46b7"
+      "raw_directory": "final2-runs/oracle"
     },
     {
       "case": "dropped-client-output",
-      "expected": 0,
-      "rewards": [
-        0.0
-      ],
-      "errors": 0,
-      "completed": 1,
-      "exit_code": 0,
+      "patch_stem": "dropped-client-output",
+      "expected_reward": 0,
+      "observed_reward": 0,
+      "elapsed_seconds": 27.514,
+      "entrypoint_exit": 0,
+      "patch_sha256": "01dd87c985db5dbfb08fc2aa47d2b867150ee89eef473abfca055b9ebd27a9b2",
       "verdict": {
         "completed": 1,
-        "failure_count": 2,
-        "required": 18,
+        "completed_cases": [
+          "idle-scaling"
+        ],
+        "failures": [
+          "AssertionError: stream segment output missing"
+        ],
+        "required": 12,
         "reward": 0,
-        "worker_exit_status": 256
+        "worker_exit_status": 9
       },
-      "valid": true,
-      "trial_id": "dropped-client-output__664Gg8f",
-      "log_directory": "validation/rollout-hardening-v150-logs/harbor-dropped-client-output",
-      "retained_memory": [],
-      "pre_run_manifest_sha256": "e14037a6d4986454ee9900e3f2ea438a6ca9a28184c4d9110ad57598dcf02d7a"
+      "observations": [
+        {
+          "observation": "idle",
+          "mixed": false,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 8894.064453125
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 9179.3046875
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 9141.12890625
+            }
+          ],
+          "ratio": 1.0277785768730507
+        }
+      ],
+      "raw_directory": "final2-runs/dropped-client-output"
     },
     {
       "case": "all-remote-only-shortcut",
-      "expected": 0,
-      "rewards": [
-        0.0
-      ],
-      "errors": 0,
-      "completed": 1,
-      "exit_code": 0,
+      "patch_stem": "alternative-agent-implementation",
+      "expected_reward": 0,
+      "observed_reward": 0,
+      "elapsed_seconds": 59.731,
+      "entrypoint_exit": 0,
+      "patch_sha256": "aa1d93e67237c99ade5cdc2de46535098e774f3535af939d5402787958898df3",
       "verdict": {
         "completed": 1,
-        "failure_count": 2,
-        "required": 18,
+        "completed_cases": [
+          "idle-scaling"
+        ],
+        "failures": [
+          "AssertionError: idle work grows with blocked population: mixed=True, ratio=143.56"
+        ],
+        "required": 12,
         "reward": 0,
-        "worker_exit_status": 256
+        "worker_exit_status": 9
       },
-      "valid": true,
-      "trial_id": "all-remote-only-shortcut__6LZfEmz",
-      "log_directory": "validation/rollout-hardening-v150-logs/harbor-all-remote-only-shortcut",
-      "retained_memory": [],
-      "pre_run_manifest_sha256": "20afc9fe77a29a66c7b2ba9735368c4009ff3a633e8511df9791db83c7c196bb"
+      "observations": [
+        {
+          "observation": "idle",
+          "mixed": false,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 8144.123046875
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 8540.74609375
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 8481.611328125
+            }
+          ],
+          "ratio": 1.0414394870150567
+        },
+        {
+          "observation": "idle",
+          "mixed": true,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 72144.78515625
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 1232878.779296875
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 10357273.779296875
+            }
+          ],
+          "ratio": 143.5623345036687
+        }
+      ],
+      "raw_directory": "final2-runs/alternative-agent-implementation"
     },
     {
       "case": "incomplete-agent-implementation",
-      "expected": 0,
-      "rewards": [
-        0.0
-      ],
-      "errors": 0,
-      "completed": 1,
-      "exit_code": 0,
+      "patch_stem": "incomplete-agent-implementation",
+      "expected_reward": 0,
+      "observed_reward": 0,
+      "elapsed_seconds": 59.313,
+      "entrypoint_exit": 0,
+      "patch_sha256": "df2aa5d8c37baa7e23bcfae3c2a034027b2fe67c24fb535accef5e92325e0fe8",
       "verdict": {
         "completed": 0,
-        "failure_count": 2,
-        "required": 18,
+        "completed_cases": [],
+        "failures": [
+          "AssertionError: idle work grows with blocked population: mixed=False, ratio=144.80"
+        ],
+        "required": 12,
+        "reward": 0,
+        "worker_exit_status": 9
+      },
+      "observations": [
+        {
+          "observation": "idle",
+          "mixed": false,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 71219.84765625
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 1221996.58984375
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 10312863.029296875
+            }
+          ],
+          "ratio": 144.80321664085804
+        }
+      ],
+      "raw_directory": "final2-runs/incomplete-agent-implementation"
+    },
+    {
+      "case": "early-exit-systemexit",
+      "patch_stem": "early-exit-systemexit",
+      "expected_reward": 0,
+      "observed_reward": 0,
+      "elapsed_seconds": 2.711,
+      "entrypoint_exit": 0,
+      "patch_sha256": "80f7fd0dce410eb62373fa96daeb380acaf16d0de85b03872956c1a0e142a2fe",
+      "verdict": {
+        "completed": 0,
+        "completed_cases": [],
+        "failures": [
+          "RuntimeError: candidate exited before required behavior checks"
+        ],
+        "required": 12,
         "reward": 0,
         "worker_exit_status": 256
       },
-      "valid": true,
-      "trial_id": "incomplete-agent-implementation__zNG8zFh",
-      "log_directory": "validation/rollout-hardening-v150-logs/harbor-incomplete-agent-implementation",
-      "retained_memory": [],
-      "pre_run_manifest_sha256": "08b5582183f647685df50b90b49d598966da2a5efe54af8214e1747e3b89be8b"
+      "observations": [],
+      "raw_directory": "final2-runs/early-exit-systemexit"
+    },
+    {
+      "case": "early-exit-os-exit",
+      "patch_stem": "early-exit-os-exit",
+      "expected_reward": 0,
+      "observed_reward": 0,
+      "elapsed_seconds": 2.55,
+      "entrypoint_exit": 0,
+      "patch_sha256": "7e8264005f8d1cbc83bbe2fe6d9195e6ff06c117600fa08b5d41c620294c4d46",
+      "verdict": {
+        "completed": 0,
+        "completed_cases": [],
+        "failures": [
+          "RuntimeError: candidate exited before required behavior checks"
+        ],
+        "required": 12,
+        "reward": 0,
+        "worker_exit_status": 0
+      },
+      "observations": [],
+      "raw_directory": "final2-runs/early-exit-os-exit"
+    },
+    {
+      "case": "forged-success-output",
+      "patch_stem": "forged-success-output",
+      "expected_reward": 0,
+      "observed_reward": 0,
+      "elapsed_seconds": 2.615,
+      "entrypoint_exit": 0,
+      "patch_sha256": "d3f5d639f10568793e0e79a4374757de25c2c0cb193fd2e87019dda0613e40b1",
+      "verdict": {
+        "completed": 0,
+        "completed_cases": [],
+        "failures": [
+          "RuntimeError: candidate exited before required behavior checks"
+        ],
+        "required": 12,
+        "reward": 0,
+        "worker_exit_status": 0
+      },
+      "observations": [],
+      "raw_directory": "final2-runs/forged-success-output"
+    },
+    {
+      "case": "event-ready-heap-alternative",
+      "patch_stem": "event-ready-heap-alternative",
+      "expected_reward": 1,
+      "observed_reward": 1,
+      "elapsed_seconds": 393.474,
+      "entrypoint_exit": 0,
+      "patch_sha256": "9d5732d06b2faeb80bb865f8262e0459695f84ff2bb86b4889c1980372c41f96",
+      "verdict": {
+        "completed": 12,
+        "completed_cases": [
+          "idle-scaling",
+          "mixed-idle-scaling",
+          "engine-lifecycle",
+          "cancellation-races",
+          "mixed-fcfs",
+          "streaming-resumption",
+          "ready-backpressure",
+          "no-connector-regression",
+          "preemption-backlog-local",
+          "preemption-backlog-remote",
+          "retained-memory-local",
+          "retained-memory-remote"
+        ],
+        "failures": [],
+        "required": 12,
+        "reward": 1,
+        "worker_exit_status": 0
+      },
+      "observations": [
+        {
+          "observation": "idle",
+          "mixed": false,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 7662.3203125
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 7637.52734375
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 7659.953125
+            }
+          ],
+          "ratio": 0.9996910612708088
+        },
+        {
+          "observation": "idle",
+          "mixed": true,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 7627.509765625
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 7723.626953125
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 7721.08203125
+            }
+          ],
+          "ratio": 1.0122677346211608
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 256,
+          "live_python_bytes": 273227070,
+          "growth_bytes": 0
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 4096,
+          "live_python_bytes": 273227198,
+          "growth_bytes": 128
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 16384,
+          "live_python_bytes": 273227198,
+          "growth_bytes": 128
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 65536,
+          "live_python_bytes": 273227198,
+          "growth_bytes": 128
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 327680,
+          "live_python_bytes": 273227198,
+          "growth_bytes": 128
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 1310720,
+          "live_python_bytes": 273227198,
+          "growth_bytes": 128
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 256,
+          "live_python_bytes": 273228508,
+          "growth_bytes": 0
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 4096,
+          "live_python_bytes": 273228604,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 16384,
+          "live_python_bytes": 273228604,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 65536,
+          "live_python_bytes": 273228604,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 327680,
+          "live_python_bytes": 273228604,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 1310720,
+          "live_python_bytes": 273228604,
+          "growth_bytes": 96
+        }
+      ],
+      "raw_directory": "final2-runs/event-ready-heap-alternative"
     },
     {
       "case": "historical-oracle-starves-stream",
-      "expected": 0,
-      "rewards": [
-        0.0
-      ],
-      "errors": 0,
-      "completed": 1,
-      "exit_code": 0,
+      "patch_stem": "historical-oracle-starves-stream",
+      "expected_reward": 0,
+      "observed_reward": 0,
+      "elapsed_seconds": 28.994,
+      "entrypoint_exit": 0,
+      "patch_sha256": "1eae238c5965218c735fbe77fe73f5cdbaab8d9a71165481b1643c8e45986961",
       "verdict": {
-        "completed": 8,
-        "failure_count": 2,
-        "required": 18,
+        "completed": 5,
+        "completed_cases": [
+          "idle-scaling",
+          "mixed-idle-scaling",
+          "engine-lifecycle",
+          "cancellation-races",
+          "mixed-fcfs"
+        ],
+        "failures": [
+          "AssertionError: stream did not resume: {'counts': [0, 4], 'unfinished': 4, 'has_requests': True, 'admitted': [], 'scheduled': {}, 'outputs': [], 'executor_calls': 1}"
+        ],
+        "required": 12,
         "reward": 0,
-        "worker_exit_status": 256
+        "worker_exit_status": 9
       },
-      "valid": true,
-      "trial_id": "historical-oracle-starves-stream__dVzULne",
-      "log_directory": "validation/rollout-hardening-v150-logs/harbor-historical-oracle-starves-stream",
-      "retained_memory": [],
-      "pre_run_manifest_sha256": "511fcde9f09ecd84521d5c02e7c158a3e7aedea8f629ad92421f8bf5d50b67e1"
+      "observations": [
+        {
+          "observation": "idle",
+          "mixed": false,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 8851.6796875
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 9148.330078125
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 9111.462890625
+            }
+          ],
+          "ratio": 1.029348464053874
+        },
+        {
+          "observation": "idle",
+          "mixed": true,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 11521.00390625
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 12506.013671875
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 12435.31640625
+            }
+          ],
+          "ratio": 1.0793604886726926
+        }
+      ],
+      "raw_directory": "final2-runs/historical-oracle-starves-stream"
     },
     {
       "case": "preemption-backlog-regression",
-      "expected": 0,
-      "rewards": [
-        0.0
+      "patch_stem": "preemption-backlog-regression",
+      "expected_reward": 0,
+      "observed_reward": 0,
+      "elapsed_seconds": 28.75,
+      "entrypoint_exit": 0,
+      "patch_sha256": "ef4235fd1d6233b1a2559bd3f9646c2de2b8b34834126148c5204d3f22d33e8c",
+      "verdict": {
+        "completed": 8,
+        "completed_cases": [
+          "idle-scaling",
+          "mixed-idle-scaling",
+          "engine-lifecycle",
+          "cancellation-races",
+          "mixed-fcfs",
+          "streaming-resumption",
+          "ready-backpressure",
+          "no-connector-regression"
+        ],
+        "failures": [
+          "AssertionError: preempted stream lost FCFS position: {'counts': [1, 3], 'unfinished': 4, 'has_requests': True, 'admitted': ['queued-0'], 'scheduled': {'queued-0': 2}, 'outputs': [['queued-0', [100], False]], 'executor_calls': 1}"
+        ],
+        "required": 12,
+        "reward": 0,
+        "worker_exit_status": 9
+      },
+      "observations": [
+        {
+          "observation": "idle",
+          "mixed": false,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 7485.42578125
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 7526.419921875
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 7483.56640625
+            }
+          ],
+          "ratio": 0.9997516006364451
+        },
+        {
+          "observation": "idle",
+          "mixed": true,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 10055.32421875
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 10355.615234375
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 10280.39453125
+            }
+          ],
+          "ratio": 1.0223831979559959
+        }
       ],
-      "errors": 0,
-      "completed": 1,
-      "exit_code": 0,
+      "raw_directory": "final2-runs/preemption-backlog-regression"
+    },
+    {
+      "case": "bounded-history-cache",
+      "patch_stem": "bounded-history-cache",
+      "expected_reward": 1,
+      "observed_reward": 1,
+      "elapsed_seconds": 436.571,
+      "entrypoint_exit": 0,
+      "patch_sha256": "0eb339beb7c94dfc38b5d9cf45f941963b3b4f401c8cc9bc56fa18323cd51bff",
       "verdict": {
         "completed": 12,
-        "failure_count": 2,
-        "required": 18,
-        "reward": 0,
-        "worker_exit_status": 256
+        "completed_cases": [
+          "idle-scaling",
+          "mixed-idle-scaling",
+          "engine-lifecycle",
+          "cancellation-races",
+          "mixed-fcfs",
+          "streaming-resumption",
+          "ready-backpressure",
+          "no-connector-regression",
+          "preemption-backlog-local",
+          "preemption-backlog-remote",
+          "retained-memory-local",
+          "retained-memory-remote"
+        ],
+        "failures": [],
+        "required": 12,
+        "reward": 1,
+        "worker_exit_status": 0
       },
-      "valid": true,
-      "trial_id": "preemption-backlog-regression__sXT3LE9",
-      "log_directory": "validation/rollout-hardening-v150-logs/harbor-preemption-backlog-regression",
-      "retained_memory": [],
-      "pre_run_manifest_sha256": "a79725c4f9e3389bd82745e8c0235da48b503754f4121fbe282726cc042da153"
+      "observations": [
+        {
+          "observation": "idle",
+          "mixed": false,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 8881.736328125
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 8837.728515625
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 8780.31640625
+            }
+          ],
+          "ratio": 0.9885810703979308
+        },
+        {
+          "observation": "idle",
+          "mixed": true,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 11522.509765625
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 12455.13671875
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 11534.974609375
+            }
+          ],
+          "ratio": 1.0010817820078735
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 256,
+          "live_python_bytes": 274219912,
+          "growth_bytes": 0
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 4096,
+          "live_python_bytes": 281269024,
+          "growth_bytes": 7049112
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 16384,
+          "live_python_bytes": 281271313,
+          "growth_bytes": 7051401
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 65536,
+          "live_python_bytes": 281271858,
+          "growth_bytes": 7051946
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 327680,
+          "live_python_bytes": 281273618,
+          "growth_bytes": 7053706
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 1310720,
+          "live_python_bytes": 281275746,
+          "growth_bytes": 7055834
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 256,
+          "live_python_bytes": 274221032,
+          "growth_bytes": 0
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 4096,
+          "live_python_bytes": 281268352,
+          "growth_bytes": 7047320
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 16384,
+          "live_python_bytes": 281270929,
+          "growth_bytes": 7049897
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 65536,
+          "live_python_bytes": 281271154,
+          "growth_bytes": 7050122
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 327680,
+          "live_python_bytes": 281273234,
+          "growth_bytes": 7052202
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 1310720,
+          "live_python_bytes": 281275106,
+          "growth_bytes": 7054074
+        }
+      ],
+      "raw_directory": "final2-runs/bounded-history-cache"
+    },
+    {
+      "case": "batched-history-reclamation",
+      "patch_stem": "batched-history-reclamation",
+      "expected_reward": 1,
+      "observed_reward": 1,
+      "elapsed_seconds": 545.623,
+      "entrypoint_exit": 0,
+      "patch_sha256": "127d3dfca1811435967638506effe1e4f0512956cc1bfe2ef3c6e383e36f3e10",
+      "verdict": {
+        "completed": 12,
+        "completed_cases": [
+          "idle-scaling",
+          "mixed-idle-scaling",
+          "engine-lifecycle",
+          "cancellation-races",
+          "mixed-fcfs",
+          "streaming-resumption",
+          "ready-backpressure",
+          "no-connector-regression",
+          "preemption-backlog-local",
+          "preemption-backlog-remote",
+          "retained-memory-local",
+          "retained-memory-remote"
+        ],
+        "failures": [],
+        "required": 12,
+        "reward": 1,
+        "worker_exit_status": 0
+      },
+      "observations": [
+        {
+          "observation": "idle",
+          "mixed": false,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 8898.447265625
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 8878.64453125
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 8788.984375
+            }
+          ],
+          "ratio": 0.9876986526573172
+        },
+        {
+          "observation": "idle",
+          "mixed": true,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 11527.98828125
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 11679.619140625
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 11533.818359375
+            }
+          ],
+          "ratio": 1.0005057324819182
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 256,
+          "live_python_bytes": 274218754,
+          "growth_bytes": 0
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 4096,
+          "live_python_bytes": 277241214,
+          "growth_bytes": 3022460
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 16384,
+          "live_python_bytes": 277242895,
+          "growth_bytes": 3024141
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 65536,
+          "live_python_bytes": 277243111,
+          "growth_bytes": 3024357
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 327680,
+          "live_python_bytes": 281273708,
+          "growth_bytes": 7054954
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 1310720,
+          "live_python_bytes": 281275868,
+          "growth_bytes": 7057114
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 256,
+          "live_python_bytes": 274219918,
+          "growth_bytes": 0
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 4096,
+          "live_python_bytes": 277241610,
+          "growth_bytes": 3021692
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 16384,
+          "live_python_bytes": 277243291,
+          "growth_bytes": 3023373
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 65536,
+          "live_python_bytes": 277243507,
+          "growth_bytes": 3023589
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 327680,
+          "live_python_bytes": 281273080,
+          "growth_bytes": 7053162
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 1310720,
+          "live_python_bytes": 281275208,
+          "growth_bytes": 7055290
+        }
+      ],
+      "raw_directory": "final2-runs/batched-history-reclamation"
     },
     {
       "case": "completed-history-retention",
-      "expected": 0,
-      "rewards": [
-        0.0
-      ],
-      "errors": 0,
-      "completed": 1,
-      "exit_code": 0,
+      "patch_stem": "completed-history-retention",
+      "expected_reward": 0,
+      "observed_reward": 0,
+      "elapsed_seconds": 51.567,
+      "entrypoint_exit": 0,
+      "patch_sha256": "070b70239104018938c249e2b9b9c226667762f735a04237128f53783fa91ae1",
       "verdict": {
-        "completed": 15,
-        "failure_count": 2,
-        "required": 18,
+        "completed": 10,
+        "completed_cases": [
+          "idle-scaling",
+          "mixed-idle-scaling",
+          "engine-lifecycle",
+          "cancellation-races",
+          "mixed-fcfs",
+          "streaming-resumption",
+          "ready-backpressure",
+          "no-connector-regression",
+          "preemption-backlog-local",
+          "preemption-backlog-remote"
+        ],
+        "failures": [
+          "AssertionError: retained Python memory exceeds 32 MiB: remote=False, {'completed': 16384, 'live_python_bytes': 338164316, 'growth_bytes': 63906691}"
+        ],
+        "required": 12,
+        "reward": 0,
+        "worker_exit_status": 9
+      },
+      "observations": [
+        {
+          "observation": "idle",
+          "mixed": false,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 7748.30078125
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 7600.328125
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 7559.900390625
+            }
+          ],
+          "ratio": 0.9756849410026897
+        },
+        {
+          "observation": "idle",
+          "mixed": true,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 10011.572265625
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 10095.517578125
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 9942.494140625
+            }
+          ],
+          "ratio": 0.9931001721640484
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 256,
+          "live_python_bytes": 274257625,
+          "growth_bytes": 0
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 4096,
+          "live_python_bytes": 289469115,
+          "growth_bytes": 15211490
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 16384,
+          "live_python_bytes": 338164316,
+          "growth_bytes": 63906691
+        }
+      ],
+      "raw_directory": "final2-runs/completed-history-retention"
+    },
+    {
+      "case": "forged-measurement-globals",
+      "patch_stem": "forged-measurement-globals",
+      "expected_reward": 0,
+      "observed_reward": 0,
+      "elapsed_seconds": 68.11,
+      "entrypoint_exit": 0,
+      "patch_sha256": "56f3b53d33dac67d46b373e597b558dac215a2c7ebf585da4f6fee4336af274f",
+      "verdict": {
+        "completed": 0,
+        "completed_cases": [],
+        "failures": [
+          "AssertionError: idle work grows with blocked population: mixed=False, ratio=142.94"
+        ],
+        "required": 12,
+        "reward": 0,
+        "worker_exit_status": 9
+      },
+      "observations": [
+        {
+          "observation": "idle",
+          "mixed": false,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 77337.1796875
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 1317127.3359375
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 11054843.14453125
+            }
+          ],
+          "ratio": 142.94344827676775
+        }
+      ],
+      "raw_directory": "final2-runs/forged-measurement-globals"
+    },
+    {
+      "case": "missing-unfinished-remote",
+      "patch_stem": "missing-unfinished-remote",
+      "expected_reward": 0,
+      "observed_reward": 0,
+      "elapsed_seconds": 29.492,
+      "entrypoint_exit": 0,
+      "patch_sha256": "6fe9fd073e160e0901b184a253c5ea1af32b86524203eed6485de5983131e869",
+      "verdict": {
+        "completed": 0,
+        "completed_cases": [],
+        "failures": [
+          "AssertionError: waiting requests lost: {'counts': [0, 64], 'unfinished': 0, 'has_requests': False, 'admitted': [], 'scheduled': {}, 'outputs': [], 'executor_calls': 1}"
+        ],
+        "required": 12,
+        "reward": 0,
+        "worker_exit_status": 9
+      },
+      "observations": [],
+      "raw_directory": "final2-runs/missing-unfinished-remote"
+    },
+    {
+      "case": "linear-idle-snapshot",
+      "patch_stem": "linear-idle-snapshot",
+      "expected_reward": 0,
+      "observed_reward": 0,
+      "elapsed_seconds": 28.45,
+      "entrypoint_exit": 0,
+      "patch_sha256": "3ff01cc6b8bb9d21deff0f4aeb3b17d3f4178f76f0dbf65eba2e1a96b4833ccd",
+      "verdict": {
+        "completed": 0,
+        "completed_cases": [],
+        "failures": [
+          "AssertionError: idle work grows with blocked population: mixed=False, ratio=7.25"
+        ],
+        "required": 12,
+        "reward": 0,
+        "worker_exit_status": 9
+      },
+      "observations": [
+        {
+          "observation": "idle",
+          "mixed": false,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 9657.234375
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 16081.626953125
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 69974.423828125
+            }
+          ],
+          "ratio": 7.245803623578826
+        }
+      ],
+      "raw_directory": "final2-runs/linear-idle-snapshot"
+    },
+    {
+      "case": "reordered-token-map",
+      "patch_stem": "reordered-token-map",
+      "expected_reward": 1,
+      "observed_reward": 1,
+      "elapsed_seconds": 411.875,
+      "entrypoint_exit": 0,
+      "patch_sha256": "2ecc67498ece3919611aff6837d7fb20e2d2ef11988092777f6b1e51458ba5ea",
+      "verdict": {
+        "completed": 12,
+        "completed_cases": [
+          "idle-scaling",
+          "mixed-idle-scaling",
+          "engine-lifecycle",
+          "cancellation-races",
+          "mixed-fcfs",
+          "streaming-resumption",
+          "ready-backpressure",
+          "no-connector-regression",
+          "preemption-backlog-local",
+          "preemption-backlog-remote",
+          "retained-memory-local",
+          "retained-memory-remote"
+        ],
+        "failures": [],
+        "required": 12,
+        "reward": 1,
+        "worker_exit_status": 0
+      },
+      "observations": [
+        {
+          "observation": "idle",
+          "mixed": false,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 9438.93359375
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 9388.9375
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 9320.64453125
+            }
+          ],
+          "ratio": 0.9874679632688247
+        },
+        {
+          "observation": "idle",
+          "mixed": true,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 12355.3203125
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 12281.78515625
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 12230.439453125
+            }
+          ],
+          "ratio": 0.989892543761196
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 256,
+          "live_python_bytes": 273252869,
+          "growth_bytes": 0
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 4096,
+          "live_python_bytes": 273252965,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 16384,
+          "live_python_bytes": 273252965,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 65536,
+          "live_python_bytes": 273252965,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 327680,
+          "live_python_bytes": 273252965,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 1310720,
+          "live_python_bytes": 273252965,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 256,
+          "live_python_bytes": 273254249,
+          "growth_bytes": 0
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 4096,
+          "live_python_bytes": 273254345,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 16384,
+          "live_python_bytes": 273254345,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 65536,
+          "live_python_bytes": 273254345,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 327680,
+          "live_python_bytes": 273254345,
+          "growth_bytes": 96
+        },
+        {
+          "observation": "retained-memory",
+          "remote": true,
+          "completed": 1310720,
+          "live_python_bytes": 273254345,
+          "growth_bytes": 96
+        }
+      ],
+      "raw_directory": "final2-runs/reordered-token-map"
+    },
+    {
+      "case": "unbounded-ready-versions",
+      "patch_stem": "unbounded-ready-versions",
+      "expected_reward": 0,
+      "observed_reward": 0,
+      "elapsed_seconds": 62.542,
+      "entrypoint_exit": 0,
+      "patch_sha256": "6b066919aaa6d904fb4f611fe9b55eb7f8f270be79781536c1294b97bcc01225",
+      "verdict": {
+        "completed": 10,
+        "completed_cases": [
+          "idle-scaling",
+          "mixed-idle-scaling",
+          "engine-lifecycle",
+          "cancellation-races",
+          "mixed-fcfs",
+          "streaming-resumption",
+          "ready-backpressure",
+          "no-connector-regression",
+          "preemption-backlog-local",
+          "preemption-backlog-remote"
+        ],
+        "failures": [
+          "AssertionError: retained Python memory exceeds 32 MiB: remote=False, {'completed': 327680, 'live_python_bytes': 309989622, 'growth_bytes': 36713672}"
+        ],
+        "required": 12,
+        "reward": 0,
+        "worker_exit_status": 9
+      },
+      "observations": [
+        {
+          "observation": "idle",
+          "mixed": false,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 7685.4296875
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 7605.201171875
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 7666.46875
+            }
+          ],
+          "ratio": 0.9975328721657764
+        },
+        {
+          "observation": "idle",
+          "mixed": true,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 7691.0859375
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 7688.970703125
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 7744.896484375
+            }
+          ],
+          "ratio": 1.0069964823319204
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 256,
+          "live_python_bytes": 273275950,
+          "growth_bytes": 0
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 4096,
+          "live_python_bytes": 273706662,
+          "growth_bytes": 430712
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 16384,
+          "live_python_bytes": 275093398,
+          "growth_bytes": 1817448
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 65536,
+          "live_python_bytes": 280926102,
+          "growth_bytes": 7650152
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 327680,
+          "live_python_bytes": 309989622,
+          "growth_bytes": 36713672
+        }
+      ],
+      "raw_directory": "final2-runs/unbounded-ready-versions"
+    },
+    {
+      "case": "undrained-kv-block-ids",
+      "patch_stem": "undrained-kv-block-ids",
+      "expected_reward": 0,
+      "observed_reward": 0,
+      "elapsed_seconds": 161.865,
+      "entrypoint_exit": 0,
+      "patch_sha256": "95fa2fbef5088bedad0e85f680173ce3abbc0b8cb9db601375af734cf21a50cc",
+      "verdict": {
+        "completed": 10,
+        "completed_cases": [
+          "idle-scaling",
+          "mixed-idle-scaling",
+          "engine-lifecycle",
+          "cancellation-races",
+          "mixed-fcfs",
+          "streaming-resumption",
+          "ready-backpressure",
+          "no-connector-regression",
+          "preemption-backlog-local",
+          "preemption-backlog-remote"
+        ],
+        "failures": [
+          "AssertionError: retained Python memory exceeds 32 MiB: remote=False, {'completed': 1310720, 'live_python_bytes': 312524551, 'growth_bytes': 39301952}"
+        ],
+        "required": 12,
+        "reward": 0,
+        "worker_exit_status": 9
+      },
+      "observations": [
+        {
+          "observation": "idle",
+          "mixed": false,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 8599.5078125
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 8592.81640625
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 8509.75
+            }
+          ],
+          "ratio": 0.9895624477054918
+        },
+        {
+          "observation": "idle",
+          "mixed": true,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 11279.45703125
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 11275.7578125
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 11339.90234375
+            }
+          ],
+          "ratio": 1.0053588849474344
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 256,
+          "live_python_bytes": 273222599,
+          "growth_bytes": 0
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 4096,
+          "live_python_bytes": 273336999,
+          "growth_bytes": 114400
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 16384,
+          "live_python_bytes": 273717863,
+          "growth_bytes": 495264
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 65536,
+          "live_python_bytes": 275053351,
+          "growth_bytes": 1830752
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 327680,
+          "live_python_bytes": 282779303,
+          "growth_bytes": 9556704
+        },
+        {
+          "observation": "retained-memory",
+          "remote": false,
+          "completed": 1310720,
+          "live_python_bytes": 312524551,
+          "growth_bytes": 39301952
+        }
+      ],
+      "raw_directory": "final2-runs/undrained-kv-block-ids"
+    },
+    {
+      "case": "forged-success-response",
+      "patch_stem": "forged-success-response",
+      "expected_reward": 0,
+      "observed_reward": 0,
+      "elapsed_seconds": 2.657,
+      "entrypoint_exit": 0,
+      "patch_sha256": "5fb1382a8f4a532f1b7878691476189bb2e73dbf34f8c5a9c4bd1b4b0c27f2de",
+      "verdict": {
+        "completed": 0,
+        "completed_cases": [],
+        "failures": [
+          "AssertionError: waiting requests lost: {'counts': [0, 0], 'unfinished': 0, 'has_requests': False, 'admitted': [], 'scheduled': {}, 'outputs': [], 'executor_calls': 1, 'rounds': 0, 'scheduled_tokens': 0, 'passed': True}"
+        ],
+        "required": 12,
+        "reward": 0,
+        "worker_exit_status": 9
+      },
+      "observations": [],
+      "raw_directory": "final2-runs/forged-success-response"
+    },
+    {
+      "case": "forged-allocation-observation",
+      "patch_stem": "forged-allocation-observation",
+      "expected_reward": 0,
+      "observed_reward": 0,
+      "elapsed_seconds": 29.19,
+      "entrypoint_exit": 0,
+      "patch_sha256": "212b1dff72948ee5aac38dde1eb0bf5eefdb21fefffa626fe7b57a18cfc73475",
+      "verdict": {
+        "completed": 10,
+        "completed_cases": [
+          "idle-scaling",
+          "mixed-idle-scaling",
+          "engine-lifecycle",
+          "cancellation-races",
+          "mixed-fcfs",
+          "streaming-resumption",
+          "ready-backpressure",
+          "no-connector-regression",
+          "preemption-backlog-local",
+          "preemption-backlog-remote"
+        ],
+        "failures": [
+          "RuntimeError: unauthenticated allocation observation"
+        ],
+        "required": 12,
+        "reward": 0,
+        "worker_exit_status": 9
+      },
+      "observations": [
+        {
+          "observation": "idle",
+          "mixed": false,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 8771.74609375
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 8730.828125
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 8813.853515625
+            }
+          ],
+          "ratio": 1.0048003466385105
+        },
+        {
+          "observation": "idle",
+          "mixed": true,
+          "rows": [
+            {
+              "requests": 64,
+              "cpu_ns_per_tick": 11567.2421875
+            },
+            {
+              "requests": 1024,
+              "cpu_ns_per_tick": 11607.767578125
+            },
+            {
+              "requests": 8192,
+              "cpu_ns_per_tick": 11513.958984375
+            }
+          ],
+          "ratio": 0.9953936122144499
+        }
+      ],
+      "raw_directory": "final2-runs/forged-allocation-observation"
+    }
+  ],
+  "harbor_results": [
+    {
+      "case": "oracle",
+      "trial_id": "oracle__qbMSwaH",
+      "job_id": "98f7c0a1-1fd9-4afd-b877-3dce196deb46",
+      "reward": 1,
+      "errored_trials": 0,
+      "verdict": {
+        "completed": 12,
+        "completed_cases": [
+          "idle-scaling",
+          "mixed-idle-scaling",
+          "engine-lifecycle",
+          "cancellation-races",
+          "mixed-fcfs",
+          "streaming-resumption",
+          "ready-backpressure",
+          "no-connector-regression",
+          "preemption-backlog-local",
+          "preemption-backlog-remote",
+          "retained-memory-local",
+          "retained-memory-remote"
+        ],
+        "failures": [],
+        "required": 12,
+        "reward": 1,
+        "worker_exit_status": 0
+      },
+      "input_files_sha256": {
+        "README.md": "1347940d26b1e4ec89424a3315855c71318b57c672144e58c59f339d8187a515",
+        "instruction.md": "a5add0faf095c3a38ddd8333e2cfc38bcd0c06358d7db3e3f4effc9146124ec2",
+        ".gitattributes": "af25ef820bba1398a8b084a68fe8c6d5f68d7948e1b6dddf1580e105bdc5cdd4",
+        "task.toml": "7d394d0a09469f76e752753a49e290ba15cd150ba9d84f6cc5289b6514d0a787",
+        "environment/image-manifest.json": "d8a2923ef63504c648679401564e0e3a15712975a8d3e82c344d126c6c72e810",
+        "environment/.dockerignore": "1db9778aedf9bb81403b0928c2de361791ac7a8a8d34dcdf17c86663b362c0c7",
+        "environment/Dockerfile": "5a83796d8ce9436ea390bd81450fe38c08b7f95adab17172c40d5505685e2631",
+        "solution/solve.sh": "84f061d3c31ff07766ae3885f64c58537deac84c825224495019cc074d2551d1",
+        "solution/oracle.patch": "317613fd4da32cc7e8595dc8cd2d716a907268e7bffcdc76f157fe636c5e4dc2",
+        "validation/e2e-evidence.json": "17e3660f63ca8c0164cd6507040fc2cbfb958c263f9f3bf23d28130bc0b4d16a",
+        "validation/reordered-token-map.patch": "2ecc67498ece3919611aff6837d7fb20e2d2ef11988092777f6b1e51458ba5ea",
+        "validation/review-report.md": "daacef087783b38d391c8e7fb93d6c9da777cfc043929e2385bb438b59ee0093",
+        "validation/forged-success-response.patch": "5fb1382a8f4a532f1b7878691476189bb2e73dbf34f8c5a9c4bd1b4b0c27f2de",
+        "validation/forged-measurement-globals.patch": "56f3b53d33dac67d46b373e597b558dac215a2c7ebf585da4f6fee4336af274f",
+        "validation/linear-idle-snapshot.patch": "3ff01cc6b8bb9d21deff0f4aeb3b17d3f4178f76f0dbf65eba2e1a96b4833ccd",
+        "validation/incomplete-agent-implementation.patch": "df2aa5d8c37baa7e23bcfae3c2a034027b2fe67c24fb535accef5e92325e0fe8",
+        "validation/unbounded-ready-versions.patch": "6b066919aaa6d904fb4f611fe9b55eb7f8f270be79781536c1294b97bcc01225",
+        "validation/batched-history-reclamation.patch": "127d3dfca1811435967638506effe1e4f0512956cc1bfe2ef3c6e383e36f3e10",
+        "validation/missing-unfinished-remote.patch": "6fe9fd073e160e0901b184a253c5ea1af32b86524203eed6485de5983131e869",
+        "validation/early-exit-systemexit.patch": "80f7fd0dce410eb62373fa96daeb380acaf16d0de85b03872956c1a0e142a2fe",
+        "validation/historical-oracle-starves-stream.patch": "1eae238c5965218c735fbe77fe73f5cdbaab8d9a71165481b1643c8e45986961",
+        "validation/completed-history-retention.patch": "070b70239104018938c249e2b9b9c226667762f735a04237128f53783fa91ae1",
+        "validation/ci-cases.json": "9a5c8f59cf1aa396b5ef76264053fcb6343a5d4ba4939bdb1ca66efbe3ec8643",
+        "validation/alternative-agent-implementation.patch": "aa1d93e67237c99ade5cdc2de46535098e774f3535af939d5402787958898df3",
+        "validation/event-ready-heap-alternative.patch": "9d5732d06b2faeb80bb865f8262e0459695f84ff2bb86b4889c1980372c41f96",
+        "validation/remediation-matrix.md": "50956a7c512f99f03623af11b9bdd0992225c1864e21e6b13c85477bbce24e78",
+        "validation/evidence.zip": "511d5795b6dadaa3e6a32602e96849f8b004a057bb23b864f3620c343780ad6b",
+        "validation/bounded-history-cache.patch": "0eb339beb7c94dfc38b5d9cf45f941963b3b4f401c8cc9bc56fa18323cd51bff",
+        "validation/forged-success-output.patch": "d3f5d639f10568793e0e79a4374757de25c2c0cb193fd2e87019dda0613e40b1",
+        "validation/undrained-kv-block-ids.patch": "95fa2fbef5088bedad0e85f680173ce3abbc0b8cb9db601375af734cf21a50cc",
+        "validation/dropped-client-output.patch": "01dd87c985db5dbfb08fc2aa47d2b867150ee89eef473abfca055b9ebd27a9b2",
+        "validation/preemption-backlog-regression.patch": "ef4235fd1d6233b1a2559bd3f9646c2de2b8b34834126148c5204d3f22d33e8c",
+        "validation/forged-allocation-observation.patch": "212b1dff72948ee5aac38dde1eb0bf5eefdb21fefffa626fe7b57a18cfc73475",
+        "validation/early-exit-os-exit.patch": "7e8264005f8d1cbc83bbe2fe6d9195e6ff06c117600fa08b5d41c620294c4d46",
+        "tests/test.sh": "60622bacfc8d6211ee6f62925d805e8784f260e1e69d6e22eac4799ec2191860",
+        "tests/checkpoint.c": "50cfafc81716aa5ff5d6b7ce4617b0477cb0ed8699fdfad6834fa8f010d23f02",
+        "tests/worker.py": "3cdeb1fdbeefeeec15377d73ff7a56f9c65939d6fcdc6d2b2f5dfd5bcee18c38",
+        "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+        "tests/verify_blocked_waiting.py": "375474ecf58900a3d8b234df300cd0c0d463273591418a25e888e612300d7e16",
+        "tests/fixtures.py": "e1e4de080041890d711271417b29183f4172366416fe98d93bd7a2e89cb3a37f",
+        "tests/supervise_verifier.py": "ccd9ea2a5d71e0dcf6054015a4e421337c47c3ba17bca32ec46bb68017db2670",
+        "environment/lock/README.md": "28e46a8c03e82d2e79a2357d56ed546a6a6b28dbfca373183b7497af6833f13f",
+        "environment/lock/requirements.txt": "d66b1c0ec910a2220a1a5cd871df5864031c51e6df814f4be58c0caeda873eaf",
+        "environment/lock/environment.json": "138e7b417685672ca9e4d322f8c6df5ffb68c09498f7a20f0728b155adb0771a",
+        "environment/lock/manifest.json": "bf98d65f6297ad6c9345760117f6f6c32b88bc860393c32d17372b7d21cdc4b6",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/refs/main": "832d4296b9efae38de77618d119e5d7b2c5cd4f1ee84c9fb4ecbaac92145577b",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/tokenizer_config.json": "79b7f1ebceddf7235f3791c387d781818b0c7e7cf868d0e4f71896a55b949833",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/added_tokens.json": "a94c56096001713e3eb9a34b1a545a8c1d5e8034ed2fb81f897c8cb54b420121",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/chat_template.json": "854445c0a45532ecbee1ae9aa31d4be19644060a156f2c88456f50f584261543",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/special_tokens_map.json": "358c249e2fb29060c6b73157d428853b0c48710deffc8ee670ab1013880946c9",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/generation_config.json": "3a6dc8c202be258023f58a03f804bdcacf138b8a2cc7492be2530e16945a0951",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/preprocessor_config.json": "a8d5e64ee5c07ff6d70142856d178ac39d0563da3612e32110fa824f5337b7a1",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/tokenizer.json": "30e1294abd835edfebb24618fce6f47c21ffb2b2802520d150bdee0b808b47cb",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/tokenizer.model": "9e556afd44213b6bd1be2b850ebbbd98f5481437a8021afaf58ee7fb1818d347",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/chat_template.jinja": "6fef09c05345e88b9f85e80bcb3491003332050750586568bdf91cfa81965d0c",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/processor_config.json": "fef918d6ba333f72a066877965bc4a162308568ba62aa90c806caedf7b45d64e",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/config.json": "0bde54495c54bcc346064a0d314b010d1c4d3ca7f7e583b6f711949a35352c0f",
+        "environment/lock/hf-cache/models--facebook--opt-125m/refs/main": "2a4cc6751be85eaaad8b75766af0d440f5b91bc9892fd54e9db02ff991494918",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/tokenizer_config.json": "d1e4185b43a0a06421ab7218d5c1a775350bd13024507b34fbed25dcf6c14c6b",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/special_tokens_map.json": "0f3cd5f307a2735cfee31ddf33be88655e8be165ee2cdc26ced966f04258adf0",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/generation_config.json": "d37de99f9835d7a4d0916257f724504d12c4a668f36a50b2d42e09ba4ebd05d5",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/merges.txt": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/vocab.json": "06b4d46c8e752d410213d9548eb27a54db70fda0319b6271fb8d59dead5e1cab",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/config.json": "54162c9cd0377110df1859dfabebb106fc0988c8aadb88207ce1ee0d34985df6",
+        "validation/history/forged-checkpoint-v150.patch": "ffd38b619236dfabb41e6e617885802861db5b2686c9908465a6ef7a8486e0e4",
+        "validation/history/curation-history.zip": "0b44730511a465e13e454d705f636ddddda2010dcd10bcf9a9d77fce7c674cf9",
+        "validation/history/forged-callback-v150.patch": "a5e41321bffaa1e8c24aba3dad1419b7d67b7fe444f7267b6926e8daf910de40"
+      },
+      "raw_directory": "harbor-final2-jobs/oracle"
+    },
+    {
+      "case": "early-exit-systemexit",
+      "trial_id": "early-exit-systemexit__SttmUqm",
+      "job_id": "f2a0b492-a92d-4913-8630-a5ee35726e21",
+      "reward": 0,
+      "errored_trials": 0,
+      "verdict": {
+        "completed": 0,
+        "completed_cases": [],
+        "failures": [
+          "RuntimeError: candidate exited before required behavior checks"
+        ],
+        "required": 12,
         "reward": 0,
         "worker_exit_status": 256
       },
-      "valid": true,
-      "trial_id": "completed-history-retention__VH4rsSG",
-      "log_directory": "validation/rollout-hardening-v150-logs/harbor-completed-history-retention",
-      "retained_memory": [
-        {
-          "budget_bytes": 33554432,
-          "observations": [
-            {
-              "completed_requests": 256,
-              "growth_after_warmup_bytes": 0,
-              "live_python_bytes": 1142784
-            },
-            {
-              "completed_requests": 4096,
-              "growth_after_warmup_bytes": 17796314,
-              "live_python_bytes": 18939098
-            },
-            {
-              "completed_requests": 16384,
-              "growth_after_warmup_bytes": 74763075,
-              "live_python_bytes": 75905859
-            }
-          ],
-          "remote": false,
-          "warmup_requests": 256
-        }
-      ],
-      "pre_run_manifest_sha256": "0545e321d5a1b9b5207558a47749411e1e979432ab13c61e0c5d98e7a9acaf57"
-    }
-  ],
-  "fresh_agent_results": [
-    {
-      "trial_name": "pr61-deepseek-h1-r01__i9MEADK",
-      "task_checksum": "45cfeb2b839908596c04f6e52ddb6e54ac386c539c3db6b2a5f524c37771282e",
-      "started_at": "2026-09-17T08:17:28.122099Z",
-      "finished_at": "2026-09-17T09:59:39.143742Z",
-      "verifier_result": {
-        "rewards": {
-          "completed": 18,
-          "failure_count": 0,
-          "required": 18,
-          "reward": 1,
-          "worker_exit_status": 0
-        }
+      "input_files_sha256": {
+        "README.md": "1347940d26b1e4ec89424a3315855c71318b57c672144e58c59f339d8187a515",
+        "instruction.md": "a5add0faf095c3a38ddd8333e2cfc38bcd0c06358d7db3e3f4effc9146124ec2",
+        ".gitattributes": "af25ef820bba1398a8b084a68fe8c6d5f68d7948e1b6dddf1580e105bdc5cdd4",
+        "task.toml": "7d394d0a09469f76e752753a49e290ba15cd150ba9d84f6cc5289b6514d0a787",
+        "environment/image-manifest.json": "d8a2923ef63504c648679401564e0e3a15712975a8d3e82c344d126c6c72e810",
+        "environment/.dockerignore": "1db9778aedf9bb81403b0928c2de361791ac7a8a8d34dcdf17c86663b362c0c7",
+        "environment/Dockerfile": "5a83796d8ce9436ea390bd81450fe38c08b7f95adab17172c40d5505685e2631",
+        "solution/solve.sh": "84f061d3c31ff07766ae3885f64c58537deac84c825224495019cc074d2551d1",
+        "solution/oracle.patch": "80f7fd0dce410eb62373fa96daeb380acaf16d0de85b03872956c1a0e142a2fe",
+        "validation/e2e-evidence.json": "17e3660f63ca8c0164cd6507040fc2cbfb958c263f9f3bf23d28130bc0b4d16a",
+        "validation/reordered-token-map.patch": "2ecc67498ece3919611aff6837d7fb20e2d2ef11988092777f6b1e51458ba5ea",
+        "validation/review-report.md": "daacef087783b38d391c8e7fb93d6c9da777cfc043929e2385bb438b59ee0093",
+        "validation/forged-success-response.patch": "5fb1382a8f4a532f1b7878691476189bb2e73dbf34f8c5a9c4bd1b4b0c27f2de",
+        "validation/forged-measurement-globals.patch": "56f3b53d33dac67d46b373e597b558dac215a2c7ebf585da4f6fee4336af274f",
+        "validation/linear-idle-snapshot.patch": "3ff01cc6b8bb9d21deff0f4aeb3b17d3f4178f76f0dbf65eba2e1a96b4833ccd",
+        "validation/incomplete-agent-implementation.patch": "df2aa5d8c37baa7e23bcfae3c2a034027b2fe67c24fb535accef5e92325e0fe8",
+        "validation/unbounded-ready-versions.patch": "6b066919aaa6d904fb4f611fe9b55eb7f8f270be79781536c1294b97bcc01225",
+        "validation/batched-history-reclamation.patch": "127d3dfca1811435967638506effe1e4f0512956cc1bfe2ef3c6e383e36f3e10",
+        "validation/missing-unfinished-remote.patch": "6fe9fd073e160e0901b184a253c5ea1af32b86524203eed6485de5983131e869",
+        "validation/early-exit-systemexit.patch": "80f7fd0dce410eb62373fa96daeb380acaf16d0de85b03872956c1a0e142a2fe",
+        "validation/historical-oracle-starves-stream.patch": "1eae238c5965218c735fbe77fe73f5cdbaab8d9a71165481b1643c8e45986961",
+        "validation/completed-history-retention.patch": "070b70239104018938c249e2b9b9c226667762f735a04237128f53783fa91ae1",
+        "validation/ci-cases.json": "9a5c8f59cf1aa396b5ef76264053fcb6343a5d4ba4939bdb1ca66efbe3ec8643",
+        "validation/alternative-agent-implementation.patch": "aa1d93e67237c99ade5cdc2de46535098e774f3535af939d5402787958898df3",
+        "validation/event-ready-heap-alternative.patch": "9d5732d06b2faeb80bb865f8262e0459695f84ff2bb86b4889c1980372c41f96",
+        "validation/remediation-matrix.md": "50956a7c512f99f03623af11b9bdd0992225c1864e21e6b13c85477bbce24e78",
+        "validation/evidence.zip": "511d5795b6dadaa3e6a32602e96849f8b004a057bb23b864f3620c343780ad6b",
+        "validation/bounded-history-cache.patch": "0eb339beb7c94dfc38b5d9cf45f941963b3b4f401c8cc9bc56fa18323cd51bff",
+        "validation/forged-success-output.patch": "d3f5d639f10568793e0e79a4374757de25c2c0cb193fd2e87019dda0613e40b1",
+        "validation/undrained-kv-block-ids.patch": "95fa2fbef5088bedad0e85f680173ce3abbc0b8cb9db601375af734cf21a50cc",
+        "validation/dropped-client-output.patch": "01dd87c985db5dbfb08fc2aa47d2b867150ee89eef473abfca055b9ebd27a9b2",
+        "validation/preemption-backlog-regression.patch": "ef4235fd1d6233b1a2559bd3f9646c2de2b8b34834126148c5204d3f22d33e8c",
+        "validation/forged-allocation-observation.patch": "212b1dff72948ee5aac38dde1eb0bf5eefdb21fefffa626fe7b57a18cfc73475",
+        "validation/early-exit-os-exit.patch": "7e8264005f8d1cbc83bbe2fe6d9195e6ff06c117600fa08b5d41c620294c4d46",
+        "tests/test.sh": "60622bacfc8d6211ee6f62925d805e8784f260e1e69d6e22eac4799ec2191860",
+        "tests/checkpoint.c": "50cfafc81716aa5ff5d6b7ce4617b0477cb0ed8699fdfad6834fa8f010d23f02",
+        "tests/worker.py": "3cdeb1fdbeefeeec15377d73ff7a56f9c65939d6fcdc6d2b2f5dfd5bcee18c38",
+        "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+        "tests/verify_blocked_waiting.py": "375474ecf58900a3d8b234df300cd0c0d463273591418a25e888e612300d7e16",
+        "tests/fixtures.py": "e1e4de080041890d711271417b29183f4172366416fe98d93bd7a2e89cb3a37f",
+        "tests/supervise_verifier.py": "ccd9ea2a5d71e0dcf6054015a4e421337c47c3ba17bca32ec46bb68017db2670",
+        "environment/lock/README.md": "28e46a8c03e82d2e79a2357d56ed546a6a6b28dbfca373183b7497af6833f13f",
+        "environment/lock/requirements.txt": "d66b1c0ec910a2220a1a5cd871df5864031c51e6df814f4be58c0caeda873eaf",
+        "environment/lock/environment.json": "138e7b417685672ca9e4d322f8c6df5ffb68c09498f7a20f0728b155adb0771a",
+        "environment/lock/manifest.json": "bf98d65f6297ad6c9345760117f6f6c32b88bc860393c32d17372b7d21cdc4b6",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/refs/main": "832d4296b9efae38de77618d119e5d7b2c5cd4f1ee84c9fb4ecbaac92145577b",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/tokenizer_config.json": "79b7f1ebceddf7235f3791c387d781818b0c7e7cf868d0e4f71896a55b949833",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/added_tokens.json": "a94c56096001713e3eb9a34b1a545a8c1d5e8034ed2fb81f897c8cb54b420121",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/chat_template.json": "854445c0a45532ecbee1ae9aa31d4be19644060a156f2c88456f50f584261543",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/special_tokens_map.json": "358c249e2fb29060c6b73157d428853b0c48710deffc8ee670ab1013880946c9",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/generation_config.json": "3a6dc8c202be258023f58a03f804bdcacf138b8a2cc7492be2530e16945a0951",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/preprocessor_config.json": "a8d5e64ee5c07ff6d70142856d178ac39d0563da3612e32110fa824f5337b7a1",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/tokenizer.json": "30e1294abd835edfebb24618fce6f47c21ffb2b2802520d150bdee0b808b47cb",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/tokenizer.model": "9e556afd44213b6bd1be2b850ebbbd98f5481437a8021afaf58ee7fb1818d347",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/chat_template.jinja": "6fef09c05345e88b9f85e80bcb3491003332050750586568bdf91cfa81965d0c",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/processor_config.json": "fef918d6ba333f72a066877965bc4a162308568ba62aa90c806caedf7b45d64e",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/config.json": "0bde54495c54bcc346064a0d314b010d1c4d3ca7f7e583b6f711949a35352c0f",
+        "environment/lock/hf-cache/models--facebook--opt-125m/refs/main": "2a4cc6751be85eaaad8b75766af0d440f5b91bc9892fd54e9db02ff991494918",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/tokenizer_config.json": "d1e4185b43a0a06421ab7218d5c1a775350bd13024507b34fbed25dcf6c14c6b",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/special_tokens_map.json": "0f3cd5f307a2735cfee31ddf33be88655e8be165ee2cdc26ced966f04258adf0",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/generation_config.json": "d37de99f9835d7a4d0916257f724504d12c4a668f36a50b2d42e09ba4ebd05d5",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/merges.txt": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/vocab.json": "06b4d46c8e752d410213d9548eb27a54db70fda0319b6271fb8d59dead5e1cab",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/config.json": "54162c9cd0377110df1859dfabebb106fc0988c8aadb88207ce1ee0d34985df6",
+        "validation/history/forged-checkpoint-v150.patch": "ffd38b619236dfabb41e6e617885802861db5b2686c9908465a6ef7a8486e0e4",
+        "validation/history/curation-history.zip": "0b44730511a465e13e454d705f636ddddda2010dcd10bcf9a9d77fce7c674cf9",
+        "validation/history/forged-callback-v150.patch": "a5e41321bffaa1e8c24aba3dad1419b7d67b7fe444f7267b6926e8daf910de40"
       },
-      "exception_info": null,
-      "original_result_sha256": "d23fc866128279eae7b9f4c88ef83eee38e23aee15542d596afb6e42a9284e36",
-      "model": "openai/deepseek-v4-flash",
-      "campaign": "deepseek-pr60-pr61-r3-20260917"
+      "raw_directory": "harbor-final2-jobs/early-exit-systemexit"
     },
     {
-      "trial_name": "pr61-deepseek-h1-r02__HB3KWFK",
-      "task_checksum": "45cfeb2b839908596c04f6e52ddb6e54ac386c539c3db6b2a5f524c37771282e",
-      "started_at": "2026-09-17T08:17:28.371644Z",
-      "finished_at": "2026-09-17T09:57:02.053666Z",
-      "verifier_result": {
-        "rewards": {
-          "completed": 18,
-          "failure_count": 0,
-          "required": 18,
-          "reward": 1,
-          "worker_exit_status": 0
-        }
+      "case": "early-exit-os-exit",
+      "trial_id": "early-exit-os-exit__ug4N2Qu",
+      "job_id": "ec95717c-5922-494a-9e71-506c0eba4a08",
+      "reward": 0,
+      "errored_trials": 0,
+      "verdict": {
+        "completed": 0,
+        "completed_cases": [],
+        "failures": [
+          "RuntimeError: candidate exited before required behavior checks"
+        ],
+        "required": 12,
+        "reward": 0,
+        "worker_exit_status": 0
       },
-      "exception_info": null,
-      "original_result_sha256": "29a0693ed596d2ba9379737575f104aea83930d4b3fe23b0bc20b39c00b63315",
-      "model": "openai/deepseek-v4-flash",
-      "campaign": "deepseek-pr60-pr61-r3-20260917"
+      "input_files_sha256": {
+        "README.md": "1347940d26b1e4ec89424a3315855c71318b57c672144e58c59f339d8187a515",
+        "instruction.md": "a5add0faf095c3a38ddd8333e2cfc38bcd0c06358d7db3e3f4effc9146124ec2",
+        ".gitattributes": "af25ef820bba1398a8b084a68fe8c6d5f68d7948e1b6dddf1580e105bdc5cdd4",
+        "task.toml": "7d394d0a09469f76e752753a49e290ba15cd150ba9d84f6cc5289b6514d0a787",
+        "environment/image-manifest.json": "d8a2923ef63504c648679401564e0e3a15712975a8d3e82c344d126c6c72e810",
+        "environment/.dockerignore": "1db9778aedf9bb81403b0928c2de361791ac7a8a8d34dcdf17c86663b362c0c7",
+        "environment/Dockerfile": "5a83796d8ce9436ea390bd81450fe38c08b7f95adab17172c40d5505685e2631",
+        "solution/solve.sh": "84f061d3c31ff07766ae3885f64c58537deac84c825224495019cc074d2551d1",
+        "solution/oracle.patch": "7e8264005f8d1cbc83bbe2fe6d9195e6ff06c117600fa08b5d41c620294c4d46",
+        "validation/e2e-evidence.json": "17e3660f63ca8c0164cd6507040fc2cbfb958c263f9f3bf23d28130bc0b4d16a",
+        "validation/reordered-token-map.patch": "2ecc67498ece3919611aff6837d7fb20e2d2ef11988092777f6b1e51458ba5ea",
+        "validation/review-report.md": "daacef087783b38d391c8e7fb93d6c9da777cfc043929e2385bb438b59ee0093",
+        "validation/forged-success-response.patch": "5fb1382a8f4a532f1b7878691476189bb2e73dbf34f8c5a9c4bd1b4b0c27f2de",
+        "validation/forged-measurement-globals.patch": "56f3b53d33dac67d46b373e597b558dac215a2c7ebf585da4f6fee4336af274f",
+        "validation/linear-idle-snapshot.patch": "3ff01cc6b8bb9d21deff0f4aeb3b17d3f4178f76f0dbf65eba2e1a96b4833ccd",
+        "validation/incomplete-agent-implementation.patch": "df2aa5d8c37baa7e23bcfae3c2a034027b2fe67c24fb535accef5e92325e0fe8",
+        "validation/unbounded-ready-versions.patch": "6b066919aaa6d904fb4f611fe9b55eb7f8f270be79781536c1294b97bcc01225",
+        "validation/batched-history-reclamation.patch": "127d3dfca1811435967638506effe1e4f0512956cc1bfe2ef3c6e383e36f3e10",
+        "validation/missing-unfinished-remote.patch": "6fe9fd073e160e0901b184a253c5ea1af32b86524203eed6485de5983131e869",
+        "validation/early-exit-systemexit.patch": "80f7fd0dce410eb62373fa96daeb380acaf16d0de85b03872956c1a0e142a2fe",
+        "validation/historical-oracle-starves-stream.patch": "1eae238c5965218c735fbe77fe73f5cdbaab8d9a71165481b1643c8e45986961",
+        "validation/completed-history-retention.patch": "070b70239104018938c249e2b9b9c226667762f735a04237128f53783fa91ae1",
+        "validation/ci-cases.json": "9a5c8f59cf1aa396b5ef76264053fcb6343a5d4ba4939bdb1ca66efbe3ec8643",
+        "validation/alternative-agent-implementation.patch": "aa1d93e67237c99ade5cdc2de46535098e774f3535af939d5402787958898df3",
+        "validation/event-ready-heap-alternative.patch": "9d5732d06b2faeb80bb865f8262e0459695f84ff2bb86b4889c1980372c41f96",
+        "validation/remediation-matrix.md": "50956a7c512f99f03623af11b9bdd0992225c1864e21e6b13c85477bbce24e78",
+        "validation/evidence.zip": "511d5795b6dadaa3e6a32602e96849f8b004a057bb23b864f3620c343780ad6b",
+        "validation/bounded-history-cache.patch": "0eb339beb7c94dfc38b5d9cf45f941963b3b4f401c8cc9bc56fa18323cd51bff",
+        "validation/forged-success-output.patch": "d3f5d639f10568793e0e79a4374757de25c2c0cb193fd2e87019dda0613e40b1",
+        "validation/undrained-kv-block-ids.patch": "95fa2fbef5088bedad0e85f680173ce3abbc0b8cb9db601375af734cf21a50cc",
+        "validation/dropped-client-output.patch": "01dd87c985db5dbfb08fc2aa47d2b867150ee89eef473abfca055b9ebd27a9b2",
+        "validation/preemption-backlog-regression.patch": "ef4235fd1d6233b1a2559bd3f9646c2de2b8b34834126148c5204d3f22d33e8c",
+        "validation/forged-allocation-observation.patch": "212b1dff72948ee5aac38dde1eb0bf5eefdb21fefffa626fe7b57a18cfc73475",
+        "validation/early-exit-os-exit.patch": "7e8264005f8d1cbc83bbe2fe6d9195e6ff06c117600fa08b5d41c620294c4d46",
+        "tests/test.sh": "60622bacfc8d6211ee6f62925d805e8784f260e1e69d6e22eac4799ec2191860",
+        "tests/checkpoint.c": "50cfafc81716aa5ff5d6b7ce4617b0477cb0ed8699fdfad6834fa8f010d23f02",
+        "tests/worker.py": "3cdeb1fdbeefeeec15377d73ff7a56f9c65939d6fcdc6d2b2f5dfd5bcee18c38",
+        "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+        "tests/verify_blocked_waiting.py": "375474ecf58900a3d8b234df300cd0c0d463273591418a25e888e612300d7e16",
+        "tests/fixtures.py": "e1e4de080041890d711271417b29183f4172366416fe98d93bd7a2e89cb3a37f",
+        "tests/supervise_verifier.py": "ccd9ea2a5d71e0dcf6054015a4e421337c47c3ba17bca32ec46bb68017db2670",
+        "environment/lock/README.md": "28e46a8c03e82d2e79a2357d56ed546a6a6b28dbfca373183b7497af6833f13f",
+        "environment/lock/requirements.txt": "d66b1c0ec910a2220a1a5cd871df5864031c51e6df814f4be58c0caeda873eaf",
+        "environment/lock/environment.json": "138e7b417685672ca9e4d322f8c6df5ffb68c09498f7a20f0728b155adb0771a",
+        "environment/lock/manifest.json": "bf98d65f6297ad6c9345760117f6f6c32b88bc860393c32d17372b7d21cdc4b6",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/refs/main": "832d4296b9efae38de77618d119e5d7b2c5cd4f1ee84c9fb4ecbaac92145577b",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/tokenizer_config.json": "79b7f1ebceddf7235f3791c387d781818b0c7e7cf868d0e4f71896a55b949833",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/added_tokens.json": "a94c56096001713e3eb9a34b1a545a8c1d5e8034ed2fb81f897c8cb54b420121",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/chat_template.json": "854445c0a45532ecbee1ae9aa31d4be19644060a156f2c88456f50f584261543",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/special_tokens_map.json": "358c249e2fb29060c6b73157d428853b0c48710deffc8ee670ab1013880946c9",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/generation_config.json": "3a6dc8c202be258023f58a03f804bdcacf138b8a2cc7492be2530e16945a0951",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/preprocessor_config.json": "a8d5e64ee5c07ff6d70142856d178ac39d0563da3612e32110fa824f5337b7a1",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/tokenizer.json": "30e1294abd835edfebb24618fce6f47c21ffb2b2802520d150bdee0b808b47cb",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/tokenizer.model": "9e556afd44213b6bd1be2b850ebbbd98f5481437a8021afaf58ee7fb1818d347",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/chat_template.jinja": "6fef09c05345e88b9f85e80bcb3491003332050750586568bdf91cfa81965d0c",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/processor_config.json": "fef918d6ba333f72a066877965bc4a162308568ba62aa90c806caedf7b45d64e",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/config.json": "0bde54495c54bcc346064a0d314b010d1c4d3ca7f7e583b6f711949a35352c0f",
+        "environment/lock/hf-cache/models--facebook--opt-125m/refs/main": "2a4cc6751be85eaaad8b75766af0d440f5b91bc9892fd54e9db02ff991494918",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/tokenizer_config.json": "d1e4185b43a0a06421ab7218d5c1a775350bd13024507b34fbed25dcf6c14c6b",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/special_tokens_map.json": "0f3cd5f307a2735cfee31ddf33be88655e8be165ee2cdc26ced966f04258adf0",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/generation_config.json": "d37de99f9835d7a4d0916257f724504d12c4a668f36a50b2d42e09ba4ebd05d5",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/merges.txt": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/vocab.json": "06b4d46c8e752d410213d9548eb27a54db70fda0319b6271fb8d59dead5e1cab",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/config.json": "54162c9cd0377110df1859dfabebb106fc0988c8aadb88207ce1ee0d34985df6",
+        "validation/history/forged-checkpoint-v150.patch": "ffd38b619236dfabb41e6e617885802861db5b2686c9908465a6ef7a8486e0e4",
+        "validation/history/curation-history.zip": "0b44730511a465e13e454d705f636ddddda2010dcd10bcf9a9d77fce7c674cf9",
+        "validation/history/forged-callback-v150.patch": "a5e41321bffaa1e8c24aba3dad1419b7d67b7fe444f7267b6926e8daf910de40"
+      },
+      "raw_directory": "harbor-final2-jobs/early-exit-os-exit"
     },
     {
-      "trial_name": "pr61-deepseek-h1-r03__j2vPuG5",
-      "task_checksum": "45cfeb2b839908596c04f6e52ddb6e54ac386c539c3db6b2a5f524c37771282e",
-      "started_at": "2026-09-17T08:17:28.003459Z",
-      "finished_at": "2026-09-17T10:16:04.149839Z",
-      "verifier_result": {
-        "rewards": {
-          "completed": 18,
-          "failure_count": 0,
-          "required": 18,
-          "reward": 1,
-          "worker_exit_status": 0
-        }
+      "case": "forged-measurement-globals",
+      "trial_id": "forged-measurement-globals__VJWzpeS",
+      "job_id": "027da888-7a5b-438c-9811-bba06bd30233",
+      "reward": 0,
+      "errored_trials": 0,
+      "verdict": {
+        "completed": 0,
+        "completed_cases": [],
+        "failures": [
+          "AssertionError: idle work grows with blocked population: mixed=False, ratio=142.50"
+        ],
+        "required": 12,
+        "reward": 0,
+        "worker_exit_status": 9
       },
-      "exception_info": null,
-      "original_result_sha256": "d2aa7f386c4459b6d34465c135565d72cefb02e5f43ac5247f54ce0c17287b76",
-      "model": "openai/deepseek-v4-flash",
-      "campaign": "deepseek-pr60-pr61-r3-20260917"
+      "input_files_sha256": {
+        "README.md": "1347940d26b1e4ec89424a3315855c71318b57c672144e58c59f339d8187a515",
+        "instruction.md": "a5add0faf095c3a38ddd8333e2cfc38bcd0c06358d7db3e3f4effc9146124ec2",
+        ".gitattributes": "af25ef820bba1398a8b084a68fe8c6d5f68d7948e1b6dddf1580e105bdc5cdd4",
+        "task.toml": "7d394d0a09469f76e752753a49e290ba15cd150ba9d84f6cc5289b6514d0a787",
+        "environment/image-manifest.json": "d8a2923ef63504c648679401564e0e3a15712975a8d3e82c344d126c6c72e810",
+        "environment/.dockerignore": "1db9778aedf9bb81403b0928c2de361791ac7a8a8d34dcdf17c86663b362c0c7",
+        "environment/Dockerfile": "5a83796d8ce9436ea390bd81450fe38c08b7f95adab17172c40d5505685e2631",
+        "solution/solve.sh": "84f061d3c31ff07766ae3885f64c58537deac84c825224495019cc074d2551d1",
+        "solution/oracle.patch": "56f3b53d33dac67d46b373e597b558dac215a2c7ebf585da4f6fee4336af274f",
+        "validation/e2e-evidence.json": "17e3660f63ca8c0164cd6507040fc2cbfb958c263f9f3bf23d28130bc0b4d16a",
+        "validation/reordered-token-map.patch": "2ecc67498ece3919611aff6837d7fb20e2d2ef11988092777f6b1e51458ba5ea",
+        "validation/review-report.md": "daacef087783b38d391c8e7fb93d6c9da777cfc043929e2385bb438b59ee0093",
+        "validation/forged-success-response.patch": "5fb1382a8f4a532f1b7878691476189bb2e73dbf34f8c5a9c4bd1b4b0c27f2de",
+        "validation/forged-measurement-globals.patch": "56f3b53d33dac67d46b373e597b558dac215a2c7ebf585da4f6fee4336af274f",
+        "validation/linear-idle-snapshot.patch": "3ff01cc6b8bb9d21deff0f4aeb3b17d3f4178f76f0dbf65eba2e1a96b4833ccd",
+        "validation/incomplete-agent-implementation.patch": "df2aa5d8c37baa7e23bcfae3c2a034027b2fe67c24fb535accef5e92325e0fe8",
+        "validation/unbounded-ready-versions.patch": "6b066919aaa6d904fb4f611fe9b55eb7f8f270be79781536c1294b97bcc01225",
+        "validation/batched-history-reclamation.patch": "127d3dfca1811435967638506effe1e4f0512956cc1bfe2ef3c6e383e36f3e10",
+        "validation/missing-unfinished-remote.patch": "6fe9fd073e160e0901b184a253c5ea1af32b86524203eed6485de5983131e869",
+        "validation/early-exit-systemexit.patch": "80f7fd0dce410eb62373fa96daeb380acaf16d0de85b03872956c1a0e142a2fe",
+        "validation/historical-oracle-starves-stream.patch": "1eae238c5965218c735fbe77fe73f5cdbaab8d9a71165481b1643c8e45986961",
+        "validation/completed-history-retention.patch": "070b70239104018938c249e2b9b9c226667762f735a04237128f53783fa91ae1",
+        "validation/ci-cases.json": "9a5c8f59cf1aa396b5ef76264053fcb6343a5d4ba4939bdb1ca66efbe3ec8643",
+        "validation/alternative-agent-implementation.patch": "aa1d93e67237c99ade5cdc2de46535098e774f3535af939d5402787958898df3",
+        "validation/event-ready-heap-alternative.patch": "9d5732d06b2faeb80bb865f8262e0459695f84ff2bb86b4889c1980372c41f96",
+        "validation/remediation-matrix.md": "50956a7c512f99f03623af11b9bdd0992225c1864e21e6b13c85477bbce24e78",
+        "validation/evidence.zip": "511d5795b6dadaa3e6a32602e96849f8b004a057bb23b864f3620c343780ad6b",
+        "validation/bounded-history-cache.patch": "0eb339beb7c94dfc38b5d9cf45f941963b3b4f401c8cc9bc56fa18323cd51bff",
+        "validation/forged-success-output.patch": "d3f5d639f10568793e0e79a4374757de25c2c0cb193fd2e87019dda0613e40b1",
+        "validation/undrained-kv-block-ids.patch": "95fa2fbef5088bedad0e85f680173ce3abbc0b8cb9db601375af734cf21a50cc",
+        "validation/dropped-client-output.patch": "01dd87c985db5dbfb08fc2aa47d2b867150ee89eef473abfca055b9ebd27a9b2",
+        "validation/preemption-backlog-regression.patch": "ef4235fd1d6233b1a2559bd3f9646c2de2b8b34834126148c5204d3f22d33e8c",
+        "validation/forged-allocation-observation.patch": "212b1dff72948ee5aac38dde1eb0bf5eefdb21fefffa626fe7b57a18cfc73475",
+        "validation/early-exit-os-exit.patch": "7e8264005f8d1cbc83bbe2fe6d9195e6ff06c117600fa08b5d41c620294c4d46",
+        "tests/test.sh": "60622bacfc8d6211ee6f62925d805e8784f260e1e69d6e22eac4799ec2191860",
+        "tests/checkpoint.c": "50cfafc81716aa5ff5d6b7ce4617b0477cb0ed8699fdfad6834fa8f010d23f02",
+        "tests/worker.py": "3cdeb1fdbeefeeec15377d73ff7a56f9c65939d6fcdc6d2b2f5dfd5bcee18c38",
+        "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+        "tests/verify_blocked_waiting.py": "375474ecf58900a3d8b234df300cd0c0d463273591418a25e888e612300d7e16",
+        "tests/fixtures.py": "e1e4de080041890d711271417b29183f4172366416fe98d93bd7a2e89cb3a37f",
+        "tests/supervise_verifier.py": "ccd9ea2a5d71e0dcf6054015a4e421337c47c3ba17bca32ec46bb68017db2670",
+        "environment/lock/README.md": "28e46a8c03e82d2e79a2357d56ed546a6a6b28dbfca373183b7497af6833f13f",
+        "environment/lock/requirements.txt": "d66b1c0ec910a2220a1a5cd871df5864031c51e6df814f4be58c0caeda873eaf",
+        "environment/lock/environment.json": "138e7b417685672ca9e4d322f8c6df5ffb68c09498f7a20f0728b155adb0771a",
+        "environment/lock/manifest.json": "bf98d65f6297ad6c9345760117f6f6c32b88bc860393c32d17372b7d21cdc4b6",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/refs/main": "832d4296b9efae38de77618d119e5d7b2c5cd4f1ee84c9fb4ecbaac92145577b",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/tokenizer_config.json": "79b7f1ebceddf7235f3791c387d781818b0c7e7cf868d0e4f71896a55b949833",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/added_tokens.json": "a94c56096001713e3eb9a34b1a545a8c1d5e8034ed2fb81f897c8cb54b420121",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/chat_template.json": "854445c0a45532ecbee1ae9aa31d4be19644060a156f2c88456f50f584261543",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/special_tokens_map.json": "358c249e2fb29060c6b73157d428853b0c48710deffc8ee670ab1013880946c9",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/generation_config.json": "3a6dc8c202be258023f58a03f804bdcacf138b8a2cc7492be2530e16945a0951",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/preprocessor_config.json": "a8d5e64ee5c07ff6d70142856d178ac39d0563da3612e32110fa824f5337b7a1",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/tokenizer.json": "30e1294abd835edfebb24618fce6f47c21ffb2b2802520d150bdee0b808b47cb",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/tokenizer.model": "9e556afd44213b6bd1be2b850ebbbd98f5481437a8021afaf58ee7fb1818d347",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/chat_template.jinja": "6fef09c05345e88b9f85e80bcb3491003332050750586568bdf91cfa81965d0c",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/processor_config.json": "fef918d6ba333f72a066877965bc4a162308568ba62aa90c806caedf7b45d64e",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/config.json": "0bde54495c54bcc346064a0d314b010d1c4d3ca7f7e583b6f711949a35352c0f",
+        "environment/lock/hf-cache/models--facebook--opt-125m/refs/main": "2a4cc6751be85eaaad8b75766af0d440f5b91bc9892fd54e9db02ff991494918",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/tokenizer_config.json": "d1e4185b43a0a06421ab7218d5c1a775350bd13024507b34fbed25dcf6c14c6b",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/special_tokens_map.json": "0f3cd5f307a2735cfee31ddf33be88655e8be165ee2cdc26ced966f04258adf0",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/generation_config.json": "d37de99f9835d7a4d0916257f724504d12c4a668f36a50b2d42e09ba4ebd05d5",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/merges.txt": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/vocab.json": "06b4d46c8e752d410213d9548eb27a54db70fda0319b6271fb8d59dead5e1cab",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/config.json": "54162c9cd0377110df1859dfabebb106fc0988c8aadb88207ce1ee0d34985df6",
+        "validation/history/forged-checkpoint-v150.patch": "ffd38b619236dfabb41e6e617885802861db5b2686c9908465a6ef7a8486e0e4",
+        "validation/history/curation-history.zip": "0b44730511a465e13e454d705f636ddddda2010dcd10bcf9a9d77fce7c674cf9",
+        "validation/history/forged-callback-v150.patch": "a5e41321bffaa1e8c24aba3dad1419b7d67b7fe444f7267b6926e8daf910de40"
+      },
+      "raw_directory": "harbor-final2-jobs/forged-measurement-globals"
+    },
+    {
+      "case": "reordered-token-map",
+      "trial_id": "reordered-token-map__HUwoy8A",
+      "job_id": "2da91d08-7adf-46c3-8e67-9a6e8a4a810d",
+      "reward": 1,
+      "errored_trials": 0,
+      "verdict": {
+        "completed": 12,
+        "completed_cases": [
+          "idle-scaling",
+          "mixed-idle-scaling",
+          "engine-lifecycle",
+          "cancellation-races",
+          "mixed-fcfs",
+          "streaming-resumption",
+          "ready-backpressure",
+          "no-connector-regression",
+          "preemption-backlog-local",
+          "preemption-backlog-remote",
+          "retained-memory-local",
+          "retained-memory-remote"
+        ],
+        "failures": [],
+        "required": 12,
+        "reward": 1,
+        "worker_exit_status": 0
+      },
+      "input_files_sha256": {
+        "README.md": "1347940d26b1e4ec89424a3315855c71318b57c672144e58c59f339d8187a515",
+        "instruction.md": "a5add0faf095c3a38ddd8333e2cfc38bcd0c06358d7db3e3f4effc9146124ec2",
+        ".gitattributes": "af25ef820bba1398a8b084a68fe8c6d5f68d7948e1b6dddf1580e105bdc5cdd4",
+        "task.toml": "7d394d0a09469f76e752753a49e290ba15cd150ba9d84f6cc5289b6514d0a787",
+        "environment/image-manifest.json": "d8a2923ef63504c648679401564e0e3a15712975a8d3e82c344d126c6c72e810",
+        "environment/.dockerignore": "1db9778aedf9bb81403b0928c2de361791ac7a8a8d34dcdf17c86663b362c0c7",
+        "environment/Dockerfile": "5a83796d8ce9436ea390bd81450fe38c08b7f95adab17172c40d5505685e2631",
+        "solution/solve.sh": "84f061d3c31ff07766ae3885f64c58537deac84c825224495019cc074d2551d1",
+        "solution/oracle.patch": "2ecc67498ece3919611aff6837d7fb20e2d2ef11988092777f6b1e51458ba5ea",
+        "validation/e2e-evidence.json": "17e3660f63ca8c0164cd6507040fc2cbfb958c263f9f3bf23d28130bc0b4d16a",
+        "validation/reordered-token-map.patch": "2ecc67498ece3919611aff6837d7fb20e2d2ef11988092777f6b1e51458ba5ea",
+        "validation/review-report.md": "daacef087783b38d391c8e7fb93d6c9da777cfc043929e2385bb438b59ee0093",
+        "validation/forged-success-response.patch": "5fb1382a8f4a532f1b7878691476189bb2e73dbf34f8c5a9c4bd1b4b0c27f2de",
+        "validation/forged-measurement-globals.patch": "56f3b53d33dac67d46b373e597b558dac215a2c7ebf585da4f6fee4336af274f",
+        "validation/linear-idle-snapshot.patch": "3ff01cc6b8bb9d21deff0f4aeb3b17d3f4178f76f0dbf65eba2e1a96b4833ccd",
+        "validation/incomplete-agent-implementation.patch": "df2aa5d8c37baa7e23bcfae3c2a034027b2fe67c24fb535accef5e92325e0fe8",
+        "validation/unbounded-ready-versions.patch": "6b066919aaa6d904fb4f611fe9b55eb7f8f270be79781536c1294b97bcc01225",
+        "validation/batched-history-reclamation.patch": "127d3dfca1811435967638506effe1e4f0512956cc1bfe2ef3c6e383e36f3e10",
+        "validation/missing-unfinished-remote.patch": "6fe9fd073e160e0901b184a253c5ea1af32b86524203eed6485de5983131e869",
+        "validation/early-exit-systemexit.patch": "80f7fd0dce410eb62373fa96daeb380acaf16d0de85b03872956c1a0e142a2fe",
+        "validation/historical-oracle-starves-stream.patch": "1eae238c5965218c735fbe77fe73f5cdbaab8d9a71165481b1643c8e45986961",
+        "validation/completed-history-retention.patch": "070b70239104018938c249e2b9b9c226667762f735a04237128f53783fa91ae1",
+        "validation/ci-cases.json": "9a5c8f59cf1aa396b5ef76264053fcb6343a5d4ba4939bdb1ca66efbe3ec8643",
+        "validation/alternative-agent-implementation.patch": "aa1d93e67237c99ade5cdc2de46535098e774f3535af939d5402787958898df3",
+        "validation/event-ready-heap-alternative.patch": "9d5732d06b2faeb80bb865f8262e0459695f84ff2bb86b4889c1980372c41f96",
+        "validation/remediation-matrix.md": "50956a7c512f99f03623af11b9bdd0992225c1864e21e6b13c85477bbce24e78",
+        "validation/evidence.zip": "511d5795b6dadaa3e6a32602e96849f8b004a057bb23b864f3620c343780ad6b",
+        "validation/bounded-history-cache.patch": "0eb339beb7c94dfc38b5d9cf45f941963b3b4f401c8cc9bc56fa18323cd51bff",
+        "validation/forged-success-output.patch": "d3f5d639f10568793e0e79a4374757de25c2c0cb193fd2e87019dda0613e40b1",
+        "validation/undrained-kv-block-ids.patch": "95fa2fbef5088bedad0e85f680173ce3abbc0b8cb9db601375af734cf21a50cc",
+        "validation/dropped-client-output.patch": "01dd87c985db5dbfb08fc2aa47d2b867150ee89eef473abfca055b9ebd27a9b2",
+        "validation/preemption-backlog-regression.patch": "ef4235fd1d6233b1a2559bd3f9646c2de2b8b34834126148c5204d3f22d33e8c",
+        "validation/forged-allocation-observation.patch": "212b1dff72948ee5aac38dde1eb0bf5eefdb21fefffa626fe7b57a18cfc73475",
+        "validation/early-exit-os-exit.patch": "7e8264005f8d1cbc83bbe2fe6d9195e6ff06c117600fa08b5d41c620294c4d46",
+        "tests/test.sh": "60622bacfc8d6211ee6f62925d805e8784f260e1e69d6e22eac4799ec2191860",
+        "tests/checkpoint.c": "50cfafc81716aa5ff5d6b7ce4617b0477cb0ed8699fdfad6834fa8f010d23f02",
+        "tests/worker.py": "3cdeb1fdbeefeeec15377d73ff7a56f9c65939d6fcdc6d2b2f5dfd5bcee18c38",
+        "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+        "tests/verify_blocked_waiting.py": "375474ecf58900a3d8b234df300cd0c0d463273591418a25e888e612300d7e16",
+        "tests/fixtures.py": "e1e4de080041890d711271417b29183f4172366416fe98d93bd7a2e89cb3a37f",
+        "tests/supervise_verifier.py": "ccd9ea2a5d71e0dcf6054015a4e421337c47c3ba17bca32ec46bb68017db2670",
+        "environment/lock/README.md": "28e46a8c03e82d2e79a2357d56ed546a6a6b28dbfca373183b7497af6833f13f",
+        "environment/lock/requirements.txt": "d66b1c0ec910a2220a1a5cd871df5864031c51e6df814f4be58c0caeda873eaf",
+        "environment/lock/environment.json": "138e7b417685672ca9e4d322f8c6df5ffb68c09498f7a20f0728b155adb0771a",
+        "environment/lock/manifest.json": "bf98d65f6297ad6c9345760117f6f6c32b88bc860393c32d17372b7d21cdc4b6",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/refs/main": "832d4296b9efae38de77618d119e5d7b2c5cd4f1ee84c9fb4ecbaac92145577b",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/tokenizer_config.json": "79b7f1ebceddf7235f3791c387d781818b0c7e7cf868d0e4f71896a55b949833",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/added_tokens.json": "a94c56096001713e3eb9a34b1a545a8c1d5e8034ed2fb81f897c8cb54b420121",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/chat_template.json": "854445c0a45532ecbee1ae9aa31d4be19644060a156f2c88456f50f584261543",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/special_tokens_map.json": "358c249e2fb29060c6b73157d428853b0c48710deffc8ee670ab1013880946c9",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/generation_config.json": "3a6dc8c202be258023f58a03f804bdcacf138b8a2cc7492be2530e16945a0951",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/preprocessor_config.json": "a8d5e64ee5c07ff6d70142856d178ac39d0563da3612e32110fa824f5337b7a1",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/tokenizer.json": "30e1294abd835edfebb24618fce6f47c21ffb2b2802520d150bdee0b808b47cb",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/tokenizer.model": "9e556afd44213b6bd1be2b850ebbbd98f5481437a8021afaf58ee7fb1818d347",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/chat_template.jinja": "6fef09c05345e88b9f85e80bcb3491003332050750586568bdf91cfa81965d0c",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/processor_config.json": "fef918d6ba333f72a066877965bc4a162308568ba62aa90c806caedf7b45d64e",
+        "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/config.json": "0bde54495c54bcc346064a0d314b010d1c4d3ca7f7e583b6f711949a35352c0f",
+        "environment/lock/hf-cache/models--facebook--opt-125m/refs/main": "2a4cc6751be85eaaad8b75766af0d440f5b91bc9892fd54e9db02ff991494918",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/tokenizer_config.json": "d1e4185b43a0a06421ab7218d5c1a775350bd13024507b34fbed25dcf6c14c6b",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/special_tokens_map.json": "0f3cd5f307a2735cfee31ddf33be88655e8be165ee2cdc26ced966f04258adf0",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/generation_config.json": "d37de99f9835d7a4d0916257f724504d12c4a668f36a50b2d42e09ba4ebd05d5",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/merges.txt": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/vocab.json": "06b4d46c8e752d410213d9548eb27a54db70fda0319b6271fb8d59dead5e1cab",
+        "environment/lock/hf-cache/models--facebook--opt-125m/snapshots/27dcfa74d334bc871f3234de431e71c6eeba5dd6/config.json": "54162c9cd0377110df1859dfabebb106fc0988c8aadb88207ce1ee0d34985df6",
+        "validation/history/forged-checkpoint-v150.patch": "ffd38b619236dfabb41e6e617885802861db5b2686c9908465a6ef7a8486e0e4",
+        "validation/history/curation-history.zip": "0b44730511a465e13e454d705f636ddddda2010dcd10bcf9a9d77fce7c674cf9",
+        "validation/history/forged-callback-v150.patch": "a5e41321bffaa1e8c24aba3dad1419b7d67b7fe444f7267b6926e8daf910de40"
+      },
+      "raw_directory": "harbor-final2-jobs/reordered-token-map"
     }
   ],
+  "independent_challenge": {
+    "source": "independent_challenge.py in archive",
+    "subjects": [
+      "oracle",
+      "event-ready-heap-alternative"
+    ],
+    "result": "both passed",
+    "coverage": "Reused/Unicode identities, varied prompt lengths, local/remote/local lifecycle resets; 27 requests per implementation",
+    "not_full_grading": true
+  },
+  "allocation_observer_calibration": {
+    "allocated_delta": 4194389,
+    "after_fake_tracemalloc_delta": 4194577,
+    "after_release_delta": 244,
+    "configuration_sealed": true
+  },
   "limitations": [
-    "New public memory budget is a versioned contract, not a retroactive original requirement.",
-    "Saved replays and rollout-derived tests are development evidence, not fresh or held-out attempts.",
-    "Five prior security controls not rerun; grading-trust review remains incomplete.",
-    "Finite Python-allocation load, not RSS, native/GPU allocations, or an unbounded-lifetime proof.",
-    "CPU scheduler subsystem boundary, not GPU/HTTP/RDMA/full-model validation."
+    "No GPU/HTTP/RDMA/full-model inference claim.",
+    "Finite long-run input population cannot prove all future resource bounds.",
+    "Native observer protects exercised Python-level tampering; arbitrary native-memory or allocator-replacement attacks are not sandboxed.",
+    "Pinned CPU diagnostic runtime matches the source tree but differs in Git history from the canonical image. No new model capability scores were produced."
   ],
   "artifacts": {
     "files": {
       ".gitattributes": "af25ef820bba1398a8b084a68fe8c6d5f68d7948e1b6dddf1580e105bdc5cdd4",
-      "README.md": "2f9c694af425b3750e5ade476c3a61b639906c85b306fc08bd771c2eaea85ea0",
+      "README.md": "1347940d26b1e4ec89424a3315855c71318b57c672144e58c59f339d8187a515",
       "environment/.dockerignore": "1db9778aedf9bb81403b0928c2de361791ac7a8a8d34dcdf17c86663b362c0c7",
       "environment/Dockerfile": "5a83796d8ce9436ea390bd81450fe38c08b7f95adab17172c40d5505685e2631",
       "environment/image-manifest.json": "d8a2923ef63504c648679401564e0e3a15712975a8d3e82c344d126c6c72e810",
@@ -573,34 +2235,54 @@
       "environment/lock/hf-cache/models--llava-hf--llava-1.5-7b-hf/snapshots/b234b804b114d9e37bb655e11cbbb5f5e971b7a9/tokenizer_config.json": "79b7f1ebceddf7235f3791c387d781818b0c7e7cf868d0e4f71896a55b949833",
       "environment/lock/manifest.json": "bf98d65f6297ad6c9345760117f6f6c32b88bc860393c32d17372b7d21cdc4b6",
       "environment/lock/requirements.txt": "d66b1c0ec910a2220a1a5cd871df5864031c51e6df814f4be58c0caeda873eaf",
-      "instruction.md": "a50a1209ab0ce8dcac2b2e98bac5ce0aea27fb2993e2a67dfeddb7049a367c4f",
-      "solution/oracle.patch": "95fa2fbef5088bedad0e85f680173ce3abbc0b8cb9db601375af734cf21a50cc",
+      "instruction.md": "a5add0faf095c3a38ddd8333e2cfc38bcd0c06358d7db3e3f4effc9146124ec2",
+      "solution/oracle.patch": "317613fd4da32cc7e8595dc8cd2d716a907268e7bffcdc76f157fe636c5e4dc2",
       "solution/solve.sh": "84f061d3c31ff07766ae3885f64c58537deac84c825224495019cc074d2551d1",
-      "task.toml": "cf4aba27c4a31e8f7a8911e34dabfce7e6b94206e0638caacefabd5425ada385",
-      "tests/checkpoint.c": "ebc9028bb2e4d0d0d347b5b2e60524708b37e41136edf9459da4db8fff422f9b",
+      "task.toml": "bd38a967550e045f37f0a91d586e739c1f5a391a8b7c265375181861ffda15e1",
+      "tests/checkpoint.c": "50cfafc81716aa5ff5d6b7ce4617b0477cb0ed8699fdfad6834fa8f010d23f02",
       "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
-      "tests/supervise_verifier.py": "65523f24fc12b84c0a1114079bca93c380872fd147714d2d0743399c6323eb28",
-      "tests/test.sh": "2b7e52d9464b1f064d27a2e3822a41e4de568090be4af4dab96eacba282caf49",
-      "tests/verify_blocked_waiting.py": "fa2b703ca842f9c2ea7d1ac792f294d542f54449f2e0e6b82fa9897cebc4df0c",
+      "tests/fixtures.py": "3768fdb5a555b2fca0ef10e4f8fea295ea40206b1dd63a7975cbc34998d8e21a",
+      "tests/supervise_verifier.py": "ccd9ea2a5d71e0dcf6054015a4e421337c47c3ba17bca32ec46bb68017db2670",
+      "tests/test.sh": "60622bacfc8d6211ee6f62925d805e8784f260e1e69d6e22eac4799ec2191860",
+      "tests/verify_blocked_waiting.py": "375474ecf58900a3d8b234df300cd0c0d463273591418a25e888e612300d7e16",
+      "tests/worker.py": "3cdeb1fdbeefeeec15377d73ff7a56f9c65939d6fcdc6d2b2f5dfd5bcee18c38",
       "validation/alternative-agent-implementation.patch": "aa1d93e67237c99ade5cdc2de46535098e774f3535af939d5402787958898df3",
-      "validation/batched-history-reclamation.patch": "d72b01a1609b0ec451d1daa6fd08bf2d973c443bb856b5fd88219a8369ec6b40",
-      "validation/bounded-history-cache.patch": "2d177282a8720748b7978ad6e7d76ea7d53af27c5a526f3054fd1ec837d57d8e",
-      "validation/ci-cases.json": "f77d003b79277b28c594bf7b204dc7b9accb328b36abe61da52c1d8afb4b6d1d",
+      "validation/batched-history-reclamation.patch": "127d3dfca1811435967638506effe1e4f0512956cc1bfe2ef3c6e383e36f3e10",
+      "validation/bounded-history-cache.patch": "0eb339beb7c94dfc38b5d9cf45f941963b3b4f401c8cc9bc56fa18323cd51bff",
+      "validation/ci-cases.json": "394a63f00d01e33ad9fec4fb285fbfe2051880115d23695b053973e56f26729a",
       "validation/completed-history-retention.patch": "070b70239104018938c249e2b9b9c226667762f735a04237128f53783fa91ae1",
       "validation/dropped-client-output.patch": "01dd87c985db5dbfb08fc2aa47d2b867150ee89eef473abfca055b9ebd27a9b2",
       "validation/early-exit-os-exit.patch": "7e8264005f8d1cbc83bbe2fe6d9195e6ff06c117600fa08b5d41c620294c4d46",
       "validation/early-exit-systemexit.patch": "80f7fd0dce410eb62373fa96daeb380acaf16d0de85b03872956c1a0e142a2fe",
-      "validation/event-ready-heap-alternative.patch": "c42468e05e85b09b05499666404b4feb2962b7550386b2af59d9ab925dd652ba",
+      "validation/event-ready-heap-alternative.patch": "9d5732d06b2faeb80bb865f8262e0459695f84ff2bb86b4889c1980372c41f96",
       "validation/evidence.zip": "511d5795b6dadaa3e6a32602e96849f8b004a057bb23b864f3620c343780ad6b",
-      "validation/forged-callback.patch": "a5e41321bffaa1e8c24aba3dad1419b7d67b7fe444f7267b6926e8daf910de40",
-      "validation/forged-checkpoint.patch": "ffd38b619236dfabb41e6e617885802861db5b2686c9908465a6ef7a8486e0e4",
+      "validation/forged-allocation-observation.patch": "212b1dff72948ee5aac38dde1eb0bf5eefdb21fefffa626fe7b57a18cfc73475",
+      "validation/forged-measurement-globals.patch": "56f3b53d33dac67d46b373e597b558dac215a2c7ebf585da4f6fee4336af274f",
       "validation/forged-success-output.patch": "d3f5d639f10568793e0e79a4374757de25c2c0cb193fd2e87019dda0613e40b1",
+      "validation/forged-success-response.patch": "5fb1382a8f4a532f1b7878691476189bb2e73dbf34f8c5a9c4bd1b4b0c27f2de",
+      "validation/hardening-v160.zip": "e054af2d72a44a56c2ad81d2cab842915434747a2802db4a4394bfdc47da31bd",
       "validation/historical-oracle-starves-stream.patch": "1eae238c5965218c735fbe77fe73f5cdbaab8d9a71165481b1643c8e45986961",
-      "validation/history/curation-history.zip": "dcf187e15bd90c48e53c4178e10591133f49f397aed63f9d29fb6395a68b9ac1",
+      "validation/history/curation-history.zip": "0b44730511a465e13e454d705f636ddddda2010dcd10bcf9a9d77fce7c674cf9",
+      "validation/history/forged-callback-v150.patch": "a5e41321bffaa1e8c24aba3dad1419b7d67b7fe444f7267b6926e8daf910de40",
+      "validation/history/forged-checkpoint-v150.patch": "ffd38b619236dfabb41e6e617885802861db5b2686c9908465a6ef7a8486e0e4",
       "validation/incomplete-agent-implementation.patch": "df2aa5d8c37baa7e23bcfae3c2a034027b2fe67c24fb535accef5e92325e0fe8",
+      "validation/linear-idle-snapshot.patch": "3ff01cc6b8bb9d21deff0f4aeb3b17d3f4178f76f0dbf65eba2e1a96b4833ccd",
+      "validation/missing-unfinished-remote.patch": "6fe9fd073e160e0901b184a253c5ea1af32b86524203eed6485de5983131e869",
       "validation/preemption-backlog-regression.patch": "ef4235fd1d6233b1a2559bd3f9646c2de2b8b34834126148c5204d3f22d33e8c",
-      "validation/remediation-matrix.md": "74fd6dd98ba94069f14f31401737778ef1449cdfebc60410ccb3ebfc3556afa1",
-      "validation/review-report.md": "3367f2b699d6ed802ac431d61c1b3a9358289d380a91ba585d9325664d18de20"
+      "validation/remediation-matrix.md": "50956a7c512f99f03623af11b9bdd0992225c1864e21e6b13c85477bbce24e78",
+      "validation/reordered-token-map.patch": "2ecc67498ece3919611aff6837d7fb20e2d2ef11988092777f6b1e51458ba5ea",
+      "validation/review-report.md": "90e9c4b2e04e69b2f623fa47b5792a984c809dae00a578d4a9544d449acde90b",
+      "validation/unbounded-ready-versions.patch": "6b066919aaa6d904fb4f611fe9b55eb7f8f270be79781536c1294b97bcc01225",
+      "validation/undrained-kv-block-ids.patch": "95fa2fbef5088bedad0e85f680173ce3abbc0b8cb9db601375af734cf21a50cc"
     }
+  },
+  "mechanical_validation": {
+    "repository_validator": "passed",
+    "strict_artifact_audit": {
+      "checks": 4,
+      "errors": 0,
+      "warnings": 0
+    },
+    "git_diff_check": "passed"
   }
 }

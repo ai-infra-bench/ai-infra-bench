@@ -11,19 +11,15 @@ for candidate in /opt/venv/bin/python /usr/local/bin/python /usr/local/bin/pytho
     break
   fi
 done
-if [ -z "$python_bin" ]; then
-  echo "trusted verifier Python is unavailable" >&2
-  exit 1
-fi
+test -n "$python_bin"
 trusted_dir="$(mktemp -d /tmp/ai-infra-verifier.XXXXXXXX)"
 trap 'rm -rf -- "$trusted_dir"' EXIT
-install -o root -g root -m 0644 /tests/supervise_verifier.py "$trusted_dir/supervise_verifier.py"
-install -o root -g root -m 0644 /tests/checkpoint.c "$trusted_dir/checkpoint.c"
-install -o root -g root -m 0644 /tests/verify_blocked_waiting.py "$trusted_dir/worker.py"
-python_include="$("$python_bin" -I -c 'import sysconfig; print(sysconfig.get_path("include"))')"
+for name in supervise_verifier.py checkpoint.c verify_blocked_waiting.py worker.py fixtures.py; do
+  install -o root -g root -m 0644 "/tests/$name" "$trusted_dir/$name"
+done
+python_include="$("$python_bin" -I -S -c 'import sysconfig; print(sysconfig.get_path("include"))')"
 compiler="$(command -v cc || command -v gcc)"
-"$compiler" -O2 -shared -fPIC -fvisibility=hidden -I"$python_include" \
+"$compiler" -O2 -shared -fPIC -fvisibility=hidden -pthread -I"$python_include" \
   "$trusted_dir/checkpoint.c" -o "$trusted_dir/_checkpoint.so"
 chmod 0755 "$trusted_dir"
-exec "$python_bin" -I "$trusted_dir/supervise_verifier.py" \
-  "$python_bin" "$trusted_dir/worker.py" 600
+"$python_bin" -I -S "$trusted_dir/supervise_verifier.py" 600
