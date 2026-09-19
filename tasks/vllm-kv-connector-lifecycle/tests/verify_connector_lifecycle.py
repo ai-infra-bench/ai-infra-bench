@@ -1,161 +1,109 @@
 #!/usr/bin/env python3
-import sys
-from types import ModuleType, SimpleNamespace
+"""Trusted, dependency-free behavioral assertions. Never import candidate code here."""
+from __future__ import annotations
 
-sys.path.insert(0, "/workspace/repo")
-
-from vllm.distributed.kv_transfer.kv_connector.factory import KVConnectorFactory
-from vllm.distributed.kv_transfer.kv_connector.v1 import (
-    KVConnectorBase_V1,
-    KVConnectorRole,
-)
-from vllm.distributed.kv_transfer.kv_transfer_state import (
-    ensure_kv_transfer_initialized,
-    ensure_kv_transfer_shutdown,
-    get_kv_transfer_group,
-)
-from vllm.v1.kv_cache_interface import KVCacheConfig
+import re
+import secrets
 
 
-class MinimalConnector(KVConnectorBase_V1):
-    def get_num_new_matched_tokens(self, request, num_computed_tokens):
-        return 0, False
+def verify(call, completed):
+    def check(condition, detail):
+        if not condition:
+            raise AssertionError(detail)
 
-    def update_state_after_alloc(
-        self, request, blocks, num_external_tokens
-    ) -> None:
-        pass
+    def success(**command):
+        result = call(**command)
+        check(result["error"] is None, f"{command}: unexpected error: {result['error']}")
+        return result
 
-    def build_connector_meta(self, scheduler_output):
-        return None
+    def construction(result, key, blocks, role):
+        records = result["events"]
+        check(len(records) == 1, f"expected one constructor call, observed {records}")
+        event = records[0]
+        check(event["event"] == "construct", f"unexpected callback: {event}")
+        check(event["config"] == key, f"constructor did not receive the original config object: {event}")
+        check((event["blocks"], event["groups"], event["tensors"]) == (blocks, 1, 1),
+              f"resolved nonempty configuration was changed: {event}")
+        check(event["role"] == role, f"constructor role changed: {event}")
+        value = result["value"]
+        check(value is not None and value["plugin"] and value["role"] == role,
+              f"wrong connector returned: {value}")
+        check(event["instance"] == value["instance"], "returned a different connector instance")
+        return value["instance"]
 
-    def start_load_kv(self, forward_context, **kwargs) -> None:
-        pass
+    keys = [secrets.token_hex(12), secrets.token_hex(12)]
+    blocks = [7 + secrets.randbelow(7), 23 + secrets.randbelow(7)]
+    for key, count in zip(keys, blocks):
+        success(op="config", key=key, blocks=count)
 
-    def wait_for_layer_load(self, layer_name) -> None:
-        pass
+    # Current call forms supported by the frozen factory. No private lookup API.
+    for plugin in ("Current", "Inherited", "Defaulted", "Forwarded"):
+        for role in ("SCHEDULER", "WORKER"):
+            for key, count in zip(keys, blocks):
+                result = success(op="create", plugin=plugin, role=role, key=key)
+                construction(result, key, count, role)
+            completed.append(f"current/{plugin}/{role}/two-configs")
 
-    def save_kv_layer(self, layer_name, kv_layer, attn_metadata, **kwargs) -> None:
-        pass
+    registered = "registered_" + secrets.token_hex(8)
+    success(op="register", name=registered, plugin="Inherited")
+    for role in ("SCHEDULER", "WORKER"):
+        result = success(op="create", plugin="Inherited", registry=registered, role=role, key=keys[1])
+        construction(result, keys[1], blocks[1], role)
+        completed.append(f"registered/{role}")
 
-    def wait_for_save(self) -> None:
-        pass
+    # Same real worker lifecycle, no direct access to its global storage.
+    result = success(op="initialize", key=keys[0])
+    first = construction(result, keys[0], blocks[0], "WORKER")
+    result = success(op="initialize", key=keys[0])
+    check(result["events"] == [] and result["value"]["instance"] == first,
+          f"repeated initialization recreated the active connector: {result}")
+    completed.append("lifecycle/repeated-initialize")
+    result = success(op="shutdown")
+    check(result["events"] == [{"event": "shutdown", "instance": first}],
+          f"shutdown did not close the active instance once: {result}")
+    check(result["value"] == {"has_group": False}, "closed connector is still active")
+    result = success(op="shutdown")
+    check(result["events"] == [] and result["value"] == {"has_group": False},
+          "repeated shutdown changed an inactive lifecycle")
+    result = success(op="initialize", key=keys[1])
+    second = construction(result, keys[1], blocks[1], "WORKER")
+    check(second != first, "new initialization reused the closed instance")
+    result = success(op="shutdown")
+    check(result["events"] == [{"event": "shutdown", "instance": second}]
+          and result["value"] == {"has_group": False}, "second lifecycle did not close cleanly")
+    completed.append("lifecycle/shutdown-and-new-config")
 
+    for role in ("SCHEDULER", "WORKER"):
+        for kind in ("TypeError", "ValueError", "RuntimeError"):
+            message = "plugin failure " + secrets.token_hex(16)
+            result = call(op="create", key=keys[0], plugin="Exploding", role=role,
+                          exception=kind, message=message)
+            check(result["error"] == {"type": kind, "message": message},
+                  f"plugin exception was swallowed or changed: {result}")
+            check(len(result["events"]) == 1 and result["events"][0]["event"] == "construct"
+                  and result["events"][0]["config"] == keys[0],
+                  f"failing plugin was retried or received the wrong config: {result}")
+            completed.append(f"plugin-exception/{role}/{kind}")
+        result = call(op="create", key=keys[0], plugin="BindingError", role=role)
+        error = result["error"] or {}
+        check(error.get("type") == "TypeError" and "transport" in error.get("message", ""),
+              f"ordinary argument-binding error was obscured: {result}")
+        check(result["events"] == [], "constructor body ran despite argument-binding failure")
+        completed.append(f"argument-binding/{role}")
 
-class CurrentConnector(MinimalConnector):
-    constructed = 0
-    received_configs = []
-
-    def __init__(self, vllm_config, role, kv_cache_config):
-        type(self).constructed += 1
-        type(self).received_configs.append(kv_cache_config)
-        super().__init__(vllm_config, role, kv_cache_config)
-
-
-class LegacyConnector(MinimalConnector):
-    constructed = 0
-
-    def __init__(self, vllm_config, role):
-        type(self).constructed += 1
-        super().__init__(vllm_config, role)
-
-
-class ExplodingConnector(MinimalConnector):
-    constructed = 0
-
-    def __init__(self, vllm_config, role, kv_cache_config):
-        type(self).constructed += 1
-        raise TypeError("connector-internal sentinel")
-
-
-def make_config(connector_name, module_name):
-    transfer = SimpleNamespace(
-        kv_connector=connector_name,
-        kv_connector_module_path=module_name,
-        engine_id="harbor-constructor-contract",
-        is_kv_transfer_instance=True,
-    )
-    scheduler = SimpleNamespace(disable_hybrid_kv_cache_manager=True)
-    return SimpleNamespace(
-        kv_transfer_config=transfer,
-        scheduler_config=scheduler,
-    )
-
-
-def main():
-    print("contract_device=cpu")
-
-    module_name = "harbor_external_kv_connectors"
-    connector_module = ModuleType(module_name)
-    connector_module.CurrentConnector = CurrentConnector
-    connector_module.LegacyConnector = LegacyConnector
-    connector_module.ExplodingConnector = ExplodingConnector
-    sys.modules[module_name] = connector_module
-
-    kv_cache_config = KVCacheConfig(
-        num_blocks=0,
-        kv_cache_tensors=[],
-        kv_cache_groups=[],
-    )
-
-    current_config = make_config("CurrentConnector", module_name)
-    try:
-        ensure_kv_transfer_initialized(current_config, kv_cache_config)
-        current = get_kv_transfer_group()
-        assert isinstance(current, CurrentConnector)
-        assert CurrentConnector.constructed == 1
-        assert CurrentConnector.received_configs == [kv_cache_config]
-        assert current.role is KVConnectorRole.WORKER
-        print("current_consumer_path=PASS")
-    finally:
-        ensure_kv_transfer_shutdown()
-
-    exploding_config = make_config("ExplodingConnector", module_name)
-    try:
-        KVConnectorFactory.create_connector(
-            exploding_config,
-            KVConnectorRole.SCHEDULER,
-            kv_cache_config,
-        )
-    except TypeError as exc:
-        assert str(exc) == "connector-internal sentinel"
-        assert ExplodingConnector.constructed == 1
-        print("internal_type_error_boundary=PASS")
-    else:
-        raise AssertionError("connector-internal TypeError was swallowed")
-
-    legacy_config = make_config("LegacyConnector", module_name)
-    factory_rejected = False
-    try:
-        KVConnectorFactory.create_connector(
-            legacy_config,
-            KVConnectorRole.SCHEDULER,
-            kv_cache_config,
-        )
-    except (TypeError, ValueError) as exc:
-        message = str(exc).lower()
-        factory_rejected = (
-            "legacyconnector" in message
-            and ("kvcacheconfig" in message or "kv_cache_config" in message)
-        )
-
-    base_rejected = False
-    try:
-        MinimalConnector(legacy_config, KVConnectorRole.SCHEDULER)
-    except TypeError:
-        base_rejected = True
-
-    if not factory_rejected or LegacyConnector.constructed != 0 or not base_rejected:
-        print(
-            "FAIL: legacy lifecycle remained accepted",
-            "factory_rejected=", factory_rejected,
-            "legacy_constructed=", LegacyConnector.constructed,
-            "base_rejected=", base_rejected,
-        )
-        raise SystemExit(1)
-
-    print("PASS: current consumer works and legacy lifecycle is rejected")
-
-
-if __name__ == "__main__":
-    main()
+    for role in ("SCHEDULER", "WORKER"):
+        result = call(op="create", key=keys[0], plugin="Legacy", role=role)
+        error = result["error"] or {}
+        check(result["events"] == [], f"retired constructor body ran: {result}")
+        check(bool(error.get("type")), f"old constructor was not rejected: {result}")
+        message = error.get("message", "").lower()
+        # Match migration concepts, not the hidden fixture name or one spelling.
+        # A bare Python arity error does not tell a plugin author what to change.
+        config_hint = re.search(r"kv.?cache|kv_cache_config|cache.{0,24}(config|layout)|third|3[- ]argument", message)
+        action_hint = re.search(r"accept|add|pass|supply|provid|requir|updat|migrat|include|support|remov|must|expect", message)
+        check(config_hint and action_hint, f"missing actionable migration guidance: {message!r}")
+        completed.append(f"legacy-rejection/{role}")
+        result = call(op="base_missing_config", role=role)
+        check(result["error"] is not None,
+              "base class still accepts the retired two-argument constructor")
+        completed.append(f"base-rejects-missing-config/{role}")

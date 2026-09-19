@@ -1,5 +1,5 @@
 diff --git a/vllm/distributed/kv_transfer/kv_connector/factory.py b/vllm/distributed/kv_transfer/kv_connector/factory.py
-index f691b9f..58c0b13 100644
+index f691b9f..c07444f 100644
 --- a/vllm/distributed/kv_transfer/kv_connector/factory.py
 +++ b/vllm/distributed/kv_transfer/kv_connector/factory.py
 @@ -2,6 +2,7 @@
@@ -47,7 +47,7 @@ index f691b9f..58c0b13 100644
 +                # An ordinary invalid invocation; let Python report it below.
 +                pass
 +            else:
-+                raise ValueError(
++                raise RuntimeError(
 +                    "The pre-v0.12 constructor is no longer supported. "
 +                    "Add the engine's KV-cache configuration as the third argument "
 +                    "and pass it to the base constructor."
@@ -71,7 +71,7 @@ index f691b9f..58c0b13 100644
              connector_cls = cls._registry[connector_name]()
          else:
 diff --git a/vllm/distributed/kv_transfer/kv_connector/v1/base.py b/vllm/distributed/kv_transfer/kv_connector/v1/base.py
-index ef143cb..81bc376 100644
+index ef143cb..33a1067 100644
 --- a/vllm/distributed/kv_transfer/kv_connector/v1/base.py
 +++ b/vllm/distributed/kv_transfer/kv_connector/v1/base.py
 @@ -167,6 +167,9 @@ class KVConnectorWorkerMetadata(ABC):
@@ -92,7 +92,7 @@ index ef143cb..81bc376 100644
 +        kv_cache_config: "KVCacheConfig" = _MISSING_CACHE_CONFIG,
      ):
 +        if kv_cache_config is _MISSING_CACHE_CONFIG:
-+            raise TypeError("A connector requires the engine's KV-cache configuration")
++            raise RuntimeError("A connector requires the engine's KV-cache configuration")
          logger.warning(
              "Initializing KVConnectorBase_V1. This API is experimental and "
              "subject to change in the future as we iterate the design."
