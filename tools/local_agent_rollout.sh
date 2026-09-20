@@ -69,6 +69,10 @@ if [ -n "$BASE_URL" ]; then
   API_HOST=$(printf '%s' "$BASE_URL" | sed -E 's#^[a-z]+://##; s#[/:].*$##')
 fi
 
+# Host checks (docker VM clock, platform notes): an unreliable VM clock makes timing cases of
+# the verifier fail at random, which would be read as the agent's failure.
+bash "$REPO/tools/local_preflight.sh" "$IMAGE" || { rc=$?; [ "$rc" = 3 ] && exit 3; }
+
 # Proxy decision (see header).
 PROXY_ARGS=()
 USE_PROXY=${ROLLOUT_USE_PROXY:-auto}

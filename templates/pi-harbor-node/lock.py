@@ -73,6 +73,7 @@ def generate(task_dir: Path) -> None:
         "notes": [
             "The repository lock file at the base commit is used verbatim; npm ci resolves every package from it.",
             "Dependencies are npm registry artifacts published before the cutoff as pinned by the lock; no toolchain overrides needed.",
+            "Model catalog: the Dockerfile takes packages/ai/src/providers/data from the published @earendil-works/pi-ai package of the base commit's release (PI_AI_VERSION / PI_AI_TARBALL_SHA256) and builds pi with network disabled; record that package under inputs with its publish time and, if it postdates the cutoff, why it reveals nothing after the base commit (templates/pi-harbor-node/README.md, 'Model catalog').",
         ],
     }
     (lock_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

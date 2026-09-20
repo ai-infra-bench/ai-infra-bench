@@ -480,7 +480,16 @@ def check_image(
         task / "solution/oracle.patch",
         *sorted((task / "validation").glob("*.patch")),
     ]
+    case_manifest = json.loads((task / "validation/ci-cases.json").read_text())
+    apply_after = {
+        f"validation/{case['patch']}": case.get("apply_after", "base")
+        for case in case_manifest["cases"]
+    }
     for patch in patches:
+        relative = patch.relative_to(task).as_posix()
+        base = apply_after.get(relative, "base")
+        if not audit.require(base in {"base", "oracle"}, f"invalid apply_after for {relative}"):
+            continue
         result = run(
             [
                 docker,
@@ -490,13 +499,15 @@ def check_image(
                 "--workdir",
                 workdir,
                 "--entrypoint",
-                "git",
+                "sh",
                 "-v",
                 f"{task}:/task:ro",
                 image,
-                "apply",
-                "--check",
-                f"/task/{patch.relative_to(task)}",
+                "-c",
+                'set -e; if [ "$1" = oracle ]; then git apply /task/solution/oracle.patch; fi; git apply --check "$2"',
+                "patch-check",
+                base,
+                f"/task/{relative}",
             ]
         )
         audit.require(
