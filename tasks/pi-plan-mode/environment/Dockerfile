@@ -74,11 +74,22 @@ ARG PI_LOCK_SHA256
 
 # The lock file is the repository's own at the base commit and must be the one
 # checked in as environment/lock/package-lock.json (sha256 pinned below). npm ci
-# is the only network step; everything after it is offline.
+# and the hash-pinned JSON catalog from the same commit's release are fetched
+# during the build. No model catalog is regenerated from current APIs: pi's
+# `npm run build` refetches it from live APIs and stopped compiling on 2026-09-19
+# when the `kimi-coding` provider disappeared upstream. Same pinned package as
+# pi-safe-file-rollback and templates/pi-harbor-node (see its README, "Model catalog").
 RUN echo "$PI_LOCK_SHA256  package-lock.json" | sha256sum -c - \
  && npm ci --no-audit --no-fund \
- && npm run build \
+ && curl -fsSL https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.85.1.tgz -o /tmp/pi-model-data.tgz \
+ && echo "af7d11986179445ce6fe88b37d57de22f823c0ffd3a65cae31c555b7f5e99253  /tmp/pi-model-data.tgz" | sha256sum -c - \
+ && mkdir -p packages/ai/src/providers/data \
+ && tar -xzf /tmp/pi-model-data.tgz --strip-components=4 -C packages/ai/src/providers/data package/dist/providers/data \
+ && rm /tmp/pi-model-data.tgz \
  && npm cache clean --force
+
+RUN --network=none npm run build:offline \
+ && test -z "$(git status --porcelain)"
 
 # Smoke: the published entry points exist, the faux provider is importable,
 # vitest collects, and the CLI starts without network.

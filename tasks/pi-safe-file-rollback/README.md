@@ -8,6 +8,8 @@ See [author evidence](validation/e2e-evidence.json),
 [saved-answer evidence](validation/saved-answer-regrade.json), and the
 [hardening record](validation/rollout-hardening.md).
 
+**Platform.** The verifier runs on linux/amd64 only: `tests/baseline-pins.json` pins the amd64 `node_modules` tree, and `tests/process_supervisor.py` (the ptrace crash-injection supervisor) uses Linux/amd64 syscall numbers. On any other host `run_verifier.py` stops with `Unsupported verifier platform ...` and reward 0; build and validate with `--platform linux/amd64` on a Linux x64 machine (an arm64 Mac cannot run it, natively or emulated).
+
 ## What the agent does
 
 Adds opt-in safe rollback to [pi](https://github.com/earendil-works/pi) at a pinned

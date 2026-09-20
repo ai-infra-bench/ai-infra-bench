@@ -11,7 +11,7 @@ const sorted = (values: string[]) => [...values].sort();
 describe("plan contract", () => {
   it("C00 candidate workers cannot forge grader files or signal the reporter", () => {
     expect(process.getuid?.()).toBe(65534); expect(process.getgid?.()).toBe(65534);
-    for (const path of ["/logs/verifier/reward.txt", "/opt/pi-baseline/coding-agent-junit.xml", "/workspace/pi/packages/coding-agent/vitest.config.ts", `${process.env.PI_TRUSTED_TESTS}/check_junit.py`]) {
+    for (const path of [`${process.env.PI_GRADER_OUT}/reward.txt`, "/opt/pi-baseline/coding-agent-junit.xml", "/workspace/pi/packages/coding-agent/vitest.config.ts", `${process.env.PI_TRUSTED_TESTS}/check_junit.py`]) {
       let writable = false;
       try { const fd = openSync(path, "r+"); closeSync(fd); writable = true; } catch (error) { expect(["EACCES", "EPERM", "EROFS"]).toContain((error as NodeJS.ErrnoException).code); }
       expect(writable, path).toBe(false);

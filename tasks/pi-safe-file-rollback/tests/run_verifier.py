@@ -85,6 +85,13 @@ def protected(name):
 
 
 def prepare(pins):
+    # The pins and the crash-injection supervisor are specific to the canonical image:
+    # dependencies_sha256 covers the amd64 node_modules (native addons differ per
+    # architecture) and process_supervisor.py uses Linux/amd64 syscall numbers. Say so,
+    # instead of reporting an unsupported host as a tampered dependency tree.
+    machine = os.uname().machine
+    if sys.platform != 'linux' or machine not in ('x86_64', 'amd64'):
+        raise ValueError(f'Unsupported verifier platform {sys.platform}/{machine}: this task verifies on linux/amd64 only')
     if git('rev-parse',BASE).decode().strip()!=BASE: raise ValueError('Base object unavailable')
     if dependency_digest()!=pins['dependencies_sha256']: raise ValueError('Installed dependencies were modified')
     tracked=[part.decode() for part in git('ls-tree','-rz','--name-only',BASE).split(b'\0') if part]
