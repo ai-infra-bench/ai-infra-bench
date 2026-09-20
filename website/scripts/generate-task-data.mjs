@@ -12,10 +12,9 @@ import { unified } from 'unified';
 const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tasksDir = path.resolve(projectDir, '..', 'tasks');
 
-// The leading keyword of a task names its project. Task manifests carry no repository or
-// domain field, so both are derived from it.
+// The leading keyword of a task names its project. Task manifests carry no repository
+// field, so it is derived from it; the site maps a project to its domain (app/lib/task-filters.ts).
 const PROJECT_REPOSITORIES = { vllm: 'vllm-project/vllm', pi: 'earendil-works/pi' };
-const PROJECT_DOMAINS = { pi: 'agent_harness' };
 const outputDir = path.join(projectDir, 'app', 'generated');
 const legacyOutputFile = path.join(outputDir, 'tasks.json');
 const indexOutputFile = path.join(outputDir, 'task-index.json');
@@ -299,7 +298,6 @@ for (const entry of entries) {
     version: getValue(task, 'version'),
     description: getValue(task, 'description') ?? '',
     keywords,
-    ...(PROJECT_DOMAINS[keywords[0]] ? { domain: PROJECT_DOMAINS[keywords[0]] } : {}),
     taskType: getValue(metadata, 'task_type'),
     // The leading keyword identifies the project; task manifests omit repository.
     repository: PROJECT_REPOSITORIES[keywords[0]] ?? null,
