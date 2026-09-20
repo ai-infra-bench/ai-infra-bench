@@ -10,6 +10,13 @@
     "package-lock.json": {
       "source": "package-lock.json at base_commit, unchanged",
       "sha256": "e3569b99e673a0051be908f2bed57651b90a966a5a0d208913c29e6830a6a6c2"
+    },
+    "pi-ai-0.85.1.tgz": {
+      "source": "https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.85.1.tgz (only package/dist/providers/data is used, as packages/ai/src/providers/data)",
+      "sha256": "af7d11986179445ce6fe88b37d57de22f823c0ffd3a65cae31c555b7f5e99253",
+      "npm_integrity": "sha512-+VgVIJDkDO2efYJKEEqvPTH4zmnIaXdAppGbO+vKFA9qy5PdhFiAenuFAkU+oiCSfOC4dMHDyrjdQeL4ZoC5CQ==",
+      "published": "2026-09-05T12:05:47.996Z",
+      "catalog_generated_at": "2026-09-05T11:58:56.761Z"
     }
   },
   "output": {
@@ -19,6 +26,7 @@
   "notes": [
     "The repository lock file at the base commit is used verbatim; npm ci resolves every package from it.",
     "Dependencies are npm registry artifacts published before the cutoff as pinned by the lock; no toolchain overrides needed.",
-    "fd-find and ripgrep are installed from Debian bookworm so pi's tools-manager finds them on PATH and never downloads at runtime."
+    "fd-find and ripgrep are installed from Debian bookworm so pi's tools-manager finds them on PATH and never downloads at runtime.",
+    "Model catalog: pi's normal build regenerates packages/ai/src/providers/data from live APIs, which made the image depend on its build date and broke every fresh build on 2026-09-19. The catalog is taken from the published pi-ai 0.85.1 package instead and pi is built with network disabled. That package was published 11 minutes after dependency_cutoff, but it is the build of the base commit itself (base_commit is the 'Release v0.85.1' commit; the package's 177 dist .js files are byte-identical to this image's build), so it carries nothing later than the base commit. The 0.85.0 package predates the cutoff but lacks gpt-6-astra, which the base commit's sources and ai tests reference. See templates/pi-harbor-node/README.md, 'Model catalog'."
   ]
 }

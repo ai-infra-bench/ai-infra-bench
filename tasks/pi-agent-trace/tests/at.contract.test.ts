@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	atOrAfter,
 	children,
 	compact,
 	customTexts,
@@ -167,7 +168,7 @@ describe("agent-trace contract", () => {
 			"pi.session.entry_id": toolEntry.id,
 		});
 		expect(tool.end - tool.start).toBeGreaterThanOrEqual(ns(25));
-		expect(tool.start).toBeGreaterThanOrEqual(chats[0].end);
+		expect(atOrAfter(tool.start, chats[0].end)).toBe(true);
 
 		// A second prompt appends; nothing earlier is rewritten.
 		await prompt(s, [say("again")], "second");
@@ -246,7 +247,7 @@ describe("agent-trace contract", () => {
 		expect(runs[3].attributes["pi.session.entry_id"]).toBe(customs[2].id);
 		const users = entryOf(s, (e) => e.type === "message" && e.message.role === "user");
 		expect([runs[0], runs[2]].map((r) => r.attributes["pi.session.entry_id"])).toEqual(users.map((u) => u.id));
-		expect(runs[3].start).toBeGreaterThanOrEqual(runs[2].end);
+		expect(atOrAfter(runs[3].start, runs[2].end)).toBe(true);
 		for (const r of runs) expect(r.attributes["pi.run.turn_count"]).toBe(1);
 	});
 
@@ -294,7 +295,7 @@ describe("agent-trace contract", () => {
 		expect(compactions[1].attributes["gen_ai.usage.input_tokens"]).toBe(entries[1].usage.input);
 		expect(compactions[1].attributes["gen_ai.usage.output_tokens"]).toBe(entries[1].usage.output);
 		const runs = named(spans, "pi.run");
-		expect(compactions[1].start).toBeGreaterThanOrEqual(runs[runs.length - 1].end);
+		expect(atOrAfter(compactions[1].start, runs[runs.length - 1].end)).toBe(true);
 		// The summary requests of a compaction are not chat spans: only assistant entries on the branch are.
 		expect(named(spans, "chat")).toHaveLength(
 			entryOf(s, (e) => e.type === "message" && e.message.role === "assistant").length,
@@ -441,8 +442,8 @@ describe("agent-trace contract", () => {
 			expect(span.end).toBeLessThanOrEqual(ns(shutdownEnded + 1));
 		}
 		// Written and closed child-first.
-		expect(chat.end).toBeLessThanOrEqual(turn.end);
-		expect(turn.end).toBeLessThanOrEqual(run.end);
+		expect(atOrAfter(turn.end, chat.end)).toBe(true);
+		expect(atOrAfter(run.end, turn.end)).toBe(true);
 	});
 
 	it("an unwritable trace path never reaches the agent and is reported once", async () => {
@@ -685,8 +686,8 @@ describe("agent-trace contract", () => {
 			"pi.compaction.will_retry": true,
 			"pi.session.entry_id": entry.id,
 		});
-		expect(compactions[0].start).toBeGreaterThanOrEqual(runs[1].end);
-		expect(compactions[0].end).toBeLessThanOrEqual(runs[2].start);
+		expect(atOrAfter(compactions[0].start, runs[1].end)).toBe(true);
+		expect(atOrAfter(runs[2].start, compactions[0].end)).toBe(true);
 		expect(runs[2].attributes["pi.run.after_compaction"]).toBe(entry.id);
 		expect("pi.session.entry_id" in runs[2].attributes).toBe(false);
 		expect(runs[2].attributes["pi.run.turn_count"]).toBe(1);

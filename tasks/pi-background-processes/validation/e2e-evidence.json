@@ -1,13 +1,13 @@
 {
   "schema_version": "ai_infra_bench_e2e_evidence.v1",
   "task": "ai-infra-bench/pi-background-processes",
-  "recorded_at": "2026-09-19",
+  "recorded_at": "2026-09-20",
   "base_commit": "d981de1229ef899957bbe968bc8dcda02a21f477",
   "dependency_cutoff": "2026-09-05T11:54:46Z",
   "image": {
     "canonical_tag": "ai-infra-bench/pi-background-processes:base-d981de1229ef",
-    "image_id": "sha256:5ae25731adfef37fa7802eacaecba42092a98ca2a21dca2aa7b93b3527a22af7",
-    "platform": "linux/amd64 (templates/pi-harbor-node/build.py under qemu on the arm64 host; harness revision 5 Dockerfile = revision 4 plus one layer recording /opt/pi-baseline/build-manifest.sha256; every earlier layer came from cache, so the pass-to-pass baseline is the revision 4 one); matches task.toml image_digest and environment/image-manifest.json",
+    "image_id": "sha256:6f1c9d069d94da2965d63045dfb8bec6c368d5a9da88c5d07f528bbe8da27869",
+    "platform": "linux/amd64 (templates/pi-harbor-node/build.py under qemu on the arm64 host; harness revision 5 Dockerfile with the pinned model catalog and `RUN --network=none npm run build:offline`; CI's x64 runner rebuilds the same Dockerfile natively); matches task.toml image_digest and environment/image-manifest.json",
     "template": "pi-harbor-node",
     "build_context": "empty",
     "published": false,
@@ -18,9 +18,11 @@
       "harness_revision_3_arm64": "sha256:96703b6c4db6547b7096cd4d802fbc6f14bf35af9e2a3dd2418aa2c5a2eefd2d (revision 3 matrix image; superseded 2026-09-18)",
       "harness_revision_3_amd64": "sha256:b44780bd36bae60aa0877c361c7856ab1d52467899105d2c23dd26454bf9bd0f (revision 3 canonical amd64; superseded 2026-09-18)",
       "harness_revision_4_amd64": "sha256:b3e2ea1ef22eaa1b6a0d22dd5d169546701b6eff535ed8160ea86bff1840224c (canonical image of harness revision 4; superseded 2026-09-19)",
-      "harness_revision_4_arm64": "sha256:c0b17fefc5542c58b442cb47a51bc757ada45a5162192e52d5135889d082efb8 (revision 4 matrix image; kept locally as :local-rev4)"
+      "harness_revision_4_arm64": "sha256:c0b17fefc5542c58b442cb47a51bc757ada45a5162192e52d5135889d082efb8 (revision 4 matrix image; kept locally as :local-rev4)",
+      "harness_revision_5_live_catalog_amd64": "sha256:5ae25731adfef37fa7802eacaecba42092a98ca2a21dca2aa7b93b3527a22af7 (revision 5 image whose pi build fetched the live model catalog; superseded 2026-09-20)",
+      "harness_revision_5_live_catalog_arm64": "sha256:593b6668002dc020931943467dba9a96e3435e6bdba56223973673ed8dd5eac0 (the image the first revision 5 matrices ran on)"
     },
-    "local_matrix_image": "ai-infra-bench/pi-background-processes:local = linux/arm64 build of the harness revision 5 Dockerfile, sha256:593b6668002dc020931943467dba9a96e3435e6bdba56223973673ed8dd5eac0 (the image the revision 5 matrix ran on)",
+    "local_matrix_image": "ai-infra-bench/pi-background-processes:local = linux/arm64 build of the same Dockerfile, sha256:ffce064c604cc17ce2ddbab755eaab4f1998c6b33b50da1bb85ac797d42ad64f",
     "ci_x64": {
       "run_id": "35258346225",
       "pr": "#92",
@@ -34,8 +36,8 @@
   "hardware": "local macOS (Apple Silicon) host, colima docker VM (12 CPU / 28 GiB); full matrix on a linux/arm64 build of the same Dockerfile, base/oracle smoke on the linux/amd64 template build under qemu; CI x64 runner (GitHub Actions) validated harness revision 3 on 2026-09-17T18:21Z (run 35258346225, full matrix green)",
   "executable_hashes": {
     "instruction_sha256": "00a9b43faa25c8a98300dec9789c14e4c05640c427f5245cb70641fdb67b14d5",
-    "task_toml_sha256": "2ffe45b9e2902ca0d57a1bedc456aead61b303701abd45a643800cfaa75d7682",
-    "dockerfile_sha256": "775dd1bb767b5a4bb4d735d9d9df0427c3ff725f72162af6c2ccab3b7f1e1264",
+    "task_toml_sha256": "9cf9033ed9d9b5198c40da33c8181f26abd1a230015964539c33b0198337d7fe",
+    "dockerfile_sha256": "863bfdf3f21fc63dea0386462005c1d6452b0d333362f5abb3ba6ceff336f77a",
     "oracle_patch_sha256": "1011d89f0ea5e635bd6fc2c606baba8f4107adef0df436365f1eebb2d4c7886a",
     "solve_script_sha256": "9fc62fd65f4dafe37cd88285894776535c4bfa300e62d5570140f49fdc93a8f9",
     "test_script_sha256": "b012fe274fcb9788c46ec99084469b9484370f8e0be32c6f900b610f58c5b656",
@@ -212,13 +214,23 @@
       "log": "~/ai-infra-scratch/rerun-style.log"
     },
     "latest": {
-      "date": "2026-09-19",
+      "date": "2026-09-20",
       "harness_revision": 5,
-      "image_id_arm64": "sha256:593b6668002dc020931943467dba9a96e3435e6bdba56223973673ed8dd5eac0",
-      "image_id_amd64_canonical": "sha256:5ae25731adfef37fa7802eacaecba42092a98ca2a21dca2aa7b93b3527a22af7",
-      "log": "~/ai-infra-scratch/rev5-matrix-pi-background-processes.log",
-      "result": "all-match 23/23 (base, oracle, every control incl. control-scope-hidden-by-gitignore and control-built-dist-tampered, alternatives)",
-      "note": "first run of the day had the three scope controls at reward 1: the scope function was piped into tee, so scope_rc was set in a subshell and lost; fixed (no pipeline) before this matrix, and tests/ were not edited afterwards. amd64 canonical image: check_scope.py on Base exits 0 and --list-files yields 265 Base test files; no amd64 matrix was run (as for revision 4)."
+      "image_id_arm64": "sha256:ffce064c604cc17ce2ddbab755eaab4f1998c6b33b50da1bb85ac797d42ad64f",
+      "image_id_amd64_canonical": "sha256:6f1c9d069d94da2965d63045dfb8bec6c368d5a9da88c5d07f528bbe8da27869",
+      "log": "~/ai-infra-scratch/rev5b-matrix-pi-background-processes.log (+ rev5b-rerun-alt-opus.log)",
+      "result": "all-match 23/23",
+      "note": "pi-background-processes: 22/23 in the matrix plus one rerun (alt-opus-0.0.3-defer-and-reload hit a Harbor infrastructure failure, completed=0, and matched on rerun); run on arm64 image sha256:59a60563b49d, whose build manifest (sha256 2c8237925e79e13f...) and baseline are byte-identical to the final image; verifier files unchanged since.",
+      "amd64_smoke": {
+        "image_id": "sha256:6f1c9d069d94da2965d63045dfb8bec6c368d5a9da88c5d07f528bbe8da27869",
+        "how": "docker run --platform linux/amd64 (qemu), --network none, tests/test.sh directly (pi-agent-trace files)",
+        "results": {
+          "oracle": "reward 1, every layer 0",
+          "control-scope-hidden-by-gitignore": "reward 0, scope_exit_code 1",
+          "control-built-dist-tampered": "reward 0, scope_exit_code 1 (post-suite check)"
+        },
+        "log": "~/ai-infra-scratch/rev5-amd64-smoke/run2.log"
+      }
     },
     "allowed_failures_rerun": {
       "date": "2026-09-14",
@@ -971,6 +983,15 @@
         "log": "~/ai-infra-scratch/f3-bg-matrix.log",
         "result": "all-match 21/21 (base, oracle, every control incl. control-verifier-runner-escape, alternatives)",
         "note": "verifier runs pi's suites as the unprivileged node user (su -p); baseline recorded as node (0 environmental failures); new control control-verifier-runner-escape rejected (reward 0)."
+      },
+      {
+        "date": "2026-09-19",
+        "harness_revision": 5,
+        "image_id_arm64": "sha256:593b6668002dc020931943467dba9a96e3435e6bdba56223973673ed8dd5eac0",
+        "image_id_amd64_canonical": "sha256:5ae25731adfef37fa7802eacaecba42092a98ca2a21dca2aa7b93b3527a22af7",
+        "log": "~/ai-infra-scratch/rev5-matrix-pi-background-processes.log",
+        "result": "all-match 23/23 (base, oracle, every control incl. control-scope-hidden-by-gitignore and control-built-dist-tampered, alternatives)",
+        "note": "first run of the day had the three scope controls at reward 1: the scope function was piped into tee, so scope_rc was set in a subshell and lost; fixed (no pipeline) before this matrix, and tests/ were not edited afterwards. amd64 canonical image: check_scope.py on Base exits 0 and --list-files yields 265 Base test files; no amd64 matrix was run (as for revision 4)."
       }
     ],
     "harness_revision_3_matrix": {
@@ -1423,20 +1444,38 @@
         "lifecycle: a later pi process resumes the session and reads finished records"
       ],
       "write_up": "validation/rollouts-2026-09-19-codex-zenmux.md"
+    },
+    {
+      "date": "2026-09-20",
+      "instruction_version": "0.0.4 (harness revision 5, offline-built image)",
+      "agent": "grok-build (custom session-auth subclass), agent timeout multiplier 0.15, agent user node",
+      "model": "grok-4.6",
+      "reward": 0,
+      "contract": "14/15",
+      "lifecycle": "2/3",
+      "pass_to_pass": "pass",
+      "scope_exit_code": 0,
+      "candidate_tests_exit_code": 0,
+      "failures": [
+        "contract: ready wakes once and is delivered after the running tool batch (the wake is held while the agent is busy and flushed after the run, so it lands after the assistant text)",
+        "lifecycle: SIGTERM to the pi process stops managed processes (the handler exits only when no other listener exists; pi's signal-exit listener always does)"
+      ],
+      "hack_screen": "clean",
+      "evidence": "job pi-background-processes--GrokBuildOAuthLocal--grok-4.6--x0.15--20260920-115954"
     }
   ],
   "artifacts": {
     "files": {
-      "README.md": "a4aac7edaefd929a5db455a7ae110ca9c7251ade81775bebd123a1d5e36c9550",
-      "environment/Dockerfile": "775dd1bb767b5a4bb4d735d9d9df0427c3ff725f72162af6c2ccab3b7f1e1264",
-      "environment/image-manifest.json": "2b821e203d0ab0083529dbed87fab0b6f830b4a93d768a23ce60b0a79078b8ab",
-      "environment/lock/manifest.json": "967f6a3c67d25bae5ed6be1dad6bc7ca15d2cfd3d3539f93366a02100d13cf2f",
+      "README.md": "298930c0cc84e7d5be01021069aad3e87811de07fa637463a57c2753b12ef11d",
+      "environment/Dockerfile": "863bfdf3f21fc63dea0386462005c1d6452b0d333362f5abb3ba6ceff336f77a",
+      "environment/image-manifest.json": "d7c4f4596495a679c8cb381f920022224db4665adadc7b645b211ce0954aac62",
+      "environment/lock/manifest.json": "91ff4b4af67438157c0664915f356453b1bc30bbf58d104d5642ad3473c9fc96",
       "environment/lock/package-lock.json": "e3569b99e673a0051be908f2bed57651b90a966a5a0d208913c29e6830a6a6c2",
       "instruction.md": "00a9b43faa25c8a98300dec9789c14e4c05640c427f5245cb70641fdb67b14d5",
       "solution/README.md": "bf50f6f9f22850a108a2775196d28eb989079a7c2b772d7253dae06554976810",
       "solution/oracle.patch": "1011d89f0ea5e635bd6fc2c606baba8f4107adef0df436365f1eebb2d4c7886a",
       "solution/solve.sh": "9fc62fd65f4dafe37cd88285894776535c4bfa300e62d5570140f49fdc93a8f9",
-      "task.toml": "2ffe45b9e2902ca0d57a1bedc456aead61b303701abd45a643800cfaa75d7682",
+      "task.toml": "9cf9033ed9d9b5198c40da33c8181f26abd1a230015964539c33b0198337d7fe",
       "tests/base-manifest.json": "973d673f83c0870fbee036018a29374295bd728dfeb2b446b49bb259d1175494",
       "tests/baseline-pins.json": "a1618c332ca4f20f37c06ca13a53b30b759bc9dd1044f6d9c4bb38c2c7ef04b9",
       "tests/bg.contract.test.ts": "0e8ff1d1bc81d467ef6a85a405ebdcf2db80b7b1d09afd2511147a2601583f5a",
@@ -1565,6 +1604,10 @@
     {
       "date": "2026-09-19",
       "change": "Harness revision 5: scope decided by content hashes instead of git (tests/check_scope.py, tests/base-manifest.json, image /opt/pi-baseline/build-manifest.sha256), checked before and after the suites; root no longer runs git in the agent-owned checkout (reproduced on revision 4: .git/config core.fsmonitor ran as uid 0 during the verifier's git status); PASS_TO_PASS limited to the Base test files from the pinned baseline, the submission's own test files run separately and must pass (candidate_tests_exit_code); test.sh refuses to run if node can write /tests or /opt/pi-baseline. New controls control-scope-hidden-by-gitignore and control-built-dist-tampered (expected 0, apply_after oracle); validation/scope_bypass_probe.sh for the bypasses a patch cannot express (A assume-unchanged: git 0 lines, check_scope 1; B dist edit: git 0 lines, check_scope 1; C fsmonitor hook: uid 1000 only). Rebuilt arm64 sha256:593b6668002dc020931943467dba9a96e3435e6bdba56223973673ed8dd5eac0 and amd64 canonical sha256:5ae25731adfef37fa7802eacaecba42092a98ca2a21dca2aa7b93b3527a22af7; task.toml image_digest and image-manifest.json updated; matrix 23/23. Real-agent rollouts recorded earlier were not re-graded on revision 5; Codex-through-ZenMux rollouts added: deepseek/deepseek-v4.1-flash on revision 4 and openai/gpt-5.6-luna on revision 5, two runs each (validation/rollouts-2026-09-19-codex-zenmux.md)."
+    },
+    {
+      "date": "2026-09-20",
+      "change": "Environment revision: the image no longer regenerates pi's model catalog from live APIs (a fresh build broke on 2026-09-19 when upstream dropped `kimi-coding`; CI on #103 hit it). Catalog from the sha256-pinned @earendil-works/pi-ai 0.85.1 package (the build of the base commit itself: byte-identical dist .js files; published 11 min after dependency_cutoff, recorded in environment/lock/manifest.json), pi built with `RUN --network=none npm run build:offline`. Rebuilt arm64 sha256:ffce064c604cc17ce2ddbab755eaab4f1998c6b33b50da1bb85ac797d42ad64f and amd64 canonical sha256:6f1c9d069d94da2965d63045dfb8bec6c368d5a9da88c5d07f528bbe8da27869; baseline unchanged (2158/0/50); matrix 23/23; amd64 smoke Oracle 1 / scope controls 0. One more grok-4.6 rollout on the final image: reward 0, genuine (see real_agent_rollouts); scope and candidate-test steps did not misfire."
     }
   ]
 }

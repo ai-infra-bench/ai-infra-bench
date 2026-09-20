@@ -71,12 +71,36 @@ ARG PI_CACHE_NAMESPACE
 ARG PI_LOCK_SHA256
 
 # The lock file is the repository's own at the base commit and must be the one
-# checked in as environment/lock/package-lock.json (sha256 pinned below). npm ci
-# is the only network step; everything after it is offline.
+# checked in as environment/lock/package-lock.json (sha256 pinned below).
+#
+# Model catalog: pi's `npm run build` regenerates packages/ai/src/providers/data from live
+# APIs (models.dev, OpenRouter, ...) and deletes the tracked `<provider>.models.ts` of any
+# provider the APIs no longer list, so a fresh build depends on the build date and broke
+# on 2026-09-19 when `kimi-coding` disappeared upstream. The catalog is taken instead from
+# the published @earendil-works/pi-ai package of the same release, pinned by sha256. For
+# 0.85.1 that package is the build of the base commit itself (the base commit is the
+# "Release v0.85.1" commit; its 177 dist .js files are byte-identical to this image's
+# build; catalog generated 4 minutes after the commit), so it reveals nothing after the
+# base commit although npm published it 11 minutes after `dependency_cutoff`. pi's own
+# `check:model-data` validates the data against the tracked sources during the build.
+ARG PI_AI_VERSION=0.85.1
+ARG PI_AI_TARBALL_SHA256=af7d11986179445ce6fe88b37d57de22f823c0ffd3a65cae31c555b7f5e99253
 RUN echo "$PI_LOCK_SHA256  package-lock.json" | sha256sum -c - \
+ && test "$(node -p "require('./packages/ai/package.json').version")" = "$PI_AI_VERSION" \
  && npm ci --no-audit --no-fund \
- && npm run build \
- && npm cache clean --force
+ && npm cache clean --force \
+ && curl -fsSL -o /tmp/pi-ai.tgz "https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-${PI_AI_VERSION}.tgz" \
+ && echo "$PI_AI_TARBALL_SHA256  /tmp/pi-ai.tgz" | sha256sum -c - \
+ && mkdir -p /tmp/pi-ai && tar -xzf /tmp/pi-ai.tgz -C /tmp/pi-ai package/dist/providers/data \
+ && rm -rf packages/ai/src/providers/data \
+ && cp -r /tmp/pi-ai/package/dist/providers/data packages/ai/src/providers/data \
+ && rm -rf /tmp/pi-ai /tmp/pi-ai.tgz
+
+# The build itself runs without network: pi's own root `build:offline` script (the root
+# `build` with the ai package's `build:offline`, i.e. without `generate-models`). No tracked
+# file may change.
+RUN --network=none npm run build:offline \
+ && test -z "$(git status --porcelain)"
 
 # Smoke: the published entry points exist, the faux provider is importable,
 # vitest collects, and the CLI starts without network.

@@ -636,6 +636,14 @@ export function liveProblems(all: Span[], externalParent?: string): string[] {
 
 /** Whole milliseconds of a nanosecond timestamp. */
 export const ms = (nanos: bigint): bigint => nanos / 1_000_000n;
+// Order between two spans: `later` is at or after `earlier`, decided at millisecond granularity with
+// 1 ms of tolerance. The contract mixes clocks by construction: a turn starts at pi's `turn_start`
+// event timestamp (whole milliseconds, Date.now), every other timestamp comes from "the clock" with
+// sub-millisecond digits left to the implementation. A monotonic clock anchored to Date.now() at
+// startup lags it by up to 1 ms, so two correct timestamps of adjacent events can be inverted by a
+// fraction of a millisecond, across a millisecond boundary (seen 2026-09-20: a compaction start of
+// ...154.799 ms against a run end of ...155.000 ms on the claude-opus-5 submission).
+export const atOrAfter = (later: bigint, earlier: bigint): boolean => ms(later) + 1n >= ms(earlier);
 
 export function children(spans: Span[], parent: Span): Span[] {
 	return spans.filter((span) => span.parentSpanId === parent.spanId);
@@ -678,16 +686,16 @@ export function traceProblems(
 			problems.push(`line ${span.line}: parent ${span.parentSpanId} not in file`);
 			continue;
 		}
-		// Cross-span time comparisons are made at millisecond granularity: sub-millisecond digits are the
-		// implementation's own (a per-record clock read or a monotonic bump) and never decide an order.
-		if (ms(span.start) < ms(parent.start) || ms(span.end) > ms(parent.end))
+		// Cross-span time comparisons go through atOrAfter (millisecond granularity, 1 ms tolerance):
+		// sub-millisecond digits are the implementation's own and never decide an order.
+		if (!atOrAfter(span.start, parent.start) || !atOrAfter(parent.end, span.end))
 			problems.push(`line ${span.line}: ${span.name} not nested in ${parent.name}`);
 	}
 	// Turns of a run do not overlap; tools start after the chat of their turn ends.
 	for (const run of named(spans, "pi.run")) {
 		const turns = children(spans, run).sort((a, b) => (a.start < b.start ? -1 : 1));
 		for (let i = 1; i < turns.length; i++) {
-			if (ms(turns[i].start) < ms(turns[i - 1].end)) problems.push(`run ${run.spanId}: turns overlap`);
+			if (!atOrAfter(turns[i].start, turns[i - 1].end)) problems.push(`run ${run.spanId}: turns overlap`);
 		}
 		for (const turn of turns) {
 			const kids = children(spans, turn);
@@ -695,7 +703,7 @@ export function traceProblems(
 			const tools = kids.filter((k) => k.name.startsWith("execute_tool "));
 			if (chats.length !== 1) problems.push(`turn ${turn.spanId}: ${chats.length} chat spans`);
 			for (const tool of tools)
-				if (chats[0] && ms(tool.start) < ms(chats[0].end)) problems.push(`turn ${turn.spanId}: tool before chat ended`);
+				if (chats[0] && !atOrAfter(tool.start, chats[0].end)) problems.push(`turn ${turn.spanId}: tool before chat ended`);
 			if (kids.length !== chats.length + tools.length) problems.push(`turn ${turn.spanId}: unexpected child kinds`);
 		}
 		if (run.attributes["pi.run.turn_count"] !== turns.length)
