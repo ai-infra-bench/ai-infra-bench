@@ -1,0 +1,104 @@
+diff --git a/csrc/ops.h b/csrc/ops.h
+index 97a247d..207291e 100644
+--- a/csrc/ops.h
++++ b/csrc/ops.h
+@@ -292,6 +292,11 @@ void per_token_group_quant_fp8(const torch::Tensor& input,
+                                torch::Tensor& output_q, torch::Tensor& output_s,
+                                int64_t group_size, double eps, double fp8_min,
+                                double fp8_max, bool scale_ue8m0);
++
++void per_token_group_quant_int8(const torch::Tensor& input,
++                                torch::Tensor& output_q,
++                                torch::Tensor& output_s, int64_t group_size,
++                                double eps, double int8_min, double int8_max);
+ #endif
+
+ void static_scaled_int8_quant(torch::Tensor& out, torch::Tensor const& input,
+diff --git a/csrc/quantization/fp8/per_token_group_quant.cu b/csrc/quantization/fp8/per_token_group_quant.cu
+index afc41fa..90cecb0 100644
+--- a/csrc/quantization/fp8/per_token_group_quant.cu
++++ b/csrc/quantization/fp8/per_token_group_quant.cu
+@@ -2,6 +2,7 @@
+ #include <c10/util/Float8_e4m3fn.h>
+
+ #include <cmath>
++#include <type_traits>
+
+ #include <cuda_fp16.h>
+ #include <cuda_bf16.h>
+@@ -104,7 +105,14 @@ __global__ void per_token_group_quant_8bit_kernel(
+   // quantize shared -> global 8-bit
+   auto scalar_op_quant = [&] __device__(DST_DTYPE & dst, const T& src) {
+     float q = fminf(fmaxf(static_cast<float>(src) / y_s, min_8bit), max_8bit);
+-    dst = DST_DTYPE(q);
++    if constexpr (std::is_same_v<DST_DTYPE, int8_t>) {
++      // Use round-to-nearest-even with saturation for INT8
++      uint32_t tmp;
++      asm volatile("cvt.rni.sat.s8.f32 %0, %1;" : "=r"(tmp) : "f"(q));
++      dst = reinterpret_cast<const int8_t&>(tmp);
++    } else {
++      dst = DST_DTYPE(q);
++    }
+   };
+
+   vllm::vectorize_with_alignment<vec_size>(
+@@ -198,12 +206,23 @@ void per_token_group_quant_8bit(const torch::Tensor& input,
+       input.scalar_type(), "per_token_group_quant_8bit", ([&] {
+         if (dst_type == at::ScalarType::Float8_e4m3fn) {
+           LAUNCH_KERNEL(scalar_t, c10::Float8_e4m3fn);
++        } else if (dst_type == at::ScalarType::Char) {
++          LAUNCH_KERNEL(scalar_t, int8_t);
+         }
+       }));
+
+ #undef LAUNCH_KERNEL
+ }
+
++void per_token_group_quant_int8(const torch::Tensor& input,
++                                torch::Tensor& output_q,
++                                torch::Tensor& output_s, int64_t group_size,
++                                double eps, double int8_min,
++                                double int8_max) {
++  per_token_group_quant_8bit(input, output_q, output_s, group_size, eps,
++                             int8_min, int8_max, /*scale_ue8m0=*/false);
++}
++
+ void per_token_group_quant_fp8(const torch::Tensor& input,
+                                torch::Tensor& output_q, torch::Tensor& output_s,
+                                int64_t group_size, double eps, double fp8_min,
+diff --git a/csrc/torch_bindings.cpp b/csrc/torch_bindings.cpp
+index 95f8541..a2d285e 100644
+--- a/csrc/torch_bindings.cpp
++++ b/csrc/torch_bindings.cpp
+@@ -624,6 +624,14 @@ TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops) {
+   ops.impl("per_token_group_fp8_quant", torch::kCUDA,
+            &per_token_group_quant_fp8);
+
++  // Compute per-token-group INT8 quantized tensor and scaling factor.
++  ops.def(
++      "per_token_group_int8_quant(Tensor input, Tensor! output_q, Tensor! "
++      "output_s, "
++      "int group_size, float eps, float int8_min, float int8_max) -> ()");
++  ops.impl("per_token_group_int8_quant", torch::kCUDA,
++           &per_token_group_quant_int8);
++
+   // reorder weight for AllSpark Ampere W8A16 Fused Gemm kernel
+   ops.def(
+       "rearrange_kn_weight_as_n32k16_order(Tensor b_qweight, Tensor b_scales, "
+diff --git a/vllm/model_executor/layers/quantization/utils/int8_utils.py b/vllm/model_executor/layers/quantization/utils/int8_utils.py
+index 1fdf7d1..3f7b74e 100644
+--- a/vllm/model_executor/layers/quantization/utils/int8_utils.py
++++ b/vllm/model_executor/layers/quantization/utils/int8_utils.py
+@@ -246,6 +246,12 @@ def per_token_group_quant_int8(
+         dtype=torch.float32,
+     )
+
++    if x.is_cuda and not current_platform.is_rocm():
++        torch.ops._C.per_token_group_int8_quant(x, x_q, x_s, group_size, eps,
++                                                float(int8_min),
++                                                float(int8_max))
++        return x_q, x_s
++
+     BLOCK = triton.next_power_of_2(N)
+     # heuristics for number of warps
+     num_warps = min(max(BLOCK // 256, 1), 8)

@@ -1,0 +1,21 @@
+--- a/csrc/quantization/fp8/per_token_group_quant.cu
++++ b/csrc/quantization/fp8/per_token_group_quant.cu
+@@ -144,17 +144,9 @@
+ 
+   constexpr int THREADS_PER_GROUP = 16;
+ 
++  // Negative control: keep one group per block, forfeiting occupancy.
+   int groups_per_block = 1;
+ 
+-  if (num_groups % 16 == 0) {
+-    groups_per_block = 16;
+-  } else if (num_groups % 8 == 0) {
+-    groups_per_block = 8;
+-  } else if (num_groups % 4 == 0) {
+-    groups_per_block = 4;
+-  } else if (num_groups % 2 == 0) {
+-    groups_per_block = 2;
+-  }
+ 
+   // Keep the launch inside the device's default dynamic shared-memory limit.
+   // Halving preserves the existing divisibility of num_groups by the block size.
