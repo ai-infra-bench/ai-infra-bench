@@ -118,6 +118,29 @@ class TaskHardwareTests(unittest.TestCase):
 
 
 class HarborResultTests(unittest.TestCase):
+    def test_failed_reward_prints_bounded_verifier_output_without_following_links(self):
+        with tempfile.TemporaryDirectory() as directory:
+            job = Path(directory) / "job"
+            log = job / "trial/verifier/test-stdout.txt"
+            log.parent.mkdir(parents=True)
+            log.write_text("omitted-prefix" + "x" * 70000 + "\nstartup timeout traceback\n")
+            outside = Path(directory) / "outside.txt"
+            outside.write_text("must-not-print-outside-content")
+            linked = job / "other/verifier/test-stdout.txt"
+            linked.parent.mkdir(parents=True)
+            linked.symlink_to(outside)
+            result = job / "result.json"
+            result.write_text(json.dumps({"stats": {
+                "n_completed_trials": 1, "n_errored_trials": 0,
+                "evals": {"oracle": {"reward_stats": {"reward": {"0": ["trial"]}}}},
+            }}))
+            output = io.StringIO()
+            with redirect_stdout(output), self.assertRaises(ContractError):
+                command_check_result(argparse.Namespace(result=str(result), expected_reward=1))
+            self.assertIn("startup timeout traceback", output.getvalue())
+            self.assertNotIn("omitted-prefix", output.getvalue())
+            self.assertNotIn("must-not-print-outside-content", output.getvalue())
+
     def check(self, evaluation, expected=1, completed=1, errored=0):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "result.json"
