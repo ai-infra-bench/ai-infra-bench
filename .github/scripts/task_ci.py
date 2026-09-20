@@ -16,6 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import tomllib
 
@@ -109,6 +110,31 @@ def task_contract(task_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         raise ContractError(f"{task_dir.name}: invalid trusted runner labels")
     if not isinstance(runner.get("platform"), str):
         raise ContractError(f"{task_dir.name}: runner platform is missing")
+    data_proxy_url = runner.get("data_proxy_url", "")
+    proxy_is_valid = isinstance(data_proxy_url, str)
+    if proxy_is_valid:
+        try:
+            parsed_proxy = urlsplit(data_proxy_url)
+            proxy_is_valid = (
+                not data_proxy_url
+                or (
+                    parsed_proxy.scheme == "http"
+                    and parsed_proxy.hostname == "127.0.0.1"
+                    and parsed_proxy.port is not None
+                    and parsed_proxy.username is None
+                    and parsed_proxy.password is None
+                    and not parsed_proxy.path
+                    and not parsed_proxy.query
+                    and not parsed_proxy.fragment
+                )
+            )
+        except ValueError:
+            proxy_is_valid = False
+    if not proxy_is_valid:
+        raise ContractError(
+            f"{task_dir.name}: runner data_proxy_url must be an uncredentialed "
+            "loopback HTTP URL"
+        )
     return config, runner
 
 
@@ -141,6 +167,11 @@ def validation_manifest(task_dir: Path) -> dict[str, Any]:
             raise ContractError(f"{task_dir.name}: invalid patch path {patch_name!r}")
         if case.get("expected_reward") not in (0, 1):
             raise ContractError(f"{task_dir.name}/{name}: expected_reward must be 0 or 1")
+        apply_after = case.get("apply_after", "base")
+        if apply_after not in ("base", "oracle"):
+            raise ContractError(
+                f"{task_dir.name}/{name}: apply_after must be base or oracle"
+            )
         patch_path = task_dir / "validation" / patch_name
         if not patch_path.is_file():
             raise ContractError(f"{task_dir.name}/{name}: patch is missing")
@@ -224,8 +255,10 @@ def matrix_entry(task_dir: Path, mode: str) -> dict[str, Any]:
         approval_environment = "task-validation"
     return {
         "task": task_dir.name,
+        "accelerator": config["environment"]["accelerator"],
         "runs_on": runner["github_labels"],
         "platform": runner["platform"],
+        "data_proxy_url": runner.get("data_proxy_url", ""),
         "approval_environment": approval_environment,
     }
 
@@ -338,11 +371,51 @@ def prepare_case(task_dir: Path, image: str, case_name: str, output: Path) -> st
 
     solution = output / "solution"
     patch_source = task_dir / "validation" / case["patch"]
+    apply_after = case.get("apply_after", "base")
     shutil.rmtree(solution, ignore_errors=True)
     solution.mkdir()
-    shutil.copy2(patch_source, solution / "ci-case.patch")
 
     script = ["#!/usr/bin/env bash", "set -euo pipefail"]
+    if apply_after == "oracle":
+        # The Golden Oracle solve.sh may reference its sibling files with
+        # absolute paths rooted at /solution (e.g. `git apply /solution/fix.patch`).
+        # We therefore keep the Oracle solution flat at the /solution root rather
+        # than nesting it under /solution/oracle, rename its entrypoint to
+        # oracle-solve.sh, and drive it from a generated wrapper. Nesting would
+        # break those absolute paths and silently apply nothing (agent exits 128,
+        # verifier sees base state) — a HARNESS_INVALID result, not a real signal.
+        oracle_src = task_dir / "solution"
+        # Fail-closed on any name that our wrapper reserves: the generated
+        # wrapper (solve.sh), the renamed Oracle entrypoint (oracle-solve.sh),
+        # and the control patch (ci-case.patch) must not already exist in the
+        # Oracle solution, or the flat copy would clobber / be clobbered.
+        reserved = {"solve.sh", "oracle-solve.sh", "ci-case.patch"}
+        conflicts = sorted(
+            child.name
+            for child in oracle_src.iterdir()
+            if child.name in (reserved - {"solve.sh"})
+        )
+        if conflicts:
+            raise ContractError(
+                f"{task_dir.name}: Oracle solution contains reserved name(s) "
+                f"{conflicts} that collide with prepared apply_after=oracle layout"
+            )
+        oracle_entry = oracle_src / "solve.sh"
+        if not oracle_entry.is_file():
+            raise ContractError(
+                f"{task_dir.name}: Oracle solution has no solve.sh entrypoint"
+            )
+        for child in oracle_src.iterdir():
+            dest_name = "oracle-solve.sh" if child.name == "solve.sh" else child.name
+            dest = solution / dest_name
+            if child.is_dir():
+                shutil.copytree(child, dest)
+            else:
+                shutil.copy2(child, dest)
+        (solution / "oracle-solve.sh").chmod(0o755)
+        script.append("bash /solution/oracle-solve.sh")
+
+    shutil.copy2(patch_source, solution / "ci-case.patch")
     script.extend(
         [
             "git apply --check /solution/ci-case.patch",
@@ -363,22 +436,120 @@ def command_prepare_case(args: argparse.Namespace) -> None:
 
 
 def result_reward(result_path: Path) -> tuple[int, int, list[float]]:
+    """Parse Harbor result.json and extract trial counts + per-trial rewards.
+
+    Harbor 0.22.0+ schema (preferred):
+        stats.evals[*].reward_stats.reward: dict[str, list[str]]
+            reward value -> trial ID list mapping
+
+    Legacy schema (fallback, only if reward_stats completely absent):
+        stats.evals[*].metrics[*].reward: float (single reward per eval)
+
+    Fail-closed on any structural anomaly, non-numeric reward, duplicate trial
+    ID, or mismatch between reward_stats trial count and n_completed_trials.
+    """
     result = json.loads(result_path.read_text())
     stats = result.get("stats", {})
+
     completed = stats.get("n_completed_trials")
     errored = stats.get("n_errored_trials")
-    rewards = []
-    for evaluation in stats.get("evals", {}).values():
-        # Harbor 0.22 reports per-trial rewards in reward_stats; metrics only
-        # contains aggregate means and must not stand in for individual trials.
-        if "reward_stats" in evaluation:
-            for reward, trials in evaluation["reward_stats"].get("reward", {}).items():
-                rewards.extend([float(reward)] * len(trials))
-        else:
-            rewards.extend(
-                metric["reward"] for metric in evaluation.get("metrics", [])
-                if "reward" in metric
+    if not isinstance(completed, int) or not isinstance(errored, int):
+        raise ContractError(
+            f"result_reward: n_completed_trials={completed!r} or "
+            f"n_errored_trials={errored!r} is not an integer"
+        )
+
+    evals = stats.get("evals", {})
+    if not isinstance(evals, dict):
+        raise ContractError(f"result_reward: stats.evals is not a dict: {type(evals)}")
+
+    has_reward_stats = any(
+        isinstance(ev, dict) and isinstance(ev.get("reward_stats"), dict)
+        for ev in evals.values()
+    )
+
+    rewards: list[float] = []
+    seen_trial_ids: set[str] = set()
+
+    if has_reward_stats:
+        for eval_name, evaluation in evals.items():
+            if not isinstance(evaluation, dict):
+                raise ContractError(
+                    f"result_reward: evals[{eval_name!r}] is not a dict: "
+                    f"{type(evaluation)}"
+                )
+            reward_stats = evaluation.get("reward_stats")
+            if not isinstance(reward_stats, dict):
+                raise ContractError(
+                    f"result_reward: evals[{eval_name!r}].reward_stats is not a "
+                    f"dict: {type(reward_stats)}"
+                )
+            reward_map = reward_stats.get("reward")
+            if not isinstance(reward_map, dict):
+                raise ContractError(
+                    f"result_reward: evals[{eval_name!r}].reward_stats.reward is "
+                    f"not a dict: {type(reward_map)}"
+                )
+            for reward_str, trial_ids in reward_map.items():
+                try:
+                    reward_value = float(reward_str)
+                except (ValueError, TypeError) as exc:
+                    raise ContractError(
+                        f"result_reward: evals[{eval_name!r}].reward_stats.reward "
+                        f"key {reward_str!r} is not a valid float: {exc}"
+                    )
+                if not isinstance(trial_ids, list):
+                    raise ContractError(
+                        f"result_reward: evals[{eval_name!r}].reward_stats."
+                        f"reward[{reward_str!r}] is not a list: {type(trial_ids)}"
+                    )
+                for trial_id in trial_ids:
+                    if not isinstance(trial_id, str):
+                        raise ContractError(
+                            f"result_reward: trial ID {trial_id!r} in "
+                            f"evals[{eval_name!r}].reward_stats.reward"
+                            f"[{reward_str!r}] is not a string"
+                        )
+                    if trial_id in seen_trial_ids:
+                        raise ContractError(
+                            f"result_reward: duplicate trial ID {trial_id!r} in "
+                            f"reward_stats"
+                        )
+                    seen_trial_ids.add(trial_id)
+                    rewards.append(reward_value)
+        if len(rewards) != completed:
+            raise ContractError(
+                f"result_reward: reward_stats reports {len(rewards)} trials, but "
+                f"n_completed_trials={completed}"
             )
+    else:
+        for eval_name, evaluation in evals.items():
+            if not isinstance(evaluation, dict):
+                raise ContractError(
+                    f"result_reward: evals[{eval_name!r}] is not a dict: "
+                    f"{type(evaluation)}"
+                )
+            metrics = evaluation.get("metrics", [])
+            if not isinstance(metrics, list):
+                raise ContractError(
+                    f"result_reward: evals[{eval_name!r}].metrics is not a list: "
+                    f"{type(metrics)}"
+                )
+            for metric in metrics:
+                if not isinstance(metric, dict):
+                    raise ContractError(
+                        f"result_reward: metric in evals[{eval_name!r}].metrics is "
+                        f"not a dict: {type(metric)}"
+                    )
+                if "reward" in metric:
+                    reward_value = metric["reward"]
+                    if not isinstance(reward_value, (int, float)):
+                        raise ContractError(
+                            f"result_reward: evals[{eval_name!r}].metrics[*].reward "
+                            f"is not numeric: {reward_value!r}"
+                        )
+                    rewards.append(float(reward_value))
+
     return completed, errored, rewards
 
 

@@ -52,3 +52,16 @@ After every rebuild, compare the manifest's `pass_to_pass_baseline.failed_on_bas
 with the task's `tests/baseline-pins.json` `allowed_failures`: a platform may
 show an environmental failure the pin does not list yet, and the fix is to
 extend the pin.
+
+## Agent user and toolchain ownership
+
+The rendered image leaves the checkout owned by the `node` user and the installed toolchain (`node_modules`, `node`, `python3`, `bash`) owned by root and read-only for others; tasks set `[agent].user = "node"` so the agent cannot rewrite the test runner the verifier (root) executes. vite's transient config bundles go to `node_modules/.vite-temp` and `.vite`, which are node-owned; verifiers remove them before running. Root's git is configured with `safe.directory /workspace/pi`. Pair this with a verifier-side check that the submission did not change pi source or the build/test toolchain (see the pi task `tests/test.sh` scope check).
+
+## Scope check by content
+
+The checkout and its `.git` belong to the agent, so a verifier must not ask git what changed (`git update-index --assume-unchanged`, `.gitignore`, `.git/info/exclude` hide edits; `dist/` is gitignored; and git run as root in the checkout executes whatever `.git/config` names, e.g. `core.fsmonitor`). Two manifests replace it:
+
+- `tests/base-manifest.json`, written by `python3 templates/pi-harbor-node/base_manifest.py <image> tasks/<task>...`: SHA-256 of the Base files under the protected paths and the existing test tree. It depends on the Base commit only; regenerate it when `base_commit` changes.
+- `/opt/pi-baseline/build-manifest.sha256`, recorded root-owned by the image build: SHA-256 of the untracked files the build generated in the checkout (the `dist/` trees, generated model data), whose bytes depend on the build.
+
+`tests/check_scope.py` in the pi tasks compares the workspace with both, before and after the suites. Root never runs git in the checkout.

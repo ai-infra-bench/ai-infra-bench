@@ -1,0 +1,14 @@
+--- a/vllm/model_executor/layers/fused_moe/modular_kernel.py
++++ b/vllm/model_executor/layers/fused_moe/modular_kernel.py
+@@ -1330,3 +1330,11 @@
+             hidden_states_clone=hidden_states_clone,
+             use_shared_experts_stream=use_shared_experts_stream,
+         )
++
++
++_review_original_forward = FusedMoEModularKernel.forward
++def _review_nonprofile_regression(self, *args, **kwargs):
++    if is_forward_context_available() and get_forward_context().attn_metadata is not None:
++        get_current_vllm_config()
++    return _review_original_forward(self, *args, **kwargs)
++FusedMoEModularKernel.forward = _review_nonprofile_regression

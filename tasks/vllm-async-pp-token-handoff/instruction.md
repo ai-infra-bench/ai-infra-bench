@@ -1,0 +1,11 @@
+Add async scheduling to vLLM for a single node with PP=2. For now, support the `mp` executor, ordinary single-token decoding, and chunked prefill.
+
+A request should be able to have multiple steps in flight before earlier outputs are collected, as long as it has enough generation budget and KV capacity and is otherwise ready to run.
+
+Pass sampled tokens needed for the next decode step directly between GPUs using NCCL. The handoff must not depend on CPU-object communication, blocking GPU-to-CPU reads, or host waits for GPU completion. Normal output collection can still move results to the CPU afterward, but the next step must not depend on that collection to get its tokens.
+
+You should also handle changes to the batch as requests come and go. For example, when a request finishes and is removed, other requests may move into the empty slots, or the remaining requests may be reordered. Tokens need to stay with the right request and in the right order through these changes. Do not lose any remaining prompt tokens or generated tokens, or consume them twice. What matters is that the next model execution gets the correct input tokens for each request, even if its position in the batch has changed. This also needs to work when some requests in the batch are still processing prompt chunks while others are decoding.
+
+Some rounds may have no valid sampled tokens. These still need to make progress, and the stages need to agree on when to send and receive. For example, if all scheduled requests are still working through unfinished prefill chunks, earlier stages should be able to start the next chunk without waiting just to receive sampled results that will be discarded. If a stage is idle or has no output for a round, that should not accidentally make the last stage try to receive sampled tokens.
+
+Make sure this works over multiple rounds, all the way through request completion. Scheduling and output accounting still need to be correct when earlier steps are in flight, later steps are being scheduled, and outputs are being collected. A request that is ready to run should not be skipped just because it has work in flight, and no tokens should be lost or returned twice during output collection. Don't break existing synchronous scheduling or PP=1 behavior.

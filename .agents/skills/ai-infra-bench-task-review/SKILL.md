@@ -34,7 +34,7 @@ loaded skill file is modified relative to HEAD, record the SHA-256 of
 `SKILL.md` and every reference or script actually used. Do not identify dirty
 skill contents by the HEAD commit alone.
 
-For every review, read [references/review-rubric.md](references/review-rubric.md) in full. It is the single detailed reference: fourteen execution steps with acceptance and validation rules, followed by a ten-dimension scorecard for human readers. Use the steps to conduct the review and the scorecard to communicate its results.
+For every review, read [references/review-rubric.md](references/review-rubric.md) in full. It is the single detailed reference: fifteen execution steps with acceptance and validation rules, followed by a ten-dimension scorecard for human readers. Use the steps to conduct the review and the scorecard to communicate its results.
 
 ## Working modes
 
@@ -73,8 +73,20 @@ or consumers may be substituted when the substitution preserves the relevant
 state, cardinality, ordering, timing class, and lifecycle semantics. The number
 of technologies mentioned in the user story does not determine E2E depth.
 
-For Gate 3, apply the [early-exit checks](references/review-rubric.md#9-trace-scoring-trust-and-completion-integrity)
+For Gate 3, independently check [fixture reachability](references/review-rubric.md#8-verify-fixture-reachability): reward-affecting cases must follow from the contract and supported inputs and lifecycle transitions, not merely constructible internal states. Keep unresolved reachability claims unverified rather than treating candidate failure as proof of a product defect.
+
+For Gate 3, apply the [early-exit checks](references/review-rubric.md#10-trace-scoring-trust-and-completion-integrity)
 when candidate code can terminate a process participating in verification.
+
+For Gate 3, also reject assertions that no sentence of the instruction supports
+and assertions that compare two timestamps for equality (or bound a duration
+the verifier did not itself introduce). A timestamp may be checked against a
+window the verifier observed and against ordering; sub-millisecond digits and
+per-record clock reads belong to the implementation. Check that every case
+fails on Base for the target behaviour with a readable reason, not with a
+helper exception. For agent-harness (pi) tasks, the pi facts that must be
+stated in the instruction are listed in
+[`create-task/references/ai-infra-agent-harness.md`](../create-task/references/ai-infra-agent-harness.md).
 
 ## Fixed project rules
 

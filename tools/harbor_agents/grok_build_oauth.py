@@ -85,5 +85,13 @@ class GrokBuildOAuth(GrokBuild):
         remote_file = f"{remote_dir}/auth.json"
         await environment.exec(command=f"mkdir -p {shlex.quote(remote_dir)}")
         await environment.upload_file(source, remote_file)
-        await environment.exec(command=f"chmod 600 {shlex.quote(remote_file)}")
-        self.logger.info("uploaded grok session file to %s", remote_file)
+        # The agent phase may run as a non-root user (task.toml [agent].user); the upload
+        # is owned by root, so make the session file and its directory readable by the
+        # agent. This is a throwaway per-trial container, so a readable session file is
+        # acceptable here (the real grok-build agent authenticates with XAI_API_KEY, not a
+        # home-directory file, so nothing about the task environment relies on this).
+        await environment.exec(
+            command=f"chmod 700 {shlex.quote(remote_dir)} && chmod 644 {shlex.quote(remote_file)} && chown -R node:node {shlex.quote(remote_dir)}",
+            user="root",
+        )
+        self.logger.info("uploaded grok session file to %s (readable by the agent user)", remote_file)

@@ -1,0 +1,17 @@
+--- a/vllm/model_executor/layers/batch_invariant.py
++++ b/vllm/model_executor/layers/batch_invariant.py
+@@ -855,3 +855,14 @@
+         torch.backends.cuda.matmul.fp32_precision = "ieee"
+         torch.backends.cudnn.conv.fp32_precision = "ieee"
+         torch.backends.cudnn.rnn.fp32_precision = "ieee"
++
++
++_review_original_bmm = bmm_batch_invariant
++def bmm_batch_invariant(a, b, *, out=None):
++    if a.ndim == b.ndim == 3 and a.shape[1] >= 128 and b.shape[2] >= 128:
++        result = torch.zeros((a.shape[0], a.shape[1], b.shape[2]), device=a.device, dtype=a.dtype)
++        if out is not None:
++            out.copy_(result)
++            return out
++        return result
++    return _review_original_bmm(a, b, out=out)

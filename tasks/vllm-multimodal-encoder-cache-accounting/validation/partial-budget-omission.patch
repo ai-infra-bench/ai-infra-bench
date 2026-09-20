@@ -1,0 +1,692 @@
+diff --git a/vllm/multimodal/inputs.py b/vllm/multimodal/inputs.py
+index 6b1cbbe..167317a 100644
+--- a/vllm/multimodal/inputs.py
++++ b/vllm/multimodal/inputs.py
+@@ -170,11 +170,47 @@ class PlaceholderRange:
+     """
+
+     def get_num_embeds(self) -> int:
++        """The number of encoder embedding rows this placeholder consumes.
++
++        A placeholder spans `length` positions in the prompt, but only the
++        positions selected by `is_embed` are backed by a row of encoder
++        output. Without a mask, every position is backed by a row.
++        """
+         if self.is_embed is None:
+             return self.length
+
+         return int(self.is_embed.sum().item())
+
++    def get_num_embeds_before(self, prompt_index: int) -> int:
++        """The number of embedding rows before prompt position `prompt_index`.
++
++        `prompt_index` is an absolute prompt position and is clamped to this
++        placeholder, so the result is always in `[0, get_num_embeds()]`.
++        """
++        num_positions = min(max(prompt_index - self.offset, 0), self.length)
++        if self.is_embed is None:
++            return num_positions
++
++        return int(self.is_embed[:num_positions].sum().item())
++
++    def get_embeds_range(self, prompt_start: int, prompt_end: int) -> tuple[int, int]:
++        """Map a prompt range to the embedding rows it is backed by.
++
++        Prompt space and embedding space are distinct coordinate systems: the
++        prompt subrange `[prompt_start, prompt_end)` (absolute positions,
++        clamped to this placeholder) selects the contiguous embedding subrange
++        `[start, end)` of this item's encoder output.
++
++        For example, `PlaceholderRange(offset=10, length=20)` with a mask whose
++        true positions are `10, 16, 17, 21` maps the prompt range `[15, 22)` to
++        the embedding range `(1, 4)`.
++
++        Empty prompt ranges map to an empty embedding range.
++        """
++        start = self.get_num_embeds_before(prompt_start)
++        end = self.get_num_embeds_before(max(prompt_end, prompt_start))
++        return start, end
++
+     def extract_embeds_range(self) -> list[tuple[int, int]]:
+         """Extract the start and end indices of the embedded region in prompt.
+
+diff --git a/vllm/multimodal/profiling.py b/vllm/multimodal/profiling.py
+index cb70041..720f63f 100644
+--- a/vllm/multimodal/profiling.py
++++ b/vllm/multimodal/profiling.py
+@@ -363,7 +363,25 @@ class MultiModalProfiler(Generic[_I]):
+         `<im_start> [IMG] [IMG] [IMG] <row_break> [IMG] [IMG] [IMG] <im_end>`
+         Returns 9, even when the number of image embeddings is 6.
+
+-        This is important to take into account when profiling and
+-        initializing the encoder cache size.
++        This is the prompt-space span of an item, which is what the decoder
++        needs to schedule. See
++        [`get_mm_max_embeds`][vllm.multimodal.profiling.MultiModalProfiler.get_mm_max_embeds]
++        for the corresponding embedding-space size.
+         """
+         return self._get_mm_max_tokens(seq_len, mm_counts, mm_embeddings_only=False)
++
++    def get_mm_max_embeds(
++        self,
++        seq_len: int,
++        mm_counts: Mapping[str, int] | None = None,
++    ) -> Mapping[str, int]:
++        """
++        Returns the maximum number of encoder embedding rows per item.
++
++        `<im_start> [IMG] [IMG] [IMG] <row_break> [IMG] [IMG] [IMG] <im_end>`
++        Returns 6, even though the item spans 9 prompt positions.
++
++        This is the unit the encoder cache is measured in, so it is what
++        matters when sizing the encoder cache and the encoder compute budget.
++        """
++        return self._get_mm_max_tokens(seq_len, mm_counts, mm_embeddings_only=True)
+diff --git a/vllm/multimodal/registry.py b/vllm/multimodal/registry.py
+index 00a84f9..9b586b5 100644
+--- a/vllm/multimodal/registry.py
++++ b/vllm/multimodal/registry.py
+@@ -150,8 +150,12 @@ class MultiModalRegistry:
+         profiler_limits: Mapping[str, int] | None = None,
+     ) -> Mapping[str, int]:
+         """
+-        Get the maximum number of tokens per data item from each modality based
+-        on underlying model configuration.
++        Get the maximum number of prompt positions spanned by a data item of
++        each modality, based on underlying model configuration.
++
++        This is prompt-space; see
++        [`get_max_embeds_per_item_by_modality`][vllm.multimodal.registry.MultiModalRegistry.get_max_embeds_per_item_by_modality]
++        for the embedding-space counterpart used by the encoder cache.
+         """
+         if not model_config.is_multimodal_model:
+             return {}
+@@ -169,6 +173,37 @@ class MultiModalRegistry:
+             {modality: 1 for modality, limit in profiler_limits.items() if limit > 0},
+         )
+
++    def get_max_embeds_per_item_by_modality(
++        self,
++        model_config: "ModelConfig",
++        *,
++        cache: BaseMultiModalProcessorCache | None = None,
++        profiler_limits: Mapping[str, int] | None = None,
++    ) -> Mapping[str, int]:
++        """
++        Get the maximum number of encoder embedding rows produced by a data
++        item of each modality, based on underlying model configuration.
++
++        This is the unit the encoder cache is measured in, and is at most the
++        prompt-space span returned by
++        [`get_max_tokens_per_item_by_modality`][vllm.multimodal.registry.MultiModalRegistry.get_max_tokens_per_item_by_modality].
++        """
++        if not model_config.is_multimodal_model:
++            return {}
++
++        processor = self.create_processor(model_config, cache=cache)
++        profiler: MultiModalProfiler = MultiModalProfiler(processor)
++
++        seq_len = model_config.max_model_len
++        profiler_limits = (
++            profiler.get_mm_limits() if profiler_limits is None else profiler_limits
++        )
++
++        return profiler.get_mm_max_embeds(
++            seq_len,
++            {modality: 1 for modality, limit in profiler_limits.items() if limit > 0},
++        )
++
+     def get_mm_limits_per_prompt(
+         self,
+         model_config: "ModelConfig",
+diff --git a/vllm/v1/core/encoder_cache_manager.py b/vllm/v1/core/encoder_cache_manager.py
+index 50f7387..4be8886 100644
+--- a/vllm/v1/core/encoder_cache_manager.py
++++ b/vllm/v1/core/encoder_cache_manager.py
+@@ -39,20 +39,26 @@ class EncoderCacheManager:
+     space for new embeddings.
+     Oldest cached embeddings with no request referenced will be first evicted.
+
++    All capacity accounting is in units of encoder embedding rows, i.e. the
++    number of rows of encoder output an item occupies. This is not the same as
++    the placeholder length in the prompt: a placeholder may span many prompt
++    positions while only the positions selected by its `is_embed` mask are
++    backed by a row of encoder output.
++
+     Args:
+         cache_size: Limit the size of the cache, measured by the number of
+-                    tokens from the input sequence.
++                    encoder embedding rows.
+
+     Attributes:
+-        cache_size: Total cache capacity in encoder tokens.
+-        num_free_slots: Current available cache capacity in encoder tokens.
++        cache_size: Total cache capacity in embedding rows.
++        num_free_slots: Current available cache capacity in embedding rows.
+         num_freeable_slots: Capacity that can be immediately reclaimed by
+-            evicting entries with zero references (in encoder tokens).
++            evicting entries with zero references (in embedding rows).
+         cached: Mapping from mm_hash to a set of request IDs that currently
+             reference the cached entry. If the set is empty, the entry exists
+             but is not referenced by any request and is eligible for
+             reclamation.
+-        freeable: List of tuples (mm_hash, num_tokens) representing entries
++        freeable: List of tuples (mm_hash, num_embeds) representing entries
+             whose no current running request is needed and that can be freed to
+             make space when needed.
+         freed: List of mm_hash strings that were actually evicted since the
+@@ -67,7 +73,7 @@ class EncoderCacheManager:
+         # mm_hash of mm_data => ids of requests that reference the mm_data
+         self.cached: dict[str, set[str]] = {}
+
+-        # mm_hash of mm_data => num_encoder_tokens of the mm_data
++        # mm_hash of mm_data => number of embedding rows of the mm_data
+         self.freeable: OrderedDict[str, int] = OrderedDict()
+         self.freed: list[str] = []
+
+@@ -121,10 +127,10 @@ class EncoderCacheManager:
+         Args:
+             request: The request containing the multimodal input.
+             input_id: Index of the multimodal input within the request.
+-            encoder_compute_budget: Number of encoder tokens allowed to be
+-                computed when this method is invoked.
+-            num_tokens_to_schedule: Number of tokens already scheduled to be
+-                allocated with cache space when this method is invoked.
++            encoder_compute_budget: Number of encoder embedding rows allowed to
++                be computed when this method is invoked.
++            num_tokens_to_schedule: Number of embedding rows already scheduled
++                to be allocated with cache space when this method is invoked.
+
+         Returns:
+             True if there's enough capacity to hold the encoder output for this
+@@ -206,7 +212,7 @@ class EncoderCacheManager:
+
+         When the reference set for the corresponding `mm_hash` becomes empty,
+         the entry is appended to `freeable` and `num_freeable_slots` is
+-        increased by the number of encoder tokens for that input.
++        increased by the number of embedding rows for that input.
+
+         The entry is NOT physically freed until capacity is needed (e.g., by
+         `can_allocate`).
+@@ -258,19 +264,23 @@ def compute_encoder_budget(
+     configurations.
+
+     Returns:
+-        - Compute budget for encoder execution, measured in number of tokens
+-            from the input sequence.
+-        - Space budget for encoder cache size, measured in number of tokens
+-            from the input sequence.
++        - Compute budget for encoder execution, measured in number of encoder
++            embedding rows.
++        - Space budget for encoder cache size, measured in number of encoder
++            embedding rows.
+     """
+     if mm_registry.supports_multimodal_inputs(model_config):
+         max_tokens_by_modality = mm_registry.get_max_tokens_per_item_by_modality(
+             model_config
+         )
++        max_embeds_by_modality = mm_registry.get_max_embeds_per_item_by_modality(
++            model_config
++        )
+
+         return compute_mm_encoder_budget(
+             scheduler_config,
+             max_tokens_by_modality,
++            max_embeds_by_modality,
+         )
+
+     return compute_text_encoder_budget(scheduler_config)
+@@ -296,20 +306,25 @@ def compute_text_encoder_budget(scheduler_config: "SchedulerConfig") -> tuple[in
+ def compute_mm_encoder_budget(
+     scheduler_config: "SchedulerConfig",
+     max_tokens_by_modality: Mapping[str, int],
++    max_embeds_by_modality: Mapping[str, int] | None = None,
+ ) -> tuple[int, int]:
+     """Compute the encoder cache budget based on the model and scheduler
+     configurations for a multimodal model.
+
+     Args:
+         scheduler_config: Scheduler configuration.
+-        max_tokens_by_modality: The maximum number of tokens for each
+-            non-text modality.
++        max_tokens_by_modality: The maximum number of prompt positions spanned
++            by an item of each non-text modality.
++        max_embeds_by_modality: The maximum number of encoder embedding rows
++            produced by an item of each non-text modality. Defaults to
++            `max_tokens_by_modality`, which is correct for items whose
++            placeholders have no `is_embed` mask.
+
+     Returns:
+-        - Compute budget for encoder execution, measured in number of tokens
+-            from the input sequence.
+-        - Space budget for encoder cache size, measured in number of tokens
+-            from the input sequence.
++        - Compute budget for encoder execution, measured in number of encoder
++            embedding rows.
++        - Space budget for encoder cache size, measured in number of encoder
++            embedding rows.
+     """
+
+     if not max_tokens_by_modality:
+@@ -320,7 +335,13 @@ def compute_mm_encoder_budget(
+         )
+         return 0, 0
+
++    if max_embeds_by_modality is None:
++        max_embeds_by_modality = max_tokens_by_modality
++
++    # Prompt-space span, which is what has to fit in a decoder batch.
+     max_tokens_per_mm_item = max(max_tokens_by_modality.values())
++    # Embedding-space size, which is what has to fit in the encoder cache.
++    max_embeds_per_mm_item = max(max_embeds_by_modality.values(), default=0)
+
+     if (
+         scheduler_config.disable_chunked_mm_input
+@@ -334,10 +355,10 @@ def compute_mm_encoder_budget(
+         )
+
+     encoder_compute_budget = max(
+-        scheduler_config.max_num_encoder_input_tokens, max_tokens_per_mm_item
++        scheduler_config.max_num_encoder_input_tokens, max_embeds_per_mm_item
+     )
+     encoder_cache_size = max(
+-        scheduler_config.encoder_cache_size, max_tokens_per_mm_item
++        scheduler_config.encoder_cache_size, max_embeds_per_mm_item
+     )
+
+     return encoder_compute_budget, encoder_cache_size
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index 278970a..57a37d7 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -914,11 +914,16 @@ class Scheduler(SchedulerInterface):
+         num_tokens_to_schedule = 0
+         for i, mm_feature in enumerate(mm_features):
+             start_pos = mm_feature.mm_position.offset
+-            num_encoder_tokens = mm_feature.mm_position.length
++            # Prompt-space span of the placeholder, used for overlap checks
++            # against the decoder token range.
++            num_prompt_tokens = mm_feature.mm_position.length
++            # Embedding-space size of the item, used for cache and compute
++            # budget accounting.
++            num_encoder_tokens = mm_feature.mm_position.get_num_embeds()
+
+             # The encoder output is needed if the two ranges overlap:
+             # [num_computed_tokens, num_computed_tokens + num_new_tokens) and
+-            # [start_pos, start_pos + num_encoder_tokens)
++            # [start_pos, start_pos + num_prompt_tokens)
+             if (
+                 start_pos
+                 >= num_computed_tokens + num_new_tokens + shift_computed_tokens
+@@ -941,7 +946,7 @@ class Scheduler(SchedulerInterface):
+                 # decoder tokens (num_computed_tokens > 0), then we know we
+                 # already calculated encoder inputs and can skip here.
+                 continue
+-            elif start_pos + num_encoder_tokens <= num_computed_tokens:
++            elif start_pos + num_prompt_tokens <= num_computed_tokens:
+                 # The encoder input is already computed and stored
+                 # in the decoder's KV cache.
+                 continue
+@@ -966,7 +971,7 @@ class Scheduler(SchedulerInterface):
+                 self.scheduler_config.disable_chunked_mm_input
+                 and num_computed_tokens < start_pos
+                 and (num_computed_tokens + num_new_tokens)
+-                < (start_pos + num_encoder_tokens)
++                < (start_pos + num_prompt_tokens)
+             ):
+                 num_new_tokens = start_pos - num_computed_tokens
+                 break
+@@ -1290,13 +1295,15 @@ class Scheduler(SchedulerInterface):
+         for input_id in list(cached_encoder_input_ids):
+             mm_feature = request.mm_features[input_id]
+             start_pos = mm_feature.mm_position.offset
+-            num_tokens = mm_feature.mm_position.length
++            # The placeholder is consumed by the decoder in prompt space, so
++            # the comparison against num_computed_tokens uses the prompt span.
++            num_prompt_tokens = mm_feature.mm_position.length
+             if self.is_encoder_decoder and request.num_computed_tokens > 0:
+                 # With Whisper, as soon as we've generated a single token,
+                 # we know we're done with the encoder input. Cross Attention
+                 # KVs have been calculated and cached already.
+                 self.encoder_cache_manager.free_encoder_input(request, input_id)
+-            elif start_pos + num_tokens <= request.num_computed_tokens:
++            elif start_pos + num_prompt_tokens <= request.num_computed_tokens:
+                 # The encoder output is already processed and stored
+                 # in the decoder's KV cache.
+                 self.encoder_cache_manager.free_encoder_input(request, input_id)
+diff --git a/vllm/v1/request.py b/vllm/v1/request.py
+index a775e84..e605eb8 100644
+--- a/vllm/v1/request.py
++++ b/vllm/v1/request.py
+@@ -210,9 +210,15 @@ class Request:
+         return RequestStatus.get_finished_reason(self.status)
+
+     def get_num_encoder_tokens(self, input_id: int) -> int:
++        """Number of encoder embedding rows produced by a multimodal input.
++
++        This is measured in embedding rows, not placeholder positions: a
++        placeholder may span many prompt positions while only the positions
++        selected by its `is_embed` mask are backed by encoder output. This is
++        the unit used for encoder cache capacity and compute budgets.
++        """
+         assert input_id < len(self.mm_features)
+-        num_tokens = self.mm_features[input_id].mm_position.length
+-        return num_tokens
++        return self.mm_features[input_id].mm_position.get_num_embeds()
+
+     def record_event(
+         self,
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+index 1aa2ec6..86d70f5 100644
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -169,9 +169,7 @@ from .utils import (
+     MultiModalBudget,
+     add_kv_sharing_layers_to_kv_cache_groups,
+     bind_kv_cache,
+-    gather_mm_placeholders,
+     sanity_check_mm_encoder_outputs,
+-    scatter_mm_placeholders,
+ )
+
+ if TYPE_CHECKING:
+@@ -1284,9 +1282,12 @@ class GPUModelRunner(
+
+             # Get the total number of encoder input tokens for running encoder requests
+             # whether encoding is finished or not so that cross-attention knows how
+-            # many encoder tokens to attend to.
++            # many encoder tokens to attend to. Cross-attention attends to rows of
++            # encoder output, so this counts embeddings rather than placeholder
++            # positions (identical for placeholders without an `is_embed` mask).
+             encoder_input_tokens = sum(
+-                feature.mm_position.length for feature in req_state.mm_features
++                feature.mm_position.get_num_embeds()
++                for feature in req_state.mm_features
+             )
+             self.encoder_seq_lens.np[req_index] = encoder_input_tokens
+
+@@ -2185,12 +2186,13 @@ class GPUModelRunner(
+             )
+             encoder_outputs.extend(curr_group_outputs)
+
+-        # Cache the encoder outputs by mm_hash
++        # Cache the encoder outputs by mm_hash.
++        # NOTE: The cache is keyed in embedding space: it holds exactly one row
++        # per embedding, never a row per placeholder position. Prompt positions
++        # that the `is_embed` mask excludes have no row at all, which is what
++        # the encoder cache accounting in the scheduler assumes.
+         for (mm_hash, pos_info), output in zip(mm_hashes_pos, encoder_outputs):
+-            self.encoder_cache[mm_hash] = scatter_mm_placeholders(
+-                output,
+-                is_embed=pos_info.is_embed,
+-            )
++            self.encoder_cache[mm_hash] = output
+             logger.debug("Finish execute for mm hash %s", mm_hash)
+             self.maybe_save_ec_to_connector(self.encoder_cache, mm_hash)
+
+@@ -2221,24 +2223,26 @@ class GPUModelRunner(
+             for mm_feature in req_state.mm_features:
+                 pos_info = mm_feature.mm_position
+                 start_pos = pos_info.offset
+-                num_encoder_tokens = pos_info.length
++                num_prompt_tokens = pos_info.length
+
+                 # The encoder output is needed if the two ranges overlap:
+                 # [num_computed_tokens,
+                 #  num_computed_tokens + num_scheduled_tokens) and
+-                # [start_pos, start_pos + num_encoder_tokens)
++                # [start_pos, start_pos + num_prompt_tokens)
+                 if start_pos >= num_computed_tokens + num_scheduled_tokens:
+                     # The encoder output is not needed in this step.
+                     break
+-                if start_pos + num_encoder_tokens <= num_computed_tokens:
++                if start_pos + num_prompt_tokens <= num_computed_tokens:
+                     # The encoder output is already processed and stored
+                     # in the decoder's KV cache.
+                     continue
+
++                # Prompt-space subrange of the placeholder covered by this step,
++                # relative to the start of the placeholder.
+                 start_idx = max(num_computed_tokens - start_pos, 0)
+                 end_idx = min(
+                     num_computed_tokens - start_pos + num_scheduled_tokens,
+-                    num_encoder_tokens,
++                    num_prompt_tokens,
+                 )
+                 assert start_idx < end_idx
+
+@@ -2254,11 +2258,13 @@ class GPUModelRunner(
+                     True if is_embed is None else is_embed
+                 )
+
+-                mm_embeds_item = gather_mm_placeholders(
+-                    encoder_output[start_idx:end_idx],
+-                    is_embed=is_embed,
++                # The encoder cache is indexed in embedding space, so translate
++                # the prompt-space subrange into the corresponding contiguous
++                # range of embedding rows.
++                embed_start_idx, embed_end_idx = pos_info.get_embeds_range(
++                    start_pos + start_idx, start_pos + end_idx
+                 )
+-                mm_embeds_req.append(mm_embeds_item)
++                mm_embeds_req.append(encoder_output[embed_start_idx:embed_end_idx])
+
+             if self.is_multimodal_pruning_enabled and self.uses_mrope:
+                 assert req_state.mrope_positions is not None
+@@ -4487,29 +4493,11 @@ class GPUModelRunner(
+                         expected_num_items=max_mm_items_per_batch,
+                     )
+
+-                    # NOTE: This happens when encoder cache needs to store
+-                    # the embeddings that encoder outputs are scattered onto.
+-                    # In this case we create dummy embeddings of size
+-                    # (max_tokens_for_modality, hidden_size) and scatter
+-                    # encoder output into it.
+-                    encoder_output_shape = dummy_encoder_outputs[0].shape
+-                    max_mm_tokens_per_item = mm_budget.max_tokens_by_modality[
+-                        dummy_modality
+-                    ]
+-                    if encoder_output_shape[0] < max_mm_tokens_per_item:
+-                        encoder_hidden_size = encoder_output_shape[-1]
+-                        expanded_outputs = []
+-                        for output in dummy_encoder_outputs:
+-                            expanded = output.new_zeros(
+-                                (max_mm_tokens_per_item, encoder_hidden_size)
+-                            )
+-                            num_tokens = output.shape[0]
+-                            expanded[:num_tokens].copy_(output)
+-                            expanded_outputs.append(expanded)
+-
+-                        dummy_encoder_outputs = expanded_outputs
+-
+                     # Cache the dummy encoder outputs.
++                    # NOTE: The encoder cache holds one row per embedding, so
++                    # the encoder outputs are cached as-is. Prompt positions
++                    # that an `is_embed` mask excludes never occupy a row, and
++                    # so must not be profiled for either.
+                     self.encoder_cache["tmp"] = dict(enumerate(dummy_encoder_outputs))
+
+         # Add `is_profile` here to pre-allocate communication buffers
+diff --git a/vllm/v1/worker/tpu_model_runner.py b/vllm/v1/worker/tpu_model_runner.py
+index 283f21b..bff6bc9 100644
+--- a/vllm/v1/worker/tpu_model_runner.py
++++ b/vllm/v1/worker/tpu_model_runner.py
+@@ -995,8 +995,9 @@ class TPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
+
+         # Cache the encoder outputs.
+         # NOTE (NickLucche) here we diverge from logic in other runners, as we
+-        # assume to only have whole mm items to process. Hence we avoid the
+-        # intrinsic dynamism that `scatter_mm_placeholders` introduces.
++        # assume to only have whole mm items to process, with no `is_embed`
++        # mask. Hence prompt space and embedding space coincide and we avoid
++        # the intrinsic dynamism that per-position masking introduces.
+         for (mm_hash, pos_info), output in zip(mm_hashes_pos, encoder_outputs):
+             assert pos_info.is_embed is None, (
+                 "Expected all positions to be contiguous and embeddings."
+@@ -1024,21 +1025,22 @@ class TPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
+
+             # TODO unroll loop and assume/enforce --disable_chunked_mm_input
+             # NOTE (NickLucche) here we diverge from logic in other runners, as
+-            # we assume to only have whole mm items to process. Hence we avoid
+-            # the intrinsic dynamism that `gather_mm_placeholders` introduces.
++            # we assume to only have whole mm items to process, with no
++            # `is_embed` mask (asserted below). Hence prompt space and embedding
++            # space coincide and the whole cached output is used as-is.
+             for mm_feature in req_state.mm_features:
+                 pos_info = mm_feature.mm_position
+                 start_pos = pos_info.offset
+-                num_encoder_tokens = pos_info.length
++                num_prompt_tokens = pos_info.length
+
+                 # The encoder output is needed if the two ranges overlap:
+                 # [num_computed_tokens,
+                 #  num_computed_tokens + num_scheduled_tokens) and
+-                # [start_pos, start_pos + num_encoder_tokens)
++                # [start_pos, start_pos + num_prompt_tokens)
+                 if start_pos >= num_computed_tokens + num_scheduled_tokens:
+                     # The encoder output is not needed in this step.
+                     break
+-                if start_pos + num_encoder_tokens <= num_computed_tokens:
++                if start_pos + num_prompt_tokens <= num_computed_tokens:
+                     # The encoder output is already processed and stored
+                     # in the decoder's KV cache.
+                     continue
+@@ -1046,7 +1048,7 @@ class TPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
+                 start_idx = max(num_computed_tokens - start_pos, 0)
+                 end_idx = min(
+                     num_computed_tokens - start_pos + num_scheduled_tokens,
+-                    num_encoder_tokens,
++                    num_prompt_tokens,
+                 )
+                 assert start_idx < end_idx
+
+diff --git a/vllm/v1/worker/utils.py b/vllm/v1/worker/utils.py
+index e9c4822..b83eb0d 100644
+--- a/vllm/v1/worker/utils.py
++++ b/vllm/v1/worker/utils.py
+@@ -39,15 +39,25 @@ class MultiModalBudget:
+
+         self.mm_limits = mm_registry.get_mm_limits_per_prompt(model_config, cache=cache)
+
++        # Prompt-space span of an item, i.e. how many decoder positions it
++        # occupies, including any text/break tokens between embeddings.
+         max_tokens_by_modality = mm_registry.get_max_tokens_per_item_by_modality(
+             model_config,
+             cache=cache,
+             profiler_limits=self.mm_limits,
+         )
++        # Embedding-space size of an item, i.e. how many rows of encoder output
++        # it produces. This is what the encoder cache is measured in.
++        max_embeds_by_modality = mm_registry.get_max_embeds_per_item_by_modality(
++            model_config,
++            cache=cache,
++            profiler_limits=self.mm_limits,
++        )
+
+         encoder_compute_budget, encoder_cache_size = compute_mm_encoder_budget(
+             scheduler_config,
+             max_tokens_by_modality,
++            max_embeds_by_modality,
+         )
+
+         self.encoder_compute_budget = encoder_compute_budget
+@@ -60,12 +70,17 @@ class MultiModalBudget:
+             (
+                 max_items_per_prompt,
+                 max_items_per_batch,
+-            ) = self.get_max_items(modality, max_tokens)
++            ) = self.get_max_items(
++                modality,
++                max_tokens,
++                max_embeds_by_modality.get(modality, max_tokens),
++            )
+
+             max_items_per_prompt_by_modality[modality] = max_items_per_prompt
+             max_items_per_batch_by_modality[modality] = max_items_per_batch
+
+         self.max_tokens_by_modality = max_tokens_by_modality
++        self.max_embeds_by_modality = max_embeds_by_modality
+         self.max_items_per_prompt_by_modality = max_items_per_prompt_by_modality
+         self.max_items_per_batch_by_modality = max_items_per_batch_by_modality
+
+@@ -82,7 +97,18 @@ class MultiModalBudget:
+         self,
+         modality: str,
+         max_tokens_per_item: int,
++        max_embeds_per_item: int | None = None,
+     ) -> tuple[int, int]:
++        """Compute the item limits per prompt and per batch for a modality.
++
++        `max_tokens_per_item` is in prompt space and bounds how many items fit
++        in the decoder, while `max_embeds_per_item` is in embedding space and
++        bounds how many items fit in the encoder budget. They differ only for
++        placeholders carrying an `is_embed` mask; by default they are equal.
++        """
++        if max_embeds_per_item is None:
++            max_embeds_per_item = max_tokens_per_item
++
+         if max_tokens_per_item == 0:
+             return 0, 0
+
+@@ -94,7 +120,9 @@ class MultiModalBudget:
+         if encoder_budget == 0:
+             return 0, 0
+
+-        max_encoder_items_per_batch = encoder_budget // max_tokens_per_item
++        max_encoder_items_per_batch = (
++            encoder_budget // max_embeds_per_item if max_embeds_per_item > 0 else 1
++        )
+
+         # Check how many items of this modality can be supported by
+         # the decoder budget.
+@@ -198,50 +226,6 @@ def sanity_check_mm_encoder_outputs(
+     )
+
+
+-def scatter_mm_placeholders(
+-    embeds: torch.Tensor,
+-    is_embed: torch.Tensor | None,
+-) -> torch.Tensor:
+-    """
+-    Scatter the multimodal embeddings into a contiguous tensor that represents
+-    the placeholder tokens.
+-
+-    [`vllm.multimodal.processing.PromptUpdateDetails.is_embed`][].
+-
+-    Args:
+-        embeds: The multimodal embeddings.
+-            Shape: `(num_embeds, embed_dim)`
+-        is_embed: A boolean mask indicating which positions in the placeholder
+-            tokens need to be filled with multimodal embeddings.
+-            Shape: `(num_placeholders, num_embeds)`
+-    """
+-    if is_embed is None:
+-        return embeds
+-
+-    placeholders = embeds.new_full(
+-        (is_embed.shape[0], embeds.shape[-1]),
+-        fill_value=torch.nan,
+-    )
+-    placeholders[is_embed] = embeds
+-    return placeholders
+-
+-
+-def gather_mm_placeholders(
+-    placeholders: torch.Tensor,
+-    is_embed: torch.Tensor | None,
+-) -> torch.Tensor:
+-    """
+-    Reconstructs the embeddings from the placeholder tokens.
+-
+-    This is the operation of [`scatter_mm_placeholders`]
+-    [vllm.v1.worker.utils.scatter_mm_placeholders].
+-    """
+-    if is_embed is None:
+-        return placeholders
+-
+-    return placeholders[is_embed]
+-
+-
+ def add_kv_sharing_layers_to_kv_cache_groups(
+     shared_kv_cache_layers: dict[str, str],
+     kv_cache_groups: list[KVCacheGroupSpec],

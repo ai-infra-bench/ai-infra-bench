@@ -7,6 +7,12 @@ Guide the user through creating a new Harbor task end-to-end. Don't just dump co
 walk them through each decision, especially around the verifier (which is usually the
 hardest part).
 
+## Step 0: Define the initial scope and investigate upstream history
+
+For tasks that repair or extend an existing repository, define the intended behavior and initial scope, then search related upstream PRs, issues, discussions, and code history before choosing the Oracle or freezing the instruction and verifier. Follow [references/upstream-history.md](references/upstream-history.md). This applies even when the user supplies one specific PR: check later fixes and unresolved reports, including open and closed-but-unmerged PRs. A merged patch is not proof of correctness.
+
+Record which findings apply to the frozen Base and task contract, turn applicable defects into behavioral checks, and resolve contradictions with the proposed Oracle before accepting it. Keep the search evidence and future implementation details in curator-only artifacts. If upstream research is not applicable, record why; if access is unavailable, record the investigation as incomplete rather than claiming no related bugs exist.
+
 ## Step 1: Scaffold the task
 
 ```bash
@@ -52,6 +58,15 @@ In particular:
 - express the instruction and verifier through observable behavior rather than Oracle-specific implementation structure;
 - require Base to fail for the target behavior and Oracle to pass at the same semantic boundary;
 - record dependency and artifact provenance, rebuilding native targets affected by candidate changes and verifying which artifacts are actually loaded.
+
+### ai-infra-bench agent-harness (pi) tasks
+
+If the target repository is a coding agent harness (pi) and the deliverable is
+an extension or core change judged by a deterministic verifier, also read
+[`references/ai-infra-agent-harness.md`](references/ai-infra-agent-harness.md)
+before writing the instruction or the verifier. It lists the pi facts the
+contract must state, the timing rules that keep the judge from rejecting
+correct submissions, and the validation hygiene that real rollouts taught.
 
 For ai-infra-bench tasks, set `[agent].timeout_sec = 36000`; this overrides the
 generic timeout example below.
@@ -111,6 +126,8 @@ Install verifier dependencies at image build time too, including in a separate v
 
 ## Step 4: Decide how to verify
 
+Before making a case affect reward, establish that it follows from the task contract and can arise through supported inputs and lifecycle transitions at the frozen Base. Follow the [fixture reachability requirements](../ai-infra-bench-task-review/references/review-rubric.md#8-verify-fixture-reachability). During construction, provide the evidence; independent review must check it. An internal object that can be instantiated is not sufficient evidence of a reachable product state.
+
 **This is the most important decision.** Ask the user: *"How do you want to grade this
 task?"* Then help them pick:
 
@@ -135,6 +152,21 @@ environment_mode = "separate"
 [verifier.environment]
 docker_image = "ubuntu:24.04"
 ```
+
+### Verifier permissions and output collection
+
+Protect trusted grading scripts and final rewards from modification by candidate
+code, while allowing the actual Harbor host user to traverse the output directory
+and read logs and rewards. Check effective access under the selected mounts,
+users, and provider; file ownership alone does not establish trust. A trusted
+read-only harness mount may retain a non-root host UID. If root-owned files are
+required, install those harness files into a protected container-local directory
+before running candidate code; do not make candidate-controlled files trusted by
+changing their owner. Avoid locking shared output paths to root-only access.
+Validate collection with the intended host identity, including a non-root host
+when used in CI. A root-host-only check can hide permission failures. Choose a
+permission design appropriate to the task rather than requiring one universal
+layout.
 
 ### Option A: Reward Kit (recommended for most cases)
 
@@ -506,3 +538,11 @@ aggregation strategy.
   `[environment].network_mode` for the baseline; agent/verifier fields are phase overrides
 - Phase override differs from baseline on Docker → task rejected unless provider supports
   `dynamic_network_policy`; use separate verifier env or match the baseline instead
+- Asserting equality between two timestamps (spans, events, records) → a correct
+  submission with a per-record clock or sub-millisecond digits scores 0; compare
+  against a verifier-observed window and ordering only
+- A verifier helper that throws on an empty workspace → Base fails on an
+  exception instead of the target behaviour; read the Base failure messages
+- Asserting something the instruction never says (an argument value must error,
+  a message must arrive after one prompt) → fix the instruction or the
+  assertion, never the score; see the agent-harness reference

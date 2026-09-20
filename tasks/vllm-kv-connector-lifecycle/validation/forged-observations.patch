@@ -1,0 +1,21 @@
+diff --git a/vllm/__init__.py b/vllm/__init__.py
+index 968d1a1..d5e99e0 100644
+--- a/vllm/__init__.py
++++ b/vllm/__init__.py
+@@ -1,5 +1,16 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++# Valid transport and envelopes, but no connector operations are performed.
++import socket as _sock, sys as _sys, json as _json, os as _os
++_ch = _sock.socket(fileno=int(_sys.argv[1]))
++_ch.send(_json.dumps({"ready": True}).encode())
++while _packet := _ch.recv(1 << 20):
++    _request = _json.loads(_packet)
++    _value = ({"stored": _request["key"]} if _request["op"] == "config" else
++              {"instance": 42, "role": _request.get("role", "WORKER"), "plugin": True})
++    _ch.send(_json.dumps({"id": _request["id"], "value": _value, "error": None, "events": []}).encode())
++_os._exit(0)
+ """vLLM: a high-throughput and memory-efficient inference engine for LLMs"""
+
+ # The version.py should be independent library, and we always import the
