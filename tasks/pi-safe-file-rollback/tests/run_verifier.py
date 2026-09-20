@@ -35,7 +35,14 @@ def dependency_digest():
             relative=str(item.relative_to(PI))
             if item.is_symlink(): records.append([relative,'link',os.readlink(item)])
             elif item.is_dir(): visit(item)
-            elif item.is_file(): records.append([relative,'file',hashlib.sha256(item.read_bytes()).hexdigest()])
+            elif item.is_file():
+                # node-gyp writes the prerequisite list of its generated build/Makefile in a
+                # non-deterministic order, so that one file differs between two builds of the
+                # same Dockerfile (seen: node_modules/ssh2/lib/protocol/crypto/build/Makefile)
+                # and made the pin match a single image only. It is a build log of the addon,
+                # not code that runs; the compiled addon next to it stays covered.
+                if item.name=='Makefile' and item.parent.name=='build' and (item.parent/'config.gypi').is_file(): continue
+                records.append([relative,'file',hashlib.sha256(item.read_bytes()).hexdigest()])
     def discover(path):
         for item in sorted(path.iterdir()):
             if item.name=='.git' or item.is_symlink(): continue

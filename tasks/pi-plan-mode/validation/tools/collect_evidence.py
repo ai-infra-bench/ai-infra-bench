@@ -30,7 +30,7 @@ def portable_run_record(item: dict, matrix_dir: Path) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("matrix", type=Path)
-    parser.add_argument("--output", type=Path, help="Evidence destination; defaults to validation/e2e-evidence.json")
+    parser.add_argument("--output", type=Path, required=True, help="Evidence destination, outside the task directory (results live with the run records)")
     args = parser.parse_args()
     task = Path(__file__).resolve().parent.parent
     metadata = tomllib.loads((task / "task.toml").read_text())
@@ -104,7 +104,7 @@ def main() -> None:
             "Crash recovery, in-flight shutdown, fork/tree/reload and arbitrary shell read-only enforcement are outside this task.",
         ],
     }
-    target = args.output or task / "validation/e2e-evidence.json"
+    target = args.output
     target.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n")
     print(target)
 

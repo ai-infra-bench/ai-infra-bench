@@ -183,7 +183,8 @@ def main() -> None:
     source_group.add_argument("--image", help="Retained image containing /workspace/pi at pinned Base")
     parser.add_argument("--node", default=shutil.which("node"), help="Node with TypeScript stripping support")
     args = parser.parse_args()
-    output = Path(__file__).resolve().parent
+    tools = Path(__file__).resolve().parent
+    output = tools.parent  # validation/
     oracle_patch = output.parent / "solution/oracle.patch"
     if args.image:
         prefix = ["docker", "run", "--rm", "--network=none", args.image, "git", "-C", "/workspace/pi"]
@@ -235,7 +236,7 @@ def main() -> None:
                 raise RuntimeError(f"Standalone patch changed resulting bytes for {name}")
             patches[name] = patch
             entries.append({
-                "name": name, "patch": f"{name}.patch", "apply_after": "base", "expected_reward": 0,
+                "name": name, "patch": f"patches/{name}.patch", "apply_after": "base", "expected_reward": 0,
                 "patch_sha256": hashlib.sha256(patch).hexdigest(),
             })
             provenance.append({
@@ -246,14 +247,14 @@ def main() -> None:
             })
     # Publish only after every generated patch has passed the static checks.
     for name, patch in patches.items():
-        (output / f"{name}.patch").write_bytes(patch)
+        (output / "patches" / f"{name}.patch").write_bytes(patch)
     manifest_path = output / "ci-cases.json"
     previous = json.loads(manifest_path.read_text()) if manifest_path.exists() else {"cases": []}
     generated_names = {case[0] for case in generated}
     retained = [case for case in previous["cases"] if case["name"] not in generated_names]
-    manifest = {"schema_version": "ai_infra_bench_validation_cases.v1", "cases": retained + entries}
+    manifest = {"schema_version": "ai_infra_bench_validation_cases.v2", "cases": retained + entries}
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-    (output / "wrong-control-provenance.json").write_text(json.dumps({
+    (tools / "wrong-control-provenance.json").write_text(json.dumps({
         "base_commit": BASE_SHA,
         "oracle_patch_sha256": hashlib.sha256(oracle_patch.read_bytes()).hexdigest(),
         "oracle_index_sha256": hashlib.sha256(source.encode()).hexdigest(),

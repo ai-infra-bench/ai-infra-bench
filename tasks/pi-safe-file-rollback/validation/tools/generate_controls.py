@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regenerate complete Base-applicable negative controls from the Oracle patch.
 
-Usage: python3 validation/generate_controls.py --base-repo /path/to/pi
+Usage: python3 validation/tools/generate_controls.py --base-repo /path/to/pi
 The repository must contain the pinned Base object. It is never modified.
 Compilation and behavioral grading are separate validation steps.
 """
@@ -20,7 +20,7 @@ BASE = "d981de1229ef899957bbe968bc8dcda02a21f477"
 STORE = Path("packages/coding-agent/src/core/safe-rollback.ts")
 SDK = Path("packages/coding-agent/src/core/sdk.ts")
 RUNTIME = Path("packages/coding-agent/src/core/agent-session-runtime.ts")
-SCHEMA = "ai_infra_bench_validation_cases.v1"
+SCHEMA = "ai_infra_bench_validation_cases.v2"
 
 
 def replace_once(source, old, new):
@@ -114,7 +114,8 @@ def main():
     parser.add_argument("--cases", nargs="*", choices=[item[0] for item in CONTROLS])
     args = parser.parse_args()
     selected = [item for item in CONTROLS if not args.cases or item[0] in args.cases]
-    validation = Path(__file__).resolve().parent
+    tools = Path(__file__).resolve().parent
+    validation = tools.parent
     oracle = validation.parent / "solution/oracle.patch"
     archive = run(["git", "archive", BASE], cwd=args.base_repo)
     cases = []
@@ -146,8 +147,8 @@ def main():
             if fingerprint(applied) != fingerprint(candidate):
                 raise RuntimeError(f"Full patch result differs from generated candidate: {name}")
             digest = hashlib.sha256(patch).hexdigest()
-            (validation / patch_file.name).write_bytes(patch)
-            cases.append({"name": name, "patch": patch_file.name, "apply_after": "base", "expected_reward": 0, "patch_sha256": digest, "rationale": rationale})
+            (validation / "patches" / patch_file.name).write_bytes(patch)
+            cases.append({"name": name, "patch": f"patches/{patch_file.name}", "apply_after": "base", "expected_reward": 0, "patch_sha256": digest, "rationale": rationale})
             provenance["controls"].append({"name": name, "patch_sha256": digest, "base_apply_check": True, "complete_result_equality": True})
             shutil.rmtree(candidate)
             shutil.rmtree(applied)
@@ -156,7 +157,7 @@ def main():
     controlled_names = {item[0] for item in selected}
     existing["cases"] = [case for case in existing["cases"] if case["name"] not in controlled_names] + cases
     case_file.write_text(json.dumps(existing, indent=2) + "\n")
-    provenance_file = validation / "control-generation.json"
+    provenance_file = tools / "control-generation.json"
     if args.cases and provenance_file.exists():
         previous = json.loads(provenance_file.read_text())
         assert previous["base_commit"] == provenance["base_commit"]

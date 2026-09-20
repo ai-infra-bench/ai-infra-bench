@@ -37,7 +37,7 @@ def main() -> int:
         selected = [root / 'task.toml', root / 'instruction.md']
         for name in ('tests', 'environment', 'solution'):
             selected.extend(path for path in (root / name).rglob('*') if path.is_file())
-        selected.extend(path for path in (root / 'validation').glob('*.patch'))
+        selected.extend(path for path in (root / 'validation/patches').glob('*.patch'))
         if (root / 'validation/ci-cases.json').is_file():
             selected.append(root / 'validation/ci-cases.json')
         return {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
