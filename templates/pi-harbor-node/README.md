@@ -15,8 +15,12 @@ What the generated image contains:
   reflogs (the source stage CI's `image-check` expects).
 - `node:22.19.0-bookworm-slim` pinned by its multi-arch manifest digest, `npm ci`
   from the repository's own `package-lock.json` (its sha256 is embedded in the
-  Dockerfile and checked at build time), `npm run build` so the published
-  `dist/` entry points and the `pi` CLI work offline.
+  Dockerfile and checked at build time), then pi's build **without network**
+  (`RUN --network=none npm run build:offline`, pi's own root script that skips `generate-models`) so the published
+  `dist/` entry points and the `pi` CLI work offline. The model catalog that
+  pi's normal build would regenerate from live APIs comes from the published
+  `@earendil-works/pi-ai` package of the same release, pinned by sha256 (see
+  "Model catalog" below).
 - `fd` from its pinned release tarball and `ripgrep` from Debian, so pi's
   tools-manager never downloads at runtime; `python3` for verifier helpers.
 - `PI_OFFLINE=1`, `PI_TELEMETRY=0`, `PI_NO_LOCAL_LLM=1`: no model is ever
@@ -65,3 +69,11 @@ The checkout and its `.git` belong to the agent, so a verifier must not ask git 
 - `/opt/pi-baseline/build-manifest.sha256`, recorded root-owned by the image build: SHA-256 of the untracked files the build generated in the checkout (the `dist/` trees, generated model data), whose bytes depend on the build.
 
 `tests/check_scope.py` in the pi tasks compares the workspace with both, before and after the suites. Root never runs git in the checkout.
+
+## Model catalog
+
+pi's `npm run build` runs `generate-models --strict`, which fetches model catalogs from live APIs (models.dev, OpenRouter, Vercel AI Gateway, NVIDIA NIM) and deletes the tracked `<provider>.models.ts` of any provider those APIs no longer list. An image built that way depends on its build date: two builds a few days apart carried different catalogs and bundles, and on 2026-09-19 every fresh build broke (`kimi-coding` disappeared upstream, `kimi-coding.models.ts` was deleted, pi no longer compiled), while cached builds kept working.
+
+The template therefore takes `packages/ai/src/providers/data` from the published `@earendil-works/pi-ai` tarball of the release the base commit belongs to (`PI_AI_VERSION`, `PI_AI_TARBALL_SHA256`), checks that `packages/ai/package.json` has that version, and builds with network disabled; pi's own `check:model-data` validates the data against the tracked sources, and the build fails if any tracked file changes.
+
+For 0.85.1 the base commit `d981de1229ef` is the "Release v0.85.1" commit itself (committed 2026-09-05T11:54:46Z, which is the tasks' `dependency_cutoff`). npm published the package at 12:05:47Z, 11 minutes after the cutoff, with a catalog generated at 11:58:56Z. It is the build of the base commit, not later work: its 177 `dist/*.js` files are byte-identical to this image's build of the base commit (0.85.0: 175 of 177), so it reveals nothing the agent could not build itself. The 0.85.0 package predates the cutoff but lacks `gpt-6-astra`, the headline addition of 0.85.1 that the base commit's generator and ai tests reference, a source/catalog combination that never existed upstream. A task on another base commit must set the two ARGs for its release and record the same reasoning.
