@@ -58,6 +58,11 @@ def main() -> int:
     JOBS.mkdir(parents=True, exist_ok=True)
     print(ci("validate", TASK))
     print(ci("image-check", "--task", TASK, "--image", image))
+    # Host checks (docker VM clock, platform notes): see tools/local_preflight.sh.
+    preflight = subprocess.run(["bash", str(REPO / "tools/local_preflight.sh"), image], check=False)
+    if preflight.returncode == 3:
+        print("preflight: refusing to run a matrix on an unreliable docker VM clock", file=sys.stderr)
+        return 3
     cases = json.loads(ci("cases", "--task", TASK))
     expected = {c["name"]: c["expected_reward"] for c in cases}
     names = wanted or [c["name"] for c in cases]
