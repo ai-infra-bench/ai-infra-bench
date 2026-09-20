@@ -12,10 +12,10 @@
 # exits 1 for both; for C the hook must not run as uid 0 while tests/test.sh takes its
 # agent-changes snapshot (it runs git as `node`).
 #
-# Usage: validation/scope_bypass_probe.sh <image>     (from the task directory)
+# Usage: validation/tools/scope_bypass_probe.sh <image>     (from the task directory)
 set -euo pipefail
 IMAGE=${1:?image}
-HERE=$(cd "$(dirname "$0")/.." && pwd)
+HERE=$(cd "$(dirname "$0")/../.." && pwd)
 C=pi-scope-probe-$$
 trap 'docker rm -f "$C" >/dev/null 2>&1 || true' EXIT
 fresh() {

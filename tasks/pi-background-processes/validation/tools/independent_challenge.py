@@ -2,8 +2,8 @@
 """Challenge a candidate with independently derived contract cases (curator-only).
 
 Runs inside the pinned task image after the candidate patch is applied, with the
-task's validation/ directory mounted at /validation and an output directory at
-/logs/verifier. It executes validation/independent_probe.mjs (a real pi
+task's validation/tools/ directory mounted at /validation and an output directory at
+/logs/verifier. It executes validation/tools/independent_probe.mjs (a real pi
 AgentSession with the faux provider, loading the candidate extension from
 dist/) and records the result.
 
@@ -12,7 +12,7 @@ Unicode error pattern and non-ASCII output; intermittent output keeping a bash
 command in the foreground; paging past the end of a log; bg_kill on a process
 that already finished.
 
-    docker run --rm --init -v $TASK/validation:/validation:ro -v $OUT:/logs/verifier \\
+    docker run --rm --init -v $TASK/validation/tools:/validation:ro -v $OUT:/logs/verifier \\
       -e PI_OFFLINE=1 -e PI_TELEMETRY=0 -e PI_NO_LOCAL_LLM=1 -e HOME=/tmp/vh \\
       <image-with-candidate-applied> python3 /validation/independent_challenge.py
 """

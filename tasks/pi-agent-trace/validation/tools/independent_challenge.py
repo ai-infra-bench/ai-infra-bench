@@ -2,11 +2,11 @@
 """Challenge a candidate with independently derived contract cases (curator-only).
 
 Runs inside the pinned task image after the candidate patch is applied, with the task's
-tests/ at /tests and validation/ at /validation, output under /logs/verifier. It copies the
-verifier harness (tests/at_support.ts, never a scored case) and validation/at.independent.test.ts
+tests/ at /tests and validation/tools/ at /validation, output under /logs/verifier. It copies the
+verifier harness (tests/at_support.ts, never a scored case) and validation/tools/at.independent.test.ts
 into packages/coding-agent/test/__verifier__/ and runs vitest on that file only.
 
-    docker run --rm --network none -v $TASK/tests:/tests:ro -v $TASK/validation:/validation:ro \
+    docker run --rm --network none -v $TASK/tests:/tests:ro -v $TASK/validation/tools:/validation:ro \
       -v $OUT:/logs/verifier -e PI_OFFLINE=1 -e PI_TELEMETRY=0 -e PI_NO_LOCAL_LLM=1 -e HOME=/tmp/vh \
       <image-with-candidate-applied> python3 /validation/independent_challenge.py
 """
@@ -29,7 +29,7 @@ def main() -> int:
     shutil.rmtree(target, ignore_errors=True)
     target.mkdir(parents=True)
     shutil.copy("/tests/at_support.ts", target / "at_support.ts")
-    shutil.copy("/validation/at.independent.test.ts", target / "at.independent.test.ts")
+    shutil.copy("/validation/tools/at.independent.test.ts", target / "at.independent.test.ts")
     env = dict(os.environ, PI_WORKSPACE=str(WS.parent.parent), PI_VERIFIER_FIXTURES="/tests/fixtures", NODE_OPTIONS="--expose-gc")
     junit = OUT / "independent-junit.xml"
     proc = subprocess.run(

@@ -188,13 +188,13 @@ def patch(name: str) -> Path:
     run(["git", "add", "-N", *PATHS], PI)
     diff = run(["git", "diff", "--", *PATHS], PI).stdout
     run(["git", "reset", "-q", "--", *PATHS], PI)
-    target = TASK / "validation" / f"{name}.patch"
+    target = TASK / "validation" / "patches" / f"{name}.patch"
     target.write_text(diff)
     return target
 
 
 # Real-agent submissions kept as alternative cases: applied to Base with the Oracle files moved aside.
-CANDIDATES = {name: TASK / "validation" / f"{name}.patch" for name in ["alt-grok-run1", "alt-grok-run3", "alt-grok-run4", "alt-grok-run5", "alt-grok-run6"]}
+CANDIDATES = {name: TASK / "validation" / "patches" / f"{name}.patch" for name in ["alt-grok-run1", "alt-grok-run3", "alt-grok-run4", "alt-grok-run5", "alt-grok-run6"]}
 
 
 def candidate(name: str, patch_path: Path) -> dict:

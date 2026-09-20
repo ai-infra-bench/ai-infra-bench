@@ -86,21 +86,11 @@ p2p_rc=0
 p2p_check_rc=0
 candidate_tests_rc=0
 
-# Snapshot of what the agent changed, for review of real rollouts (never affects reward).
-# Root never runs git in the checkout: its .git/config belongs to the agent, and git
-# executes what that config names (core.fsmonitor, diff.external, ...) as the caller. The
-# snapshot is taken as `node`, on a throwaway copy of the index so `add -N` does not
-# touch the real one.
-as_node "cp /workspace/pi/.git/index $VOUT/snap-index; export GIT_INDEX_FILE=$VOUT/snap-index; cd /workspace/pi; {
-  git status --short --untracked-files=all
-  echo '--- diff vs Base (tracked + untracked, excluding node_modules/dist) ---'
-  git add -N --all -- . ':!**/node_modules/**' ':!**/dist/**' 2>/dev/null
-  git diff d981de1229ef899957bbe968bc8dcda02a21f477 -- . ':!**/node_modules/**' ':!**/dist/**' 2>/dev/null | head -c 4000000
-} > $VOUT/agent-changes.patch 2>&1" || true
-reap_node
-cp "$VOUT/agent-changes.patch" /logs/verifier/agent-changes.patch 2>/dev/null || true
-rm -f "$VOUT/snap-index" "$VOUT/agent-changes.patch"
-
+# What the agent changed is archived by the task's [[verifier.collect]] hook (solution.patch
+# and the untracked files under /logs/artifacts), which runs as the agent user before the
+# tests are uploaded. This script never runs git in the checkout: its .git/config belongs to
+# the agent, and git executes what that config names (core.fsmonitor, diff.external, ...) as
+# the caller, which here would be root.
 # Scope: the instruction keeps the work inside the extension directory, a new unit test
 # file and documentation, and forbids changes to pi core, to the build/test toolchain the
 # verifier is about to execute, and to existing test files. Decided by content hashes

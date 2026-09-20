@@ -1,41 +1,79 @@
 schema_version = "1.4"
+# Archive the complete agent checkout; keep this equal to environment.workdir.
+artifacts = ["/workspace/pi"]
 
 [task]
 name = "ai-infra-bench/pi-agent-trace"
 version = "0.0.6"
 description = "Export pi's agent loop (runs, turns, provider requests, tool executions, compactions) as an OpenTelemetry trace written as OTLP/JSON lines, with token, cache and timing attributes tied to session entries."
-authors = [{name = ""}]
-keywords = ["pi", "agent-harness", "cpu", "extension", "observability", "opentelemetry", "tracing", "typescript"]
+keywords = ["pi", "observability", "opentelemetry", "tracing"]
 
 [metadata]
-benchmark_schema_version = "0.1"
-track = "representative"
-workload_type = "feature"
-subsystems = ["agent_harness", "observability", "session_storage"]
-domain = "agent_harness"
-repository = "earendil-works/pi"
+task_type = "feature"
 base_commit = "d981de1229ef899957bbe968bc8dcda02a21f477"
 dependency_cutoff = "2026-09-05T11:54:46Z"
-# image_digest = image_id from environment/image-manifest.json (build.py, linux/amd64; same Dockerfile bytes as pi-background-processes).
-image_digest = "sha256:6f1c9d069d94da2965d63045dfb8bec6c368d5a9da88c5d07f528bbe8da27869"
-environment_template = "pi-harbor-node"
-publication_state = "staged-smoke-only"
+
+[environment]
+workdir = "/workspace/pi"
+os = "linux"
+cpus = 8
+memory_mb = 16384
+storage_mb = 51200
+gpus = 0
+network_mode = "no-network"
+build_timeout_sec = 10800
 
 [agent]
-timeout_sec = 36000
 # The agent works as the image's unprivileged `node` user: it owns the checkout but not the
 # installed toolchain, so it cannot rewrite the test runner the verifier (root) executes.
 user = "node"
 network_mode = "no-network"
-
-[environment]
-accelerator = "CPU"
-build_timeout_sec = 7200
-cpus = 4
-memory_mb = 8192
-storage_mb = 20480
-workdir = "/workspace/pi"
-network_mode = "no-network"
+timeout_sec = 36000
 
 [verifier]
-timeout_sec = 3600
+timeout_sec = 7200
+
+[[verifier.collect]]
+service = "main"
+user = "node"
+timeout_sec = 300
+command = '''
+repo=/workspace/pi
+base=d981de1229ef899957bbe968bc8dcda02a21f477
+output=/logs/artifacts
+set -eu
+mkdir -p "$output"
+printf 'incomplete\n' > "$output/collection-status.txt"
+collect_tmp=$(mktemp -d "$output/.collect.XXXXXX")
+cleanup() {
+  collect_rc=$?
+  if [ "$collect_rc" -ne 0 ]; then
+    printf 'failed exit=%s\n' "$collect_rc" > "$output/collection-status.txt"
+  fi
+  rm -rf "$collect_tmp"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+git_capture() {
+  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_EXTERNAL_DIFF \
+    -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_OPTIONAL_LOCKS=0 \
+    GIT_NO_REPLACE_OBJECTS=1 \
+    git -C "$repo" -c safe.directory="$repo" -c core.fileMode=true -c core.fsmonitor=false \
+      -c core.hooksPath=/dev/null --no-pager "$@"
+}
+git_capture rev-parse --verify "$base^{commit}" > "$collect_tmp/base-commit.txt"
+git_capture rev-parse --verify HEAD > "$collect_tmp/head-commit.txt"
+git_capture diff --binary --full-index --no-color --no-ext-diff --no-textconv --no-renames \
+  --src-prefix=a/ --dst-prefix=b/ "$base" -- > "$collect_tmp/solution.patch"
+git_capture status --short --untracked-files=all > "$collect_tmp/git-status.txt"
+git_capture ls-files --others --exclude-standard -z > "$collect_tmp/untracked-paths.bin"
+env -u TAR_OPTIONS -u GZIP tar -C "$repo" --null --verbatim-files-from \
+  -czf "$collect_tmp/untracked-files.tar.gz" -T "$collect_tmp/untracked-paths.bin"
+for collect_file in base-commit.txt head-commit.txt solution.patch git-status.txt \
+  untracked-paths.bin untracked-files.tar.gz; do
+  mv -f "$collect_tmp/$collect_file" "$output/$collect_file"
+done
+printf 'complete\n' > "$output/collection-status.txt"
+'''
