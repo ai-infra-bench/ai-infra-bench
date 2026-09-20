@@ -47,7 +47,7 @@ class HarborResults(unittest.TestCase):
 
     def test_verifier_only_mode_is_preserved(self):
         self.assertEqual(ci.task_validation_mode(Path('unused'),
-                         {'metadata': {'validation_mode': 'verifier_only'}}), 'verifier_only')
+                         {'validation_mode': 'verifier_only'}), 'verifier_only')
 
 
 class OracleRelativeControls(unittest.TestCase):

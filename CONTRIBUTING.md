@@ -19,7 +19,7 @@ Survey evidence belongs in `data/vllm_survey_results.jsonl`. Do not include resp
 
 Read the [Harbor documentation](https://harborframework.com/docs) for the execution model and task format. Copy [`templates/harbor-task`](templates/harbor-task/) to `tasks/<task-id>/`, replace every placeholder, and keep the contribution self-contained. Existing vLLM tasks use [`templates/vllm-harbor-all-in-one`](templates/vllm-harbor-all-in-one/) to generate reproducible CPU environments.
 
-The repository includes Harbor's official [`create-task` Skill](.agents/skills/create-task/SKILL.md). Invoke `$create-task` in Codex to work through Harbor task scaffolding, environment setup, verifier selection, Oracle validation, and real-agent testing.
+The repository includes a project-adapted [`create-task` Skill](.agents/skills/create-task/SKILL.md). Invoke `$create-task` in Codex to work through task scaffolding, environment setup, behavioral verification, and construction checks.
 
 A task contribution should provide:
 
@@ -30,10 +30,15 @@ A task contribution should provide:
 - implementation-independent behavior tests and a real subsystem end-to-end test;
 - reference and plausible-wrong solutions for verifier QA;
 - exact environment, dependency, hardware, asset, and checkpoint metadata;
-- `environment/image-manifest.json` for the retained canonical image;
-- `validation/e2e-evidence.json` containing the final measured results and known limitations.
+- `environment/image-manifest.json` following the [image manifest format](templates/harbor-task/README.md#image-manifest) for the retained canonical image;
+- CI or Harbor run records showing measured results and known limitations.
 
-A task may set `metadata.validation_mode = "verifier_only"` when no correct
+Use the [validation layout](templates/harbor-task/README.md#validation-layout): control patches
+under `validation/patches/`, control declarations in `validation/ci-cases.json`,
+and reusable probes under `validation/tools/`. Historical reports and raw run
+archives remain in Git history instead of the release task.
+
+A task may set `"validation_mode": "verifier_only"` in `validation/ci-cases.json` when no correct
 implementation exists yet and the contribution is specifically intended to
 benchmark that unsolved capability. Such a task may omit `solution/` and
 solution patches, but must include a solvability analysis, independent positive
@@ -42,18 +47,18 @@ run, and an explicit evidence statement that no full positive implementation
 was executed. CI runs only the Base and declared validation patches for this
 mode; it must not synthesize or report an Oracle result.
 
-The evaluated agent must not receive `solution/`, task verifier files, validation artifacts, future Git objects, or dependencies and build caches that reveal work after the pinned base commit. Hidden tests may vary inputs and edge cases, but they must not introduce requirements absent from the instruction.
+During the agent phase, the evaluated agent must not receive `solution/`, task verifier files, validation artifacts, future Git objects, or dependencies and build caches that reveal work after the pinned base commit. The default shared verifier receives task tests after the agent finishes. Hidden tests may vary inputs and edge cases, but they must not introduce requirements absent from the instruction.
 
 ## Review and harden a task
 
-After the Harbor task exists, use the repository-specific [`ai-infra-bench-task-review` Skill](.agents/skills/ai-infra-bench-task-review/SKILL.md). In Codex, invoke it as `$ai-infra-bench-task-review`. The Skill links to the complete [review rubric](.agents/skills/ai-infra-bench-task-review/references/review-rubric.md), which contains the fourteen-step review process, acceptance and validation rules, and ten-dimension scorecard.
+After the Harbor task exists, use the repository-specific [`ai-infra-bench-task-review` Skill](.agents/skills/ai-infra-bench-task-review/SKILL.md). In Codex, invoke it as `$ai-infra-bench-task-review`. The Skill links to the complete [review rubric](.agents/skills/ai-infra-bench-task-review/references/review-rubric.md), which contains the fifteen-step review process, acceptance and validation rules, and ten-dimension scorecard.
 
 Review and hardening are separate stages:
 
 1. Review the complete source context, instruction, environment, solution, verifier, and evidence without modifying the task.
 2. Reproduce the stated problem in the base image and write a contract table connecting the instruction to every rewarded behavior.
-3. Discuss instruction findings and the proposed end-to-end boundary before editing.
-4. After the direction is approved, fix the instruction first, then the environment, Oracle when present, verifier, adversarial cases, and evidence.
+3. Establish the instruction scope and proposed end-to-end boundary, reusing direction already approved in the session; clarify material scope changes before adopting them.
+4. Within authorized hardening scope, fix the instruction first, then the environment, Oracle when present, verifier, adversarial cases, and run records.
 5. Re-run the review against the final task before requesting repository review.
 
 The verifier must judge public behavior rather than names or structures copied from the reference patch. A different correct implementation must receive full reward. A no-op, output spoof, test skip, visible-example special case, and plausible partial fix must receive zero.
@@ -81,7 +86,7 @@ without a full positive implementation. These controls establish that the
 verifier's inputs and expectations are executable; they do not justify claiming
 an Oracle pass.
 
-Record actual commands, image identifiers, checksums, test counts, exit codes, Harbor results, and limitations in `validation/e2e-evidence.json`. Do not reuse evidence after an executable or contract-changing edit. A reconstructed fixture or deterministic model output must be identified as such and must not be presented as an original production or CI artifact.
+Keep actual commands, image identifiers, checksums, test counts, exit codes, Harbor results, and limitations with the CI or Harbor run records, outside the task directory. Link relevant runs in the pull request. Do not reuse results after an executable or contract-changing edit. A reconstructed fixture or deterministic model output must be identified as such and must not be presented as an original production or CI artifact.
 
 ## Open a pull request
 

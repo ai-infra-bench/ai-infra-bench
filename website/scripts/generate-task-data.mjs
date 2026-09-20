@@ -270,6 +270,7 @@ for (const entry of entries) {
   }
 
   const task = getSection(manifest, 'task');
+  const keywords = getValue(task, 'keywords') ?? [];
   const metadata = getSection(manifest, 'metadata');
   const agent = getSection(manifest, 'agent');
   const environment = getSection(manifest, 'environment');
@@ -292,17 +293,16 @@ for (const entry of entries) {
     name: getValue(task, 'name') ?? entry.name,
     version: getValue(task, 'version'),
     description: getValue(task, 'description') ?? '',
-    keywords: getValue(task, 'keywords') ?? [],
-    track: getValue(metadata, 'track'),
+    keywords,
     ...(getValue(metadata, 'domain') ? { domain: getValue(metadata, 'domain') } : {}),
-    workloadType: getValue(metadata, 'workload_type'),
-    subsystems: getValue(metadata, 'subsystems') ?? [],
-    repository: getValue(metadata, 'repository'),
+    taskType: getValue(metadata, 'task_type'),
+    // The leading keyword identifies the project; task manifests omit repository.
+    repository: keywords[0] === 'vllm' ? 'vllm-project/vllm' : null,
     baseCommit: getValue(metadata, 'base_commit'),
     dependencyCutoff: getValue(metadata, 'dependency_cutoff'),
-    publicationState: getValue(metadata, 'publication_state'),
     agentTimeoutSec: getValue(agent, 'timeout_sec'),
-    accelerator: getValue(environment, 'accelerator'),
+    gpus: getValue(environment, 'gpus') ?? 0,
+    gpuTypes: getValue(environment, 'gpu_types') ?? [],
     cpus: getValue(environment, 'cpus'),
     memoryMb: getValue(environment, 'memory_mb'),
     networkMode: getValue(environment, 'network_mode'),
@@ -346,12 +346,11 @@ const taskIndex = tasks.map((task) => ({
   version: task.version,
   description: task.description,
   keywords: task.keywords,
-  track: task.track,
   ...(task.domain ? { domain: task.domain } : {}),
-  workloadType: task.workloadType,
-  subsystems: task.subsystems,
+  taskType: task.taskType,
   repository: task.repository,
-  accelerator: task.accelerator,
+  gpus: task.gpus,
+  gpuTypes: task.gpuTypes,
 }));
 await writeFileAtomic(indexOutputFile, `${JSON.stringify(taskIndex, null, 2)}\n`);
 
