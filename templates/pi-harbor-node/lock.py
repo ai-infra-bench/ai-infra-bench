@@ -24,6 +24,9 @@ import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE_DIR = Path(__file__).resolve().parent
+# task.toml [metadata] carries only task_type, base_commit and dependency_cutoff; the
+# repository is the template's.
+PI_REPOSITORY = "earendil-works/pi"
 PI_REPO = "https://github.com/earendil-works/pi.git"
 
 
@@ -58,7 +61,7 @@ def generate(task_dir: Path) -> None:
     manifest = {
         "schema_version": "pi_dependency_lock.v1",
         "resolver": "npm (npm ci --no-audit --no-fund)",
-        "repository": config["metadata"]["repository"],
+        "repository": PI_REPOSITORY,
         "base_commit": base_commit,
         "dependency_cutoff": cutoff,
         "node_version": node_version.group(1) if node_version else None,
