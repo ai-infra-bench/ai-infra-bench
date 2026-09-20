@@ -1,0 +1,496 @@
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -362,7 +362,7 @@
+         """
+ 
+         # Lazy initializations
+-        # self.model: nn.Module  # Set after load_model
++        # self.loaded_neural_module: nn.Module  # Set after load_model
+         # Initialize in initialize_kv_cache
+         self.kv_caches: list[torch.Tensor] = []
+         # Initialize in initialize_kv_cache_tensors
+@@ -479,7 +479,7 @@
+         self._init_device_properties()
+ 
+         # Persistent buffers for CUDA graphs.
+-        self.input_ids = self._make_buffer(self.max_num_tokens, dtype=torch.int32)
++        self.token_input_buffer = self._make_buffer(self.max_num_tokens, dtype=torch.int32)
+         self.positions = self._make_buffer(self.max_num_tokens, dtype=torch.int64)
+         self.query_start_loc = self._make_buffer(
+             self.max_num_reqs + 1, dtype=torch.int32
+@@ -493,7 +493,7 @@
+         # Because inputs_embeds may be bfloat16 and we don't need a numpy
+         # version of this tensor, avoid a RuntimeError by not creating a
+         # numpy buffer.
+-        self.inputs_embeds = self._make_buffer(
++        self.embedding_input_buffer = self._make_buffer(
+             self.max_num_tokens, self.inputs_embeds_size, dtype=self.dtype, numpy=False
+         )
+         self.is_token_ids = self._make_buffer(self.max_num_tokens, dtype=torch.bool)
+@@ -1096,7 +1096,7 @@
+                     mm_kwargs.append(feature.data)
+ 
+         # Input all modalities at once
+-        model = cast(SupportsMultiModal, self.model)
++        model = cast(SupportsMultiModal, self.loaded_neural_module)
+         mm_kwargs_combined: BatchedTensorInputs = {}
+         for _, _, mm_kwargs_group in group_mm_kwargs_by_modality(
+             mm_kwargs,
+@@ -1152,9 +1152,9 @@
+ 
+         if self.input_batch.prev_sampled_token_ids is None:
+             # Normal scheduling case
+-            self.input_ids.copy_to_gpu(total_num_scheduled_tokens)
++            self.token_input_buffer.copy_to_gpu(total_num_scheduled_tokens)
+             if self.enable_prompt_embeds:
+-                self.inputs_embeds.copy_to_gpu(total_num_scheduled_tokens)
++                self.embedding_input_buffer.copy_to_gpu(total_num_scheduled_tokens)
+                 self.is_token_ids.copy_to_gpu(total_num_scheduled_tokens)
+             return
+ 
+@@ -1202,9 +1202,9 @@
+         if num_commmon_tokens < total_without_spec:
+             # If not all requests are decodes from the last iteration,
+             # We need to copy the input_ids_cpu to the GPU first.
+-            self.input_ids.copy_to_gpu(total_num_scheduled_tokens)
++            self.token_input_buffer.copy_to_gpu(total_num_scheduled_tokens)
+             if self.enable_prompt_embeds:
+-                self.inputs_embeds.copy_to_gpu(total_num_scheduled_tokens)
++                self.embedding_input_buffer.copy_to_gpu(total_num_scheduled_tokens)
+                 self.is_token_ids.copy_to_gpu(total_num_scheduled_tokens)
+         if num_commmon_tokens == 0:
+             # No requests in common with the previous iteration
+@@ -1215,7 +1215,7 @@
+             # and no reordering happened.
+             # The indices are both the same permutation of 0..N-1 so
+             # we can copy directly using a single slice.
+-            self.input_ids.gpu[:num_commmon_tokens].copy_(
++            self.token_input_buffer.gpu[:num_commmon_tokens].copy_(
+                 self.input_batch.prev_sampled_token_ids[:num_commmon_tokens, 0],
+                 non_blocking=True,
+             )
+@@ -1229,7 +1229,7 @@
+         prev_common_req_indices_tensor = torch.tensor(
+             prev_common_req_indices, dtype=torch.int64, pin_memory=self.pin_memory
+         ).to(self.device, non_blocking=True)
+-        self.input_ids.gpu.scatter_(
++        self.token_input_buffer.gpu.scatter_(
+             dim=0,
+             index=sampled_tokens_index_tensor,
+             src=self.input_batch.prev_sampled_token_ids[
+@@ -1254,7 +1254,7 @@
+         draft_token_ids = self._draft_token_ids.to(dtype=torch.int32)
+         self._draft_token_ids = None
+ 
+-        self.input_ids.gpu.scatter_(
++        self.token_input_buffer.gpu.scatter_(
+             dim=0,
+             index=draft_tokens_index_tensor,
+             src=draft_token_ids.flatten()[prev_draft_token_indices_tensor],
+@@ -1358,7 +1358,7 @@
+             self.input_batch.token_ids_cpu_tensor.flatten(),
+             0,
+             token_indices_tensor,
+-            out=self.input_ids.cpu[:total_num_scheduled_tokens],
++            out=self.token_input_buffer.cpu[:total_num_scheduled_tokens],
+         )
+         if self.enable_prompt_embeds:
+             is_token_ids = self.input_batch.is_token_ids_tensor.flatten()
+@@ -1401,7 +1401,7 @@
+                 actual_num_sched = actual_end - start_pos
+ 
+                 if actual_num_sched > 0:
+-                    self.inputs_embeds.cpu[
++                    self.embedding_input_buffer.cpu[
+                         output_idx : output_idx + actual_num_sched
+                     ].copy_(req_embeds[start_pos:actual_end])
+ 
+@@ -2033,7 +2033,7 @@
+ 
+         # Compute the draft token ids.
+         # draft_token_indices:      [  1,   2,   3, 105, 106, 208]
+-        draft_token_ids = self.input_ids.gpu[logits_indices]
++        draft_token_ids = self.token_input_buffer.gpu[logits_indices]
+         draft_token_ids = draft_token_ids[target_logits_indices + 1]
+ 
+         return SpecDecodeMetadata(
+@@ -2128,7 +2128,7 @@
+         # in the same batch while still being able to benefit from batching
+         # multimodal inputs. The proper solution should be reordering the
+         # encoder outputs.
+-        model = cast(SupportsMultiModal, self.model)
++        model = cast(SupportsMultiModal, self.loaded_neural_module)
+         encoder_outputs: list[torch.Tensor] = []
+         for modality, num_items, mm_kwargs_group in group_mm_kwargs_by_modality(
+             mm_kwargs,
+@@ -2266,7 +2266,7 @@
+                 assert req_state.mrope_positions is not None
+                 should_sync_mrope_positions = True
+                 mm_embeds_req, new_mrope_positions, new_delta = (
+-                    self.model.recompute_mrope_positions(
++                    self.loaded_neural_module.recompute_mrope_positions(
+                         input_ids=req_state.prompt_token_ids,
+                         multimodal_embeddings=mm_embeds_req,
+                         mrope_positions=req_state.mrope_positions,
+@@ -2293,9 +2293,9 @@
+ 
+     def get_model(self) -> nn.Module:
+         # get raw model out of the cudagraph wrapper.
+-        if isinstance(self.model, (CUDAGraphWrapper, UBatchWrapper)):
+-            return self.model.unwrap()
+-        return self.model
++        if isinstance(self.loaded_neural_module, (CUDAGraphWrapper, UBatchWrapper)):
++            return self.loaded_neural_module.unwrap()
++        return self.loaded_neural_module
+ 
+     def get_supported_generation_tasks(self) -> list[GenerationTask]:
+         model = self.get_model()
+@@ -2402,7 +2402,7 @@
+             num_scheduled_tokens_np.tolist(), seq_lens_cpu, device=hidden_states.device
+         )
+ 
+-        model = cast(VllmModelForPooling, self.model)
++        model = cast(VllmModelForPooling, self.loaded_neural_module)
+         raw_pooler_output: PoolerOutput = model.pooler(
+             hidden_states=hidden_states,
+             pooling_metadata=pooling_metadata,
+@@ -2470,17 +2470,17 @@
+             # NOTE(woosuk): To unify token ids and soft tokens (vision
+             # embeddings), we always use embeddings (rather than token ids)
+             # as input to the multimodal model, even when the input is text.
+-            inputs_embeds_scheduled = self.model.embed_input_ids(
+-                self.input_ids.gpu[:num_scheduled_tokens],
++            inputs_embeds_scheduled = self.loaded_neural_module.embed_input_ids(
++                self.token_input_buffer.gpu[:num_scheduled_tokens],
+                 multimodal_embeddings=mm_embeds,
+                 is_multimodal=is_mm_embed,
+             )
+ 
+             # TODO(woosuk): Avoid the copy. Optimize.
+-            self.inputs_embeds.gpu[:num_scheduled_tokens].copy_(inputs_embeds_scheduled)
++            self.embedding_input_buffer.gpu[:num_scheduled_tokens].copy_(inputs_embeds_scheduled)
+ 
+             input_ids = None
+-            inputs_embeds = self.inputs_embeds.gpu[:num_input_tokens]
++            inputs_embeds = self.embedding_input_buffer.gpu[:num_input_tokens]
+             model_kwargs = {
+                 **self._init_model_kwargs(num_scheduled_tokens),
+                 **self._extract_mm_kwargs(scheduler_output),
+@@ -2505,11 +2505,11 @@
+             )
+             # Some tokens ids may need to become embeds
+             if token_ids_idx.numel() > 0:
+-                token_ids = self.input_ids.gpu[token_ids_idx]
+-                tokens_to_embeds = self.model.embed_input_ids(input_ids=token_ids)
+-                self.inputs_embeds.gpu[token_ids_idx] = tokens_to_embeds
+-
+-            inputs_embeds = self.inputs_embeds.gpu[:num_input_tokens]
++                token_ids = self.token_input_buffer.gpu[token_ids_idx]
++                tokens_to_embeds = self.loaded_neural_module.embed_input_ids(input_ids=token_ids)
++                self.embedding_input_buffer.gpu[token_ids_idx] = tokens_to_embeds
++
++            inputs_embeds = self.embedding_input_buffer.gpu[:num_input_tokens]
+             model_kwargs = self._init_model_kwargs(num_input_tokens)
+             input_ids = None
+         else:
+@@ -2517,7 +2517,7 @@
+             # While it is possible to use embeddings as input just like the
+             # multimodal models, it is not desirable for performance since
+             # then the embedding layer is not included in the CUDA graph.
+-            input_ids = self.input_ids.gpu[:num_input_tokens]
++            input_ids = self.token_input_buffer.gpu[:num_input_tokens]
+             inputs_embeds = None
+             model_kwargs = self._init_model_kwargs(num_input_tokens)
+ 
+@@ -2749,7 +2749,7 @@
+         Returns:
+             Model output tensor
+         """
+-        return self.model(
++        return self.loaded_neural_module(
+             input_ids=input_ids,
+             positions=positions,
+             intermediate_tensors=intermediate_tensors,
+@@ -2903,7 +2903,7 @@
+                 )
+             else:
+                 pyt_hooks = PytHooks()
+-                pyt_hooks.register_hooks(self.model, self.model.__class__.__name__)
++                pyt_hooks.register_hooks(self.loaded_neural_module, self.loaded_neural_module.__class__.__name__)
+                 self.layerwise_nvtx_hooks_registered = True
+ 
+     @torch.inference_mode()
+@@ -3128,7 +3128,7 @@
+                     return output
+ 
+                 sample_hidden_states = hidden_states[logits_indices]
+-                logits = self.model.compute_logits(sample_hidden_states)
++                logits = self.loaded_neural_module.compute_logits(sample_hidden_states)
+             else:
+                 # Rare case.
+                 assert not self.is_pooling_model
+@@ -3147,7 +3147,7 @@
+                     )
+                     logits = None
+                 else:
+-                    logits = self.model.compute_logits(sample_hidden_states)
++                    logits = self.loaded_neural_module.compute_logits(sample_hidden_states)
+ 
+                 model_output_broadcast_data: dict[str, Any] = {}
+                 if logits is not None:
+@@ -3485,7 +3485,7 @@
+             if spec_decode_metadata is None:
+                 token_indices_to_sample = None
+                 # input_ids can be None for multimodal models.
+-                target_token_ids = self.input_ids.gpu[:num_scheduled_tokens]
++                target_token_ids = self.token_input_buffer.gpu[:num_scheduled_tokens]
+                 target_positions = self._get_positions(num_scheduled_tokens)
+                 if self.use_aux_hidden_state_outputs:
+                     assert aux_hidden_states is not None
+@@ -3502,7 +3502,7 @@
+                         sampled_token_ids,
+                         spec_decode_metadata.num_draft_tokens,
+                     )
+-                    target_token_ids = self.input_ids.gpu[token_indices]
++                    target_token_ids = self.token_input_buffer.gpu[token_indices]
+                     target_positions = self._get_positions(token_indices)
+                     if self.use_aux_hidden_state_outputs:
+                         assert aux_hidden_states is not None
+@@ -3521,7 +3521,7 @@
+                     )
+                     total_num_tokens = common_attn_metadata.num_actual_tokens
+                     # When padding the batch, token_indices is just a range
+-                    target_token_ids = self.input_ids.gpu[:total_num_tokens]
++                    target_token_ids = self.token_input_buffer.gpu[:total_num_tokens]
+                     target_positions = self._get_positions(total_num_tokens)
+                     if self.use_aux_hidden_state_outputs:
+                         assert aux_hidden_states is not None
+@@ -3587,16 +3587,16 @@
+             with DeviceMemoryProfiler() as m:
+                 time_before_load = time.perf_counter()
+                 model_loader = get_model_loader(self.load_config)
+-                self.model = model_loader.load_model(
++                self.loaded_neural_module = model_loader.load_model(
+                     vllm_config=self.vllm_config, model_config=self.model_config
+                 )
+                 if self.lora_config:
+-                    self.model = self.load_lora_model(
+-                        self.model, self.vllm_config, self.device
++                    self.loaded_neural_module = self.load_lora_model(
++                        self.loaded_neural_module, self.vllm_config, self.device
+                     )
+                 if hasattr(self, "drafter"):
+                     logger.info_once("Loading drafter model...")
+-                    self.drafter.load_model(self.model)
++                    self.drafter.load_model(self.loaded_neural_module)
+                     if (
+                         hasattr(self.drafter, "model")
+                         and is_mixture_of_experts(self.drafter.model)
+@@ -3649,9 +3649,9 @@
+                             aux_layers,
+                         )
+                     else:
+-                        aux_layers = self.model.get_eagle3_aux_hidden_state_layers()
+-
+-                    self.model.set_aux_hidden_state_layers(aux_layers)
++                        aux_layers = self.loaded_neural_module.get_eagle3_aux_hidden_state_layers()
++
++                    self.loaded_neural_module.set_aux_hidden_state_layers(aux_layers)
+                 time_after_load = time.perf_counter()
+             self.model_memory_usage = m.consumed_memory
+         except torch.cuda.OutOfMemoryError as e:
+@@ -3671,7 +3671,7 @@
+             time_after_load - time_before_load,
+             scope="local",
+         )
+-        prepare_communication_buffer_for_model(self.model)
++        prepare_communication_buffer_for_model(self.loaded_neural_module)
+         if (drafter := getattr(self, "drafter", None)) and (
+             drafter_model := getattr(drafter, "model", None)
+         ):
+@@ -3683,7 +3683,7 @@
+             and mm_config.is_multimodal_pruning_enabled()
+         )
+ 
+-        if is_mixture_of_experts(self.model) and self.parallel_config.enable_eplb:
++        if is_mixture_of_experts(self.loaded_neural_module) and self.parallel_config.enable_eplb:
+             logger.info_once("EPLB is enabled for model %s.", self.model_config.model)
+             global_expert_load = (
+                 global_expert_loads[eplb_models] if global_expert_loads else None
+@@ -3695,7 +3695,7 @@
+             )
+             assert self.eplb_state is not None
+             self.eplb_state.add_model(
+-                self.model,
++                self.loaded_neural_module,
+                 self.model_config,
+                 global_expert_load,
+                 old_global_expert_indices,
+@@ -3711,7 +3711,7 @@
+         ):
+             backend = self.vllm_config.compilation_config.init_backend(self.vllm_config)
+             compilation_counter.stock_torch_compile_count += 1
+-            self.model.compile(fullgraph=True, backend=backend)
++            self.loaded_neural_module.compile(fullgraph=True, backend=backend)
+             return
+         # for other compilation modes, cudagraph behavior is controlled by
+         # CudagraphWraper and CudagraphDispatcher of vllm.
+@@ -3723,17 +3723,17 @@
+             cudagraph_mode.has_full_cudagraphs()
+             and not self.parallel_config.use_ubatching
+         ):
+-            self.model = CUDAGraphWrapper(
+-                self.model, self.vllm_config, runtime_mode=CUDAGraphMode.FULL
++            self.loaded_neural_module = CUDAGraphWrapper(
++                self.loaded_neural_module, self.vllm_config, runtime_mode=CUDAGraphMode.FULL
+             )
+         elif self.parallel_config.use_ubatching:
+             if cudagraph_mode.has_full_cudagraphs():
+-                self.model = UBatchWrapper(
+-                    self.model, self.vllm_config, CUDAGraphMode.FULL, self.device
++                self.loaded_neural_module = UBatchWrapper(
++                    self.loaded_neural_module, self.vllm_config, CUDAGraphMode.FULL, self.device
+                 )
+             else:
+-                self.model = UBatchWrapper(
+-                    self.model, self.vllm_config, CUDAGraphMode.NONE, self.device
++                self.loaded_neural_module = UBatchWrapper(
++                    self.loaded_neural_module, self.vllm_config, CUDAGraphMode.NONE, self.device
+                 )
+ 
+     def _get_eagle3_aux_layers_from_config(self) -> tuple[int, ...] | None:
+@@ -3848,7 +3848,7 @@
+             req_idx = self.input_batch.req_id_to_index[req_id]
+             offset = self.query_start_loc.np[req_idx].item()
+             prompt_hidden_states = hidden_states[offset : offset + num_logits]
+-            logits = self.model.compute_logits(prompt_hidden_states)
++            logits = self.loaded_neural_module.compute_logits(prompt_hidden_states)
+ 
+             # Get the "target" tokens for each index. For prompt at index i,
+             # the token at prompt index i+1 is the "sampled" token we want
+@@ -3924,7 +3924,7 @@
+             @functools.cache
+             def rand_input_ids() -> torch.Tensor:
+                 return torch.randint_like(
+-                    self.input_ids.gpu,
++                    self.token_input_buffer.gpu,
+                     low=0,
+                     high=self.model_config.get_vocab_size(),
+                 )
+@@ -3938,7 +3938,7 @@
+             @functools.cache
+             def rand_inputs_embeds() -> torch.Tensor:
+                 return torch.randn_like(
+-                    self.inputs_embeds.gpu,
++                    self.embedding_input_buffer.gpu,
+                 )
+ 
+             assert inputs_embeds is not None
+@@ -4160,17 +4160,17 @@
+             model_kwargs = self._init_model_kwargs(num_tokens_padded)
+             if self.supports_mm_inputs and not self.model_config.is_encoder_decoder:
+                 input_ids = None
+-                inputs_embeds = self.inputs_embeds.gpu[:num_tokens_padded]
++                inputs_embeds = self.embedding_input_buffer.gpu[:num_tokens_padded]
+                 model_kwargs = {
+                     **model_kwargs,
+                     **self._dummy_mm_kwargs(num_reqs),
+                 }
+             elif self.enable_prompt_embeds:
+                 input_ids = None
+-                inputs_embeds = self.inputs_embeds.gpu[:num_tokens_padded]
++                inputs_embeds = self.embedding_input_buffer.gpu[:num_tokens_padded]
+                 model_kwargs = self._init_model_kwargs(num_tokens_padded)
+             else:
+-                input_ids = self.input_ids.gpu[:num_tokens_padded]
++                input_ids = self.token_input_buffer.gpu[:num_tokens_padded]
+                 inputs_embeds = None
+ 
+             if self.uses_mrope:
+@@ -4185,7 +4185,7 @@
+             else:
+                 if self.intermediate_tensors is None:
+                     self.intermediate_tensors = (
+-                        self.model.make_empty_intermediate_tensors(
++                        self.loaded_neural_module.make_empty_intermediate_tensors(
+                             batch_size=self.max_num_tokens,
+                             dtype=self.model_config.dtype,
+                             device=self.device,
+@@ -4216,7 +4216,7 @@
+                     ubatch_slices=ubatch_slices_padded,
+                 ),
+             ):
+-                outputs = self.model(
++                outputs = self.loaded_neural_module(
+                     input_ids=input_ids,
+                     positions=positions,
+                     intermediate_tensors=intermediate_tensors,
+@@ -4295,7 +4295,7 @@
+         # To avoid breaking the sampler, we use a random tensor here instead.
+         hidden_states = torch.rand_like(hidden_states)
+ 
+-        logits = self.model.compute_logits(hidden_states)
++        logits = self.loaded_neural_module.compute_logits(hidden_states)
+         num_reqs = logits.size(0)
+ 
+         dummy_tensors = lambda v: torch.full((num_reqs,), v, device=self.device)
+@@ -4480,7 +4480,7 @@
+                     )
+ 
+                     # Run multimodal encoder.
+-                    dummy_encoder_outputs = self.model.embed_multimodal(
++                    dummy_encoder_outputs = self.loaded_neural_module.embed_multimodal(
+                         **batched_dummy_mm_inputs
+                     )
+ 
+--- a/vllm/v1/worker/gpu_worker.py
++++ b/vllm/v1/worker/gpu_worker.py
+@@ -118,7 +118,7 @@
+ 
+         # Save the buffers before level 2 sleep
+         if level == 2:
+-            model = self.model_runner.model
++            model = self.model_runner.loaded_neural_module
+             self._sleep_saved_buffers = {
+                 name: buffer.cpu().clone() for name, buffer in model.named_buffers()
+             }
+@@ -143,7 +143,7 @@
+ 
+         # Restore the buffers after level 2 sleep
+         if len(self._sleep_saved_buffers):
+-            model = self.model_runner.model
++            model = self.model_runner.loaded_neural_module
+             for name, buffer in model.named_buffers():
+                 if name in self._sleep_saved_buffers:
+                     buffer.data.copy_(self._sleep_saved_buffers[name].data)
+@@ -792,7 +792,7 @@
+                 module.moe_config.moe_parallel_config = module.moe_parallel_config
+             return moe_modules
+ 
+-        model_moe_modules = get_moe_modules(self.model_runner.model)
++        model_moe_modules = get_moe_modules(self.model_runner.loaded_neural_module)
+         num_local_experts = model_moe_modules[0].moe_config.num_local_experts
+ 
+         update_moe_modules(model_moe_modules, num_local_experts)
+@@ -839,10 +839,10 @@
+             parallel_config.eplb_config.num_redundant_experts = (
+                 new_physical_experts - global_expert_loads[0].shape[1]
+             )
+-        prepare_communication_buffer_for_model(self.model_runner.model)
++        prepare_communication_buffer_for_model(self.model_runner.loaded_neural_module)
+         if drafter_model is not None:
+             prepare_communication_buffer_for_model(drafter_model)
+-        self.model_runner.model.update_physical_experts_metadata(
++        self.model_runner.loaded_neural_module.update_physical_experts_metadata(
+             num_physical_experts=new_physical_experts,
+             num_local_physical_experts=num_local_physical_experts,
+         )
+@@ -902,7 +902,7 @@
+         from vllm.model_executor.model_loader import ShardedStateLoader
+ 
+         ShardedStateLoader.save_model(
+-            self.model_runner.model,
++            self.model_runner.loaded_neural_module,
+             path,
+             pattern=pattern,
+             max_size=max_size,

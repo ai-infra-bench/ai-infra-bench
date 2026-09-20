@@ -1,0 +1,1706 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "recorded_at": "2026-09-12T05:34:17.326917+00:00",
+  "status": "review_blocked",
+  "task": "ai-infra-bench/vllm-modular-moe-config-ownership",
+  "source": {
+    "repository": "vllm-project/vllm",
+    "base_commit": "e2ed238885be6af358be1851cd43105b7d036c49",
+    "dependency_cutoff": "2025-12-15T00:33:41Z",
+    "reference_oracle_commit": "3778673ea81bf5241f40e9c5e90f989bde377acf"
+  },
+  "image": {
+    "base_commit": "e2ed238885be6af358be1851cd43105b7d036c49",
+    "base_image": "vllm/vllm-openai:v0.12.0@sha256:6766ce0c459e24b76f3e9ba14ffc0442131ef4248c904efdcbf0d89e38be01fe",
+    "build_context": "environment",
+    "build_notes": "Built on the isolated bench daemon (unix:///data/docker-bench/docker.sock) with the legacy builder (DOCKER_BUILDKIT=0, --network host). VLLM_REPOSITORY was overridden to a local git-daemon (git://127.0.0.1:9418/vllm-hist.git) serving the full, content-verified upstream vLLM history, because the bench host's only github egress (proxy) EOFs on the large history pack. Provenance is asserted by content in-image (HEAD==base_commit, tree match, rev-list>1, not shallow, oracle absent, clean tree) and verified post-build via task_ci.py image-check. codeload + files.pythonhosted.org fetched directly.",
+    "created": "2026-09-05T02:37:33.598745925+08:00",
+    "dependency_cutoff": "2025-12-15T00:33:41Z",
+    "dependency_lock_manifest_sha256": "a437238733ed24d3121a1b45f13516a667666e84dfe3c7cb89372e0b0648920c",
+    "dependency_lock_sha256": "ec8da2ba7874ab76016998f20ba4a9e20280af7c0e8937e7e049f150a863727e",
+    "dockerfile_sha256": "149fd9f3e5a4c048e3e9d556aa1edc50f877300a3d28221957b689a18a603fdf",
+    "image_check": "passed",
+    "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+    "image_tag": "ai-infra-bench/vllm-pr-30282:remediate-20260904T173714Z",
+    "repo_digests": [],
+    "schema_version": "vllm_harbor_image.v1",
+    "size_bytes": 10677311185,
+    "status": "built",
+    "task": "ai-infra-bench/vllm-modular-moe-config-ownership"
+  },
+  "skill": {
+    "head": "b989bc67e2b945c3be00d548ca25b1f73519f478",
+    "branch": "main",
+    "status": "",
+    "hashes": {
+      ".agents/skills/ai-infra-bench-task-review/SKILL.md": "d95343d9408abd45190c0061eca41abf66ed6be3ca5471e2039e5759d5c7bacb",
+      ".agents/skills/ai-infra-bench-task-review/agents/openai.yaml": "c41c9dce93178e680e81e5f4506c197ad8c1b9e72b178fb6eb179ad17fe24614",
+      ".agents/skills/ai-infra-bench-task-review/references/review-rubric.md": "c4413205916752c5fc793e26c74a20d15e2538b7043fe612c1741e7fa9901167",
+      ".agents/skills/ai-infra-bench-task-review/references/validation-playbook.md": "803fc8d1b120753003db681b20f1990d697f01ae52952e121255071af86a342e",
+      ".agents/skills/ai-infra-bench-task-review/scripts/audit_task_artifacts.py": "3c4f882ed2aa3542ddbb2d2c51522819be17dc22a12f2cd492076bd882190022"
+    }
+  },
+  "worktree": {
+    "head": "e70161eb3d9d7e0e952b1a042220070a5e628f19",
+    "branch": "tasks/vllm-modular-moe-config-ownership-opus5-review",
+    "status": "",
+    "path": "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular",
+    "task_path": "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership",
+    "state": "local uncommitted description and evidence edits; no push or PR update"
+  },
+  "review": {
+    "gates": {
+      "task_statement": "pass",
+      "environment": "pass within documented ABI and single-device scope",
+      "verification": "fail"
+    },
+    "findings": [
+      {
+        "id": "P1-flashinfer-prepare-owner",
+        "priority": "P1",
+        "status": "open",
+        "summary": "Oracle and alternate-consumer-boundary-ownership receive reward 1 but real FlashInfer prepare uses absent/stale moe instead of active layer; DP gather is omitted or spuriously enabled.",
+        "verifier_location": "tests/verify_parallel_config.py:221",
+        "contract_basis": "Original instruction already requires affected backends and downstream consumers to follow the active layer.",
+        "probe": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/flashinfer_prepare_valid_geometry.py",
+        "probe_sha256": "18ab77e2ddd85aef99f67c2ac72042c2605b59ba38c55d549a252fd695c6c1e8",
+        "observed_rows": {
+          "oracle": [
+            3,
+            3,
+            6
+          ],
+          "alternate_consumer": [
+            3,
+            3,
+            6
+          ],
+          "alternate_workspace": [
+            3,
+            3,
+            6
+          ],
+          "alternate_full_config": [
+            3,
+            3,
+            6
+          ],
+          "alternate_layer_view": [
+            6,
+            6,
+            3
+          ],
+          "astra": [
+            6,
+            6,
+            3
+          ]
+        },
+        "expected_rows": [
+          6,
+          6,
+          3
+        ],
+        "scope": "Real factory/build/prepare component execution on CUDA tensors; deterministic transport preserves two-rank gather cardinality. Expert arithmetic stops at the component boundary. Not multi-rank E2E.",
+        "required_changes": [
+          "Execute the actual prepare component in verifier and independently check gathered row count and unchanged local behavior.",
+          "Resolve active owner consistently for prepare/finalize, expert selection and modular kernel in Oracle.",
+          "Preserve current incomplete implementations as negative controls; recheck all claimed correct alternatives.",
+          "Rerun Oracle, alternatives, negatives, independent challenge and final Harbor before approval."
+        ]
+      }
+    ],
+    "scope": "Fresh task review; previous Astra rollout review reused and artifact integrity rechecked, not a new LLM run.",
+    "editorial_change": "Three natural paragraphs, no hard wrapping within paragraphs; preserve existing behavior contract.",
+    "executable_changes": {
+      "instruction.md": {
+        "before": "93a27097815f4414d9bf7e7d8550570a16165686c21fddc4e57c1e67702f44da",
+        "after": "414ac8c35f0614b51608148035b90011f5e392daab55a79bb78fcb26ae2468ed"
+      }
+    },
+    "remaining_limitations": "Finite semantic-boundary review and named controls, not arbitrary implementation certification. Direct-container challenges are separate from full Harbor trials. No new Opus solver run after these repairs; no external reviewer approval claimed."
+  },
+  "semantic_boundary": "# Independent contract, recorded before reading grading code\n\nStreaming: A repeated new-request record with the same request ID continues the existing GPUModelRunner session, without duplicate or stale persistent-batch rows. Each record is the complete prompt for the new segment, and its output buffer starts empty, including when only part of previous output is absorbed. Token prompts, embedding prompts, multimodal/M-RoPE metadata, sampling and pooling parameters, blocks and computed-token state must match the new segment across repeated and interleaved sessions; unrelated sessions and ordinary new requests remain correct. Scope is production runner state updates, not the full API/scheduler stack or model inference. Implementation layout is unrestricted.\n\nModular MoE: Each modular factory, kernel profiling path and affected backend follows its active layer’s MoE parallel configuration, independently of conflicting, changed or absent ambient/other-layer configuration. Without layer config compatibility construction is non-DP+EP and needs no global config. DP+EP profiling reserves worst-case workspace under the existing 16384-token chunk bound, even for small local inputs; an ordinary layer retains ordinary requirements despite ambient DP+EP. Preserve actual single-rank Triton numerical behavior; non-modular functional paths must not acquire generic global parallel-config dependence. Constructor names, storage and shape-query counts are not contract requirements.\n\nEnvironment identities and resource boundaries were read from task.toml and Dockerfiles. Streaming is a CPU state-lifecycle task; Modular requires a single A100 GPU. Neither implies complete distributed model serving coverage.\n",
+  "harbor": {
+    "version": "0.22.0",
+    "verifier_environment_mode": "separate",
+    "base": {
+      "case": "base",
+      "declared_expected_reward": 0,
+      "actual_reward": 0,
+      "job_id": "1463d05f-3d6c-4d0e-aaa9-87f553e8c3a3",
+      "trial_id": "b97772e8-3f61-4e45-a9f6-f778b53a72f7",
+      "task_checksum": "cfda8cfcf89e973064c23dd4c553d5f2fe10475281cd698aeaf03e4dd676269d",
+      "harbor_errors": 0,
+      "exception_info": null,
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuids": [
+        "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+      ],
+      "worker_exit_code": 1,
+      "behavior_report": {
+        "schema_version": "trusted_behavior_report.v1",
+        "completed": false,
+        "expected_stages": [
+          "compatibility_no_warning",
+          "active_owner_workspace_provenance",
+          "numerical_path_unchanged",
+          "flashinfer_consumer_follows_owner",
+          "lora_factory_follows_owner",
+          "functional_no_global_dependency"
+        ],
+        "stages_passed": [],
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 57, in main\n    raise RuntimeError(f\"candidate worker exit {result.returncode}\")\nRuntimeError: candidate worker exit 1\n"
+        ],
+        "worker_exit_code": 1,
+        "worker_uid": 1000,
+        "scorer_uid": 0
+      },
+      "boundary_markers": {
+        "EARLY_OS_EXIT_REACHED": false,
+        "EARLY_SYSTEM_EXIT_REACHED": false,
+        "FORGED_REPORT_CONTROL_REACHED": false,
+        "REPORT_WRITE_DENIED": false,
+        "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+      },
+      "command": [
+        "harbor",
+        "run",
+        "--config",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/harbor-config.json",
+        "-y"
+      ],
+      "raw_artifacts": {
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/run-record.json": "d407d6ad23d685990049ddc7072ffce79e84973824175ce2f2aab60d2164b0f2",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/harbor-config.json": "8fa547472be8a179cca8a3a7c8f5745f25649f262911f913667236aab5ff5227",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/harbor.log": "db0a03b5ec089aa0a42451166e343105ea445d008272a0bb0a9a61227376385a",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/jobs/vllm-modular-moe-config-ownership--base/result.json": "01977cec4eddfc6c16ab9b30430078ac9a8ee0a15df10832b321bbef466ac03f",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__bJJGTKk/result.json": "30699b5cee06420c893482b6c6f6147402c18b46bb489275684644453ec5cdb5",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__bJJGTKk/verifier/test-stdout.txt": "50a101ca8803f66125b2378869ca30d06028c64f71b2053c08409a40e06229c2",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__bJJGTKk/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__bJJGTKk/verifier/workload.json": "e448132a0103aecb3f108c4e6cc6d7c0d6e303d86a8bb55e06acd60e1aaf6a2e",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__bJJGTKk/verifier/report.json": "66c20e28e86ab4519dda3bb3abd375db81084dd1b324a1b75c399de78511567b",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__bJJGTKk/verifier/reward.json": "c0d75be2f1846a75d2f6b8c99837c8d15ef7f135a2a99361211dd3b381f70b7f"
+      }
+    },
+    "oracle": {
+      "case": "oracle",
+      "declared_expected_reward": 1,
+      "actual_reward": 1,
+      "job_id": "c361bd18-6a18-4a1d-9294-b4822cb7d2f8",
+      "trial_id": "99210f2c-ff8d-4832-939c-da6c70b58c3e",
+      "task_checksum": "cfda8cfcf89e973064c23dd4c553d5f2fe10475281cd698aeaf03e4dd676269d",
+      "harbor_errors": 0,
+      "exception_info": null,
+      "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+      "gpu_uuids": [
+        "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+      ],
+      "worker_exit_code": 0,
+      "behavior_report": {
+        "schema_version": "trusted_behavior_report.v1",
+        "completed": true,
+        "expected_stages": [
+          "compatibility_no_warning",
+          "active_owner_workspace_provenance",
+          "numerical_path_unchanged",
+          "flashinfer_consumer_follows_owner",
+          "lora_factory_follows_owner",
+          "functional_no_global_dependency"
+        ],
+        "stages_passed": [
+          "compatibility_no_warning",
+          "active_owner_workspace_provenance",
+          "numerical_path_unchanged",
+          "flashinfer_consumer_follows_owner",
+          "lora_factory_follows_owner",
+          "functional_no_global_dependency"
+        ],
+        "failures": [],
+        "worker_exit_code": 0,
+        "worker_uid": 1000,
+        "scorer_uid": 0
+      },
+      "boundary_markers": {
+        "EARLY_OS_EXIT_REACHED": false,
+        "EARLY_SYSTEM_EXIT_REACHED": false,
+        "FORGED_REPORT_CONTROL_REACHED": false,
+        "REPORT_WRITE_DENIED": false,
+        "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+      },
+      "command": [
+        "harbor",
+        "run",
+        "--config",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/harbor-config.json",
+        "-y"
+      ],
+      "raw_artifacts": {
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/run-record.json": "b02d8bcc6103c4eb85fa12f7b2b03c3eef0d8b4cbd60a3e5e0d9defa443ae5a4",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/harbor-config.json": "a65a0e58fd159f7514f128e8825b3ac6691ca2cf6075089175614e9173511326",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/harbor.log": "821e1a5f24e9f032908ae25b68f675298d9617bceac54db615a4cdb44c284b8f",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/jobs/vllm-modular-moe-config-ownership--oracle/result.json": "c3d570db4b7b13baf387e1a8160b131aee6aec4a60fd55a68ed31e36068ee9ac",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RL4GzLi/result.json": "7a3631cadb59e80c819da5bd8ea913026b5260f0995959d8c16f77172476568b",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RL4GzLi/verifier/test-stdout.txt": "0884d8f96f83a8aa755984320db01c93779dda1b4af848e3f9a2c36169dc6344",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RL4GzLi/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RL4GzLi/verifier/workload.json": "971e7724f9b62cf12f14af912bd0e37fe851048d0d7fa526476ecd577c313a6b",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RL4GzLi/verifier/observations.json": "7232c68df80b90c086cc446f6ad547e0a08c59a37659b4fd9f08c88c7f77f061",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RL4GzLi/verifier/report.json": "f182af95973976925762aa9c657b0bd33bd149684ea05ee336ec15a2bc6460c2",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RL4GzLi/verifier/reward.json": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+      }
+    },
+    "matrix": [
+      {
+        "case": "base",
+        "declared_expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "1463d05f-3d6c-4d0e-aaa9-87f553e8c3a3",
+        "trial_id": "b97772e8-3f61-4e45-a9f6-f778b53a72f7",
+        "task_checksum": "cfda8cfcf89e973064c23dd4c553d5f2fe10475281cd698aeaf03e4dd676269d",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 1,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": false,
+          "expected_stages": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "stages_passed": [],
+          "failures": [
+            "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 57, in main\n    raise RuntimeError(f\"candidate worker exit {result.returncode}\")\nRuntimeError: candidate worker exit 1\n"
+          ],
+          "worker_exit_code": 1,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/run-record.json": "d407d6ad23d685990049ddc7072ffce79e84973824175ce2f2aab60d2164b0f2",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/harbor-config.json": "8fa547472be8a179cca8a3a7c8f5745f25649f262911f913667236aab5ff5227",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/harbor.log": "db0a03b5ec089aa0a42451166e343105ea445d008272a0bb0a9a61227376385a",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/jobs/vllm-modular-moe-config-ownership--base/result.json": "01977cec4eddfc6c16ab9b30430078ac9a8ee0a15df10832b321bbef466ac03f",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__bJJGTKk/result.json": "30699b5cee06420c893482b6c6f6147402c18b46bb489275684644453ec5cdb5",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__bJJGTKk/verifier/test-stdout.txt": "50a101ca8803f66125b2378869ca30d06028c64f71b2053c08409a40e06229c2",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__bJJGTKk/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__bJJGTKk/verifier/workload.json": "e448132a0103aecb3f108c4e6cc6d7c0d6e303d86a8bb55e06acd60e1aaf6a2e",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__bJJGTKk/verifier/report.json": "66c20e28e86ab4519dda3bb3abd375db81084dd1b324a1b75c399de78511567b",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/base/jobs/vllm-modular-moe-config-ownership--base/vllm-modular-moe-config-ownershi__bJJGTKk/verifier/reward.json": "c0d75be2f1846a75d2f6b8c99837c8d15ef7f135a2a99361211dd3b381f70b7f"
+        }
+      },
+      {
+        "case": "alternate-consumer-boundary-ownership",
+        "declared_expected_reward": 1,
+        "actual_reward": 1,
+        "job_id": "543b19b6-2e7c-4de5-ae5d-ca1d5f5bbcb9",
+        "trial_id": "cc83963d-c298-4b65-8671-adaa93c2aacf",
+        "task_checksum": "def3715e0052f8d843a56016b643e7416fa8a17709f285c387563310813d389b",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": true,
+          "expected_stages": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "stages_passed": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "failures": [],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-consumer-boundary-ownership/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-consumer-boundary-ownership/run-record.json": "e9de3f1e1f3e8e4c9145c48e09fe431905adfaca4e467a5bd8096d8962e30678",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-consumer-boundary-ownership/harbor-config.json": "746773af1411f9b150a9e17fdeb77ae43044d496a8818fe15ed8879e28e00317",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-consumer-boundary-ownership/harbor.log": "fb3b73a0834bfd780c8b1a80ae81cab92be82bf52249eef60078f783435dad02",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-consumer-boundary-ownership/jobs/vllm-modular-moe-config-ownership--alternate-consumer-boundary-ownership/result.json": "9eccdc6cf47454fa9376dfe02bf3020bb1219d23039b93436c72b9dbc01e8615",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-consumer-boundary-ownership/jobs/vllm-modular-moe-config-ownership--alternate-consumer-boundary-ownership/vllm-modular-moe-config-ownershi__HbTgpSF/result.json": "7e98f0cde46dd437f66ba2ee5173126d2ba9928925254e8e21cadfa1de82e3ae",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-consumer-boundary-ownership/jobs/vllm-modular-moe-config-ownership--alternate-consumer-boundary-ownership/vllm-modular-moe-config-ownershi__HbTgpSF/verifier/test-stdout.txt": "bd1afbe023e2464302bb33de69ef54a3d9779eb94b0d06b6525a91e4cce9038a",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-consumer-boundary-ownership/jobs/vllm-modular-moe-config-ownership--alternate-consumer-boundary-ownership/vllm-modular-moe-config-ownershi__HbTgpSF/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-consumer-boundary-ownership/jobs/vllm-modular-moe-config-ownership--alternate-consumer-boundary-ownership/vllm-modular-moe-config-ownershi__HbTgpSF/verifier/workload.json": "dd743a3e2a2e3c42d75d4e5c443fa904b738578281c9d022b813eeb4d362475a",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-consumer-boundary-ownership/jobs/vllm-modular-moe-config-ownership--alternate-consumer-boundary-ownership/vllm-modular-moe-config-ownershi__HbTgpSF/verifier/observations.json": "cc92a12f36673a20ab56e4c40f833def83b5b8229ac3620cbb08875ebea5f018",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-consumer-boundary-ownership/jobs/vllm-modular-moe-config-ownership--alternate-consumer-boundary-ownership/vllm-modular-moe-config-ownershi__HbTgpSF/verifier/report.json": "f182af95973976925762aa9c657b0bd33bd149684ea05ee336ec15a2bc6460c2",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-consumer-boundary-ownership/jobs/vllm-modular-moe-config-ownership--alternate-consumer-boundary-ownership/vllm-modular-moe-config-ownershi__HbTgpSF/verifier/reward.json": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+        }
+      },
+      {
+        "case": "early-exit-os-exit",
+        "declared_expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "11ef8cf2-4f54-4413-9c91-aaa4f9deb633",
+        "trial_id": "04613663-d429-466e-9fb3-bbe6c773eea1",
+        "task_checksum": "f44009aeb60f7a5e32d79dab135b5bc893cf688892bd49c87c389bd224f2715a",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": false,
+          "expected_stages": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "stages_passed": [],
+          "failures": [
+            "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 58, in main\n    if obs.stat().st_size > 100_000_000:\n       ^^^^^^^^^^\n  File \"/usr/lib/python3.12/pathlib.py\", line 840, in stat\n    return os.stat(self, follow_symlinks=follow_symlinks)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: '/tmp/behavior-observations-bvpdfbqx/observations.json'\n"
+          ],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": true,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-os-exit/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-os-exit/run-record.json": "32ed9136e7d55b6868a4237b59297046c8be5d87c84e0fdfb9a35a2136b3fd8c",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-os-exit/harbor-config.json": "1177b3272e8dd6617967070de329ca17354354af8306a9c2e90ce2674013b28f",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-os-exit/harbor.log": "5291fdb0dbaabe4f94ee9712797e0c1c930eed1579d3c23323f63758accdf57d",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-os-exit/jobs/vllm-modular-moe-config-ownership--early-exit-os-exit/result.json": "69bfcd77fe18f6cb48b09b9deaa0256a1c49eb166143f06a6a5ae0d8509be3a4",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-os-exit/jobs/vllm-modular-moe-config-ownership--early-exit-os-exit/vllm-modular-moe-config-ownershi__z97pUFm/result.json": "607e35863b428addee62bb144764992bb812fb615b2b4e8494d27f545ff138de",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-os-exit/jobs/vllm-modular-moe-config-ownership--early-exit-os-exit/vllm-modular-moe-config-ownershi__z97pUFm/verifier/test-stdout.txt": "dda9946432d75f3ccee4e4aac9c46039608d3d3bab0ce78168ad36f84a22eac2",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-os-exit/jobs/vllm-modular-moe-config-ownership--early-exit-os-exit/vllm-modular-moe-config-ownershi__z97pUFm/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-os-exit/jobs/vllm-modular-moe-config-ownership--early-exit-os-exit/vllm-modular-moe-config-ownershi__z97pUFm/verifier/workload.json": "127b842cb8e9607c0617d430e5a193a23d53b90373270470a41a07c002a88015",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-os-exit/jobs/vllm-modular-moe-config-ownership--early-exit-os-exit/vllm-modular-moe-config-ownershi__z97pUFm/verifier/report.json": "00a899572cb590ce02cc2c73ed7baea4770b598d157114d75717376efc169315",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-os-exit/jobs/vllm-modular-moe-config-ownership--early-exit-os-exit/vllm-modular-moe-config-ownershi__z97pUFm/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "early-exit-system-exit",
+        "declared_expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "56d11da1-5ec9-4169-ad15-307617264690",
+        "trial_id": "46c3ff62-8dd1-4172-8a39-84330a8cb1fa",
+        "task_checksum": "364d3bb491c605b3ca7f183484b29e341aa0bb1a1f86210f1b80510f64bae1d4",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": false,
+          "expected_stages": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "stages_passed": [],
+          "failures": [
+            "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 58, in main\n    if obs.stat().st_size > 100_000_000:\n       ^^^^^^^^^^\n  File \"/usr/lib/python3.12/pathlib.py\", line 840, in stat\n    return os.stat(self, follow_symlinks=follow_symlinks)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: '/tmp/behavior-observations-d7gjglc4/observations.json'\n"
+          ],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": true,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-system-exit/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-system-exit/run-record.json": "359197a876670be6d97e040ac1056cb49a9b2691497d22958d6f188a2414fdb5",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-system-exit/harbor-config.json": "804a9c5d4e9f6163d2f5b2763744591faa2f3a564e65e766c3e22df666d29148",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-system-exit/harbor.log": "40b10f16fad09e9b143a6354b6a56771ce544843c9530d8d3e5634fc7d25c455",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-system-exit/jobs/vllm-modular-moe-config-ownership--early-exit-system-exit/result.json": "3d5cbf5b1b95a44d29f4e1704a176644cf9ab4a7b4e35e21795df4d2f6523b56",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-system-exit/jobs/vllm-modular-moe-config-ownership--early-exit-system-exit/vllm-modular-moe-config-ownershi__R2KoX3t/result.json": "7a1ab1676b666ca60885df2d3b1877f553ae78914d24972bcd0f2c2a6091cc4f",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-system-exit/jobs/vllm-modular-moe-config-ownership--early-exit-system-exit/vllm-modular-moe-config-ownershi__R2KoX3t/verifier/test-stdout.txt": "d85a6df098c6f97ccedecf7fdf9e1e2f87ac912e2f4d2c45fb3b2a77ca457679",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-system-exit/jobs/vllm-modular-moe-config-ownership--early-exit-system-exit/vllm-modular-moe-config-ownershi__R2KoX3t/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-system-exit/jobs/vllm-modular-moe-config-ownership--early-exit-system-exit/vllm-modular-moe-config-ownershi__R2KoX3t/verifier/workload.json": "d1450531b0b68b2fa68c5bf2b30225aed7f8fa1de8d4c527a401abb14f843311",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-system-exit/jobs/vllm-modular-moe-config-ownership--early-exit-system-exit/vllm-modular-moe-config-ownershi__R2KoX3t/verifier/report.json": "5dd291224645afd0c0f2e739b133a7af37b895018519ad3d4afef26b1d4949a3",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/early-exit-system-exit/jobs/vllm-modular-moe-config-ownership--early-exit-system-exit/vllm-modular-moe-config-ownershi__R2KoX3t/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "wrong-legacy-owner",
+        "declared_expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "59bfca21-9724-4019-8500-4e5180de1dae",
+        "trial_id": "6b9eddad-90cb-4722-b29f-bbd4630afe3a",
+        "task_checksum": "2d372f04007571eb1a4bac94723fe8574364c4c27c0f859e5d5a8b49a8ead232",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 1,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": false,
+          "expected_stages": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "stages_passed": [],
+          "failures": [
+            "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 57, in main\n    raise RuntimeError(f\"candidate worker exit {result.returncode}\")\nRuntimeError: candidate worker exit 1\n"
+          ],
+          "worker_exit_code": 1,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/wrong-legacy-owner/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/wrong-legacy-owner/run-record.json": "2f8efc893e0b519f40e81e068defcae363dea058455dd7a02af151455c1ed6ce",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/wrong-legacy-owner/harbor-config.json": "95f204b2c1fb2d8b8325fd702a43690989fef7ae71d5fd621829571b6f125e4d",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/wrong-legacy-owner/harbor.log": "5aa655e250517bf53127083e982723fe3af98bb05ba2d62195f6a8436592b9ec",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/wrong-legacy-owner/jobs/vllm-modular-moe-config-ownership--wrong-legacy-owner/result.json": "71dc7e5144926060bb90500b12ad555fd6786842b2e1dbfd9235f77447d054e4",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/wrong-legacy-owner/jobs/vllm-modular-moe-config-ownership--wrong-legacy-owner/vllm-modular-moe-config-ownershi__CDFCPd9/result.json": "f10fdff1896068eca5091ad679125696145410e458c9c7596c0352b89a7f317d",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/wrong-legacy-owner/jobs/vllm-modular-moe-config-ownership--wrong-legacy-owner/vllm-modular-moe-config-ownershi__CDFCPd9/verifier/test-stdout.txt": "ec3daa65a5d9040e1a8bf0ce42424b2cdda53fd3d0222dd586a185249af4a754",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/wrong-legacy-owner/jobs/vllm-modular-moe-config-ownership--wrong-legacy-owner/vllm-modular-moe-config-ownershi__CDFCPd9/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/wrong-legacy-owner/jobs/vllm-modular-moe-config-ownership--wrong-legacy-owner/vllm-modular-moe-config-ownershi__CDFCPd9/verifier/workload.json": "4641e3d184982458d1781eede11b3a46b276e1857e18b955023204af87024c5c",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/wrong-legacy-owner/jobs/vllm-modular-moe-config-ownership--wrong-legacy-owner/vllm-modular-moe-config-ownershi__CDFCPd9/verifier/report.json": "66c20e28e86ab4519dda3bb3abd375db81084dd1b324a1b75c399de78511567b",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/wrong-legacy-owner/jobs/vllm-modular-moe-config-ownership--wrong-legacy-owner/vllm-modular-moe-config-ownershi__CDFCPd9/verifier/reward.json": "c0d75be2f1846a75d2f6b8c99837c8d15ef7f135a2a99361211dd3b381f70b7f"
+        }
+      },
+      {
+        "case": "forged-report-exit",
+        "declared_expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "d50ea859-1ddf-421d-acdd-4bb76cbe317c",
+        "trial_id": "6bb0f7a1-374e-4484-8a48-90887cde49c7",
+        "task_checksum": "4c2728354e554fa4c873cd27f08c76aa6c832a7af36a153052d6ab52082512b4",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": false,
+          "expected_stages": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "stages_passed": [],
+          "failures": [
+            "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 58, in main\n    if obs.stat().st_size > 100_000_000:\n       ^^^^^^^^^^\n  File \"/usr/lib/python3.12/pathlib.py\", line 840, in stat\n    return os.stat(self, follow_symlinks=follow_symlinks)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: '/tmp/behavior-observations-oxsws5cb/observations.json'\n"
+          ],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": true,
+          "REPORT_WRITE_DENIED": true,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/forged-report-exit/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/forged-report-exit/run-record.json": "d04e02dad4db73a536f96c029e6b2fdf992497dfc50b897077955a777b77c7db",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/forged-report-exit/harbor-config.json": "390cb2d14dd07b191bb42bc4ae84b101e203769d98ef6a9829e5927a76390c69",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/forged-report-exit/harbor.log": "007c78a5ef34464887848e63b26ab23bc0e1d1ebcae084d7d866e9e8c19eabd5",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/forged-report-exit/jobs/vllm-modular-moe-config-ownership--forged-report-exit/result.json": "f9d0bcd80b4a7934d8cf6a00666e4ce48a0ce28c08ece3b2fc320388a1c28cc7",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/forged-report-exit/jobs/vllm-modular-moe-config-ownership--forged-report-exit/vllm-modular-moe-config-ownershi__p59ud2C/result.json": "120eeadd409f1e769e8e60430c98bbb4f37fb26fc1064b73dbe3ad5feaf434fd",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/forged-report-exit/jobs/vllm-modular-moe-config-ownership--forged-report-exit/vllm-modular-moe-config-ownershi__p59ud2C/verifier/test-stdout.txt": "dae489d3f1db184caa532a703f7ffe11ec50a56df71d268bc12690e90f4c42e3",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/forged-report-exit/jobs/vllm-modular-moe-config-ownership--forged-report-exit/vllm-modular-moe-config-ownershi__p59ud2C/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/forged-report-exit/jobs/vllm-modular-moe-config-ownership--forged-report-exit/vllm-modular-moe-config-ownershi__p59ud2C/verifier/workload.json": "f1c776aabec519ad91c319655fd91958652d86667cff873eda4a50fb2024a8d2",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/forged-report-exit/jobs/vllm-modular-moe-config-ownership--forged-report-exit/vllm-modular-moe-config-ownershi__p59ud2C/verifier/report.json": "b1b0b4e5d12deb08617084e0233b7091093eb17ea22ecc88f24968bad29d4363",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/forged-report-exit/jobs/vllm-modular-moe-config-ownership--forged-report-exit/vllm-modular-moe-config-ownershi__p59ud2C/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "constant-numerical-output",
+        "declared_expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "484e00a9-295b-4938-bf43-054c195c3c97",
+        "trial_id": "19455122-3ba2-4dd0-bda3-483e6ddd8f6a",
+        "task_checksum": "d8678dff38c29f8d1aad3a7896fad6678bc326dc9c9107585e552c2624e13733",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": false,
+          "expected_stages": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "stages_passed": [],
+          "failures": [
+            "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 64, in main\n    passed = check(raw, workload)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/tests/check_behavior.py\", line 65, in check\n    check_numerics(raw['numerics'], 8, workload)\n  File \"/tests/check_behavior.py\", line 44, in check_numerics\n    torch.testing.assert_close(actual, nearest, rtol=0.03, atol=0.5)\n  File \"/usr/local/lib/python3.12/dist-packages/torch/testing/_comparison.py\", line 1589, in assert_close\n    raise error_metas[0].to_error(msg)\nAssertionError: Tensor-likes are not close!\n\nMismatched elements: 1518 / 1520 (99.9%)\nGreatest absolute difference: 2417.0 at index (11, 3) (up to 0.5 allowed)\nGreatest relative difference: inf at index (7, 56) (up to 0.03 allowed)\n"
+          ],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/constant-numerical-output/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/constant-numerical-output/run-record.json": "765709874d67ef07d018a8c4c3251b3e6e1c8a3e7d04ca97adca5e5bd2d26131",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/constant-numerical-output/harbor-config.json": "267bfd0d7addb92c3c99107189ee502c60ad4c936d21cf8795d5694e4ad7fa18",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/constant-numerical-output/harbor.log": "ea23ab2ef15f7bac69f9b9d033352fc47dff98872a1abf0fdf8addd24c7057e4",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/constant-numerical-output/jobs/vllm-modular-moe-config-ownership--constant-numerical-output/result.json": "f6374f8793a1761fb3c03948ab16afc993f1b9b1de09237c3bb3ddcc69d8c6f2",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/constant-numerical-output/jobs/vllm-modular-moe-config-ownership--constant-numerical-output/vllm-modular-moe-config-ownershi__Vx7CvoB/result.json": "cbe60a386d2c92c450cca8035a99f75ace390d2a481d0e108c89d3d4a2fe5826",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/constant-numerical-output/jobs/vllm-modular-moe-config-ownership--constant-numerical-output/vllm-modular-moe-config-ownershi__Vx7CvoB/verifier/test-stdout.txt": "bbb5d9c9ea46dbbbeb69fff236e8126ec7443f2637ad9e30d7d4b9ca8b67f9a2",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/constant-numerical-output/jobs/vllm-modular-moe-config-ownership--constant-numerical-output/vllm-modular-moe-config-ownershi__Vx7CvoB/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/constant-numerical-output/jobs/vllm-modular-moe-config-ownership--constant-numerical-output/vllm-modular-moe-config-ownershi__Vx7CvoB/verifier/workload.json": "03f3a55aa8691d52d0244633e24d0692e5acabbf5f108ef0b18675040311b928",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/constant-numerical-output/jobs/vllm-modular-moe-config-ownership--constant-numerical-output/vllm-modular-moe-config-ownershi__Vx7CvoB/verifier/observations.json": "5eb80b0fbb09f4ffe8544927d7ae82f9ff9ab9154a0742c472cb107d9c7fcbd5",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/constant-numerical-output/jobs/vllm-modular-moe-config-ownership--constant-numerical-output/vllm-modular-moe-config-ownershi__Vx7CvoB/verifier/report.json": "e03665ad265edb9fc3209d7c90cf63a9332df405e3d09dcb9c10dabd61e78a65",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/constant-numerical-output/jobs/vllm-modular-moe-config-ownership--constant-numerical-output/vllm-modular-moe-config-ownershi__Vx7CvoB/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "replay-observations",
+        "declared_expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "bb6cc5ee-8d6d-46df-b4f6-5846fb54b4f7",
+        "trial_id": "4c37b331-161a-4dd9-84b2-d2163f61e50b",
+        "task_checksum": "6c26bccc60ad1dc94673efab00d91eaf4623b447878a12a3ca575307c83d5a92",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": false,
+          "expected_stages": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "stages_passed": [],
+          "failures": [
+            "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 64, in main\n    passed = check(raw, workload)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/tests/check_behavior.py\", line 56, in check\n    assert raw[field] >= worst_case_bytes, (field, raw[field], worst_case_bytes)\n           ~~~^^^^^^^\nKeyError: 'dp_workspace_bytes'\n"
+          ],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": true
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/replay-observations/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/replay-observations/run-record.json": "32945cbc0ac944e986d985ee42a46cc3d7c19ad1ba56895214524ed38e4ef574",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/replay-observations/harbor-config.json": "f70f674124e12bda747e1ece92b560aa3e05cb28676658a42acbf32043f63228",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/replay-observations/harbor.log": "7103af76b1aeb51fb46aa1261803998df4810700888a7d8538bc5c07cd8b99a2",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/replay-observations/jobs/vllm-modular-moe-config-ownership--replay-observations/result.json": "628fe9fae37c274a0664a743cd2b7e2374e0adca0862b57e2a23c8c7d5b6acbd",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/replay-observations/jobs/vllm-modular-moe-config-ownership--replay-observations/vllm-modular-moe-config-ownershi__aRyL7Dh/result.json": "4821afd601363b96fb3264503dfdcb93db3201b9990c32e4a82e156a6b299d3d",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/replay-observations/jobs/vllm-modular-moe-config-ownership--replay-observations/vllm-modular-moe-config-ownershi__aRyL7Dh/verifier/test-stdout.txt": "0621af23e5780c87b387b034b3c5c43456ceec2021284bcc1125a0179f510a12",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/replay-observations/jobs/vllm-modular-moe-config-ownership--replay-observations/vllm-modular-moe-config-ownershi__aRyL7Dh/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/replay-observations/jobs/vllm-modular-moe-config-ownership--replay-observations/vllm-modular-moe-config-ownershi__aRyL7Dh/verifier/workload.json": "6f3b673599b34b6f99399ee4e34ae69498707e273239ef031184777884139913",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/replay-observations/jobs/vllm-modular-moe-config-ownership--replay-observations/vllm-modular-moe-config-ownershi__aRyL7Dh/verifier/observations.json": "72b061b45a24e3234dd53c5dbdaa113d1b07dbde71b2cfa4af7b4792b46cd244",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/replay-observations/jobs/vllm-modular-moe-config-ownership--replay-observations/vllm-modular-moe-config-ownershi__aRyL7Dh/verifier/report.json": "5a0afc35de7492bfcd1da3cab07fb7a5fd199db97395b4c13afd40e8463da9ca",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/replay-observations/jobs/vllm-modular-moe-config-ownership--replay-observations/vllm-modular-moe-config-ownershi__aRyL7Dh/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "compatibility-global-warning",
+        "declared_expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "88dacdef-8a61-40d4-a485-d9ecf14e899d",
+        "trial_id": "f35afda8-f13c-4549-9bbf-95af48d93cfb",
+        "task_checksum": "50d395717cc4c086f195d99504729ca2456e0d98c846592d5d6909fb8ee91101",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 1,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": false,
+          "expected_stages": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "stages_passed": [],
+          "failures": [
+            "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 57, in main\n    raise RuntimeError(f\"candidate worker exit {result.returncode}\")\nRuntimeError: candidate worker exit 1\n"
+          ],
+          "worker_exit_code": 1,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/compatibility-global-warning/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/compatibility-global-warning/run-record.json": "104134e4279b0cb09be5bb089f35170c84b4b8fc1b38315424344ddabcac6ea4",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/compatibility-global-warning/harbor-config.json": "2c85b56917c6defb855d9ba89a4172853261467faf6c49500ebd7de4306be5fc",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/compatibility-global-warning/harbor.log": "069a9c26765c011f3156ab169150b298391d843877bb04567f5c16d80bdd8b5b",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/compatibility-global-warning/jobs/vllm-modular-moe-config-ownership--compatibility-global-warning/result.json": "8ea82d96745e9a87077c5ce29cd76afb63cf6f1d88493bc85e1538c8b75e4242",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/compatibility-global-warning/jobs/vllm-modular-moe-config-ownership--compatibility-global-warning/vllm-modular-moe-config-ownershi__i8NhJPA/result.json": "d268da793ca021500a04ca355bdfc4d0a7e586f956101ba517e1da866a4070f2",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/compatibility-global-warning/jobs/vllm-modular-moe-config-ownership--compatibility-global-warning/vllm-modular-moe-config-ownershi__i8NhJPA/verifier/test-stdout.txt": "adfd0810df5a7650033b930edff3fae44adb475737d8385c7355ce66b32517c2",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/compatibility-global-warning/jobs/vllm-modular-moe-config-ownership--compatibility-global-warning/vllm-modular-moe-config-ownershi__i8NhJPA/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/compatibility-global-warning/jobs/vllm-modular-moe-config-ownership--compatibility-global-warning/vllm-modular-moe-config-ownershi__i8NhJPA/verifier/workload.json": "74da631706a57b48e7e1e89e5ac96679274dfbeefbf73658db69a16a2e3b5a98",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/compatibility-global-warning/jobs/vllm-modular-moe-config-ownership--compatibility-global-warning/vllm-modular-moe-config-ownershi__i8NhJPA/verifier/report.json": "66c20e28e86ab4519dda3bb3abd375db81084dd1b324a1b75c399de78511567b",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/compatibility-global-warning/jobs/vllm-modular-moe-config-ownership--compatibility-global-warning/vllm-modular-moe-config-ownershi__i8NhJPA/verifier/reward.json": "c0d75be2f1846a75d2f6b8c99837c8d15ef7f135a2a99361211dd3b381f70b7f"
+        }
+      },
+      {
+        "case": "alternate-workspace-diagnostic",
+        "declared_expected_reward": 1,
+        "actual_reward": 1,
+        "job_id": "e8505030-0483-43e7-8559-c36aa38dfdde",
+        "trial_id": "2e7d4328-e666-40d8-9794-e52302a7a93e",
+        "task_checksum": "49ac9667e530761e815d2e67a75f55b125d4f04ad35663c6d3d5dc89de7cc97b",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": true,
+          "expected_stages": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "stages_passed": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "failures": [],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-workspace-diagnostic/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-workspace-diagnostic/run-record.json": "5f0f4c014fc979de95678901ac97c1fc5ed78bbe3769cb854ef01442c6fec2fa",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-workspace-diagnostic/harbor-config.json": "6b5e4be370e9007ce61ff9d63bb40717d0157f76467b364cbe0d69639cce232f",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-workspace-diagnostic/harbor.log": "7ef52b45194c3b88b9bbaa186d61d5cd8627fe0f9947f166cf833d7b5d7661ec",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-workspace-diagnostic/jobs/vllm-modular-moe-config-ownership--alternate-workspace-diagnostic/result.json": "d7c73a34a4caa5973219d0d74be98a4bcfe695894e80be9e15295001230c1c07",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-workspace-diagnostic/jobs/vllm-modular-moe-config-ownership--alternate-workspace-diagnostic/vllm-modular-moe-config-ownershi__AhkkDbS/result.json": "2c0ad0197fd8f66db0c0003c1709759ee1135e82efacd5e043b47969e941ac28",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-workspace-diagnostic/jobs/vllm-modular-moe-config-ownership--alternate-workspace-diagnostic/vllm-modular-moe-config-ownershi__AhkkDbS/verifier/test-stdout.txt": "64e6f428384418d9c050b7e8ad3209d84eadb73884ed6ae255ebe51fa4e4e4d3",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-workspace-diagnostic/jobs/vllm-modular-moe-config-ownership--alternate-workspace-diagnostic/vllm-modular-moe-config-ownershi__AhkkDbS/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-workspace-diagnostic/jobs/vllm-modular-moe-config-ownership--alternate-workspace-diagnostic/vllm-modular-moe-config-ownershi__AhkkDbS/verifier/workload.json": "5fc95ff7c54aa8e913b69a41a3771a0ea33f62d62eff4241505817e63db1eaea",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-workspace-diagnostic/jobs/vllm-modular-moe-config-ownership--alternate-workspace-diagnostic/vllm-modular-moe-config-ownershi__AhkkDbS/verifier/observations.json": "53b0d671be6d9c6566bd8fad074d964a3c2156dd06596b3ae2ee56d6cb6cab6c",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-workspace-diagnostic/jobs/vllm-modular-moe-config-ownership--alternate-workspace-diagnostic/vllm-modular-moe-config-ownershi__AhkkDbS/verifier/report.json": "f182af95973976925762aa9c657b0bd33bd149684ea05ee336ec15a2bc6460c2",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-workspace-diagnostic/jobs/vllm-modular-moe-config-ownership--alternate-workspace-diagnostic/vllm-modular-moe-config-ownershi__AhkkDbS/verifier/reward.json": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+        }
+      },
+      {
+        "case": "undersized-profile-workspace",
+        "declared_expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "177adf8c-31f9-4156-92c4-1bfaf7a96f47",
+        "trial_id": "00da3feb-7e41-4d77-9e43-99506cdbf87f",
+        "task_checksum": "27d75ef0c7e6ea7d4fa0caf0c25f4e402af8ef97d903de2b10fcd50e181fb8af",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": false,
+          "expected_stages": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "stages_passed": [],
+          "failures": [
+            "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 64, in main\n    passed = check(raw, workload)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/tests/check_behavior.py\", line 56, in check\n    assert raw[field] >= worst_case_bytes, (field, raw[field], worst_case_bytes)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ('dp_workspace_bytes', 120832, 18874368)\n"
+          ],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/undersized-profile-workspace/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/undersized-profile-workspace/run-record.json": "e4517942fe124d4a2cdd2d1128f77b322b8d72f4c8e821565380cd8a3410a874",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/undersized-profile-workspace/harbor-config.json": "e1b77bb2c34d40e3507e1887aa8f857fd532162d03c5908b0f6710a7812f6a63",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/undersized-profile-workspace/harbor.log": "df98eef36da51714a9a8df18ed1a492dff7ba54488c7c7879e0c673db9e535df",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/undersized-profile-workspace/jobs/vllm-modular-moe-config-ownership--undersized-profile-workspace/result.json": "9eb5bfdb370597a2f396244673fbdcc2137a48ff49387d3356b75409ac30c9ac",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/undersized-profile-workspace/jobs/vllm-modular-moe-config-ownership--undersized-profile-workspace/vllm-modular-moe-config-ownershi__uet2Qqr/result.json": "bf05702cce5b6d0a436f3ad7637c15548a49847c387127111696b59a81d1c43c",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/undersized-profile-workspace/jobs/vllm-modular-moe-config-ownership--undersized-profile-workspace/vllm-modular-moe-config-ownershi__uet2Qqr/verifier/test-stdout.txt": "1cf3555431cb718009c471103f65502928ec8cbb3d452bcdb52dbc10a096b414",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/undersized-profile-workspace/jobs/vllm-modular-moe-config-ownership--undersized-profile-workspace/vllm-modular-moe-config-ownershi__uet2Qqr/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/undersized-profile-workspace/jobs/vllm-modular-moe-config-ownership--undersized-profile-workspace/vllm-modular-moe-config-ownershi__uet2Qqr/verifier/workload.json": "a80bf170400cb856ea4c3a47d35d89c129b5b868b2c1b442b4cfa7e1a98434d9",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/undersized-profile-workspace/jobs/vllm-modular-moe-config-ownership--undersized-profile-workspace/vllm-modular-moe-config-ownershi__uet2Qqr/verifier/observations.json": "3e525cff0e6c51d61a9e13d3a8f4ae713e8f3094cf49143c0e18ca4f5ffd7e59",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/undersized-profile-workspace/jobs/vllm-modular-moe-config-ownership--undersized-profile-workspace/vllm-modular-moe-config-ownershi__uet2Qqr/verifier/report.json": "b25b0b67849005077105c74fc7c6f6df2dfed823f2af5aeff3ee56453a0f6b0f",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/undersized-profile-workspace/jobs/vllm-modular-moe-config-ownership--undersized-profile-workspace/vllm-modular-moe-config-ownershi__uet2Qqr/verifier/reward.json": "debc86bd923cd74f33cbe0a2872ab8c66d1973f83c6deeac3eb15db0249fef6d"
+        }
+      },
+      {
+        "case": "alternate-layer-config-view",
+        "declared_expected_reward": 1,
+        "actual_reward": 1,
+        "job_id": "045a21df-e579-4206-81ec-344c2a87e927",
+        "trial_id": "f76de9a9-f981-4c7d-a36b-032540574ef6",
+        "task_checksum": "fbf628de3cc8d4a1e1e1c74387422bbbe83012742f6f9dbb23aaf747a0a6b723",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": true,
+          "expected_stages": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "stages_passed": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "failures": [],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-layer-config-view/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-layer-config-view/run-record.json": "77d527ce86c862551a9b352981ba11993ade1414adb2ab38174b6f5a4c903cc2",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-layer-config-view/harbor-config.json": "51ef4f57529d56a0ee74fb4ab0eb8bb0315dd2cc03e95b266440f3c031161da1",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-layer-config-view/harbor.log": "215419954bd52097bcf67983d2a59aa8e53c6154a00741b7efe4135ba7b59313",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-layer-config-view/jobs/vllm-modular-moe-config-ownership--alternate-layer-config-view/result.json": "8fab7b6c7ec498e3f07f3060ed9d2620638d511c972a46aca04dde7bf7e6f8d6",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-layer-config-view/jobs/vllm-modular-moe-config-ownership--alternate-layer-config-view/vllm-modular-moe-config-ownershi__8qYM7fW/result.json": "97cbb8bf5b57cbc67184fb3b334dbcdccccfd183be17fff088d7bce0f69baa1e",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-layer-config-view/jobs/vllm-modular-moe-config-ownership--alternate-layer-config-view/vllm-modular-moe-config-ownershi__8qYM7fW/verifier/test-stdout.txt": "0266fc489fd8ed12600793cbce1fd8a623ab01a49504060cfcadf9cb7fd1ef9d",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-layer-config-view/jobs/vllm-modular-moe-config-ownership--alternate-layer-config-view/vllm-modular-moe-config-ownershi__8qYM7fW/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-layer-config-view/jobs/vllm-modular-moe-config-ownership--alternate-layer-config-view/vllm-modular-moe-config-ownershi__8qYM7fW/verifier/workload.json": "5cf50935dd8675530b870ea2768fda4203a6d095301bcdf8e03fe4a5ae969a53",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-layer-config-view/jobs/vllm-modular-moe-config-ownership--alternate-layer-config-view/vllm-modular-moe-config-ownershi__8qYM7fW/verifier/observations.json": "6511e1176df6e3211d14df7abbf2fa901bc7df185a67c611f920e288860ee12d",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-layer-config-view/jobs/vllm-modular-moe-config-ownership--alternate-layer-config-view/vllm-modular-moe-config-ownershi__8qYM7fW/verifier/report.json": "f182af95973976925762aa9c657b0bd33bd149684ea05ee336ec15a2bc6460c2",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-layer-config-view/jobs/vllm-modular-moe-config-ownership--alternate-layer-config-view/vllm-modular-moe-config-ownershi__8qYM7fW/verifier/reward.json": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+        }
+      },
+      {
+        "case": "missing-flashinfer-owner",
+        "declared_expected_reward": 0,
+        "actual_reward": 0,
+        "job_id": "8b22e2aa-c9e7-443d-a4d2-f4e0bcd29b80",
+        "trial_id": "d52355ed-a756-49ba-8d53-847001a8de9b",
+        "task_checksum": "c05d71524c3f557bbfd31c86a162b06e1850379a6c5908f934b33bb095bc814b",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 1,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": false,
+          "expected_stages": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "stages_passed": [],
+          "failures": [
+            "Traceback (most recent call last):\n  File \"/tests/trusted_score.py\", line 57, in main\n    raise RuntimeError(f\"candidate worker exit {result.returncode}\")\nRuntimeError: candidate worker exit 1\n"
+          ],
+          "worker_exit_code": 1,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/missing-flashinfer-owner/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/missing-flashinfer-owner/run-record.json": "3ea7509973fe2f93b63e33ead351602dd5fd69badf95c30b59f6b6e6a4238c70",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/missing-flashinfer-owner/harbor-config.json": "1c37d8f837f352f0ecb52bb855e238dc8d18875f6a057a80d4161bd4a49064da",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/missing-flashinfer-owner/harbor.log": "d15840e3a749affe6eeb7e451098dfcc361d9ced38cdce7cd63182a74135b260",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/missing-flashinfer-owner/jobs/vllm-modular-moe-config-ownership--missing-flashinfer-owner/result.json": "a305d4530bffaf6c83ba22d2c24f0d6bff2148563467deccb2e0a1c71fa1fc4d",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/missing-flashinfer-owner/jobs/vllm-modular-moe-config-ownership--missing-flashinfer-owner/vllm-modular-moe-config-ownershi__DKdJe2A/result.json": "73d785c13bc23374bfe5a5e0343221339f5ce246900ff52c780d93010d927785",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/missing-flashinfer-owner/jobs/vllm-modular-moe-config-ownership--missing-flashinfer-owner/vllm-modular-moe-config-ownershi__DKdJe2A/verifier/test-stdout.txt": "cead4ed5fb87e0cecb6ac961f2ef0269fa3942b59e9aa974fc6ddd76df3d1e11",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/missing-flashinfer-owner/jobs/vllm-modular-moe-config-ownership--missing-flashinfer-owner/vllm-modular-moe-config-ownershi__DKdJe2A/verifier/reward.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/missing-flashinfer-owner/jobs/vllm-modular-moe-config-ownership--missing-flashinfer-owner/vllm-modular-moe-config-ownershi__DKdJe2A/verifier/workload.json": "bafe686914c3351add0218fa4fd52b83f1f86fc86bcd8b69db5b7950ee7c43d2",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/missing-flashinfer-owner/jobs/vllm-modular-moe-config-ownership--missing-flashinfer-owner/vllm-modular-moe-config-ownershi__DKdJe2A/verifier/report.json": "66c20e28e86ab4519dda3bb3abd375db81084dd1b324a1b75c399de78511567b",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/missing-flashinfer-owner/jobs/vllm-modular-moe-config-ownership--missing-flashinfer-owner/vllm-modular-moe-config-ownershi__DKdJe2A/verifier/reward.json": "c0d75be2f1846a75d2f6b8c99837c8d15ef7f135a2a99361211dd3b381f70b7f"
+        }
+      },
+      {
+        "case": "alternate-full-config-owner",
+        "declared_expected_reward": 1,
+        "actual_reward": 1,
+        "job_id": "370e8467-9e4e-410d-943d-ed1bdfc0984c",
+        "trial_id": "f6b85d27-200a-410e-9a97-8adbcdb8d47f",
+        "task_checksum": "b196a341f8e717f0f36f3647a2d85b2e12661b5c0ac786d12dc8c5c5ad8afd39",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": true,
+          "expected_stages": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "stages_passed": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "failures": [],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-full-config-owner/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-full-config-owner/run-record.json": "032a5e67da4ebdc16b3f0c4b8e345fb10dea0cd1b3c738ba66d09b9ed2786643",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-full-config-owner/harbor-config.json": "b050b0062e6fbb02b4a494224f9303d7eb283d8fcaba0e614ce9cc0d6ca7e623",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-full-config-owner/harbor.log": "f6458b310f456f971b9b31a59edd237ea71ce2a2533e756bff9c98338a4b6dcd",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-full-config-owner/jobs/vllm-modular-moe-config-ownership--alternate-full-config-owner/result.json": "627801a27f26743c42b289a85783d0a5bce6370b32d064baeb1992c567d7ff26",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-full-config-owner/jobs/vllm-modular-moe-config-ownership--alternate-full-config-owner/vllm-modular-moe-config-ownershi__mxpjCmq/result.json": "29054b64ad1ee0b9176160633306b337ca86ae1b03aee7a2c144b4251bacc07e",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-full-config-owner/jobs/vllm-modular-moe-config-ownership--alternate-full-config-owner/vllm-modular-moe-config-ownershi__mxpjCmq/verifier/test-stdout.txt": "ecf26c0442f5816bd5180c04f84120fd42d0c7c467623a5bc449d53bfcc6f59f",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-full-config-owner/jobs/vllm-modular-moe-config-ownership--alternate-full-config-owner/vllm-modular-moe-config-ownershi__mxpjCmq/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-full-config-owner/jobs/vllm-modular-moe-config-ownership--alternate-full-config-owner/vllm-modular-moe-config-ownershi__mxpjCmq/verifier/workload.json": "52da90f907a030a0ded3191eed06dc2c0bcacb909a444f3b21eda246f70227ae",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-full-config-owner/jobs/vllm-modular-moe-config-ownership--alternate-full-config-owner/vllm-modular-moe-config-ownershi__mxpjCmq/verifier/observations.json": "22b391a545300d4bf283bae2ed18781cbe099d6797c5d7d3b235bb4c45586c70",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-full-config-owner/jobs/vllm-modular-moe-config-ownership--alternate-full-config-owner/vllm-modular-moe-config-ownershi__mxpjCmq/verifier/report.json": "f182af95973976925762aa9c657b0bd33bd149684ea05ee336ec15a2bc6460c2",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/alternate-full-config-owner/jobs/vllm-modular-moe-config-ownership--alternate-full-config-owner/vllm-modular-moe-config-ownershi__mxpjCmq/verifier/reward.json": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+        }
+      },
+      {
+        "case": "oracle",
+        "declared_expected_reward": 1,
+        "actual_reward": 1,
+        "job_id": "c361bd18-6a18-4a1d-9294-b4822cb7d2f8",
+        "trial_id": "99210f2c-ff8d-4832-939c-da6c70b58c3e",
+        "task_checksum": "cfda8cfcf89e973064c23dd4c553d5f2fe10475281cd698aeaf03e4dd676269d",
+        "harbor_errors": 0,
+        "exception_info": null,
+        "image_id": "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "gpu_uuids": [
+          "GPU-3815a178-ad22-4b81-5669-0533760a7e6b"
+        ],
+        "worker_exit_code": 0,
+        "behavior_report": {
+          "schema_version": "trusted_behavior_report.v1",
+          "completed": true,
+          "expected_stages": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "stages_passed": [
+            "compatibility_no_warning",
+            "active_owner_workspace_provenance",
+            "numerical_path_unchanged",
+            "flashinfer_consumer_follows_owner",
+            "lora_factory_follows_owner",
+            "functional_no_global_dependency"
+          ],
+          "failures": [],
+          "worker_exit_code": 0,
+          "worker_uid": 1000,
+          "scorer_uid": 0
+        },
+        "boundary_markers": {
+          "EARLY_OS_EXIT_REACHED": false,
+          "EARLY_SYSTEM_EXIT_REACHED": false,
+          "FORGED_REPORT_CONTROL_REACHED": false,
+          "REPORT_WRITE_DENIED": false,
+          "REPLAY_OBSERVATIONS_CONTROL_REACHED_NO_TARGET_CHECKS": false
+        },
+        "command": [
+          "harbor",
+          "run",
+          "--config",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/harbor-config.json",
+          "-y"
+        ],
+        "raw_artifacts": {
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/run-record.json": "b02d8bcc6103c4eb85fa12f7b2b03c3eef0d8b4cbd60a3e5e0d9defa443ae5a4",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/harbor-config.json": "a65a0e58fd159f7514f128e8825b3ac6691ca2cf6075089175614e9173511326",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/harbor.log": "821e1a5f24e9f032908ae25b68f675298d9617bceac54db615a4cdb44c284b8f",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/jobs/vllm-modular-moe-config-ownership--oracle/result.json": "c3d570db4b7b13baf387e1a8160b131aee6aec4a60fd55a68ed31e36068ee9ac",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RL4GzLi/result.json": "7a3631cadb59e80c819da5bd8ea913026b5260f0995959d8c16f77172476568b",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RL4GzLi/verifier/test-stdout.txt": "0884d8f96f83a8aa755984320db01c93779dda1b4af848e3f9a2c36169dc6344",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RL4GzLi/verifier/reward.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RL4GzLi/verifier/workload.json": "971e7724f9b62cf12f14af912bd0e37fe851048d0d7fa526476ecd577c313a6b",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RL4GzLi/verifier/observations.json": "7232c68df80b90c086cc446f6ad547e0a08c59a37659b4fd9f08c88c7f77f061",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RL4GzLi/verifier/report.json": "f182af95973976925762aa9c657b0bd33bd149684ea05ee336ec15a2bc6460c2",
+          "/data/yinchen/streaming-modular-task-review-20260912T051251Z/runs/modular/oracle/jobs/vllm-modular-moe-config-ownership--oracle/vllm-modular-moe-config-ownershi__RL4GzLi/verifier/reward.json": "7bd9b7c6168cac8df551a9026383eb5f403a8d553e618b8df6c2f553fe8625b6"
+        }
+      }
+    ],
+    "fresh_run_count": 15,
+    "declared_expectations_matched": true,
+    "warning": "Matching the declared matrix is not full contract qualification; see open findings."
+  },
+  "independent_challenges": [
+    {
+      "task": "modular",
+      "case": "base",
+      "expected_pass": false,
+      "passed": false,
+      "exit_code": 1,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/challenge:ro",
+        "--gpus",
+        "device=GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "python3 /challenge/modular.py\n"
+      ],
+      "log": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/modular-base.log",
+      "sha256": "7d00a37da7ac22a7de5975e7618a9fe1fd19714ec7f4baff2fde42bae8452298",
+      "scope": "direct container independent challenge; not Harbor"
+    },
+    {
+      "task": "modular",
+      "case": "oracle",
+      "expected_pass": true,
+      "passed": true,
+      "exit_code": 0,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/challenge:ro",
+        "--gpus",
+        "device=GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/solution/oracle.patch\npython3 /challenge/modular.py\n"
+      ],
+      "log": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/modular-oracle.log",
+      "sha256": "2c690d56c2015d30d0f309a410a63ab82ab2be8bdaeeb8ac65b6f45ad56176dd",
+      "scope": "direct container independent challenge; not Harbor"
+    },
+    {
+      "task": "modular",
+      "case": "alternate-consumer-boundary-ownership",
+      "expected_pass": true,
+      "passed": true,
+      "exit_code": 0,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--workdir",
+        "/workspace/repo",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/challenge:ro",
+        "--gpus",
+        "device=GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/alternate-consumer-boundary-ownership.patch\npython3 /challenge/modular.py\n"
+      ],
+      "log": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/modular-alternate-consumer-boundary-ownership.log",
+      "sha256": "bd20129dd6607b7f525555220222988dfcd60c94dccac7318734335fc9ebc358",
+      "scope": "direct container independent challenge; not Harbor"
+    }
+  ],
+  "new_component_probes": [
+    {
+      "case": "oracle",
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--workdir",
+        "/workspace/repo",
+        "--gpus",
+        "device=GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/solution/oracle.patch\npython3 /challenge/flashinfer_prepare.py\n"
+      ],
+      "exit_code": 1,
+      "log": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/prepare-oracle.log",
+      "log_sha256": "5b6656522bdfb8af2f8d4ea2f0f823751bca60f1b89799faa2bec129cb9af8f1"
+    },
+    {
+      "case": "alternative-layer-view",
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--workdir",
+        "/workspace/repo",
+        "--gpus",
+        "device=GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/alternate-layer-config-view.patch\npython3 /challenge/flashinfer_prepare.py\n"
+      ],
+      "exit_code": 0,
+      "log": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/prepare-alternative-layer-view.log",
+      "log_sha256": "5add5edeb92a5194559f100d0b22a5bbb1da9f2fdd8fe0d437c9337217a78956"
+    },
+    {
+      "case": "astra",
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--workdir",
+        "/workspace/repo",
+        "--gpus",
+        "device=GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /challenge/astra-modular.patch\npython3 /challenge/flashinfer_prepare.py\n"
+      ],
+      "exit_code": 128,
+      "log": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/prepare-astra.log",
+      "log_sha256": "053d276d31ed7b31d271e6cb8ded33ee819c0082e203ea8f7b27a675d6b160df"
+    },
+    {
+      "case": "astra-readable-copy",
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--workdir",
+        "/workspace/repo",
+        "--gpus",
+        "device=GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /challenge/astra-modular.patch\npython3 /challenge/flashinfer_prepare.py\n"
+      ],
+      "exit_code": 0,
+      "log": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/prepare-astra-readable-copy.log",
+      "log_sha256": "5add5edeb92a5194559f100d0b22a5bbb1da9f2fdd8fe0d437c9337217a78956"
+    },
+    {
+      "case": "alternative-consumer",
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--workdir",
+        "/workspace/repo",
+        "--gpus",
+        "device=GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/alternate-consumer-boundary-ownership.patch\npython3 /challenge/flashinfer_prepare.py\n"
+      ],
+      "exit_code": 1,
+      "log": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/prepare-alternative-consumer.log",
+      "log_sha256": "b2ca071e650b1e8b590122d27fbc935082bdf14fad0ce436162734a2fd6988fe"
+    },
+    {
+      "case": "oracle",
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--workdir",
+        "/workspace/repo",
+        "--gpus",
+        "device=GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/solution/oracle.patch\npython3 /challenge/flashinfer_prepare_valid_geometry.py\n"
+      ],
+      "exit_code": 1,
+      "log": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/prepare-valid-oracle.log",
+      "log_sha256": "0ce20d322c866273b6668d6c51549c0ea6c200a623f18df49ec2f8e0dbe38821"
+    },
+    {
+      "case": "alternative-consumer",
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--workdir",
+        "/workspace/repo",
+        "--gpus",
+        "device=GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/alternate-consumer-boundary-ownership.patch\npython3 /challenge/flashinfer_prepare_valid_geometry.py\n"
+      ],
+      "exit_code": 1,
+      "log": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/prepare-valid-alternative-consumer.log",
+      "log_sha256": "0ce20d322c866273b6668d6c51549c0ea6c200a623f18df49ec2f8e0dbe38821"
+    },
+    {
+      "case": "alternative-layer-view",
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--workdir",
+        "/workspace/repo",
+        "--gpus",
+        "device=GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/alternate-layer-config-view.patch\npython3 /challenge/flashinfer_prepare_valid_geometry.py\n"
+      ],
+      "exit_code": 0,
+      "log": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/prepare-valid-alternative-layer-view.log",
+      "log_sha256": "5add5edeb92a5194559f100d0b22a5bbb1da9f2fdd8fe0d437c9337217a78956"
+    },
+    {
+      "case": "astra",
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--workdir",
+        "/workspace/repo",
+        "--gpus",
+        "device=GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /challenge/astra-modular.patch\npython3 /challenge/flashinfer_prepare_valid_geometry.py\n"
+      ],
+      "exit_code": 0,
+      "log": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/prepare-valid-astra.log",
+      "log_sha256": "5add5edeb92a5194559f100d0b22a5bbb1da9f2fdd8fe0d437c9337217a78956"
+    },
+    {
+      "case": "alternative-workspace",
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--workdir",
+        "/workspace/repo",
+        "--gpus",
+        "device=GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/alternate-workspace-diagnostic.patch\npython3 /challenge/flashinfer_prepare_valid_geometry.py\n"
+      ],
+      "exit_code": 1,
+      "log": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/prepare-valid-alternative-workspace.log",
+      "log_sha256": "0ce20d322c866273b6668d6c51549c0ea6c200a623f18df49ec2f8e0dbe38821"
+    },
+    {
+      "case": "alternative-full-config",
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        "agent",
+        "--workdir",
+        "/workspace/repo",
+        "--gpus",
+        "device=GPU-9a15bd7a-66f2-027a-13bd-8ffa6f96f710",
+        "--entrypoint",
+        "bash",
+        "-v",
+        "/data/yinchen/pr8-pipeline-modular-publish-20260909T090659Z/modular/tasks/vllm-modular-moe-config-ownership:/task:ro",
+        "-v",
+        "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges:/challenge:ro",
+        "sha256:9518dc795c5704544809a151be898b7150391a1613bcfc8fefd42a16564e1378",
+        "-euc",
+        "git apply /task/validation/alternate-full-config-owner.patch\npython3 /challenge/flashinfer_prepare_valid_geometry.py\n"
+      ],
+      "exit_code": 1,
+      "log": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/challenges/prepare-valid-alternative-full-config.log",
+      "log_sha256": "0ce20d322c866273b6668d6c51549c0ea6c200a623f18df49ec2f8e0dbe38821"
+    }
+  ],
+  "probe_infrastructure_note": "The first Astra component probe could not read the review copy of its patch (mode 0600), before candidate execution. Only that copied patch mode changed to 0644; bytes were unchanged and the new run passed. This failed setup is excluded from behavioral comparisons.",
+  "astra_rollout": {
+    "source_report": "/data/yinchen/astra-streaming-modular-20260911T154735Z/review/RESULT.md",
+    "fresh_integrity_check": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/astra-evidence-check.json",
+    "new_model_run": false,
+    "original_instruction_sha256": "93a27097815f4414d9bf7e7d8550570a16165686c21fddc4e57c1e67702f44da",
+    "current_instruction_sha256": "414ac8c35f0614b51608148035b90011f5e392daab55a79bb78fcb26ae2468ed",
+    "grading_implementation_unchanged": true,
+    "new_prepare_probe_passed": true
+  },
+  "environment_audit": {
+    "fresh_logs": "/data/yinchen/streaming-modular-task-review-20260912T051251Z/environment/modular",
+    "image_rebuilt": false,
+    "reason": "Environment inputs are unchanged."
+  },
+  "artifacts": {
+    "files": {
+      ".dockerignore": "fe57c1ef2dcfcb5ceaa20f0582985984061600f14d404fd7f1ef5de91a710cc8",
+      "task.toml": "819c2c6ed47a6edfef47dded058a42eeff149ccbf701cb695b66c2bfc6b33567",
+      "environment/Dockerfile": "149fd9f3e5a4c048e3e9d556aa1edc50f877300a3d28221957b689a18a603fdf",
+      "environment/image-manifest.json": "064d5827e431895424612b645a411694bdc32e5c8ad48a51c24d7a5d21fb275a",
+      "environment/lock/native-v0.13.0.sha256": "002e775b78e8a05921352660246bf82633e5a89e1c88ac0168e045a8759340f0",
+      "environment/lock/requirements.txt": "ec8da2ba7874ab76016998f20ba4a9e20280af7c0e8937e7e049f150a863727e",
+      "environment/lock/manifest.json": "a437238733ed24d3121a1b45f13516a667666e84dfe3c7cb89372e0b0648920c",
+      "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+      "solution/oracle.patch": "79dad8bb3dd45055c10890263d1cfbdc47161d64c191c119bd20fb8ce5340662",
+      "tests/test.sh": "f0bdedfc67f3e3e217364dfb98258e39570725578ae3b9a1456a591316387433",
+      "tests/verify_parallel_config.py": "59d774ed6b5b4b107b0c84b1d7fb9e20761d54b3d449a033ed65996636d223a2",
+      "tests/trusted_score.py": "9b97c3756a9347af2e491633ed885ebf18d683b76dfd864617f0b5fde7b7af06",
+      "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+      "tests/check_behavior.py": "816b45fc09a867388054eea089933b3568079d9f694391bf5ebe6414544fa8f2",
+      "tests/workload.py": "aaa7655e3c1b5026fe957f52368a5bd93640b3f81119b9c81acf4a5a6c47479e",
+      "validation/ci-cases.json": "cdabbbbf09cd98de8bf3dd2e59081d3fb0bcbd2f41b19f19095fc2fe90cb4839",
+      "validation/wrong-legacy-owner.patch": "02b96f88f9d9e73030d08c6773da5c50a8d5e75df8ea45fb9f8dfca689ec84bb",
+      "validation/early-exit-os-exit.patch": "c34a59bcee96cc2e599e1dbfda9a2e849e507191a1c5ab748d52078427e69033",
+      "validation/early-exit-system-exit.patch": "a953b6d100d29bc5a85b4794337a9291ce829c2ba75d3e1cc57804a89f7d7100",
+      "validation/alternate-consumer-boundary-ownership.patch": "e8879a3ccc7b3dc8d6038f8b56e6687056298c753e7786d2e4c725315fdecf28",
+      "validation/forged-report-exit.patch": "5d9e304321097bcb6ed7dc89d74fdb462a2c45b59b62b4668fc212a28750a529",
+      "validation/constant-numerical-output.patch": "cd791421d519ee3987e6678a614edd6bc2a41e40b0c3ae80f923d62629e08e10",
+      "validation/replay-observations.patch": "e493a512287104a1bda591ebe42fa1ca92d37306168d3decec4d284a04b0278c",
+      "validation/compatibility-global-warning.patch": "ad919eea0f892b89df457b9aee4bcce7435ee69728c8e2be4558d42a8addf013",
+      "validation/alternate-workspace-diagnostic.patch": "0b929554847b8a5c6a3ced6c1c6b4c5bbefb8ab9a742f396e24e38b72174c144",
+      "validation/undersized-profile-workspace.patch": "2dcadf10ba9d718529ca86ee9d7a43209a9533a5b883f7a449aeb9adeb14f16f",
+      "validation/alternate-layer-config-view.patch": "1312bcd6471951bb829afea984249e7c1cdd218fad3ab5ea8ad183f3945f41bd",
+      "validation/missing-flashinfer-owner.patch": "dc40452518006c9d83a26c44b3010ca0fa4d66cbc7f025b47f5f409fd57eea96",
+      "validation/alternate-full-config-owner.patch": "4c87fba17d3c020608c769f67988c5c4e8cd466bb109e51b734ee7f983e06e5e",
+      "validation/challenge/challenge_config_ownership.py": "2a69ad7b659958e3537741cf77d38bf11d02cc7342ad285347c59a9ff35f6038",
+      "validation/evidence/native-source-equivalence.json": "f24acccfba2e96e3eb1e11b792ab8d8386b069d6cde8c459783afd2b108f81b6",
+      "validation/evidence/jit-compilation.json": "673a37a4b700a9d0cdbccd2350bc6aac6534cf2d9b77a862a4105a667b72f67a",
+      "validation/evidence/environment-review.json": "66fc8350be87ee51e9be2febd0ef5dbb25589e92fb75edcd4841e1940dc2fe3b",
+      "validation/evidence/fairness-environment-modular-20260909.tar.gz": "7d1cf452a80fac8427469532e37bd9b95bdd19680551212ebb60b360ed32dd21",
+      "instruction.md": "414ac8c35f0614b51608148035b90011f5e392daab55a79bb78fcb26ae2468ed"
+    }
+  },
+  "freeze": {
+    "files": {
+      ".dockerignore": "fe57c1ef2dcfcb5ceaa20f0582985984061600f14d404fd7f1ef5de91a710cc8",
+      "task.toml": "819c2c6ed47a6edfef47dded058a42eeff149ccbf701cb695b66c2bfc6b33567",
+      "environment/Dockerfile": "149fd9f3e5a4c048e3e9d556aa1edc50f877300a3d28221957b689a18a603fdf",
+      "environment/image-manifest.json": "064d5827e431895424612b645a411694bdc32e5c8ad48a51c24d7a5d21fb275a",
+      "environment/lock/native-v0.13.0.sha256": "002e775b78e8a05921352660246bf82633e5a89e1c88ac0168e045a8759340f0",
+      "environment/lock/requirements.txt": "ec8da2ba7874ab76016998f20ba4a9e20280af7c0e8937e7e049f150a863727e",
+      "environment/lock/manifest.json": "a437238733ed24d3121a1b45f13516a667666e84dfe3c7cb89372e0b0648920c",
+      "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+      "solution/oracle.patch": "79dad8bb3dd45055c10890263d1cfbdc47161d64c191c119bd20fb8ce5340662",
+      "tests/test.sh": "f0bdedfc67f3e3e217364dfb98258e39570725578ae3b9a1456a591316387433",
+      "tests/verify_parallel_config.py": "59d774ed6b5b4b107b0c84b1d7fb9e20761d54b3d449a033ed65996636d223a2",
+      "tests/trusted_score.py": "9b97c3756a9347af2e491633ed885ebf18d683b76dfd864617f0b5fde7b7af06",
+      "tests/docker-compose.yaml": "0d09303b1c19f8c49715144dd45709027cc46a6ad42be95907fb59724342d30f",
+      "tests/check_behavior.py": "816b45fc09a867388054eea089933b3568079d9f694391bf5ebe6414544fa8f2",
+      "tests/workload.py": "aaa7655e3c1b5026fe957f52368a5bd93640b3f81119b9c81acf4a5a6c47479e",
+      "validation/ci-cases.json": "cdabbbbf09cd98de8bf3dd2e59081d3fb0bcbd2f41b19f19095fc2fe90cb4839",
+      "validation/wrong-legacy-owner.patch": "02b96f88f9d9e73030d08c6773da5c50a8d5e75df8ea45fb9f8dfca689ec84bb",
+      "validation/early-exit-os-exit.patch": "c34a59bcee96cc2e599e1dbfda9a2e849e507191a1c5ab748d52078427e69033",
+      "validation/early-exit-system-exit.patch": "a953b6d100d29bc5a85b4794337a9291ce829c2ba75d3e1cc57804a89f7d7100",
+      "validation/alternate-consumer-boundary-ownership.patch": "e8879a3ccc7b3dc8d6038f8b56e6687056298c753e7786d2e4c725315fdecf28",
+      "validation/forged-report-exit.patch": "5d9e304321097bcb6ed7dc89d74fdb462a2c45b59b62b4668fc212a28750a529",
+      "validation/constant-numerical-output.patch": "cd791421d519ee3987e6678a614edd6bc2a41e40b0c3ae80f923d62629e08e10",
+      "validation/replay-observations.patch": "e493a512287104a1bda591ebe42fa1ca92d37306168d3decec4d284a04b0278c",
+      "validation/compatibility-global-warning.patch": "ad919eea0f892b89df457b9aee4bcce7435ee69728c8e2be4558d42a8addf013",
+      "validation/alternate-workspace-diagnostic.patch": "0b929554847b8a5c6a3ced6c1c6b4c5bbefb8ab9a742f396e24e38b72174c144",
+      "validation/undersized-profile-workspace.patch": "2dcadf10ba9d718529ca86ee9d7a43209a9533a5b883f7a449aeb9adeb14f16f",
+      "validation/alternate-layer-config-view.patch": "1312bcd6471951bb829afea984249e7c1cdd218fad3ab5ea8ad183f3945f41bd",
+      "validation/missing-flashinfer-owner.patch": "dc40452518006c9d83a26c44b3010ca0fa4d66cbc7f025b47f5f409fd57eea96",
+      "validation/alternate-full-config-owner.patch": "4c87fba17d3c020608c769f67988c5c4e8cd466bb109e51b734ee7f983e06e5e",
+      "validation/challenge/challenge_config_ownership.py": "2a69ad7b659958e3537741cf77d38bf11d02cc7342ad285347c59a9ff35f6038",
+      "validation/evidence/native-source-equivalence.json": "f24acccfba2e96e3eb1e11b792ab8d8386b069d6cde8c459783afd2b108f81b6",
+      "validation/evidence/jit-compilation.json": "673a37a4b700a9d0cdbccd2350bc6aac6534cf2d9b77a862a4105a667b72f67a",
+      "validation/evidence/environment-review.json": "66fc8350be87ee51e9be2febd0ef5dbb25589e92fb75edcd4841e1940dc2fe3b",
+      "validation/evidence/fairness-environment-modular-20260909.tar.gz": "7d1cf452a80fac8427469532e37bd9b95bdd19680551212ebb60b360ed32dd21",
+      "instruction.md": "414ac8c35f0614b51608148035b90011f5e392daab55a79bb78fcb26ae2468ed"
+    },
+    "frozen_before_all_listed_Harbor_runs": true
+  },
+  "provenance_gates": {
+    "new_instruction_used_in_all_listed_Harbor_runs": true,
+    "no_harbor_errors": true,
+    "final_oracle_reward_one": true,
+    "contract_review_passed": false
+  },
+  "historical_evidence": {
+    "path": "validation/history/before-prose-review-20260912.json",
+    "sha256": "37b8a847adb4edad73c8e94d0d98af4745881c8390db1c17aa96fa257e722364",
+    "note": "Preserved unchanged; not relabeled as execution of the revised instruction."
+  },
+  "checksum_note": "Harbor checksum identifies each prepared snapshot. Current evidence/report writes are later documentation changes. The rewritten instruction was frozen before every listed run."
+}

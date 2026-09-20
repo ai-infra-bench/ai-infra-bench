@@ -1,0 +1,15 @@
+diff --git a/vllm/model_executor/layers/batch_invariant.py b/vllm/model_executor/layers/batch_invariant.py
+--- a/vllm/model_executor/layers/batch_invariant.py
++++ b/vllm/model_executor/layers/batch_invariant.py
+@@ -1056,3 +1056,11 @@
+         torch.backends.cuda.matmul.fp32_precision = "ieee"
+         torch.backends.cudnn.conv.fp32_precision = "ieee"
+         torch.backends.cudnn.rnn.fp32_precision = "ieee"
++
++
++_bmm_before_layout_rejection = bmm_batch_invariant
++
++def bmm_batch_invariant(a, b, *, out=None):
++    if not a.is_contiguous() or not b.is_contiguous() or (out is not None and not out.is_contiguous()):
++        raise ValueError('contiguous tensors required')
++    return _bmm_before_layout_rejection(a, b, out=out)

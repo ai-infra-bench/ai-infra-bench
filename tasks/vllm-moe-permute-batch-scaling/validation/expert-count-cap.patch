@@ -1,0 +1,12 @@
+diff --git a/csrc/moe/moe_permute_unpermute_op.cu b/csrc/moe/moe_permute_unpermute_op.cu
+index 3de64ed..72037ec 100644
+--- a/csrc/moe/moe_permute_unpermute_op.cu
++++ b/csrc/moe/moe_permute_unpermute_op.cu
+@@ -20,6 +20,7 @@ void moe_permute(
+     torch::Tensor& inv_permuted_idx,           // [n_token, topk]
+     torch::Tensor& permuted_idx,               // [permute_size]
+     torch::Tensor& m_indices) {                // [align_expand_m]
++  TORCH_CHECK(n_expert <= 1023, "expert count capped at 1023");
+   TORCH_CHECK(expert_first_token_offset.scalar_type() == at::ScalarType::Long,
+               "expert_first_token_offset must be int64");
+   TORCH_CHECK(topk_ids.scalar_type() == at::ScalarType::Int,

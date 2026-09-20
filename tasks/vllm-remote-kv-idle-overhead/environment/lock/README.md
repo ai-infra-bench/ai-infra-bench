@@ -1,0 +1,61 @@
+# Environment sources and lock rationale
+
+The candidate source is the exact parent commit of vLLM PR 35781:
+`d88f28da05b12bc7d63ebe3dcedf445ecb274343`. Its public codeload archive is
+locked by SHA-256 and size. The runtime repository retains the exact base and
+only its reachable upstream ancestors, without remotes, tags, reflogs, or
+unreachable future objects. Its tree must match
+`037cc4e534167733500093aa225de6ab64a1028e`.
+
+The closest official runtime is the vLLM v0.17.1 x86_64 CPU image, pinned to
+platform manifest
+`sha256:d19978a2d4bb2289c740a6c89d4cc15fbcf4d20d916f1e268168b8bbad3b776b`.
+It supplies Python 3.12.13, PyTorch 2.10.0+cpu and vLLM's CPU native extension.
+Candidate Python source comes only from the locked base revision. Compiled
+extensions and generated `_version.py` are copied to exact paths under
+`/app/vllm`; other wheel Python source is not overlaid. Build and runtime smoke
+checks prove that both `vllm.__file__` and `vllm._C` resolve under `/app`.
+
+The PR changes Python scheduler behavior, so reusing the nearest official CPU
+extension is a deliberate simplification. It remains an ABI risk and must not
+be generalized to tasks that change native code. Those tasks require an exact
+source rebuild with native input locks.
+
+The official v0.17.1 CPU image's `_C_AVX2` shared object does not expose a
+Python `PyInit__C_AVX2` entry point when imported directly. The unmodified
+official image exhibits the same behavior; vLLM's CPU platform catches it and
+continues. Scheduler baseline validation does not exercise AVX2 inference, so
+this environment is not evidence of full CPU model-execution compatibility.
+
+Runtime is offline and must be launched with `--network none`. The baseline is
+CPU deterministic: it counts production scheduler remote-KV callbacks and
+waiting-queue occupancy during idle rounds. Additional checks exercise the
+real scheduler's client-visible token/output lifecycle; this is not a full
+model-serving inference or GPU benchmark.
+
+## Offline testing and donor isolation (task 1.2.1)
+
+`requirements.txt` pins pytest and tblib. The `hf-cache` directory contains
+only config/tokenizer metadata for the normal upstream scheduler tests'
+default `facebook/opt-125m` model, pinned to revision
+`27dcfa74d334bc871f3234de431e71c6eeba5dd6`; no weights or task-specific
+reproduction script are provided. File hashes are recorded in `manifest.json`.
+
+The donor's Python source, wheel cache, and `/vllm-workspace` are removed after
+native files are copied. The installed package path is a symlink to `/app/vllm`.
+A final scratch stage exports only the cleaned filesystem, without historical
+donor layers. Earlier images retained a second donor source tree; old results
+must not be presented as validation of this new isolation.
+
+## Additional ordinary test metadata (task 1.3.0)
+
+`llava-hf/llava-1.5-7b-hf` is pinned to revision
+`b234b804b114d9e37bb655e11cbbb5f5e971b7a9`, dated 2025-06-06, before
+the task cutoff. The eleven public config, tokenizer, and template files total
+4,124,291 bytes; `refs/main` resolves that exact revision. There are no weights,
+solutions, or reproducer scripts. `manifest.json` records each file hash.
+The cache fixes a demonstrated offline ModelConfig failure in ordinary upstream
+multimodal scheduler tests. A diagnostic on clean Base with this cache produced
+91 passed / 1 skipped in `tests/v1/core/test_scheduler.py`. Separate streaming
+upstream fixtures have eight pre-existing MagicMock failures on Base; optional
+connector dependencies and other model caches are not claimed complete.

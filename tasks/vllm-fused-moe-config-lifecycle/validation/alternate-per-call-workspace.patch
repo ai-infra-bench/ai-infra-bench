@@ -1,0 +1,20 @@
+diff --git a/vllm/model_executor/layers/fused_moe/modular_kernel.py b/vllm/model_executor/layers/fused_moe/modular_kernel.py
+--- a/vllm/model_executor/layers/fused_moe/modular_kernel.py
++++ b/vllm/model_executor/layers/fused_moe/modular_kernel.py
+@@ -1333,3 +1333,16 @@
+             hidden_states_clone=hidden_states_clone,
+             use_shared_experts_stream=use_shared_experts_stream,
+         )
++
++
++_modular_forward_with_cached_workspace = FusedMoEModularKernel.forward
++
++def _forward_with_per_call_workspace(self, *args, **kwargs):
++    result = _modular_forward_with_cached_workspace(self, *args, **kwargs)
++    for buffers in self.shared_buffers:
++        buffers.workspace13.buffer = None
++        buffers.workspace2.buffer = None
++        buffers.fused_out.buffer = None
++    return result
++
++FusedMoEModularKernel.forward = _forward_with_per_call_workspace
