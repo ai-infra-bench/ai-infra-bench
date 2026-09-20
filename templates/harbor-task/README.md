@@ -6,11 +6,11 @@ Set `[task].version` to `"1.0.0"` for the initial release and omit `authors`.
 Use a concise, single-sentence `description` of the observable problem or
 requested outcome; avoid revealing the diagnosis or reference implementation.
 Set `[agent].timeout_sec = 36000` (10 hours) for the benchmark agent budget.
-For vLLM tasks, start `keywords` with `"vllm"` and add at most three topic keywords
+Start `keywords` with the project (`"vllm"`, or `"pi"` for the agent-harness tasks on earendil-works/pi) and add at most three topic keywords
 based on the instruction and reference solution, when available. Do not use
 CPU/GPU tags, including compound tags such as `gpu-worker`. Use keywords for
 subsystem and topic labels instead of a separate `subsystems` field.
-The website skips the first `vllm` keyword when displaying or searching topics.
+The website derives the repository (and the `agent_harness` domain of pi tasks) from that leading keyword and skips it when displaying or searching topics.
 
 Keep only `task_type`, `base_commit`, and `dependency_cutoff` in `[metadata]`:
 Harbor 0.22 does not preserve custom fields in `[task]`. Use `feature` for added
@@ -152,7 +152,7 @@ require a disposable task container or GPU and must not run directly on the host
 
 `environment/image-manifest.json` contains the retained `image_id` and a `files`
 mapping from paths relative to `environment/` to SHA-256 values. Always record
-`Dockerfile`, `lock/requirements.txt`, and `lock/manifest.json`; additional input
+`Dockerfile`, the dependency lock (`lock/requirements.txt` for Python targets, `lock/package-lock.json` for Node targets), and `lock/manifest.json`; additional input
 files use the same mapping. The source revision and cutoff remain in `task.toml`
 and the hashed lock manifest.
 
