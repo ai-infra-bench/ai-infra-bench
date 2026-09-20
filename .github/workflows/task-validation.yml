@@ -148,7 +148,8 @@ jobs:
           docker system df
 
       - name: Upload Harbor logs
-        if: always()
+        # Large Harbor artifacts can time out on self-hosted GPU runners.
+        if: always() && (runner.environment != 'self-hosted' || matrix.accelerator == 'CPU')
         uses: actions/upload-artifact@v7
         with:
           name: task-validation-${{ matrix.task }}
