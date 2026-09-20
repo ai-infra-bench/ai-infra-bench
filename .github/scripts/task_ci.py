@@ -14,6 +14,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -602,10 +603,36 @@ def result_reward(result_path: Path) -> tuple[int, int, list[float]]:
     return completed, errored, rewards
 
 
+def print_verifier_failure_logs(job_dir: Path) -> None:
+    root = job_dir.resolve()
+    logs = [path for path in sorted(job_dir.glob("*/verifier/test-stdout.txt"))
+            if not path.is_symlink() and path.resolve().is_relative_to(root)]
+    if not logs:
+        return
+    # Verifier output is diagnostic text, never GitHub Actions commands.
+    token = uuid.uuid4().hex if os.environ.get("GITHUB_ACTIONS") == "true" else None
+    if token:
+        print(f"::stop-commands::{token}")
+    try:
+        for path in logs:
+            print(f"Verifier output (last 64 KiB): {path.relative_to(job_dir)}")
+            try:
+                with path.open("rb") as stream:
+                    stream.seek(0, os.SEEK_END)
+                    stream.seek(max(0, stream.tell() - 65536))
+                    print(stream.read(65536).decode("utf-8", errors="replace"))
+            except OSError as exc:
+                print(f"Unable to read verifier output: {exc}")
+    finally:
+        if token:
+            print(f"::{token}::")
+
+
 def command_check_result(args: argparse.Namespace) -> None:
     completed, errored, rewards = result_reward(Path(args.result))
     expected = float(args.expected_reward)
     if completed != 1 or errored != 0 or rewards != [expected]:
+        print_verifier_failure_logs(Path(args.result).parent)
         raise ContractError(
             f"unexpected Harbor result: completed={completed}, errored={errored}, "
             f"rewards={rewards}, expected={[expected]}"
