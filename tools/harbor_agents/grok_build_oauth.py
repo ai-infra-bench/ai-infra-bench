@@ -90,8 +90,13 @@ class GrokBuildOAuth(GrokBuild):
         # agent. This is a throwaway per-trial container, so a readable session file is
         # acceptable here (the real grok-build agent authenticates with XAI_API_KEY, not a
         # home-directory file, so nothing about the task environment relies on this).
+        # The agent user differs per task (`node`, `pi-agent`, `agent`, ...): hand the
+        # directory to whoever owns the HOME it was resolved from.
         await environment.exec(
-            command=f"chmod 700 {shlex.quote(remote_dir)} && chmod 644 {shlex.quote(remote_file)} && chown -R node:node {shlex.quote(remote_dir)}",
+            command=(
+                f"chmod 700 {shlex.quote(remote_dir)} && chmod 644 {shlex.quote(remote_file)} "
+                f'&& chown -R "$(stat -c %u:%g {shlex.quote(remote_home)})" {shlex.quote(remote_dir)}'
+            ),
             user="root",
         )
         self.logger.info("uploaded grok session file to %s (readable by the agent user)", remote_file)
