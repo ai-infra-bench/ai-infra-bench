@@ -3,15 +3,12 @@
 import { useRef, useState } from "react";
 import type { TaskSummary } from "@/app/lib/tasks";
 import { TaskEntry } from "@/app/components/task-entry";
+import { formatTaskHardware } from "@/app/lib/task-format";
 
 export function HomeTasks({ tasks }: { tasks: TaskSummary[] }) {
   const sectionRef = useRef<HTMLElement>(null);
   const [page, setPage] = useState(1);
-  const options = [
-    ...new Set(
-      tasks.map((t) => t.accelerator).filter((v): v is string => Boolean(v)),
-    ),
-  ];
+  const options = [...new Set(tasks.map(formatTaskHardware))];
   const perPage = 6;
   const pageCount = Math.max(1, Math.ceil(tasks.length / perPage));
   const currentPage = Math.min(page, pageCount);

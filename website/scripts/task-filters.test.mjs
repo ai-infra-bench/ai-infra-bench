@@ -8,11 +8,11 @@ const apply=patch=>filterTasks(tasks,{...DEFAULT_FILTERS,...patch});
 test('Bug fix metadata spellings share one facet',()=>{
  assert.equal(workloadKey('bug_fix'),workloadKey('bugfix'));
  const fixtures=[
-  {...tasks[0],slug:'bug-underscore',workloadType:'bug_fix'},
-  {...tasks[0],slug:'bug-plain',workloadType:'bugfix'},
-  {...tasks[0],slug:'bug-spaces',workloadType:'Bug Fix'},
-  {...tasks[0],slug:'feature',workloadType:'feature'},
-  {...tasks[0],slug:'unknown',workloadType:null},
+  {...tasks[0],slug:'bug-underscore',taskType:'bug_fix'},
+  {...tasks[0],slug:'bug-plain',taskType:'bugfix'},
+  {...tasks[0],slug:'bug-spaces',taskType:'Bug Fix'},
+  {...tasks[0],slug:'feature',taskType:'feature'},
+  {...tasks[0],slug:'unknown',taskType:null},
  ];
  const facet=workload=>filterTasks(fixtures,{...DEFAULT_FILTERS,workload}).map(t=>t.slug);
  assert.deepEqual(facet('bugfix'),['bug-plain','bug-spaces','bug-underscore']);
@@ -45,7 +45,7 @@ test('search intersects both supported facets and matches metadata',()=>{
  assert.equal(apply({q:'CHAT TEMPLATE'})[0].slug,'vllm-anthropic-inline-system-template');
  assert.equal(apply({q:'rust',workload:'feature',domain:'inference'})[0].slug,'vllm-implement-anthropic-rust-serving');
  assert.equal(apply({q:'rust',domain:'training'}).length,0);
- assert.ok(apply({q:'distributed_execution'}).some(t=>t.slug==='vllm-tokenizer-pickle-threadpool'));
+ assert.ok(apply({q:'api_compatibility'}).some(t=>t.slug==='vllm-kv-connector-lifecycle'));
  assert.equal(apply({q:'no-such-task-zzzz'}).length,0);
 });
 test('home and catalogue pagination cover all tasks exactly once',()=>{

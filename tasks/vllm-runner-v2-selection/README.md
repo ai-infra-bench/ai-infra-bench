@@ -10,6 +10,6 @@ The root supervisor performs a candidate-independent CUDA preflight and grades a
 
 Cases with the same startup override reuse one observation process; unset, 0 and 1 each start in a separate process, with fresh configuration and worker objects plus distributed cleanup for each case. Candidate implementations and controls are run in separate containers. Stage timings and case diagnostics are retained in `/logs/verifier`.
 
-Build with `docker build -t <image> tasks/vllm-runner-v2-selection/environment`, supplying the build network/proxy settings appropriate to the host. Only `environment/` is a build input. Set the resulting image identity in the manifest and task configuration before formal validation.
+Build with `docker build -t <image> tasks/vllm-runner-v2-selection/environment`, supplying the build network/proxy settings appropriate to the host. Only `environment/` is a build input. Record the resulting image ID and input-file hashes in `environment/image-manifest.json`. CI injects its runtime image into a temporary task copy; the committed task config omits `docker_image`.
 
-Validation status and exact executable hashes are recorded under `validation/`. Historical results do not certify the changed verifier. Local script validation and a formal Harbor trial are reported separately.
+`validation/ci-cases.json` declares controls under `validation/patches/`; reusable probes live under `validation/tools/`. Keep measured results and executed input hashes with external run records. Local script validation and a formal Harbor trial are reported separately.

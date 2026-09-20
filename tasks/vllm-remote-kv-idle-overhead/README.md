@@ -18,13 +18,13 @@ NIXL coverage combines its stable connector API with real KV allocation and Engi
 
 The published later NIXL fix #56640 distinguishes parked receives from notification-only work. On the frozen Base, the full-local-hit API follows the notification-only path and already progresses on notification failure. This revision adds verified regression coverage and targeted broken controls rather than importing a later, unproven parked state into the older version.
 
-Resource tests retain the long-lived scheduler for 1,310,720 requests in each local/remote mode, with earlier samples catching larger leaks promptly. The native observer measures current Python allocations beyond warm-up, not RSS, peak or GPU memory. Bounded caches and batched cleanup are positive controls. The verifier deadline is 900 seconds to accommodate the added production path and legitimate cleanup work; it does not cause successful runs to wait longer.
+Resource tests retain the long-lived scheduler for 1,310,720 requests in each local/remote mode, with earlier samples catching larger leaks promptly. The native observer measures current Python allocations beyond warm-up, not RSS, peak or GPU memory. Bounded caches and batched cleanup are positive controls. Harbor allows 7200 seconds for verification; the scoring supervisor has a separate 900-second internal deadline.
 
 ## References and evidence
 
 The reference implementations reserve admission capacity for already admitted requests and reclaim those reservations on completion/preemption/cancellation. They remain different scheduler representations: an event-ready queue implementation and a heap implementation. This is one repair strategy, not a grader requirement.
 
-[The review](validation/review-report.md), [remediation matrix](validation/remediation-matrix.md) and [evidence index](validation/e2e-evidence.json) record actual results, scope, image identity, hashes and limitations. Historical scores remain versioned; replays are not new model rollouts. Runtime differences of the exact-source local diagnostic image are explicit in the evidence.
+Keep actual results, scope, image identity, hashes, and limitations with the corresponding CI or Harbor run records. Historical review reports remain available in Git history; each result applies only to its recorded snapshot, and replays are not new model rollouts.
 
 ```bash
 harbor run -p tasks/vllm-remote-kv-idle-overhead -a oracle

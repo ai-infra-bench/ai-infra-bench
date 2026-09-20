@@ -127,7 +127,7 @@ control and an early-exit control do not cover a replaced runner.
   validated: an edited test config, a core file hidden by `.gitignore`, a candidate
   test that edits the built `dist/` during verification. Bypasses a patch cannot
   express (`.git` state, agent-phase edits of gitignored output) go in a probe script
-  (`validation/scope_bypass_probe.sh` in the pi tasks).
+  (`validation/tools/scope_bypass_probe.sh` in the pi tasks).
 - Screen every reward-1 rollout with `tools/rollout_hack_screen.py` before recording
   it as a pass.
 
@@ -197,16 +197,19 @@ because the instruction implied a different reading, fix the instruction.
 
 ## 5. Base, controls and real submissions
 
-- Keep every real-agent submission as a validation case with the reward it
-  actually earns under the current verifier and say why in `controls-plan.md`.
+- Keep every real-agent submission as a validation case
+  (`validation/patches/<name>.patch`) with the reward it actually earns under the
+  current verifier, and say why in the pull request.
   A submission that passed an earlier revision and fails the current one is
   the best evidence that a new edge discriminates; a submission that passes
   unmodified is the alternative implementation the review asks for.
-- Archive `validation/e2e-evidence.json` under `validation/history/<version>`
-  whenever the instruction, Oracle, verifier or controls change, and bump
-  `task.toml` `version`.
+- Results, review reports and rollout write-ups live with the CI or Harbor run
+  records and in the pull request, not in the task directory
+  (`templates/harbor-task/README.md`, "Validation layout"); earlier records stay
+  reachable through Git history. Do not reuse results after an executable or
+  contract-changing edit.
 - Attribute every rollout failure as judge over-specification, instruction
-  ambiguity, or agent defect, and record it in the evidence file.
+  ambiguity, or agent defect, and say which in the pull request.
 
 ## 6. Process hygiene during validation
 

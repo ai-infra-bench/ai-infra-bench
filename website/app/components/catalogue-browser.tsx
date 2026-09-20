@@ -7,7 +7,7 @@ import {
   MagnifyingGlassIcon,
 } from "@radix-ui/react-icons";
 import type { TaskSummary } from "@/app/lib/tasks";
-import { formatLabel } from "@/app/lib/task-format";
+import { formatLabel, formatTaskHardware } from "@/app/lib/task-format";
 import {
   availableDomains,
   DOMAIN_LABELS,
@@ -122,13 +122,13 @@ export function CatalogueBrowser({
   const page = paginateTasks(filtered, state.page, pageSize);
   const workOptions = [
     { value: "all", label: "All" },
-    ...[...new Set(tasks.map((t) => workloadKey(t.workloadType)))]
+    ...[...new Set(tasks.map((t) => workloadKey(t.taskType)))]
       .sort()
       .map((value) => ({
         value,
         label: formatLabel(
-          tasks.find((t) => workloadKey(t.workloadType) === value)!
-            .workloadType,
+          tasks.find((t) => workloadKey(t.taskType) === value)!
+            .taskType,
         ),
       })),
   ].map((option) => ({
@@ -237,7 +237,7 @@ export function CatalogueBrowser({
                   task={task}
                   ordinal={tasks.indexOf(task) + 1}
                   showHardware={
-                    new Set(tasks.map((t) => t.accelerator)).size > 1
+                    new Set(tasks.map(formatTaskHardware)).size > 1
                   }
                   headingLevel="h2"
                 />

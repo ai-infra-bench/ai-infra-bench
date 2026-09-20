@@ -16,18 +16,16 @@ export type TaskSummary = {
   version: string | null;
   description: string;
   keywords: string[];
-  track: string | null;
   domain?: string | null;
-  workloadType: string | null;
-  subsystems: string[];
+  taskType: string | null;
   repository: string | null;
-  accelerator: string | null;
+  gpus: number;
+  gpuTypes: string[];
 };
 
 export type BenchmarkTask = TaskSummary & {
   baseCommit: string | null;
   dependencyCutoff: string | null;
-  publicationState: string | null;
   agentTimeoutSec: number | null;
   cpus: number | null;
   memoryMb: number | null;

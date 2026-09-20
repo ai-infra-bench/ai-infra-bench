@@ -13,6 +13,8 @@ from pathlib import Path
 
 import tomllib
 
+from build_config import load_build_config
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VLLM_REPO = "https://github.com/vllm-project/vllm.git"
 UV_VERSION = "0.11.28"
@@ -32,7 +34,7 @@ def generate(task_dir: Path) -> None:
     config = tomllib.loads((task_dir / "task.toml").read_text())
     base_commit = config["metadata"]["base_commit"]
     cutoff = config["metadata"]["dependency_cutoff"]
-    cutoff_overrides = config["metadata"].get("dependency_cutoff_overrides", [])
+    cutoff_overrides = load_build_config(task_dir).get("dependency_cutoff_overrides", [])
     lock_dir = task_dir / "environment" / "lock"
     extras = lock_dir / "extras.in"
     if not extras.is_file():

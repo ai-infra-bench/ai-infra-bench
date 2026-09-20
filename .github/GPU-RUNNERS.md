@@ -1,6 +1,6 @@
 # A100 CI runners
 
-Run four independent GitHub Actions runner services on one machine, sharing a host-managed pool of four A100 GPU UUIDs. A runner is an execution slot, not a fixed GPU. Tasks request one GPU by default in their task definition, or explicitly request two or four. Keep `topology` and `gpus` equal and retain the existing `gpu,a100,harbor` labels and `[1,2,4]` topology contract.
+Run four independent GitHub Actions runner services on one machine, sharing a host-managed pool of four A100 GPU UUIDs. A runner is an execution slot, not a fixed GPU. GPU tasks declare `[environment].gpus` as 1, 2, or 4 and `gpu_types = ["A100"]`. CPU tasks set `gpus = 0`; omission also means no GPU request. CI derives runner selection from these Harbor resource fields and retains the existing `gpu,a100,harbor` labels. Task manifests do not use `accelerator`, `topology`, or `environment_profile`.
 
 ## Host setup
 
@@ -27,7 +27,16 @@ Download and checksum-verify the Linux x64 runner distribution using GitHub's re
 
 `run_task_validation.sh` preserves the ordinary Docker backend and GHCR cache/publishing flow for CPU tasks. GPU tasks always run a local `docker buildx build --load`, tagged `ai-infra-bench-task-envs:<task>-<environment-key>`. The single GPU host keeps BuildKit's local layers, so unchanged layers are reused while Dockerfile and environment changes are rebuilt. The key includes the environment contents and target platform. GPU validation and main-branch jobs do not log in to GHCR, pull task images, push images or query registry digests; base-image pulls and build-time downloads still use the host's normal network configuration.
 
+Before checkout, self-hosted jobs restore the runner UID/GID and owner access on their previous `harbor-jobs` tree. Cancelled verifiers can leave root-owned directories that prevent Git cleanup. The repair runs with a cached task image, no network or GPU access, and mounts only that runner workspace’s results directory; symlink targets are not followed. Git then performs its normal checkout cleanup. Resource inventory is diagnostic and does not determine validation success.
+
 For GPU tasks, each Harbor validation case runs under `gpu_pool.py`. Local image builds happen before GPU acquisition. A lease is released between cases, allowing other jobs to make progress.
+
+Validation enables Harbor CPU and memory limits with `--cpus limit --memory limit`.
+GPU task containers use the declared 8 CPUs and 16 GiB RAM. CPU task CI stays on
+the standard GitHub-hosted runner and additionally uses `--override-cpus 4`;
+the task declaration remains 8 CPUs for formal benchmark runs. Limits are caps,
+not exclusive CPU/RAM reservations. These policies cover the trial containers,
+not the preceding standalone Docker image build or a disk quota.
 
 The pool acquires all requested GPU locks before starting Harbor. A waiter holding the admission lock blocks new allocations while active leases drain, so a four-GPU request can proceed once running cases finish. Requests are not promised strict FIFO order. A queued acquisition times out after two hours; GitHub's overall job timeout also includes builds and queue time.
 
@@ -57,5 +66,12 @@ python .github/scripts/tests/smoke_gpu_cleanup.py --image <local-cuda-pytorch-im
 ```
 
 These are infrastructure smoke tasks outside the benchmark corpus. They run actual Harbor verifier trials and CUDA tensor operations, verify rewards using the CI result checker and retain UUID/timing evidence. They do not establish correctness or performance of a benchmark task. After the branch is merged and runners are online, perform a GitHub Actions run on an actual A100 task to complete remote acceptance; CPU tasks continue to use GitHub-hosted runners.
+
+Task validation, image-publication, and GPU smoke CI do not upload artifacts. Prepared
+CI task configs set `artifacts = []` to avoid downloading full checkout snapshots
+for every Base/Oracle/control case. Collection hooks still run, and successful
+temporary case inputs are removed after preserving `prepared-task.toml` in the
+local job results. Canonical task configs retain complete snapshots and collection
+hooks for formal evaluations. GitHub Actions execution logs remain available.
 
 Harbor 0.22.0 stores per-trial rewards in `stats.evals.*.reward_stats.reward`, while its `metrics` contains aggregate means. The result checker reads the per-trial rewards and requires exactly one completed, error-free trial with the expected reward; older direct reward metrics remain supported.

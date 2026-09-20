@@ -19,11 +19,19 @@ from typing import Any
 
 import tomllib
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+from normalize_image_manifests import check_file_hashes
+from sync_collect_hooks import render_command
+
 TIMEOUT = 120
-AGENT_TIMEOUT_WARNING_THRESHOLD = 10 * 60 * 60
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)+$")
 RAW_ID = re.compile(r"(?:^|-)(?:pr|issue|candidate|instance)-[a-z0-9]+(?:-|$)")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+# The dependency lock is the target ecosystem's own: pip requirements for Python
+# targets (vLLM), the repository's package-lock.json for Node targets (pi).
+DEPENDENCY_LOCKS = ("environment/lock/requirements.txt", "environment/lock/package-lock.json")
+# The leading keyword names the project; the website derives the repository from it.
+PROJECT_KEYWORDS = ("vllm", "pi")
 REQUIRED_FILES = (
     "instruction.md",
     "environment/Dockerfile",
@@ -33,30 +41,7 @@ REQUIRED_FILES = (
     "solution/solve.sh",
     "tests/test.sh",
     "validation/ci-cases.json",
-    "validation/e2e-evidence.json",
 )
-# The dependency lock is named by environment/lock/manifest.json output.path
-# (requirements.txt for Python targets, package-lock.json for Node targets, ...).
-# This is the fallback when the lock manifest does not record one.
-DEFAULT_DEPENDENCY_LOCK = "environment/lock/requirements.txt"
-EVIDENCE_HASHES = {
-    "task_toml_sha256": "task.toml",
-    "task_metadata_sha256": "task.toml",
-    "instruction_sha256": "instruction.md",
-    "image_manifest_sha256": "environment/image-manifest.json",
-    "oracle_patch_sha256": "solution/oracle.patch",
-    "solve_script_sha256": "solution/solve.sh",
-    "test_script_sha256": "tests/test.sh",
-    "regression_test_sha256": "tests/test_regression.py",
-    "junit_checker_sha256": "tests/check_junit.py",
-    "ci_cases_sha256": "validation/ci-cases.json",
-    "remediation_matrix_sha256": "validation/remediation-matrix.md",
-}
-CORE_EVIDENCE_HASHES = {
-    "instruction.md",
-    "solution/oracle.patch",
-    "tests/test.sh",
-}
 
 
 class Audit:
@@ -129,16 +114,6 @@ def safe_task_relative_path(value: Any) -> str | None:
     return path.as_posix()
 
 
-def dependency_lock_path(task: Path) -> str:
-    """The task's dependency lock file, as named by the lock manifest."""
-    try:
-        lock = json.loads((task / "environment/lock/manifest.json").read_text())
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return DEFAULT_DEPENDENCY_LOCK
-    recorded = safe_task_relative_path(mapping(mapping(lock).get("output")).get("path"))
-    return recorded or DEFAULT_DEPENDENCY_LOCK
-
-
 def load(task: Path, audit: Audit) -> tuple[dict[str, Any], dict[str, Any]]:
     before = audit.errors
     config: dict[str, Any] = {}
@@ -178,7 +153,6 @@ def check_task(task: Path, config: dict[str, Any], repo: Path, audit: Audit) -> 
     audit.require(not RAW_ID.search(slug), f"task slug contains a raw ID: {slug}")
 
     task_data = mapping(config.get("task"))
-    agent = mapping(config.get("agent"))
     metadata = mapping(config.get("metadata"))
     audit.require(
         task_data.get("name") == f"ai-infra-bench/{slug}",
@@ -189,35 +163,31 @@ def check_task(task: Path, config: dict[str, Any], repo: Path, audit: Audit) -> 
         and bool(task_data["description"].strip()),
         "[task].description must be non-empty",
     )
-    repository = metadata.get("repository")
-    if isinstance(repository, str) and "/" in repository:
-        prefix = repository.rsplit("/", 1)[-1].lower().replace("_", "-")
-        audit.require(
-            slug.startswith(f"{prefix}-"), f"task slug must start with {prefix}-"
-        )
+    audit.require(
+        set(metadata) == {"task_type", "base_commit", "dependency_cutoff"},
+        "[metadata] must contain only task_type, base_commit, and dependency_cutoff",
+    )
+    audit.require(
+        metadata.get("task_type") in {"feature", "bugfix", "performance"},
+        "[metadata].task_type must be feature, bugfix, or performance",
+    )
 
-    required = [*REQUIRED_FILES, dependency_lock_path(task)]
-    missing = [path for path in required if not (task / path).is_file()]
+    case_manifest_path = task / "validation/ci-cases.json"
+    try:
+        case_manifest = mapping(json.loads(case_manifest_path.read_text()))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        case_manifest = {}
+    verifier_only = case_manifest.get("validation_mode") == "verifier_only"
+    required_files = [path for path in REQUIRED_FILES if not (verifier_only and path.startswith("solution/"))]
+    missing = [path for path in required_files if not (task / path).is_file()]
     audit.require(not missing, f"required task files are missing: {missing}")
+    locks = [path for path in DEPENDENCY_LOCKS if (task / path).is_file()]
+    audit.require(len(locks) == 1, f"exactly one dependency lock is required ({' or '.join(DEPENDENCY_LOCKS)}), found {locks}")
     audit.require(
         bool(re.fullmatch(r"[0-9a-f]{40}", str(metadata.get("base_commit", "")))),
         "[metadata].base_commit is not a full commit SHA",
     )
-    audit.require(
-        bool(
-            re.fullmatch(r"sha256:[0-9a-f]{64}", str(metadata.get("image_digest", "")))
-        ),
-        "[metadata].image_digest is not a SHA-256 digest",
-    )
-    agent_timeout = agent.get("timeout_sec")
-    if isinstance(agent_timeout, (int, float)) and not isinstance(
-        agent_timeout, bool
-    ):
-        if agent_timeout < AGENT_TIMEOUT_WARNING_THRESHOLD:
-            audit.warn(
-                "[agent].timeout_sec is shorter than 36000 seconds (10 hours); "
-                "the task may not give solvers enough time"
-            )
+    check_benchmark_config(config, audit)
     validator = repo / ".github/scripts/task_ci.py"
     if audit.require(validator.is_file(), "repository task validator is missing"):
         result = run([sys.executable, str(validator), "validate", slug], cwd=repo)
@@ -226,6 +196,61 @@ def check_task(task: Path, config: dict[str, Any], repo: Path, audit: Audit) -> 
             f"repository task validation failed: {result.stderr.strip()}",
         )
     audit.finish(before, "task identity and repository contract pass")
+
+
+def check_benchmark_config(config: dict[str, Any], audit: Audit) -> None:
+    expected = {
+        "task": {"version": "1.0.0"},
+        "environment": {
+            "cpus": 8, "memory_mb": 16384, "storage_mb": 51200,
+            "build_timeout_sec": 10800, "network_mode": "no-network",
+        },
+        "agent": {"timeout_sec": 36000},
+        "verifier": {"timeout_sec": 7200},
+    }
+    for section, fields in expected.items():
+        actual = mapping(config.get(section))
+        for key, value in fields.items():
+            audit.require(actual.get(key) == value, f"[{section}].{key} must be {value!r}")
+    task = mapping(config.get("task"))
+    audit.require("authors" not in task, "[task].authors must be omitted")
+    keywords = task.get("keywords")
+    audit.require(
+        isinstance(keywords, list) and 1 <= len(keywords) <= 4
+        and keywords[0] in PROJECT_KEYWORDS
+        and all(isinstance(word, str) and word and not re.search(r"(?:^|[-_])(cpu|gpu)(?:$|[-_])", word, re.I) for word in keywords),
+        f"keywords must start with the project ({' or '.join(PROJECT_KEYWORDS)}) and contain at most three topic tags, without CPU/GPU tags",
+    )
+    environment = mapping(config.get("environment"))
+    agent = mapping(config.get("agent"))
+    verifier = mapping(config.get("verifier"))
+    audit.require("docker_image" not in environment, "omit environment.docker_image from the committed task")
+    gpus = environment.get("gpus")
+    if audit.require(type(gpus) is int and gpus >= 0, "environment.gpus must be an explicit nonnegative integer"):
+        if gpus:
+            audit.require(environment.get("gpu_types") == ["A100"], "GPU tasks must declare gpu_types = ['A100']")
+        else:
+            audit.require("gpu_types" not in environment, "CPU tasks must omit gpu_types")
+    audit.require(
+        "environment_mode" not in verifier and "environment" not in verifier,
+        "omit verifier environment settings to use default shared verification",
+    )
+    for section in ("agent", "verifier"):
+        audit.require(
+            mapping(config.get(section)).get("network_mode", "no-network") == "no-network",
+            f"[{section}] must preserve offline runtime networking",
+        )
+    workdir = environment.get("workdir")
+    audit.require(config.get("artifacts") == [workdir], "artifacts must archive the complete environment.workdir")
+    hooks = verifier.get("collect")
+    if audit.require(isinstance(hooks, list) and len(hooks) == 1, "one standard verifier.collect hook is required"):
+        hook = mapping(hooks[0])
+        audit.require(hook.get("service") == "main", "collector service must be main")
+        audit.require(hook.get("timeout_sec") == 300, "collector timeout_sec must be 300")
+        audit.require(hook.get("user") == agent.get("user"), "collector must run as the agent user")
+        base = mapping(config.get("metadata")).get("base_commit")
+        if isinstance(workdir, str) and isinstance(base, str):
+            audit.require(hook.get("command") == render_command(workdir, base), "collector command is stale; run tools/sync_collect_hooks.py")
 
 
 def compare(
@@ -245,27 +270,17 @@ def check_artifacts(
     config: dict[str, Any],
     documents: dict[str, Any],
     audit: Audit,
-    *,
-    strict_evidence: bool,
 ) -> None:
     before = audit.errors
     image = mapping(documents.get("environment/image-manifest.json"))
     lock = mapping(documents.get("environment/lock/manifest.json"))
-    evidence = mapping(documents.get("validation/e2e-evidence.json"))
     metadata = mapping(config.get("metadata"))
 
-    compare(
-        audit,
-        "task name",
-        mapping(config.get("task")).get("name"),
-        {"image manifest": image.get("task")},
-    )
     compare(
         audit,
         "Base commit",
         metadata.get("base_commit"),
         {
-            "image manifest": image.get("base_commit"),
             "lock manifest": lock.get("base_commit"),
         },
     )
@@ -274,83 +289,23 @@ def check_artifacts(
         "dependency cutoff",
         metadata.get("dependency_cutoff"),
         {
-            "image manifest": image.get("dependency_cutoff"),
             "lock manifest": lock.get("dependency_cutoff"),
         },
     )
-    compare(
-        audit,
-        "image digest",
-        metadata.get("image_digest"),
-        {"image manifest": image.get("image_id")},
-    )
+    checked_paths: set[str] = set()
+    try:
+        check_file_hashes(image, task / "environment")
+        checked_paths.update(f"environment/{relative}" for relative in image["files"])
+    except ValueError as exc:
+        audit.require(False, f"invalid image manifest: {exc}")
 
-    hashes: list[tuple[str, Any, str]] = [
-        ("image manifest", image.get("dockerfile_sha256"), "environment/Dockerfile"),
-        (
-            "image manifest",
-            image.get("dependency_lock_sha256"),
-            dependency_lock_path(task),
-        ),
-        (
-            "image manifest",
-            image.get("dependency_lock_manifest_sha256"),
-            "environment/lock/manifest.json",
-        ),
-    ]
+    hashes: list[tuple[str, Any, str]] = []
     output = mapping(lock.get("output"))
     lock_output_path = safe_task_relative_path(output.get("path"))
     if lock_output_path is not None:
         hashes.append(("lock manifest", output.get("sha256"), lock_output_path))
     else:
         audit.require(False, "lock manifest does not record a safe output.path")
-    artifacts = mapping(evidence.get("artifacts"))
-    checked_paths: set[str] = set()
-
-    files = mapping(artifacts.get("files"))
-    for raw_relative, recorded in sorted(files.items(), key=lambda item: str(item[0])):
-        relative = safe_task_relative_path(raw_relative)
-        if not audit.require(
-            relative is not None,
-            f"evidence artifacts.files contains unsafe path {raw_relative!r}",
-        ):
-            continue
-        hashes.append(
-            (
-                f"evidence artifacts.files[{relative!r}]",
-                recorded_sha256(recorded),
-                relative,
-            )
-        )
-
-    for key, relative in EVIDENCE_HASHES.items():
-        if key in artifacts:
-            hashes.append((f"evidence artifacts.{key}", artifacts[key], relative))
-
-    manifest = mapping(documents.get("validation/ci-cases.json"))
-    manifest_cases = manifest.get("cases", [])
-    case_items = manifest_cases if isinstance(manifest_cases, list) else []
-    declared_control_hashes = {
-        recorded
-        for item in case_items
-        for recorded in [recorded_sha256(mapping(item).get("patch_sha256"))]
-        if recorded is not None
-    }
-
-    known_keys = {*EVIDENCE_HASHES, "files"}
-    for key, recorded in sorted(artifacts.items()):
-        if key in known_keys or not key.endswith("_sha256"):
-            continue
-        candidate = recorded_sha256(recorded)
-        audit.require(
-            candidate is not None,
-            f"evidence artifacts.{key} is not a 64-character SHA-256",
-        )
-        if candidate in declared_control_hashes:
-            continue
-        audit.warn(
-            f"evidence artifacts.{key} has no explicit path mapping and was not checked"
-        )
 
     for source, recorded, relative in hashes:
         audit.require(
@@ -365,7 +320,8 @@ def check_artifacts(
             if matches:
                 checked_paths.add(relative)
 
-    cases = manifest_cases
+    manifest = mapping(documents.get("validation/ci-cases.json"))
+    cases = manifest.get("cases", [])
     if audit.require(isinstance(cases, list), "validation cases must be a list"):
         for index, item in enumerate(cases):
             case = mapping(item)
@@ -389,31 +345,6 @@ def check_artifacts(
                 if matches:
                     checked_paths.add(relative)
 
-    for relative in sorted(CORE_EVIDENCE_HASHES):
-        audit.require(
-            relative in checked_paths,
-            f"evidence does not provide a checked hash for required {relative}",
-        )
-
-    expected_coverage = {
-        "task.toml",
-        "instruction.md",
-        "solution/oracle.patch",
-        "solution/solve.sh",
-        "validation/ci-cases.json",
-        *(
-            path.relative_to(task).as_posix()
-            for path in (task / "tests").rglob("*")
-            if path.is_file()
-        ),
-    }
-    uncovered = sorted(expected_coverage - checked_paths)
-    if uncovered:
-        message = f"evidence hash coverage is incomplete: {uncovered}"
-        if strict_evidence:
-            audit.require(False, message)
-        else:
-            audit.warn(message)
     print(f"INFO: checked artifact hashes for {sorted(checked_paths)}")
     audit.finish(before, "artifact identities and all recorded hashes pass")
 
@@ -450,9 +381,15 @@ def check_image(
     except (json.JSONDecodeError, KeyError, IndexError, TypeError):
         audit.require(False, f"cannot read image ID for {image}")
         return
+    manifest_path = task / "environment/image-manifest.json"
+    try:
+        expected_image_id = mapping(json.loads(manifest_path.read_text())).get("image_id")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        audit.require(False, f"cannot read image manifest: {exc}")
+        return
     audit.require(
-        image_id == mapping(config.get("metadata")).get("image_digest"),
-        "local image ID does not match task.toml",
+        image_id == expected_image_id,
+        "local image ID does not match environment/image-manifest.json",
     )
 
     validator = repo / ".github/scripts/task_ci.py"
@@ -476,19 +413,27 @@ def check_image(
     )
 
     workdir = str(mapping(config.get("environment")).get("workdir"))
-    patches = [
-        task / "solution/oracle.patch",
-        *sorted((task / "validation").glob("*.patch")),
-    ]
-    case_manifest = json.loads((task / "validation/ci-cases.json").read_text())
-    apply_after = {
-        f"validation/{case['patch']}": case.get("apply_after", "base")
-        for case in case_manifest["cases"]
-    }
-    for patch in patches:
-        relative = patch.relative_to(task).as_posix()
-        base = apply_after.get(relative, "base")
-        if not audit.require(base in {"base", "oracle"}, f"invalid apply_after for {relative}"):
+    patches: list[tuple[Path, str]] = []
+    if (task / "solution/oracle.patch").is_file():
+        patches.append((task / "solution/oracle.patch", "base"))
+    case_path = task / "validation/ci-cases.json"
+    if case_path.is_file():
+        try:
+            cases = json.loads(case_path.read_text())["cases"]
+            for case in cases:
+                relative = safe_task_relative_path(case["patch"])
+                apply_after = case.get("apply_after", "base")
+                if not relative or apply_after not in {"base", "oracle"}:
+                    raise ValueError("invalid patch path or apply_after")
+                patches.append((task / "validation" / relative, apply_after))
+        except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError) as exc:
+            audit.require(False, f"cannot read control patch bases: {exc}")
+            return
+    for patch, apply_after in patches:
+        if apply_after == "oracle" and not audit.require(
+            (task / "solution/oracle.patch").is_file(),
+            f"{patch.relative_to(task)} requires an unavailable Oracle",
+        ):
             continue
         result = run(
             [
@@ -503,16 +448,18 @@ def check_image(
                 "-v",
                 f"{task}:/task:ro",
                 image,
+                "-eu",
                 "-c",
-                'set -e; if [ "$1" = oracle ]; then git apply /task/solution/oracle.patch; fi; git apply --check "$2"',
-                "patch-check",
-                base,
-                f"/task/{relative}",
+                'if [ "$1" = oracle ]; then git apply /task/solution/oracle.patch; fi\n'
+                'git apply --check "$2"',
+                "check-patch",
+                apply_after,
+                f"/task/{patch.relative_to(task)}",
             ]
         )
         audit.require(
             result.returncode == 0,
-            f"{patch.relative_to(task)} does not apply: {result.stderr.strip()}",
+            f"{patch.relative_to(task)} does not apply after {apply_after}: {result.stderr.strip()}",
         )
     audit.finish(
         before,
@@ -570,11 +517,6 @@ def main() -> int:
     parser.add_argument("task", type=Path)
     parser.add_argument("--image", help="run image and patch checks")
     parser.add_argument("--junit", type=Path, help="run the task's JUnit checker")
-    parser.add_argument(
-        "--strict-evidence",
-        action="store_true",
-        help="fail when executable artifact hash coverage is incomplete",
-    )
     parser.add_argument("--staged", action="store_true", help="check staged scope")
     args = parser.parse_args()
 
@@ -591,13 +533,7 @@ def main() -> int:
     config, documents = load(task, audit)
     if config:
         check_task(task, config, repo, audit)
-        check_artifacts(
-            task,
-            config,
-            documents,
-            audit,
-            strict_evidence=args.strict_evidence,
-        )
+        check_artifacts(task, config, documents, audit)
         check_diff_whitespace(task, repo, audit)
         if args.junit:
             check_junit(task, args.junit.resolve(), audit)
