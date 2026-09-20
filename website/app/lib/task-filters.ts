@@ -58,7 +58,7 @@ export function filterTasks(tasks: TaskSummary[], state: FilterState) {
     .filter((task) => {
       if (
         state.workload !== "all" &&
-        workloadKey(task.workloadType) !== state.workload
+        workloadKey(task.taskType) !== state.workload
       )
         return false;
       const domain = taskDomain(task);
@@ -68,10 +68,10 @@ export function filterTasks(tasks: TaskSummary[], state: FilterState) {
           task.name,
           task.slug,
           task.description,
-          ...task.keywords,
-          ...task.subsystems,
+          ...task.keywords.slice(1),
           task.repository ?? "",
-          task.accelerator ?? "",
+          task.gpus > 0 ? "GPU" : "CPU",
+          ...task.gpuTypes,
           domain ? DOMAIN_LABELS[domain] : "",
         ].join(" "),
       );
@@ -101,7 +101,7 @@ export function paginateTasks<T>(
 }
 export function readFilters(search: string, tasks: TaskSummary[]): FilterState {
   const params = new URLSearchParams(search);
-  const workloads = new Set(tasks.map((t) => workloadKey(t.workloadType)));
+  const workloads = new Set(tasks.map((t) => workloadKey(t.taskType)));
   const workload = workloadKey(params.get("type"));
   const domain = params.get("domain") as TaskDomain;
   const rawPage = params.get("page") ?? "1",

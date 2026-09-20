@@ -6,4 +6,4 @@ The CPU environment supplies the exact frozen Base and ordinary dependencies. Se
 
 The verifier runs the public CLI and actual API server lifecycle. Model execution and model-specific HTTP routes use controlled producers, while child processes, nested listeners, rank and device assignment, probe requests, signals and cleanup remain observable behavior. It also runs ordinary serving without the new mode. The candidate's helper names, supervisor class, process titles and internal bookkeeping are not scored.
 
-The [validation summary](validation/README.md) records the tested version, results, limitations and a fixed download link to the detailed evidence ZIP. `validation/ci-cases.json` and its patches remain in the task because CI executes them.
+`validation/ci-cases.json` declares current controls under `validation/patches/`. Keep measured results and limitations with the corresponding CI or Harbor run records. Historical validation reports and archives remain discoverable through Git history.

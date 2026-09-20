@@ -3,18 +3,19 @@
 import { useMemo, useState } from 'react';
 import Image from 'next/image';
 import { withBasePath, withRouteBasePath } from '@/app/lib/base-path';
-import { formatLabel, formatProjectName, formatTaskTitle } from '@/app/lib/task-format';
+import { formatLabel, formatProjectName, formatTaskHardware, formatTaskTitle } from '@/app/lib/task-format';
 
 type TaskSummary = {
   slug: string;
   description: string;
-  workloadType: string | null;
-  subsystems: string[];
+  taskType: string | null;
+  keywords: string[];
   repository: string | null;
   repositoryName: string | null;
   repositoryLogo: string | null;
   repositoryLogoKind: 'mark' | 'wordmark' | null;
-  accelerator: string | null;
+  gpus: number;
+  gpuTypes: string[];
 };
 
 function RepositoryBrand({ task }: { task: TaskSummary }) {
@@ -39,16 +40,16 @@ function RepositoryBrand({ task }: { task: TaskSummary }) {
 }
 
 export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
-  const [accelerator, setAccelerator] = useState('all');
+  const [hardware, setHardware] = useState('all');
 
-  const accelerators = useMemo(
-    () => Array.from(new Set(tasks.map((task) => task.accelerator).filter(Boolean))) as string[],
+  const hardwareOptions = useMemo(
+    () => Array.from(new Set(tasks.map(formatTaskHardware))),
     [tasks],
   );
 
   const visibleTasks = useMemo(() => {
-    return tasks.filter((task) => accelerator === 'all' || task.accelerator === accelerator);
-  }, [accelerator, tasks]);
+    return tasks.filter((task) => hardware === 'all' || formatTaskHardware(task) === hardware);
+  }, [hardware, tasks]);
 
   return (
     <section className="home-section task-catalog" id="tasks" aria-labelledby="task-catalog-title">
@@ -60,14 +61,14 @@ export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
       </div>
 
       <div className="catalog-tools">
-        <div className="accelerator-filter" aria-label="Filter tasks by accelerator">
-          {['all', ...accelerators].map((option) => (
+        <div className="accelerator-filter" aria-label="Filter tasks by hardware">
+          {['all', ...hardwareOptions].map((option) => (
             <button
               type="button"
               key={option}
-              onClick={() => setAccelerator(option)}
-              className={accelerator === option ? 'is-active' : ''}
-              aria-pressed={accelerator === option}
+              onClick={() => setHardware(option)}
+              className={hardware === option ? 'is-active' : ''}
+              aria-pressed={hardware === option}
             >
               {option === 'all' ? 'All' : option}
             </button>
@@ -86,9 +87,9 @@ export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
               <p>{task.description}</p>
             </div>
             <footer className="task-card-meta">
-              <span>{formatLabel(task.workloadType)}</span>
-              <span>{task.subsystems.map(formatLabel).join(', ')}</span>
-              <span className="task-accelerator">{task.accelerator}</span>
+              <span>{formatLabel(task.taskType)}</span>
+              <span>{task.keywords.slice(1).join(', ')}</span>
+              <span className="task-accelerator">{formatTaskHardware(task)}</span>
             </footer>
           </a>
         ))}
@@ -100,7 +101,7 @@ export function TaskExplorer({ tasks }: { tasks: TaskSummary[] }) {
           <button
             type="button"
             onClick={() => {
-              setAccelerator('all');
+              setHardware('all');
             }}
           >
             Clear filters

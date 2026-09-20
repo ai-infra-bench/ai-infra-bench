@@ -11,7 +11,14 @@ Work within the authorized review or hardening scope. Keep three gates in order:
 - Record the task worktree, branch, HEAD, dirty state, task directory, Base SHA, cutoff, image tag and ID, and applicable skill revision. When loaded skill content differs from HEAD, hash `SKILL.md` and every reference or script actually used.
 - Inspect existing changes before editing. Use an isolated worktree when needed and preserve unrelated tracked and untracked files.
 - Distinguish task review, candidate implementation review, and agent trajectory review. A verifier vulnerability does not establish that an agent exploited it; a passing agent run does not establish verifier quality. Review a trajectory only when it is in scope, using the actual operations and resulting patch.
-- Read `instruction.md`, `task.toml`, and environment inputs before the Oracle and verifier. Independently describe the requested behavior, then inspect every artifact affecting build, execution, scoring, or publication.
+- Read `instruction.md`, `task.toml`, and environment inputs before the Oracle and verifier. Independently describe the requested behavior, then inspect every artifact affecting build, execution, scoring, or publication. Read the validation mode from `validation/ci-cases.json`; the default is `oracle`.
+
+For an approved `verifier_only` task, Oracle and complete-alternative requirements
+below become independent boundary controls and a documented solver reconstruction
+path. Keep full-task solvability and Oracle validation unverified. Their absence
+does not by itself block an already accepted verifier-only task; actual contract
+contradictions, invalid tests, and wrong rewards still do. Do not switch modes
+to hide a failing Oracle.
 
 When a particular branch, commit, or worktree version of the skill is requested, initialize that worktree safely, then reread its skill and references before reviewing. Record absolute skill and task paths and candidate or instance identifiers when present. Use SHA-256 for the required file hashes; HEAD alone does not identify dirty contents. Never mix rules from one revision with artifacts from another.
 
@@ -82,10 +89,19 @@ Start the final image under the agent's actual user, workdir, permissions, netwo
 Check every relevant `task.toml` field and run the repository validator:
 
 - The task directory uses meaningful lowercase kebab-case without PR, issue, candidate, or instance identifiers; `[task].name` is `ai-infra-bench/<task-directory>`.
-- The description is non-empty and suitable for publication. `base_commit` is a full immutable SHA consistent with Docker, locks, images, and evidence.
-- Record `[agent].timeout_sec`. Below `36000` seconds, report a non-blocking warning that solvers may need more time, even if the repository validator does not check it. Do not require an exact budget or warn for budgets of 10 hours or longer.
-- Check CPU, memory, shared memory, disk, build and verifier timeouts, network policy, device visibility, process startup, and communication. CPU tasks request no GPUs or topology; GPU tasks identify the actual accelerator and use a supported topology.
+- Follow the current [task conventions](../../../../templates/harbor-task/README.md). The description is a concise statement of the observable problem or requested outcome, without the hidden diagnosis. Initial-release version is `1.0.0`; omit authors. Keywords start with `vllm` and have at most three additional topic tags, with no CPU/GPU tags.
+- Metadata contains only `task_type`, `base_commit`, and `dependency_cutoff`. The type is `feature`, `bugfix`, or `performance`; Base is a full immutable SHA consistent with the environment and hashed lock manifest. Optional runtime assets and cutoff exceptions belong in `environment/build-config.json`.
+- Require the agreed budgets: `[agent].timeout_sec = 36000`, `[verifier].timeout_sec = 7200`, `[environment].build_timeout_sec = 10800`, and the standard collection hook's `timeout_sec = 300`.
+- Task resources are `cpus = 8`, `memory_mb = 16384`, and `storage_mb = 51200`. CPU tasks set `gpus = 0` and omit `gpu_types`; GPU tasks use `gpu_types = ["A100"]` and an appropriate count. Use Harbor's resource fields, without custom profile/accelerator/topology fields. Check actual device visibility, shared memory, process startup, and communication where relevant.
+- Runtime networking is `no-network`. Keep the Dockerfile and omit a committed `docker_image`. Use default shared grading by omitting `verifier.environment_mode` and `verifier.environment`. Keep `artifacts = [environment.workdir]` and the standard self-contained collector.
+- CI enforces CPU/RAM with `--cpus limit --memory limit`; CPU CI additionally uses `--override-cpus 4`. Record that effective limit rather than claiming it ran with eight CPUs. The formal task still declares eight; Docker storage is not a disk quota, and a standalone CI Docker build is not bounded by Harbor's build timeout.
 - Confirm models and data are available under the configured network policy. Smoke-test formal harness provisioning early: metadata alone does not prove a Docker backend assigns GPUs.
+
+Use `validation/ci-cases.json`, `validation/patches/`, and optional reusable
+`validation/tools/`. Keep reports and raw results outside the task; historical
+reports remain in Git. The image manifest contains `image_id`, environment-relative
+`files` hashes, and optional special `build` inputs. The normalizer and audit
+check those hashes against current files without refreshing stale records.
 
 ### 5.2 Natural development paths and visibility
 
@@ -96,9 +112,15 @@ Place real source, semantic dependencies, configuration, tools, and resources in
 | `instruction.md` | Agent-visible | Check for answer and test hints |
 | Base repository, image filesystem, Git objects, caches, environment | Agent-visible | Check for future source and diagnosis aids |
 | `task.toml` | Harness metadata, not agent-visible | Validate metadata; do not label it a solver leak |
-| Task `tests/`, `solution/`, and `validation/` | Verifier/CI-only | Ensure they never enter the agent image or its layers |
+| Task `tests/` | Supplied after the agent phase for shared verification | Keep out of the initial agent image; audit candidate-process access during verification |
+| Task `solution/` and `validation/` | Oracle/maintainer/CI-only | Keep hidden from evaluated agents and out of their image layers |
 
 Inspect the actual harness and update this visibility model if it differs. Information is a solver leak only when visible during the agent phase and materially revealing the answer, tests, or investigation path. Ordinary upstream tests at Base are not hidden-verifier leaks. Separately assess candidate-process access during verification in step 10.
+
+Shared grading sees the agent's modified filesystem and running services; it
+does not provide a fresh baseline. The top-level workspace archive and
+`verifier.collect` run before verifier mutations. Review saved submissions from
+those artifacts rather than assuming the post-verifier worktree is unchanged.
 
 ### 5.3 Cutoff and image audit
 
@@ -238,14 +260,14 @@ Use this final-validation order within the authorized scope:
 2. Run the repository validator and applicable static audit layers. Check syntax, test collection, patch applicability, artifact hashes, image identity, Git isolation, and agent visibility. JUnit checks are optional until a run record exists.
 3. Run Base, Oracle, correct alternatives, incorrect controls, and appropriate stability or stress trials. Confirm the expected behavior and actual failure reason for each.
 4. Freeze executable artifacts. Any later executable change invalidates the affected behavioral and Harbor results.
-5. Run the final Harbor Oracle trial. Require reward 1, zero errored trials, and completion of the expected test layers.
-6. Update evidence and remediation records using only runs that actually occurred. Run the final artifact audit with `--strict-evidence` and `git diff --check`.
+5. Run the final Harbor Oracle trial when the mode includes one. Require reward 1, zero errored trials, and completion of the expected test layers. For approved `verifier_only` tasks, run Base and declared controls through Harbor with their expected rewards and record the unavailable full-solution validation.
+6. Retain CI or Harbor run records outside the task directory and report only runs that actually occurred. Run the final artifact audit and `git diff --check`.
 
 Verify artifact transfer, actual device assignment, isolation, required test completion, reward collection, and errored trials. Manual execution in a development container does not cover all these stages. Base must receive 0 because of the target behavior, not an import, fixture, dependency, or hardware error. Oracle and correct alternatives must receive 1 at the required semantic boundary with no skipped or errored checks; incorrect controls must receive 0 for the intended violation. The verifier must distinguish implementations through behavior alone.
 
 Keep evidence concise and machine-checkable. Record final task and Base identities, cutoff, image identity, executable hashes, hardware, commands, semantic boundary and substitutions, expected and actual outcomes, failure causes, stability results, and necessary raw logs. Support historical and quoted observations. For early-exit controls, also retain the patch hash, process exit status, completed-check evidence, and final reward. Record final Harbor identifiers, reward, errors, and input checksum. If the full entrypoint is unavailable, leave that validation pending and label any narrower probe accurately.
 
-The Harbor input checksum identifies the task snapshot before final evidence is written. Evidence-only or remediation-documentation updates can change the directory checksum without invalidating executable results; record this self-reference. Instruction, task configuration, environment, solution, tests, or control changes are not evidence-only. Reassess alignment after statement edits and rerun affected checks rather than carrying old passing results forward.
+The Harbor input checksum identifies the task snapshot used for the run. Keep run records outside the task directory. Instruction, task configuration, environment, solution, tests, or control changes require reassessing alignment and rerunning affected checks rather than carrying old passing results forward.
 
 Checkpoint: reproducible evidence certifies the final executable snapshot. Static checks supplement behavioral evidence and cannot establish authenticity, fairness, or actual control behavior by themselves.
 
@@ -274,7 +296,7 @@ The report must cover the realistic workflow and evidence classification; unsupp
 
 Before an authorized commit or PR, run the staged-scope audit, inspect the staged diff, and preserve unrelated tracked and untracked changes. Report final hashes, image identity, validation results, and the exact worktree, branch, commit and PR state. Commit, push, or create a PR only with explicit authorization.
 
-Final task acceptance requires all three gates to pass, no open blocker, repository checks to pass, expected Base/Oracle/control behavior, successful final Harbor validation, and evidence matching the executable artifacts. An agent timeout below 10 hours remains a reported non-blocking warning.
+Final task acceptance requires all three applicable gates to pass, no open blocker, repository checks to pass, mode-appropriate Base/Oracle/control behavior, successful final Harbor validation, and records matching the executable artifacts. Budget and resource declarations must follow the current benchmark policy. Verifier-only acceptance retains the explicit limitation that no complete solution has been validated.
 
 Checkpoint: another reviewer can understand the current state at a glance and follow the evidence to reproduce the conclusion. Required validation that was not run remains pending rather than being represented as complete.
 
@@ -306,8 +328,12 @@ A known failure can receive 0 even when other checks remain pending. A confirmed
 
 Use a compact report table with columns `# | Dimension | Score / status | Key evidence or gap | Next action`. Link evidence or finding IDs rather than repeating full findings. Keep all ten rows even in an interim review; use U for unfinished dimensions. For an updated review, identify the task snapshot and explain changed scores from new evidence or artifact changes. Earlier-revision results do not automatically certify the current revision.
 
+For `verifier_only` tasks, keep dimensions 6 and 8 as U where complete correct
+alternatives or an Oracle are unavailable. Report that accepted mode limitation
+without inventing passing scores or blocking solely on the absent implementations.
+
 Report fixture reachability under dimension 4 (contract and supported scenarios) and dimension 5 (input path and substitutions), citing the same finding when both are affected. If the evidence cannot justify a scored case, use U for the unresolved assessment rather than treating an Oracle pass or candidate failures as proof. A demonstrated unreachable scored case is a verifier defect, not merely U; apply the failure criteria above. Do not count the same issue twice as separate blockers.
 
 Above the table, show the overall disposition, scored dimensions (`k/10`), unverified dimensions, and blocking findings. When all ten dimensions are scored, show the sum out of 20. If any dimension is U, show only the scored subtotal `S/(2k)` alongside the coverage count and explicitly leave the overall score pending; do not normalize it to a full-task percentage or present it as a completed score. When k is zero, omit the subtotal.
 
-Retain the three-gate decisions and the priorities in step 15. A high aggregate score never offsets a blocker in any dimension, and incomplete required verification prevents a final pass. A minor non-blocking shortfall may remain a 1 with an explicit explanation; no numerical threshold replaces the acceptance criteria. Follow the table with the blocking issues and smallest concrete next actions. Avoid duplicating the same finding in the total blocker count when it affects several dimensions.
+Retain the three-gate decisions and the priorities in step 15. A high aggregate score never offsets a blocker in any dimension, and incomplete verification required by the approved mode prevents final acceptance. A minor non-blocking shortfall may remain a 1 with an explicit explanation; no numerical threshold replaces the acceptance criteria. Follow the table with the blocking issues and smallest concrete next actions. Avoid duplicating the same finding in the total blocker count when it affects several dimensions.

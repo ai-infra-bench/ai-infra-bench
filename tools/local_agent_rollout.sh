@@ -25,7 +25,9 @@
 # (no interception; traffic is governed by the host proxy's own rules) and verifier phase
 # "no-network" (sidecar deny-all during verify, as in CI). ROLLOUT_USE_PROXY=0 keeps the
 # task's own no-network policy and only allowlists the API host for direct egress;
-# ROLLOUT_USE_PROXY=1 fails instead of falling back when no host proxy is configured.
+# ROLLOUT_USE_PROXY=1 fails instead of falling back when no host proxy is configured;
+# ROLLOUT_USE_PROXY=public makes the agent phase public with no proxy at all (hosts with
+# unrestricted direct egress), verifier phase no-network as always.
 #
 # Direct mode: Harbor's --allow-agent-host turns the no-network agent phase into an
 # allowlist holding only the model API host. Agent installation runs under the environment
@@ -80,7 +82,13 @@ HOST_PROXY=${HTTPS_PROXY:-${https_proxy:-${HTTP_PROXY:-${http_proxy:-}}}}
 if [ "$USE_PROXY" = auto ]; then
   if [ -n "$HOST_PROXY" ]; then USE_PROXY=1; else USE_PROXY=0; echo "network: no host proxy configured, using direct egress"; fi
 fi
-if [ "$USE_PROXY" = 1 ]; then
+if [ "$USE_PROXY" = public ]; then
+  # A host with unrestricted direct egress (e.g. a Linux dev box): agent phase public
+  # without any proxy, verifier phase no-network. Needed for agents whose installer fetches
+  # from hosts the direct-mode allowlist does not name.
+  echo "network: no proxy; agent phase public, verifier phase no-network"
+  HOST_ARGS=()
+elif [ "$USE_PROXY" = 1 ]; then
   [ -n "$HOST_PROXY" ] || { echo "proxy requested but no HTTPS_PROXY/HTTP_PROXY on host" >&2; exit 2; }
   CT_PROXY=$(printf '%s' "$HOST_PROXY" | sed -E 's#127\.0\.0\.1|localhost#host.docker.internal#')
   PROXY_IP=$(docker run --rm "$IMAGE" sh -c 'getent hosts host.docker.internal | cut -d" " -f1')
@@ -102,7 +110,7 @@ rm -rf "$ROLL"; mkdir -p "$(dirname "$ROLL")"
 cp -R "$REPO/tasks/$TASK" "$ROLL"
 printf 'FROM %s\n' "$IMAGE" > "$ROLL/environment/Dockerfile"
 rm -rf "$ROLL/validation" "$ROLL/environment/lock" "$ROLL/environment/baseline_check.py" "$ROLL/environment/image-manifest.json"
-if [ "$USE_PROXY" = 1 ]; then
+if [ "$USE_PROXY" = 1 ] || [ "$USE_PROXY" = public ]; then
   python3 - "$ROLL/task.toml" <<'PY'
 import re, sys
 path = sys.argv[1]

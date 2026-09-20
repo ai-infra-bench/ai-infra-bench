@@ -49,10 +49,13 @@ curator-side check (CI builds the checked-in Dockerfile as is); run it before
 committing a template change. The builder sends an empty context to BuildKit,
 so tests, the Oracle, and curator files cannot enter the image; the baseline
 checker script is embedded in the Dockerfile with a heredoc `COPY` for the same
-reason. `build.py` records `image_id` in the manifest; copy it to
-`task.toml` `image_digest` (the repository audit requires them to match).
+reason. `build.py` writes `environment/image-manifest.json` in the repository
+format (`templates/harbor-task/README.md`, "Image manifest"): the retained
+`image_id` and the hashes of `Dockerfile`, `lock/package-lock.json` and
+`lock/manifest.json`. Installed versions and the baseline summary are printed as an
+`IMAGE {...}` line for the build log; they are build records, not task files.
 
-After every rebuild, compare the manifest's `pass_to_pass_baseline.failed_on_base`
+After every rebuild, compare that line's `pass_to_pass_baseline.failed_on_base`
 with the task's `tests/baseline-pins.json` `allowed_failures`: a platform may
 show an environmental failure the pin does not list yet, and the fix is to
 extend the pin.
