@@ -19,10 +19,13 @@ test('Bug fix metadata spellings share one facet',()=>{
  assert.deepEqual(facet('feature'),['feature']);
  assert.deepEqual(facet('unknown'),['unknown']);
 });
-test('current tasks expose Inference, not project names or empty future domains',()=>{
- assert.deepEqual(availableDomains(tasks),['inference']);
- assert.ok(tasks.every(t=>taskDomain(t)==='inference'));
- assert.equal(apply({domain:'inference'}).length,tasks.length);
+test('current tasks expose the domains of their projects, not project names or empty future domains',()=>{
+ const byProject={'vllm-project/vllm':'inference','earendil-works/pi':'agent_harness'};
+ assert.ok(tasks.every(t=>taskDomain(t)===byProject[t.repository]));
+ const present=['inference','training','agent_harness'].filter(d=>tasks.some(t=>taskDomain(t)===d));
+ assert.ok(present.includes('inference'));
+ assert.deepEqual(availableDomains(tasks),present);
+ for(const d of present) assert.equal(apply({domain:d}).length,tasks.filter(t=>taskDomain(t)===d).length);
  assert.equal(apply({domain:'training'}).length,0);
  assert.equal(taskDomain({repository:'unclassified/project'}),null);
 });
