@@ -28,7 +28,7 @@ For each material finding, answer these questions:
 
 Include defects that satisfy the first two conditions. Exclude defects that require later-added features, unsupported modes, or unrelated behavior, and explain that boundary. A bug reported after the cutoff may still belong if its triggering conditions already existed at Base; its later report date alone is not grounds for exclusion.
 
-If a finding would materially expand the scope, present that change before adopting it. Once the task is frozen, record an accepted scope expansion as a new version rather than silently adding requirements after an evaluated agent passes. Do not add Oracle-specific helpers, representations, or protocols to the instruction merely to accommodate tests.
+If a finding would materially expand the scope, present that change before adopting it. Once the task is frozen, identify an accepted scope expansion as a new snapshot rather than silently adding requirements after an evaluated agent passes. Published benchmark changes require an explicit release-version decision; pre-release iteration keeps the agreed `1.0.0`. Do not add Oracle-specific helpers, representations, or protocols to the instruction merely to accommodate tests.
 
 ## Turn applicable findings into behavioral checks
 
@@ -46,7 +46,9 @@ Distinguish code inspection, a focused reproducer, and a full task-verifier run.
 
 ## Preserve evidence without exposing the answer
 
-Keep a compact curator-facing record, using an existing construction report when available:
+Keep a compact curator-facing record with the external construction or run
+results, using an existing report when available. Do not add a report or evidence
+summary to the release task's `validation/` directory:
 
 | Finding and source | Base and scope applicability | Oracle evidence | Disposition and coverage |
 | --- | --- | --- | --- |

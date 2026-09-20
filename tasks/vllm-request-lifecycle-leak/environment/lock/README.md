@@ -44,4 +44,5 @@ the target source. Runtime imports resolve to `/workspace/repo/vllm`.
 Network access is required only while pulling the digest-pinned donor and
 fetching the exact source history. Agent and verifier phases run with no
 network. The image contains no task-specific reproducer, verifier, Oracle, or
-validation artifact; those are mounted only into the separate verifier phase.
+validation artifact. Harbor supplies task tests after the agent phase for shared
+verification; Oracle and maintenance artifacts remain outside evaluated-agent runs.

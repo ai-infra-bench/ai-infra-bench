@@ -3,7 +3,8 @@
 Each vLLM task keeps its own self-contained `environment/Dockerfile`. The
 generated files install the same CPU-native Python environment, Rust toolchain,
 video codecs, and test tooling. Their frozen inputs are the base commit and
-dependency cutoff read from `task.toml`.
+dependency cutoff read from `task.toml`. Optional build inputs live in
+`environment/build-config.json` with `"schema_version": "vllm_build_config.v1"`.
 
 Generate one or more task Dockerfiles from the repository root:
 
@@ -13,7 +14,7 @@ python3 templates/vllm-harbor-all-in-one/generate.py \
   tasks/vllm-kv-admission-thrashing
 ```
 
-Verify that checked-in Dockerfiles still match the template and task metadata:
+Verify that checked-in Dockerfiles still match the template and build inputs:
 
 ```bash
 python3 templates/vllm-harbor-all-in-one/generate.py --check tasks/vllm-*
@@ -35,6 +36,9 @@ curator files cannot enter the image. It writes `environment/image-manifest.json
 after a successful build and does not remove the canonical image tag. Dynamic
 Buildx attestations are disabled so cache-only rebuilds keep the same image
 digest; provenance is recorded in the checked-in manifest instead.
+The manifest follows the shared [image manifest format](../harbor-task/README.md#image-manifest):
+image identity and a mapping of input files to SHA-256 values. Build logs and
+package inventories stay with run records rather than in the task manifest.
 
 When `environment/lock/requirements.txt` exists, the generator embeds the
 complete exact-version requirements text into the generated Dockerfile. The lock
@@ -43,15 +47,19 @@ still builds by itself from an empty context.
 
 A task that needs real tokenizer or template behavior may define
 `runtime_asset_repository`, `runtime_asset_revision`, `runtime_asset_path`, and
-`runtime_asset_files` in `[metadata]`. The revision must be a full commit SHA and
+`runtime_asset_files` in `environment/build-config.json`. The revision must be a full commit SHA and
 the generated Dockerfile downloads only the named files. Model tensor suffixes
 are rejected both while generating the Dockerfile and while building the image.
 
 A task that needs one public reproduction fixture may instead define
 `runtime_file_url`, `runtime_file_sha256`, `runtime_file_path`,
-`runtime_file_license`, and `runtime_file_attribution`. The generated Dockerfile
+`runtime_file_license`, and `runtime_file_attribution` in that same build config. The generated Dockerfile
 downloads the HTTPS resource, rejects content whose SHA-256 differs, and writes
 an attribution file beside it.
+
+Dependency-lock generation also reads `dependency_cutoff_overrides` from this
+file when per-package cutoff exceptions are required. Image IDs remain in
+`environment/image-manifest.json`; they are not duplicated in `task.toml`.
 
 Cache reuse is split by trust boundary:
 

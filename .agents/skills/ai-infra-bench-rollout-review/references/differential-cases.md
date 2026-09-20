@@ -150,7 +150,13 @@ mark provenance uncertain and rerun the affected checks from frozen inputs.
 Do not combine partial runs from different revisions into a claimed complete
 pass of the final revision without establishing which evidence still applies.
 
-Update test inventory and task version when behavior/scoring changes. Evidence
+Update the test inventory and immutable snapshot identity when behavior/scoring
+changes. Keep the agreed initial-release version `1.0.0` during pre-release
+iteration; a published benchmark change needs an explicit release-version
+decision. Place promoted control patches under `validation/patches/`, update
+their v2 `ci-cases.json` entries and hashes, and retain the correct `apply_after`
+base. Reusable probes belong in `validation/tools/`; logs and reports stay
+outside the task. Evidence
 documents may be generated after the run, but they must reference the pre-run
 executable hashes. Hashing a report later is distinct from proving which tests
 ran; avoid self-referential evidence hashes that cause needless reruns.

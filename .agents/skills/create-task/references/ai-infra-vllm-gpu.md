@@ -1,7 +1,7 @@
 # Constructing vLLM and GPU benchmark tasks
 
 Use this playbook for ai-infra-bench tasks involving vLLM or other GPU
-infrastructure mechanisms. It supplements the generic task-creation workflow.
+infrastructure mechanisms. It supplements the repository task-creation workflow.
 The post-construction independent review remains governed by the
 `ai-infra-bench-task-review` skill.
 
@@ -54,7 +54,9 @@ root cause, Golden helper, field, file list, or algorithm.
 
 State scope honestly in terms of observable behavior. Do not silently expand
 the frozen contract after seeing an evaluated agent pass. A material scope
-change requires an explicitly recorded new task or version.
+change requires a new immutable snapshot and an explicit release-version
+decision once published. Keep `1.0.0` during the agreed initial-release cleanup;
+do not confuse that shared version with an exact validation snapshot.
 
 ## 3. Instruction rules
 
@@ -83,6 +85,9 @@ bug-fix task need not have a standalone reproducer if existing tests or
 execution evidence establish the target behavior. Other task types should use
 behavioral or performance checks appropriate to their goals.
 
+Use `validation/tools/` for reusable probes and `validation/patches/` plus the
+v2 `ci-cases.json` for controls. Keep measurements and review reports with
+external CI/Harbor run records, and retrieve historical reports through Git.
 If present, keep these artifacts and diagnostic materials curator-only or
 verifier-only. Do not expose them through the instruction, agent filesystem,
 mounts, recoverable Git objects, caches, or image layers. A `validation/`
@@ -103,12 +108,21 @@ Choose hardware from the behavior being evaluated:
 | GPU-required, model-independent | Run on a GPU satisfying the required capabilities and resources; do not require an exact model without a behavioral reason. |
 | Device-feature-dependent | Record the relevant architecture, capability, topology, or other device property and the devices on which the target behavior has been validated. |
 
+Apply the [current resource and budget policy](../../../../templates/harbor-task/README.md)
+to task declarations: GPU tasks use `gpus` and `gpu_types = ["A100"]`; CPU tasks
+use `gpus = 0`. All tasks declare 8 CPUs, 16 GiB memory, 50 GiB storage, 10 hours
+for the agent, 2 hours for verification, 3 hours for environment build/start,
+and 300 seconds for collection. CPU CI's four-CPU override is a run setting,
+not a change to the task. Shared verification and offline runtime are fixed
+repository defaults.
+
 The original reproduction device is evidence, not an automatic exclusivity
 rule. Another device may be used when validation establishes the same target
 mechanism and required behavior. Record its hardware identity and results.
 Treat untested devices as unverified, not automatically supported or
 unsupported. Do not reuse device-specific performance thresholds on different
-hardware without validating their applicability.
+hardware without validating their applicability. Such diagnostic portability
+checks do not change the benchmark's A100 declaration or measurement baseline.
 
 CPU-only results cannot establish GPU behavior. Mentioning GPU configuration,
 TP, or PP does not by itself require a real collective; executing or measuring
@@ -130,8 +144,9 @@ For `_C`, `_moe_C`, or other compiled extensions. Declare:
 - the focused build target and command;
 - CUDA architectures and compiler limits;
 - source, build-input, output-library, and cold-import digests;
-- the rule excluding generated `.so`, build directories, and caches from the
-  agent source patch.
+- which generated binaries or build caches affect execution and replay. The
+  full workspace archive retains ignored outputs; the incremental untracked
+  archive alone does not establish that these artifacts were captured.
 
 When candidate changes affect the native target or its build inputs, the
 verifier must rebuild that target or establish equivalent provenance for the
@@ -172,10 +187,13 @@ Before building, construct a compatibility record for:
 - Oracle applicability to the base;
 - tokenizer/model configuration or deterministic fixture revisions.
 
-The verifier must be runnable under its declared network policy. If it uses a
-model identifier while offline, bake the smallest required immutable metadata
-or a valid local fixture into the image. Do not let Base, Oracle, or agent fail
-first because a model, pytest, compiler, or package is missing.
+The verifier must be runnable under its declared network policy. Bake the
+smallest required immutable public model metadata or runtime assets into the
+image, recording inputs in `environment/build-config.json` where applicable.
+Supply private test fixtures after the agent phase or construct them from the
+normal installed components during verification. Shared grading does not make
+private fixtures safe to preinstall. Do not let Base, Oracle, or agent fail first
+because a model, pytest, compiler, or package is missing.
 
 ## 6. Native and image provenance
 
@@ -231,10 +249,11 @@ Complete these checks while constructing the task:
    dependency, missing-model, missing-private-symbol, or build failures do not
    satisfy this control.
 2. **Oracle positive:** reward 1 at the same E2E boundary, with zero unexpected
-   skips.
+   skips. For an approved `verifier_only` task, use independent boundary controls
+   and record the lack of a complete validated implementation.
 3. **Environment smoke:** the declared compiler, package, model fixture, GPU,
    and collective requirements are available before the target behavior runs.
-4. **Production-boundary smoke:** Base and Oracle exercise the production entry
+4. **Production-boundary smoke:** Base and Oracle, when present, exercise the production entry
    point named in the task contract rather than only a mock or private helper.
 5. **Artifact provenance:** affected native targets correspond to candidate
    build inputs and are actually loaded in a fresh process; reused unaffected
@@ -254,13 +273,13 @@ After the construction checks pass, freeze and hand off:
 - instruction and declared task scope;
 - base source and image identities;
 - environment and dependency locks;
-- Oracle patch and applicability record;
+- Oracle patch and applicability record, or the approved verifier-only limitation;
 - verifier;
 - curator-only reproduction artifacts and diagnostic evidence, if any;
-- Base/Oracle logs and artifact provenance;
+- Base/control logs, Oracle logs when applicable, and artifact provenance;
 - hardware requirements and time limits.
 
 Hand these artifacts to the `ai-infra-bench-task-review` skill. Its procedures
 and acceptance criteria are intentionally outside the scope of this creation
-reference. If review later returns a construction defect, address it as a new
-task version rather than silently editing the frozen candidate.
+reference. If review later returns a construction defect, identify the corrected
+snapshot and rerun affected checks without relabeling older results as current.

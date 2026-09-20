@@ -15,14 +15,16 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import tempfile
-from datetime import datetime, timezone
 from pathlib import Path
 
 import tomllib
 
 TEMPLATE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TEMPLATE_DIR.parents[1]
+sys.path.insert(0, str(REPO_ROOT / "tools"))
+from normalize_image_manifests import check_file_hashes, normalize_manifest  # noqa: E402
 
 
 def sha256_file(path: Path) -> str:
@@ -118,47 +120,26 @@ def build(task_dir: Path, platform: str | None) -> None:
     versions = probe_result
     versions["pi"] = f"{versions['pi']} (workspace build)"
 
+    # environment/image-manifest.json follows the repository format (templates/harbor-task/
+    # README.md, "Image manifest"): the retained image id and the hashes of the build inputs.
+    # Tags, timestamps, installed versions and the baseline summary are build records, not
+    # task files; they are printed for the build log.
+    print("IMAGE " + json.dumps({"platform": f"{inspect.get('Os')}/{inspect.get('Architecture')}", "installed_versions": versions, "pass_to_pass_baseline": baseline}))
     lock_manifest_path = task_dir / "environment" / "lock" / "manifest.json"
     lock_manifest = json.loads(lock_manifest_path.read_text())
     lock_path = task_dir / lock_manifest["output"]["path"]
-    manifest = {
-        "schema_version": "pi_harbor_image.v1",
-        "task": metadata["task"]["name"],
-        "canonical_tag": tag,
-        "image_id": inspect["Id"],
-        "repo_digests": inspect.get("RepoDigests") or [],
-        "platform": f"{inspect.get('Os')}/{inspect.get('Architecture')}",
-        "size_bytes": inspect["Size"],
-        "created": inspect["Created"],
-        "recorded_at": datetime.now(timezone.utc).isoformat(),
-        "base_commit": expected_base,
-        "dependency_cutoff": expected_cutoff,
-        "dockerfile_sha256": sha256_file(dockerfile),
-        "template_sha256": sha256_file(TEMPLATE_DIR / "Dockerfile"),
-        "dependency_lock_sha256": sha256_file(lock_path),
-        "dependency_lock_manifest_sha256": sha256_file(lock_manifest_path),
-        "build_context": "empty",
-        "build_command": f"python3 templates/{TEMPLATE_DIR.name}/build.py"
-        + (f" --platform {platform}" if platform else "")
-        + f" tasks/{task_dir.name}",
-        "cache_policy": {
-            "shared": ["source-independent OCI layers"],
-            "base_and_lock_scoped": ["npm ci from the pinned package-lock.json"],
-            "namespace": labels.get("ai.infra.bench.cache-namespace"),
-            "remote_cache_imported": False,
-            "runtime_downloads": "none (fd and ripgrep preinstalled, PI_OFFLINE=1)",
-        },
-        "installed_versions": versions,
-        "pass_to_pass_baseline": {
-            "path": "/opt/pi-baseline/coding-agent-junit.xml",
-            "tests": baseline["totals"]["tests"],
-            "failures": baseline["totals"]["failures"],
-            "errors": baseline["totals"]["errors"],
-            "skipped": baseline["totals"]["skipped"],
-            "failed_on_base": baseline["failed_on_base"],
-            "note": "recorded on the unmodified Base inside the image; tests/baseline-pins.json pins its identity and the allowed failures",
-        },
-    }
+    environment = task_dir / "environment"
+    manifest = normalize_manifest(
+        {
+            "image_id": inspect["Id"],
+            "files": {
+                "Dockerfile": sha256_file(dockerfile),
+                lock_path.relative_to(environment).as_posix(): sha256_file(lock_path),
+                "lock/manifest.json": sha256_file(lock_manifest_path),
+            },
+        }
+    )
+    check_file_hashes(manifest, environment)
     manifest_path = task_dir / "environment" / "image-manifest.json"
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
     print(f"RETAINED {tag} {inspect['Id']}")

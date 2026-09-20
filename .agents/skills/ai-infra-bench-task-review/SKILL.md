@@ -90,10 +90,20 @@ stated in the instruction are listed in
 
 ## Fixed project rules
 
-- Do not require one fixed agent budget. When `[agent].timeout_sec` is less
-  than 10 hours (`36000` seconds), report a warning that the task may not give
-  solvers enough time. This warning is non-blocking; budgets of 10 hours or
-  longer are allowed.
+- Read the current [task conventions](../../../templates/harbor-task/README.md).
+  They define the metadata, keywords, resource declarations, shared verifier,
+  archive format, and directory layout. Check the fixed budgets: agent `36000`,
+  verifier `7200`, environment build `10800`, and collection `300` seconds.
+  Tasks declare 8 CPUs, 16384 MiB memory, and 51200 MiB storage; CPU CI's
+  four-CPU override does not change the formal task configuration.
+- Read validation mode from `validation/ci-cases.json`, not task metadata.
+  Approved `verifier_only` tasks have Base and declared controls, without an
+  Oracle. Review their supported behavioral evidence and record missing
+  full-solution validation; do not invent an Oracle requirement or certify it.
+- The minimal image manifest records `image_id`, `files`, and optional special
+  `build` inputs. Check each file hash against the current file. Validation
+  outcomes live with external CI/Harbor records, not in the image manifest or
+  a task-local evidence summary.
 - Cutoff applies to the target repository and history, models, tokenizers, data
   resources, external protocols, and runtime dependencies whose behavior
   affects the task. General benchmark infrastructure such as the base image,
@@ -121,5 +131,5 @@ results that were not actually run.
 You may run `scripts/audit_task_artifacts.py` for mechanical checks. Its JUnit,
 image, and staged checks are optional layers; static success does not establish
 scenario authenticity, E2E quality, verifier fairness, or actual control
-behavior. Use `--strict-evidence` only for the final publication gate, when
-incomplete executable hash coverage must fail rather than warn.
+behavior. Keep measured outcomes and input identities with the CI or Harbor run
+records; the task directory does not require a separate evidence summary.
