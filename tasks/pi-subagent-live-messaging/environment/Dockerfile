@@ -29,5 +29,6 @@ RUN printf '#!/bin/sh\nexec node /workspace/pi/packages/coding-agent/src/cli.ts 
  && chmod +x /usr/local/bin/pi \
  && pi --version \
  && useradd --create-home --shell /bin/bash agent \
- && chown -R agent:agent /workspace/pi
+ && chown -R agent:agent /workspace/pi \
+ && git config --system --add safe.directory /workspace/pi
 CMD ["/bin/bash"]

@@ -567,9 +567,9 @@ def run_case(name, repo, output, binding_path=None, scenario_path=None):
               "diagnostic_retained_paths": [str(p) for p in leftovers],
               "cleanup_wait_seconds": round(cleanup_wait, 3),
               "elapsed_seconds": round(time.monotonic() - started, 2)}
-    (directory / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2))
-    (directory / "requests.json").write_text(json.dumps(case.requests, ensure_ascii=False, indent=2))
-    (directory / "events.json").write_text(json.dumps(case.events, ensure_ascii=False, indent=2))
+    (directory / "result.json").write_text(json.dumps(result, ensure_ascii=True, indent=2))
+    (directory / "requests.json").write_text(json.dumps(case.requests, ensure_ascii=True, indent=2))
+    (directory / "events.json").write_text(json.dumps(case.events, ensure_ascii=True, indent=2))
     (directory / "stdout.jsonl").write_text(stdout)
     (directory / "stderr.txt").write_text(stderr)
     # The tree is candidate-owned; shutil.rmtree uses fd-based symlink protection.
@@ -594,10 +594,10 @@ def main():
         except Exception as exc:
             result = {"name": name, "passed": False, "errors": [repr(exc)]}
         results.append(result)
-        print(json.dumps(result, ensure_ascii=False), flush=True)
+        print(json.dumps(result, ensure_ascii=True), flush=True)
     summary = {"case_count": len(results), "passed": sum(r["passed"] for r in results),
                "external_model_calls": 0, "results": results}
-    (args.output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2))
+    (args.output / "summary.json").write_text(json.dumps(summary, ensure_ascii=True, indent=2))
     return 0 if len(results) == len(args.cases) and all(r["passed"] for r in results) else 1
 
 

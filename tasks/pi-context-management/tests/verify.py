@@ -425,9 +425,9 @@ def run_case(name, repo, output):
         server.shutdown()
         server.server_close()
     for filename, data in [("requests", scenario.requests), ("events", scenario.events)]:
-        (directory / (filename + ".json")).write_text(json.dumps(data, ensure_ascii=False, indent=2))
+        (directory / (filename + ".json")).write_text(json.dumps(data, ensure_ascii=True, indent=2))
     result_data = {"name": name, "passed": passed, "errors": scenario.errors, "exits": exits, "requests": len(scenario.requests), "checks": scenario.checks}
-    (directory / "result.json").write_text(json.dumps(result_data, ensure_ascii=False, indent=2))
+    (directory / "result.json").write_text(json.dumps(result_data, ensure_ascii=True, indent=2))
     return result_data
 
 
@@ -444,9 +444,9 @@ def main():
         try: data = run_case(name, args.repo.resolve(), args.output)
         except Exception as exc: data = {"name": name, "passed": False, "errors": [repr(exc)]}
         results.append(data)
-        print(json.dumps(data, ensure_ascii=False), flush=True)
+        print(json.dumps(data, ensure_ascii=True), flush=True)
     summary = {"total": len(results), "passed": sum(r["passed"] for r in results), "external_model_calls": 0, "results": results}
-    (args.output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2))
+    (args.output / "summary.json").write_text(json.dumps(summary, ensure_ascii=True, indent=2))
     return 0 if len(results) == len(args.cases) and all(r["passed"] for r in results) else 1
 
 
