@@ -11,6 +11,12 @@ full-task solvability. An accepted verifier-only mode may support the first two
 without evidence for the third; report that limit without inventing an Oracle
 requirement or certifying the complete task.
 
+Store reports with the campaign or CI/Harbor artifacts outside the task tree.
+Task-local validation contains the case manifest, control patches, and reusable
+tools. Its image manifest contains image identity and file hashes, not measured
+results. A shared `version = "1.0.0"` does not identify the executed snapshot;
+use the recorded commit and file hashes.
+
 ## Per-attempt records
 
 Include all requested attempts in one table, keeping original and replayed
@@ -19,6 +25,7 @@ results in separate columns or tables. Record:
 - task name/version and immutable task revision or snapshot identity;
 - trial ID, model, reasoning effort, and model revision if actually recorded;
 - agent harness/name/version and Harbor version;
+- effective CPU/RAM/GPU limits and network policy, including any run overrides;
 - total, agent, and verifier elapsed time;
 - Agent Step, tool-call count, modified file count, added/deleted lines;
 - verifier passed/total, failures, errors, skips, lifecycle completion, reward;
@@ -37,6 +44,11 @@ Do not parse a patch's numstat from a nested repository directory where Git may
 silently exclude paths outside that prefix. Use a known repository root and
 cross-check the changed paths against the captured status and artifact archive.
 Missing data is 'not recorded', not zero. Redact credentials from excerpts.
+
+The standard `solution.patch` compares with `base-commit.txt`, so it includes
+committed as well as uncommitted agent work. Use that Base when deriving counts
+or reconstructing a checkout. Check the untracked archive and full workdir
+snapshot for new and ignored artifacts before claiming complete replay.
 
 If final snapshots are missing, mark final file/line counts unavailable even if
 the trajectory records edit commands. Directly evidenced behavior failures may

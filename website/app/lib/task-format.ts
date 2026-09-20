@@ -34,6 +34,12 @@ export function formatTaskTitle(slug: string) {
     .join(' ');
 }
 
+export function formatTaskHardware(task: { gpus: number; gpuTypes: string[] }) {
+  if (task.gpus === 0) return 'CPU';
+  const models = task.gpuTypes.join(' / ') || 'GPU';
+  return `${task.gpus} × ${models}`;
+}
+
 export function formatProjectName(repository: string | null) {
   if (!repository) return 'Unknown project';
 

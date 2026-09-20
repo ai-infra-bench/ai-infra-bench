@@ -101,16 +101,35 @@ jobs:
       TASK_NAME: ${{ matrix.task }}
       TARGET_PLATFORM: ${{ matrix.platform }}
       HARBOR_VERSION: 0.22.0
-      PUBLISH_IMAGE: ${{ matrix.accelerator == 'CPU' && 'true' || 'false' }}
+      PUBLISH_IMAGE: ${{ matrix.gpus == 0 && 'true' || 'false' }}
       http_proxy: ${{ matrix.data_proxy_url }}
       https_proxy: ${{ matrix.data_proxy_url }}
 
     steps:
+      - name: Restore ownership of prior Harbor results
+        if: runner.environment == 'self-hosted'
+        working-directory: ${{ runner.temp }}
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          old_results="$GITHUB_WORKSPACE/harbor-jobs"
+          if [ -d "$old_results" ]; then
+            test ! -L "$old_results"
+            cleanup_image="$(docker image ls --quiet --filter 'reference=ai-infra-bench-task-envs:*' | sed -n '1p')"
+            test -n "$cleanup_image"
+            docker run --rm --pull never --runtime runc --network none \
+              --user 0 --entrypoint /bin/sh \
+              --mount "type=bind,src=$old_results,dst=/cleanup" \
+              "$cleanup_image" -ec \
+              'chown -hR "$1:$2" /cleanup; chmod -R u+rwX /cleanup' \
+              cleanup "$(id -u)" "$(id -g)"
+          fi
+
       - name: Check out repository
         uses: actions/checkout@v7
 
       - name: Log in to GHCR
-        if: matrix.accelerator == 'CPU'
+        if: matrix.gpus == 0
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -125,16 +144,6 @@ jobs:
 
       - name: Validate every case and publish CPU cache miss
         run: bash .github/scripts/run_task_validation.sh
-
-      - name: Upload Harbor logs
-        # Large Harbor artifacts can time out on self-hosted GPU runners.
-        if: always() && (runner.environment != 'self-hosted' || matrix.accelerator == 'CPU')
-        uses: actions/upload-artifact@v7
-        with:
-          name: task-publication-${{ matrix.task }}
-          path: harbor-jobs/${{ matrix.task }}/
-          if-no-files-found: warn
-          retention-days: 30
 
   publish-website:
     needs:

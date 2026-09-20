@@ -38,11 +38,16 @@ PY
 )"
 harbor_command=(harbor)
 harbor_environment=docker
+harbor_resource_args=(--cpus limit --memory limit)
 if (( gpu_count > 0 )); then
   : "${AI_INFRA_GPU_POOL_CONFIG:?GPU runners require a host-managed pool configuration}"
   harbor_command=(python3 "$repo_root/.github/scripts/gpu_pool.py" --count "$gpu_count" -- harbor)
   harbor_environment=ci_gpu_docker:LeasedGpuDockerEnvironment
   export PYTHONPATH="$repo_root/.github/scripts${PYTHONPATH:+:$PYTHONPATH}"
+else
+  # Standard GitHub-hosted public Linux runners have four CPUs. Keep the task's
+  # eight-CPU benchmark declaration; this override is only for CPU task CI.
+  harbor_resource_args+=(--override-cpus 4)
 fi
 
 environment_key="$(
@@ -149,14 +154,17 @@ while IFS= read -r case_json; do
     --jobs-dir "$HARBOR_JOBS_DIR/$TASK_NAME" \
     --job-name "$job_name" \
     --n-concurrent 1 \
-    --cpus ignore \
-    --memory ignore \
+    "${harbor_resource_args[@]}" \
     --delete \
     --yes
 
+  job_dir="$HARBOR_JOBS_DIR/$TASK_NAME/$job_name"
+  cp "$case_dir/task.toml" "$job_dir/prepared-task.toml"
+
   python3 .github/scripts/task_ci.py check-result \
-    --result "$HARBOR_JOBS_DIR/$TASK_NAME/$job_name/result.json" \
+    --result "$job_dir/result.json" \
     --expected-reward "$expected_reward"
+  rm -rf -- "$case_dir"
 done < <(jq -c '.[]' <<<"$cases_json")
 
 published=false

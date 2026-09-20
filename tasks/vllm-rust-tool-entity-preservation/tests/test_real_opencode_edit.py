@@ -171,6 +171,7 @@ class VllmServer:
     def _read_address(self) -> str:
         assert self.process.stdout is not None
         deadline = time.monotonic() + 120
+        pending = ""
         while time.monotonic() < deadline:
             if self.process.poll() is not None:
                 remainder = self.process.stdout.read()
@@ -182,13 +183,20 @@ class VllmServer:
             readable, _, _ = select.select([self.process.stdout], [], [], 1)
             if not readable:
                 continue
-            line = self.process.stdout.readline()
-            if not line:
+            # Read the descriptor selected above directly. TextIOWrapper can
+            # buffer the address behind a preceding line even when select()
+            # reports no more pipe data. Partial lines must not block either.
+            chunk = os.read(self.process.stdout.fileno(), 65536)
+            if not chunk:
                 continue
-            self.output.append(line)
-            marker = "AI_INFRA_VLLM_SERVER="
-            if marker in line:
-                return line.split(marker, 1)[1].strip()
+            text = chunk.decode("utf-8", errors="replace")
+            self.output.append(text)
+            pending += text
+            while "\n" in pending:
+                line, pending = pending.split("\n", 1)
+                marker = "AI_INFRA_VLLM_SERVER="
+                if marker in line:
+                    return line.split(marker, 1)[1].strip()
         raise AssertionError(f"timed out starting vLLM server: {''.join(self.output)}")
 
     def __enter__(self) -> VllmServer:
