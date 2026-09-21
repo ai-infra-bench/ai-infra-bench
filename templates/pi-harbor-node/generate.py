@@ -64,8 +64,11 @@ def lock_sha256(task_dir: Path) -> str:
 
 def render(task_dir: Path, template: str) -> tuple[Path, str]:
     task_file = task_dir / "task.toml"
-    if metadata_value(task_file, "repository") != REPOSITORY:
-        raise ValueError(f"{task_file}: not an {REPOSITORY} task")
+    # task.toml [metadata] carries only task_type, base_commit and dependency_cutoff; the lock
+    # manifest records which repository the pinned checkout comes from.
+    lock_manifest = json.loads((task_dir / "environment/lock/manifest.json").read_text())
+    if lock_manifest.get("repository") != REPOSITORY:
+        raise ValueError(f"{task_dir}: not an {REPOSITORY} task")
     base_commit = metadata_value(task_file, "base_commit")
     if SHA_RE.fullmatch(base_commit) is None:
         raise ValueError(f"{task_file}: base_commit must be 40 lowercase hex characters")
