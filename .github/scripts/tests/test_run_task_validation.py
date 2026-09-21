@@ -51,7 +51,8 @@ elif name == "docker":
         if not ready.exists() and os.environ["MOCK_CACHE_HIT"] != "true":
             sys.exit(1)
         if "--format" in args:
-            print(os.environ["MOCK_REGISTRY"] + "@" + os.environ["MOCK_DIGEST"])
+            print(os.environ["MOCK_DIGEST"] if args[args.index("--format") + 1] == "{{.Id}}"
+                  else os.environ["MOCK_REGISTRY"] + "@" + os.environ["MOCK_DIGEST"])
         else:
             print(json.dumps([{"Id": "sha256:local-image"}]))
     elif args[:2] == ["buildx", "build"]:
@@ -92,10 +93,32 @@ else:
 '''
 
 
+FAKE_REVIEWED_RUNNER = r'''
+# Only the Docker/profile materializer is substituted. Generic manifest validation,
+# shell dispatch, resource arguments and final Harbor result checks remain real.
+import json, os, shutil, subprocess, sys
+from pathlib import Path
+args = sys.argv[1:]
+def value(flag): return args[args.index(flag)+1]
+output=Path(value('--output')); output.mkdir(parents=True)
+task=output/'task'; shutil.copytree(value('--task'),task)
+assert '--no-artifacts' in args and '--delete' in args
+config=(task/'task.toml').read_text().replace('artifacts = ["/workspace/repo"]','artifacts = []')
+config=config.replace('[environment]\n','[environment]\ndocker_image = '+json.dumps(value('--image'))+'\n')
+(task/'task.toml').write_text(config)
+command=['harbor','run','--path',str(task),'--agent','nop' if '--base' in args else 'oracle',
+         '--env','docker','--jobs-dir',str(output/'jobs'),'--job-name','reviewed-replay',
+         '--n-concurrent','1','--cpus',value('--cpus'),'--memory',value('--memory'),'--delete']
+if '--override-cpus' in args: command += ['--override-cpus',value('--override-cpus')]
+subprocess.run(command,check=True)
+'''
+
+
 class ValidationImageTests(unittest.TestCase):
     def run_validation(
         self, *, gpus, cache_hit, publish, harbor_fail=False, docker_image=True,
         build_failures=0, build_error="", expect_failure=False,
+        reviewed=False, local_image=False, case_filter=None,
     ):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -117,9 +140,20 @@ class ValidationImageTests(unittest.TestCase):
                 "files": {name: hashlib.sha256(content.encode()).hexdigest() for name, content in inputs.items()},
             }))
             (task / "validation").mkdir()
-            (task / "validation/ci-cases.json").write_text(json.dumps({
+            manifest = {
                 "schema_version": "ai_infra_bench_validation_cases.v1", "cases": [],
-            }))
+            }
+            if reviewed:
+                (task / 'validation/tools').mkdir()
+                def reference(name, content):
+                    (task / 'validation/tools' / name).write_text(content)
+                    return {'path':'tools/'+name,'sha256':hashlib.sha256(content.encode()).hexdigest()}
+                profile={'binding':reference('binding.py','# explicitly reviewed interface\n'),
+                         'scenario':reference('scenario.py','# explicitly reviewed scenario\n'),
+                         'review_evidence':reference('review.json','{"source":"test fixture"}\n')}
+                manifest['reviewed_replay']={'runner':reference('replay.py',FAKE_REVIEWED_RUNNER),
+                                             'cases':{'base':profile,'oracle':profile}}
+            (task / "validation/ci-cases.json").write_text(json.dumps(manifest))
             config = (
                 'artifacts = ["/workspace/repo"]\n'
                 f'[environment]\ngpus = {gpus}\nworkdir = "/workspace/repo"\n'
@@ -152,7 +186,7 @@ class ValidationImageTests(unittest.TestCase):
                 executable.chmod(0o755)
             env = dict(os.environ)
             # GPU execution must also work outside GitHub without registry vars.
-            for key in ("GHCR_REPOSITORY", "GITHUB_REPOSITORY_OWNER"):
+            for key in ("GHCR_REPOSITORY", "GITHUB_REPOSITORY_OWNER", "AI_INFRA_CASE_FILTER", "AI_INFRA_LOCAL_IMAGE"):
                 env.pop(key, None)
             env.update({
                 "PATH": f"{bin_dir}:{os.environ['PATH']}",
@@ -175,6 +209,11 @@ class ValidationImageTests(unittest.TestCase):
             if not gpus:
                 # GitHub owner names may contain capitals; registry paths may not.
                 env["GITHUB_REPOSITORY_OWNER"] = "Test-Owner"
+            if local_image:
+                env['AI_INFRA_LOCAL_IMAGE']=DIGEST
+                (root/'image-ready').touch()
+            if case_filter is not None:
+                env['AI_INFRA_CASE_FILTER']=case_filter
             result = subprocess.run(
                 ["bash", str(scripts / "run_task_validation.sh")],
                 cwd=root, env=env, capture_output=True, text=True, timeout=20,
@@ -189,15 +228,15 @@ class ValidationImageTests(unittest.TestCase):
             self.assertEqual((task / "task.toml").read_text(), config)
             self.assertEqual(list(root.glob("ai-infra-case.*")), [])
             summary = json.loads(summary.read_text())
-            self.assertEqual(summary["cache_hit"], cache_hit if not gpus else False)
+            self.assertEqual(summary["cache_hit"], cache_hit if not gpus and not local_image else False)
             builds = [cmd for cmd in commands if cmd[:3] == ["docker", "buildx", "build"]]
-            expected_builds = 0 if not gpus and cache_hit else build_failures + 1
+            expected_builds = 0 if local_image or (not gpus and cache_hit) else build_failures + 1
             self.assertEqual(len(builds), expected_builds)
             if builds:
                 self.assertEqual(builds[0][builds[0].index("--tag") + 1], summary["image"])
                 self.assertIn("--load", builds[0])
             harbor = [cmd for cmd in commands if cmd[0] == "harbor"]
-            self.assertEqual(len(harbor), 2)
+            self.assertEqual(len(harbor), len(case_filter.split(',')) if case_filter else 2)
             expected_env = "ci_gpu_docker:LeasedGpuDockerEnvironment" if gpus else "docker"
             self.assertTrue(all(cmd[cmd.index("--env") + 1] == expected_env for cmd in harbor))
             self.assertTrue(all(cmd[cmd.index("--cpus") + 1] == "limit" for cmd in harbor))
@@ -208,6 +247,26 @@ class ValidationImageTests(unittest.TestCase):
                 self.assertTrue(all(cmd[cmd.index("--override-cpus") + 1] == "4" for cmd in harbor))
             self.assertEqual(sum(cmd[0] == "gpu_pool" for cmd in commands), 2 if gpus else 0)
             return summary, commands
+
+    def test_reviewed_profiles_use_real_ci_dispatch_and_explicit_local_subset(self):
+        summary, commands = self.run_validation(gpus=0,cache_hit=False,publish=False,
+            reviewed=True,local_image=True,case_filter='oracle')
+        self.assertTrue(summary['partial_selection'])
+        self.assertEqual(summary['local_runtime_image'],DIGEST)
+        self.assertEqual(summary['cases'],[{'name':'oracle','expected_reward':1,'reviewed_replay':True}])
+        self.assertFalse(any(cmd[:2] in (['docker','pull'],['docker','push'],['docker','buildx']) for cmd in commands))
+        self.assertEqual([cmd[1] for cmd in commands if cmd[0]=='prepared_image'],[DIGEST])
+
+    def test_reviewed_full_known_inventory_preserves_publication_checks(self):
+        summary, commands = self.run_validation(gpus=0,cache_hit=False,publish=True,reviewed=True)
+        self.assertFalse(summary['partial_selection'])
+        self.assertEqual([case['name'] for case in summary['cases']],['base','oracle'])
+        self.assertTrue(summary['published'])
+
+    def test_local_image_is_never_published(self):
+        summary, commands = self.run_validation(gpus=0,cache_hit=False,publish=True,reviewed=True,local_image=True)
+        self.assertFalse(summary['published'])
+        self.assertFalse(any(cmd[:2]==['docker','push'] for cmd in commands))
 
     def test_gpu_uses_local_images_even_when_publication_is_requested(self):
         for gpus, cache_hit, publish in itertools.product((1, 2, 4), (False, True), (False, True)):

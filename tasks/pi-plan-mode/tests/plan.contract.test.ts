@@ -36,9 +36,18 @@ describe("plan contract", () => {
     expect(first).toMatchObject({ mode: "planning", steps: [] });
     expect(typeof first.planId).toBe("string"); expect(first.planId.length).toBeGreaterThan(0);
     expect(sorted(live.tools())).toEqual(["grep", "plan_submit"]);
-    expect(controlState(await live.control("enter"))).toEqual(first);
+    async function reenter(expected) {
+      const tools = live.tools(), calls = live.faux.state.callCount;
+      // Already-active may be reported as a successful no-op or a reasoned
+      // rejection. The statement constrains preservation, not this status bit.
+      expect((await live.control("enter")).state).toEqual(expected);
+      expect(await live.state()).toEqual(expected);
+      expect(live.tools()).toEqual(tools);
+      expect(live.faux.state.callCount).toBe(calls);
+    }
+    await reenter(first);
     await live.submit(["Inspect the caller"]); const draft = await live.state();
-    expect(controlState(await live.control("enter"))).toEqual(draft);
+    await reenter(draft);
     live.responses([say("execute")]); controlState(await live.control(approveArgs(draft)));
     await waitFor(() => live.approved().length === 1 && live.session.isIdle, "approval settled");
     expect(sorted(live.tools())).toEqual(sorted(original));
@@ -66,7 +75,7 @@ describe("plan contract", () => {
   it("C05 malformed controls are recorded and never reach the provider", async () => {
     const live = await host(); const normal = await live.state(); const before = live.faux.state.callCount; const original = live.tools();
     for (const command of ["", "wat", "enter extra", "status extra", "approve", "approve s p NaN", "approve s p 1 extra"]) {
-      expect(await live.control(command)).toMatchObject({ ok: false, state: normal });
+      expect(await live.control(command, "rpc", { malformed: true })).toMatchObject({ ok: false, state: normal });
       expect(sorted(live.tools())).toEqual(sorted(original));
     }
     expect(live.faux.state.callCount).toBe(before);
@@ -246,7 +255,7 @@ describe("plan contract", () => {
     live.responses([call("plan_submit", { steps }), say("ready"), call("verifier_effect", { path: effect, marker: "approved" }), say("done")]);
     const run = live.session.prompt("draft", { source: "interactive" });
     const dialog = await waitFor(() => live.dialogs[0], "Execute/Stay/Refine actions");
-    expect(dialog.choices.some((value: string) => /stay/i.test(value))).toBe(true); expect(dialog.choices.some((value: string) => /refine/i.test(value))).toBe(true);
+    expect(dialog.hasAction("stay")).toBe(true); expect(dialog.hasAction("refine")).toBe(true);
     const displayed = live.uiOutput.slice(displayStart).join("\n");
     for (const step of steps) expect(displayed).toContain(step);
     const draft = await live.state(), requestIndex = live.requests.length, initialCalls = live.faux.state.callCount;
@@ -291,5 +300,49 @@ describe("plan contract", () => {
         expect(await live.state()).toEqual(draft); expect(live.approved()).toHaveLength(0); expect(sorted(live.tools())).toEqual(sorted(restricted));
       } finally { clearInterval(cleanupDialogs); }
     }
+  });
+  for (const command of ['/plan', '/plan-control enter']) {
+    it(`C18 busy approved execution preserves state when receiving ${command}`, async () => {
+      const live = await host();
+      await live.control('enter'); await live.submit(['Wait for the running work', 'Keep this approved identity']);
+      const draft = await live.state();
+      live.responses([call('verifier_wait', {}), say('finished')]);
+      const approved = controlState(await live.control(approveArgs(draft)));
+      await live.waitStarted;
+      expect(live.session.isIdle).toBe(false);
+      const tools = live.tools(), calls = live.faux.state.callCount;
+      expect(approved.mode).toBe('approved');
+      await live.session.prompt(command, { source: 'rpc' });
+      expect(await live.state()).toEqual(approved);
+      expect(live.tools()).toEqual(tools);
+      expect(live.faux.state.callCount).toBe(calls);
+      expect(live.approved()).toHaveLength(1);
+      live.release(); await live.session.agent.waitForIdle();
+      expect(await live.state()).toEqual(approved);
+      expect(live.approved()).toHaveLength(1);
+    });
+  }
+  it("C19 duplicate approval during execution never changes the snapshot or dispatches again", async () => {
+    const live = await host(); await live.control("enter");
+    await live.submit(["Wait for execution", "Keep the exact approval"]);
+    const draft = await live.state();
+    live.responses([call("verifier_wait", {}), say("finished")]);
+    const approved = controlState(await live.control(approveArgs(draft)));
+    await live.waitStarted;
+    expect(live.session.isIdle).toBe(false);
+    const tools = live.tools(), calls = live.faux.state.callCount;
+    // Busy rejection and immediate idempotent acknowledgement are both valid.
+    // control() still requires a useful reason for every rejection.
+    expect((await live.control(approveArgs(draft))).state).toEqual(approved);
+    expect(await live.state()).toEqual(approved);
+    expect(live.tools()).toEqual(tools);
+    expect(live.faux.state.callCount).toBe(calls);
+    expect(live.approved()).toHaveLength(1);
+    live.release(); await waitFor(() => live.session.isIdle, "approved execution settled before idle duplicate");
+    const settledCalls = live.faux.state.callCount;
+    expect(controlState(await live.control(approveArgs(draft)))).toEqual(approved);
+    await live.session.agent.waitForIdle();
+    expect(live.faux.state.callCount).toBe(settledCalls);
+    expect(live.approved()).toHaveLength(1);
   });
 });

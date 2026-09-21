@@ -174,7 +174,10 @@ class CollectionTests(unittest.TestCase):
                 self.assertEqual(hook["service"], "main")
                 self.assertEqual(hook["user"], config["agent"]["user"])
                 self.assertEqual(config["verifier"]["timeout_sec"], 7200)
-                self.assertNotIn("environment_mode", config["verifier"])
+                if config["task"]["keywords"][:1] == ["nemo-gym"]:
+                    self.assertEqual(config["verifier"]["environment_mode"], "separate")
+                else:
+                    self.assertNotIn("environment_mode", config["verifier"])
 
 
 if __name__ == "__main__":

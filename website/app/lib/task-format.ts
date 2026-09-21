@@ -21,6 +21,7 @@ export function formatTaskTitle(slug: string) {
     kv: 'KV',
     m3: 'M3',
     minimax: 'MiniMax',
+    nemo: 'NeMo',
     mooncake: 'Mooncake',
     pyav: 'PyAV',
     ray: 'Ray',
@@ -45,6 +46,7 @@ export function formatProjectName(repository: string | null) {
 
   const normalized = repository.toLowerCase();
   if (normalized === 'vllm-project/vllm') return 'vLLM';
+  if (normalized === 'nvidia-nemo/gym') return 'NeMo Gym';
   if (normalized.includes('sglang')) return 'SGLang';
   if (normalized.includes('tensorrt-llm')) return 'TensorRT-LLM';
 

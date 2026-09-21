@@ -20,13 +20,13 @@ test('Bug fix metadata spellings share one facet',()=>{
  assert.deepEqual(facet('unknown'),['unknown']);
 });
 test('current tasks expose the domains of their projects, not project names or empty future domains',()=>{
- const byProject={'vllm-project/vllm':'inference','earendil-works/pi':'agent_harness'};
+ const byProject={'vllm-project/vllm':'inference','earendil-works/pi':'agent_harness','NVIDIA-NeMo/Gym':'training'};
  assert.ok(tasks.every(t=>taskDomain(t)===byProject[t.repository]));
  const present=['inference','training','agent_harness'].filter(d=>tasks.some(t=>taskDomain(t)===d));
  assert.ok(present.includes('inference'));
  assert.deepEqual(availableDomains(tasks),present);
  for(const d of present) assert.equal(apply({domain:d}).length,tasks.filter(t=>taskDomain(t)===d).length);
- assert.equal(apply({domain:'training'}).length,0);
+ assert.ok(apply({domain:'training'}).some(t=>t.slug==='nemo-gym-anthropic-responses-bridge'));
  assert.equal(taskDomain({repository:'unclassified/project'}),null);
 });
 test('explicit domains support other projects without guessing their purpose',()=>{

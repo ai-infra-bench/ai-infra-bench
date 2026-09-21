@@ -20,6 +20,7 @@ import time
 import uuid
 from binding import load_binding
 from scenario import load_scenario
+from profile import IntegrationNeeded
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CASES = ["plain_parallel", "plain_single", "plain_chain", "direct", "use_finding", "broadcast", "ordered",
@@ -82,6 +83,8 @@ class Case:
         self.request_context = threading.local()
         self.condition = threading.Condition()
         self.events, self.requests, self.errors = [], [], []
+        self.integration_errors = []
+        self.call_operations = {}
         self.steps, self.pids = {}, {}
         self.payloads = {g: ["接口使用 cursor；" + uuid.uuid4().hex] for g in ["one", "two", "three", "four"]}
         if name == "unicode":
@@ -91,13 +94,9 @@ class Case:
             self.payloads = {g: [p] for g, p in self.payloads.items()}
         self.oversize = None
         if name.startswith("size_"):
-            limit = self.scenario.message_max_utf8_bytes
             # Unique markers at both ends catch silent prefix/suffix truncation.
             prefix, suffix = "开头" + uuid.uuid4().hex, uuid.uuid4().hex + "🙂结尾"
-            size = limit + {"size_below": -1, "size_at": 0, "size_over": 1}[name]
-            payload = prefix + "中" * ((size - len((prefix + suffix).encode())) // 3)
-            payload += "x" * (size - len((payload + suffix).encode())) + suffix
-            assert len(payload.encode()) == size
+            payload = self.scenario.size_payload(name, prefix, suffix)
             if name == "size_over": self.oversize = payload
             else: self.payloads["one"] = [payload]
         self.used = set()
@@ -168,8 +167,11 @@ class Case:
         raise AssertionError("unexpected stage " + stage)
 
     def tool(self, name, arguments):
+        operation = name
         name, arguments = self.binding.encode(name, arguments, self.current_group)
-        return {"index": 0, "id": "call_" + uuid.uuid4().hex, "type": "function",
+        call_id = "call_" + uuid.uuid4().hex
+        self.call_operations[call_id] = operation
+        return {"index": 0, "id": call_id, "type": "function",
                 "function": {"name": name, "arguments": json.dumps(arguments, ensure_ascii=False)}}
 
     def call(self, name, arguments):
@@ -181,7 +183,7 @@ class Case:
         last = results[-1]
         call_id = last.get("tool_call_id")
         name = next((c["function"]["name"] for m in messages for c in m.get("tool_calls", []) if c["id"] == call_id), "")
-        operation = next((op for op in ["team_members", "team_send"] if self.binding.tool_name(op) == name), name)
+        operation = self.call_operations.get(call_id, name)
         raw = text(last)
         try: raw = json.loads(raw)
         except ValueError: pass
@@ -230,13 +232,10 @@ class Case:
         self.event(group, role, "model_request", step=n)
         names = {t["function"]["name"] for t in body.get("tools", [])}
         if role == "ROOT":
-            if self.name == "cleanup_repeated":
-                snapshots = [e["resources"] for e in self.events if e["role"] == "ROOT" and e["event"] == "resource_snapshot"]
-                assert len(snapshots) >= n + 1, "missing live-parent resource observation"
-                if n >= 2:
-                    baseline, current = snapshots[1], snapshots[-1]
-                    for resource, count in current.items():
-                        assert count <= baseline.get(resource, 0), f"communication resources accumulate across dispatches: {resource} {baseline.get(resource, 0)} -> {count}"
+            # Global handle/listener snapshots are diagnostic, not dispatch-owned
+            # resources. Repeated dispatches are checked through real exchange,
+            # isolation and child termination; cancel_queued checks actual
+            # communication resources via the reviewed transport profile.
             if n == 0 or (self.name == "reuse" and n == 1) or (self.name == "cleanup_repeated" and n < len(self.groups)):
                 assert "subagent" in names, "subagent tool failed to load"
                 calls = []
@@ -277,8 +276,9 @@ class Case:
             assert membership["self"] == role, "wrong self identity"
             member_ids = [m["id"] for m in membership["members"]]
             assert len(member_ids) == len(set(member_ids)), "duplicate team identity"
-            assert set(discovery_roles) <= set(member_ids) <= set(self.roles), "incorrect team membership"
-            assert all(m["agent"] == "worker" for m in membership["members"])
+            # A roster may list only teammates; the caller already has its own
+            # address. Agent-definition labels are not a required result field.
+            assert set(discovery_roles) - {role} <= set(member_ids) <= set(self.roles), "incorrect team membership"
             if self.name == "cancellation":
                 return self.call("test_work", {"stage": "slow_work"})
             if role != "A" and self.name == "completion_boundary":
@@ -425,6 +425,8 @@ def make_handler(case):
                 self.end_headers()
                 self.wfile.write(payload)
             except Exception as exc:
+                if isinstance(exc, IntegrationNeeded):
+                    case.integration_errors.append(str(exc))
                 # A receiver whose transport was deliberately broken may exit.
                 # Its closed HTTP connection is not a messaging failure. Keep
                 # every assertion, healthy-worker error and parent crash visible.
@@ -451,11 +453,11 @@ def make_handler(case):
     return Handler
 
 
-def run_case(name, repo, output, binding_path=None, scenario_path=None):
+def _run_case(name, repo, output, case):
     directory = output / name
     directory.mkdir(parents=True)
-    case = Case(name, load_binding(binding_path), load_scenario(scenario_path))
     server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(case))
+    case.server = server
     threading.Thread(target=server.serve_forever, daemon=True).start()
     # Reports stay root-private. Only this disposable tree is writable by Pi.
     scratch = Path(tempfile.mkdtemp(prefix="pi-behavior-", dir="/tmp"))
@@ -561,6 +563,7 @@ def run_case(name, repo, output, binding_path=None, scenario_path=None):
     # a particular storage name or on harmless retained logs.
     passed = processes_ok and completion_ok and not case.errors and (cancelled or proc.returncode == 0)
     result = {"name": name, "passed": passed, "exit_code": proc.returncode, "errors": case.errors,
+              "integration_errors": case.integration_errors,
               "actors": {f"{g}/{r}": pid for (g, r), pid in case.pids.items()},
               "observed": sorted(f"{g}/{r}" for g, r in case.observed),
               "completed": sorted(f"{g}/{r}" for g, r in case.completed),
@@ -577,12 +580,47 @@ def run_case(name, repo, output, binding_path=None, scenario_path=None):
     return result
 
 
+def run_case(name, repo, output, binding_path=None, scenario_path=None):
+    case = Case(name, load_binding(binding_path), load_scenario(scenario_path))
+    try:
+        return _run_case(name, repo, output, case)
+    except Exception as exc:
+        # Cleanup/report errors must never erase a known adaptation failure.
+        # Keep that classification even when a later operation also failed.
+        integration = list(case.integration_errors)
+        if isinstance(exc, IntegrationNeeded):
+            integration.append(str(exc))
+        with case.condition:
+            case.closed = True
+            case.condition.notify_all()
+        cleanup_errors = []
+        if case.proc is not None and case.proc.poll() is None:
+            try:
+                os.killpg(case.proc.pid, signal.SIGKILL)
+                case.proc.communicate(timeout=5)
+            except Exception as cleanup_exc:
+                cleanup_errors.append(repr(cleanup_exc))
+        if hasattr(case, 'server'):
+            try:
+                case.server.shutdown()
+                case.server.server_close()
+            except Exception as cleanup_exc:
+                cleanup_errors.append(repr(cleanup_exc))
+        result = {'name': name, 'passed': False,
+                  'errors': [*case.errors, repr(exc), *cleanup_errors],
+                  'integration_errors': integration}
+        directory = output / name
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / 'result.json').write_text(json.dumps(result, indent=2))
+        return result
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", type=Path, default=Path("/workspace/pi"))
     parser.add_argument("--output", type=Path, default=Path("/logs/verifier/text-behavior"))
-    parser.add_argument("--binding", type=Path, help="Trusted reviewer-owned interface adapter; default is reference interface")
-    parser.add_argument("--scenario", type=Path, help="Trusted transport fault and size-boundary profile")
+    parser.add_argument("--binding", type=Path, required=True, help="Explicit trusted reviewer-owned interface adapter")
+    parser.add_argument("--scenario", type=Path, required=True, help="Explicit trusted transport fault and size-boundary profile")
     parser.add_argument("--cases", nargs="+", choices=CASES, default=CASES)
     args = parser.parse_args()
     args.output = args.output.resolve()
@@ -591,13 +629,17 @@ def main():
     for name in args.cases:
         try:
             result = run_case(name, args.repo.resolve(), args.output, args.binding, args.scenario)
+        except IntegrationNeeded as exc:
+            result = {"name": name, "passed": False, "integration_errors": [str(exc)], "errors": []}
         except Exception as exc:
             result = {"name": name, "passed": False, "errors": [repr(exc)]}
         results.append(result)
         print(json.dumps(result, ensure_ascii=True), flush=True)
     summary = {"case_count": len(results), "passed": sum(r["passed"] for r in results),
+               "status": "integration_needed" if any(r.get('integration_errors') for r in results) else "scored",
                "external_model_calls": 0, "results": results}
     (args.output / "summary.json").write_text(json.dumps(summary, ensure_ascii=True, indent=2))
+    if summary['status'] == 'integration_needed': return 2
     return 0 if len(results) == len(args.cases) and all(r["passed"] for r in results) else 1
 
 

@@ -66,7 +66,8 @@ class TaskMetadataTests(unittest.TestCase):
                     original = path.read_text()
                     expected = tomllib.loads(original)
                     self.assertTrue(expected["artifacts"])
-                    expected["artifacts"] = []
+                    if expected["verifier"].get("environment_mode") != "separate":
+                        expected["artifacts"] = []
                     expected["environment"]["docker_image"] = "ci-image:checked"
                     prepared = Path(directory) / path.parent.name
                     self.assertEqual(task_ci.prepare_case(
