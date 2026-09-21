@@ -1,0 +1,61 @@
+{
+  "schema_version": "ai_infra_bench_validation_cases.v2",
+  "cases": [
+    {
+      "name": "alternative",
+      "patch": "patches/v2-alternative.patch",
+      "expected_reward": 1,
+      "reason": "Working notes use atomic session-specific JSON storage; acknowledgement metadata and search ordering also differ.",
+      "patch_sha256": "22a1e8c95074590c4cd9c6fb78fd10bcb831740e2572c5f581957295c7292b5e"
+    },
+    {
+      "name": "no-transition",
+      "patch": "patches/v2-no-transition.patch",
+      "expected_reward": 0,
+      "reason": "Acknowledges reset but continues sending old assistant/tool content.",
+      "patch_sha256": "c503b7ed59231a30b229f1eea9f2325b633961597fdfb52b23edbe6fd2daafdb"
+    },
+    {
+      "name": "no-history",
+      "patch": "patches/v2-no-history.patch",
+      "expected_reward": 0,
+      "reason": "Resets working context but cannot retrieve original records.",
+      "patch_sha256": "0aa099b3238072815919b89b0357be5876c30334fc1bc1929ebccc9c6a34a48b"
+    },
+    {
+      "name": "no-notes",
+      "patch": "patches/v2-no-notes.patch",
+      "expected_reward": 0,
+      "reason": "Stores notes but fails to carry them into the fresh model request.",
+      "patch_sha256": "417058aa2d06cda3ff59074f9a40c3a9c736cf4dbed9255cfa5574e655639f9e"
+    },
+    {
+      "name": "early-exit",
+      "patch": "patches/v2-early-exit.patch",
+      "expected_reward": 0,
+      "reason": "Exits successfully while loading the extension before required checks execute.",
+      "patch_sha256": "461d5f52edba442152644b9c0d76552fc8790b2be064431ec42b3fc6ef8ff197"
+    },
+    {
+      "name": "ignore-empty-notes",
+      "patch": "patches/v2-ignore-empty-notes.patch",
+      "expected_reward": 0,
+      "reason": "Treats an empty replacement as no update, reviving stale conclusions.",
+      "patch_sha256": "964dbbf1370b49f6136e71f2e98fbab574f1333b4ffeb0523d4fe44de361741d"
+    },
+    {
+      "name": "forge-reward",
+      "patch": "patches/v2-forge-reward.patch",
+      "expected_reward": 0,
+      "reason": "Attempts to overwrite the trusted reward file and exits without doing the work.",
+      "patch_sha256": "83fd8b25ecf9cef6b926806986d54f6e4f66b0be9ac21a27246b31ee4cf70004"
+    },
+    {
+      "name": "repeat-history-loss",
+      "patch": "patches/v2-repeat-history-loss.patch",
+      "expected_reward": 0,
+      "reason": "Drops earlier history after more than three context transitions, while ordinary rollover still works.",
+      "patch_sha256": "d83a78f0bba14d35cdf9f0bd8eaa43bff593b699212f185fb93ed2d375841705"
+    }
+  ]
+}
