@@ -9,16 +9,29 @@ import importlib.util
 import os
 from pathlib import Path
 import stat
+from profile import IntegrationNeeded
 
 
 class Scenario:
     message_max_utf8_bytes = 1024 * 1024
 
+    def size_payload(self, name, prefix, suffix):
+        """Reference's documented UTF-8 limit, not a task-wide requirement.
+
+        A reviewed profile overrides this method for other size units/policies.
+        The actual candidate still accepts/rejects and transports the payload.
+        """
+        size = self.message_max_utf8_bytes + {'size_below': -1, 'size_at': 0, 'size_over': 1}[name]
+        payload = prefix + '中' * ((size - len((prefix + suffix).encode())) // 3)
+        payload += 'x' * (size - len((payload + suffix).encode())) + suffix
+        assert len(payload.encode()) == size
+        return payload
+
     def directory(self, case, group, role):
         hints = next((e["resourceHints"] for e in reversed(case.events)
                       if e["group"] == group and e["role"] == role and "resourceHints" in e), {})
         if "PI_TEAM_DIRECTORY" not in hints:
-            raise RuntimeError('Scenario integration required: this transport is not the reference file transport')
+            raise IntegrationNeeded('Scenario integration required: this transport is not the reviewed file transport')
         path = Path(hints["PI_TEAM_DIRECTORY"])
         path.relative_to(case.scratch)  # no arbitrary privileged filesystem access
         if '..' in path.parts: raise RuntimeError('Unsafe resource path')
@@ -81,8 +94,16 @@ class Scenario:
 
 
 def load_scenario(path):
-    if path is None: return Scenario()
-    spec = importlib.util.spec_from_file_location('reviewed_scenario', path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.Scenario()
+    if path is None:
+        raise IntegrationNeeded('An explicit reviewed scenario profile is required')
+    try:
+        spec = importlib.util.spec_from_file_location('reviewed_scenario', path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.Scenario()
+    except IntegrationNeeded:
+        raise
+    except Exception as exc:
+        # A broken curator adapter is an integration failure. Scenario methods
+        # that inspect candidate behavior execute outside this loading guard.
+        raise IntegrationNeeded(f'Cannot load reviewed scenario {path}: {type(exc).__name__}: {exc}') from exc

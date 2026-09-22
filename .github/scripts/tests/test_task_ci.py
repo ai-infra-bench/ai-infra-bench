@@ -12,6 +12,26 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from task_ci import ContractError, command_check_result
 import task_ci
+import tomllib
+
+
+class CandidateTransferTests(unittest.TestCase):
+    def test_separate_verifier_keeps_declared_candidate_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            task = root / "task"
+            task.mkdir()
+            for mode in ("separate", "shared"):
+                with self.subTest(mode=mode):
+                    (task / "task.toml").write_text(
+                        'artifacts = ["/workspace/repo"]\n'
+                        '[environment]\nworkdir = "/workspace/repo"\n'
+                        f'[verifier]\nenvironment_mode = "{mode}"\n'
+                    )
+                    output = root / mode
+                    self.assertEqual(task_ci.prepare_case(task, "example-image", "base", output), "nop")
+                    config = tomllib.loads((output / "task.toml").read_text())
+                    self.assertEqual(config["artifacts"], ["/workspace/repo"] if mode == "separate" else [])
 
 
 class TaskHardwareTests(unittest.TestCase):
@@ -118,6 +138,44 @@ class TaskHardwareTests(unittest.TestCase):
 
 
 class HarborResultTests(unittest.TestCase):
+    def test_oracle_execution_failure_cannot_pass_matching_feature_reward(self):
+        # Harbor 0.22 writes this sidecar on Oracle failure, but can still
+        # report a completed trial with no exception and the expected reward.
+        for expected in (0, 1):
+            for status in ("1", "128\n", "not-an-exit-code", ""):
+                with self.subTest(expected=expected, status=status), tempfile.TemporaryDirectory() as directory:
+                    job = Path(directory)
+                    agent = job / "trial/agent"
+                    agent.mkdir(parents=True)
+                    (agent / "exit-code.txt").write_text(status)
+                    result = job / "result.json"
+                    result.write_text(json.dumps({"stats": {
+                        "n_completed_trials": 1, "n_errored_trials": 0,
+                        "evals": {"oracle": {"reward_stats": {"reward": {str(expected): ["trial"]}}}},
+                    }}))
+                    with self.assertRaisesRegex(ContractError, "Oracle"):
+                        command_check_result(argparse.Namespace(result=str(result), expected_reward=expected))
+
+    def test_oracle_exit_status_does_not_follow_symlinks(self):
+        for linked_part in ("exit-code.txt", "agent", "trial"):
+            with self.subTest(linked_part=linked_part), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                job = root / "job"
+                agent = job / "trial/agent"
+                agent.mkdir(parents=True)
+                (agent / "exit-code.txt").write_text("0")
+                linked = {"exit-code.txt": agent / "exit-code.txt", "agent": agent, "trial": agent.parent}[linked_part]
+                target = root / "outside"
+                linked.rename(target)
+                linked.symlink_to(target)
+                result = job / "result.json"
+                result.write_text(json.dumps({"stats": {
+                    "n_completed_trials": 1, "n_errored_trials": 0,
+                    "evals": {"oracle": {"reward_stats": {"reward": {"1": ["trial"]}}}},
+                }}))
+                with self.assertRaisesRegex(ContractError, "Oracle"):
+                    command_check_result(argparse.Namespace(result=str(result), expected_reward=1))
+
     def test_failed_reward_prints_bounded_verifier_output_without_following_links(self):
         with tempfile.TemporaryDirectory() as directory:
             job = Path(directory) / "job"

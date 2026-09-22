@@ -14,6 +14,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -220,7 +221,69 @@ def validation_manifest(task_dir: Path) -> dict[str, Any]:
             f"{task_dir.name}: validation manifest mismatch; "
             f"missing={missing}, stale={stale}"
         )
+    reviewed_replay_config(task_dir, manifest)
     return manifest
+
+
+def inline_replay_bytes(reference: Any) -> bytes:
+    """Serialize curator JSON inputs without a separate file for each case."""
+    if (not isinstance(reference, dict) or set(reference) != {"content", "sha256"}
+            or not isinstance(reference["content"], dict) or not reference["content"]):
+        raise ContractError("Inline replay inputs require nonempty JSON content and sha256")
+    content = (json.dumps(reference["content"], indent=2) + "\n").encode()
+    if hashlib.sha256(content).hexdigest() != reference["sha256"]:
+        raise ContractError("Changed inline reviewed replay input")
+    return content
+
+
+def reviewed_replay_config(task_dir: Path, manifest: dict[str, Any]) -> dict[str, Any] | None:
+    """Validate curator-owned replay inputs; never infer an adapter from a solver."""
+    if "reviewed_replay" not in manifest:
+        return None
+    config = manifest["reviewed_replay"]
+    if not isinstance(config, dict) or set(config) != {"runner", "cases"}:
+        raise ContractError(f"{task_dir.name}: invalid reviewed_replay declaration")
+    if load_toml(task_dir / "task.toml").get("environment", {}).get("gpus", 0):
+        raise ContractError("Reviewed replay CI supports CPU tasks only; GPU lease integration is required")
+
+    def checked_file(reference: Any) -> Path:
+        if not isinstance(reference, dict) or set(reference) != {"path", "sha256"}:
+            raise ContractError("reviewed replay inputs require explicit path and sha256")
+        name = reference["path"]
+        parts = Path(name).parts if isinstance(name, str) else ()
+        if (not isinstance(name, str) or len(parts) < 2 or parts[0] != "tools"
+                or ".." in parts or "\\" in name or Path(name).as_posix() != name):
+            raise ContractError(f"Unsafe reviewed replay input path: {name!r}")
+        path = task_dir / "validation"
+        if path.is_symlink():
+            raise ContractError("Reviewed replay validation directory must not be a symlink")
+        for part in parts:
+            path /= part
+            if path.is_symlink():
+                raise ContractError(f"Reviewed replay input must not be a symlink: {name}")
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != reference["sha256"]:
+            raise ContractError(f"Missing or changed reviewed replay input: {name}")
+        return path
+
+    checked_file(config["runner"])
+    expected = {"base", *(case["name"] for case in manifest["cases"])}
+    if task_validation_mode(task_dir, manifest) == "oracle":
+        expected.add("oracle")
+    if not isinstance(config["cases"], dict) or set(config["cases"]) != expected:
+        raise ContractError("Reviewed replay profiles must exactly cover all declared CI cases")
+    for name, inputs in config["cases"].items():
+        if not isinstance(inputs, dict) or set(inputs) != {"binding", "scenario", "review_evidence"}:
+            raise ContractError(f"{name}: explicit binding, scenario and review_evidence required")
+        content = {}
+        for role, reference in inputs.items():
+            if role != "binding" and isinstance(reference, dict) and "content" in reference:
+                content[role] = inline_replay_bytes(reference)
+            else:
+                content[role] = checked_file(reference).read_bytes()
+        evidence = json.loads(content["review_evidence"])
+        if not isinstance(evidence, dict) or not evidence:
+            raise ContractError(f"{name}: reviewed replay evidence must be a nonempty object")
+    return config
 
 
 def task_validation_mode(task_dir: Path, manifest: dict[str, Any]) -> str:
@@ -397,12 +460,12 @@ def prepare_case(task_dir: Path, image: str, case_name: str, output: Path) -> st
         shutil.rmtree(output)
     shutil.copytree(task_dir, output)
     inject_docker_image(output / "task.toml", image)
-    # CI checks rewards without publishing trial artifacts. Avoid downloading a
-    # full checkout for every case; canonical task configs keep their snapshots.
+    # Shared verifiers already see the candidate checkout. Separate verifiers
+    # receive their candidate inputs through artifacts, so preserve that transfer.
     task_file = output / "task.toml"
     text = task_file.read_text()
     expected = tomllib.loads(text)
-    if expected.get("artifacts"):
+    if expected.get("artifacts") and expected.get("verifier", {}).get("environment_mode") != "separate":
         expected["artifacts"] = []
         updated = re.sub(r"(?m)^artifacts[ \t]*=.*$", "artifacts = []", text, count=1)
         if tomllib.loads(updated) != expected:
@@ -629,7 +692,28 @@ def print_verifier_failure_logs(job_dir: Path) -> None:
 
 
 def command_check_result(args: argparse.Namespace) -> None:
-    completed, errored, rewards = result_reward(Path(args.result))
+    result_path = Path(args.result)
+    # Harbor 0.22's OracleAgent records a nonzero solve.sh exit here without
+    # raising a trial exception. The verifier can still grade unchanged Base
+    # or a partially applied Oracle, so a matching reward is insufficient.
+    for status in sorted(result_path.parent.glob("*/agent/exit-code.txt")):
+        if any(path.is_symlink() for path in (status, status.parent, status.parent.parent)):
+            raise ContractError(f"Oracle exit status must not follow symlinks: {status}")
+        try:
+            info = status.stat()
+            if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= 32:
+                raise ContractError(f"Invalid Oracle exit status: {status}")
+            raw = status.read_text().strip()
+        except (OSError, UnicodeError) as exc:
+            raise ContractError(f"Unable to read Oracle exit status: {status}") from exc
+        if not re.fullmatch(r"-?[0-9]+", raw):
+            raise ContractError(f"Invalid Oracle exit status: {status}")
+        if int(raw) != 0:
+            raise ContractError(
+                f"Oracle execution failed with exit code {raw}; "
+                f"see {status.parent / 'oracle.txt'}"
+            )
+    completed, errored, rewards = result_reward(result_path)
     expected = float(args.expected_reward)
     if completed != 1 or errored != 0 or rewards != [expected]:
         print_verifier_failure_logs(Path(args.result).parent)
@@ -693,7 +777,68 @@ def command_cases(args: argparse.Namespace) -> None:
         {"name": item["name"], "expected_reward": item["expected_reward"]}
         for item in manifest["cases"]
     )
+    selection = getattr(args, "filter", None)
+    if selection is not None:
+        names = selection.split(",")
+        available = {case["name"] for case in cases}
+        if not names or any(not name or name not in available for name in names) or len(names) != len(set(names)):
+            raise ContractError("Case filter must contain distinct declared case names")
+        cases = [case for case in cases if case["name"] in names]
+    if "reviewed_replay" in manifest:
+        for case in cases:
+            case["reviewed_replay"] = True
     print(json.dumps(cases, separators=(",", ":")))
+
+
+def command_run_reviewed_case(args: argparse.Namespace) -> None:
+    task_dir = TASKS_DIR / args.task
+    validate_task(task_dir)
+    manifest = validation_manifest(task_dir)
+    replay = reviewed_replay_config(task_dir, manifest)
+    if replay is None or args.case not in replay["cases"]:
+        raise ContractError("No explicit reviewed replay profile for this CI case")
+    config = load_toml(task_dir / "task.toml")
+    if config["environment"].get("gpus", 0):
+        raise ContractError("Reviewed replay CI currently supports the Docker CPU path only")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", args.image):
+        raise ContractError("Reviewed replay requires an immutable local image ID")
+    output = Path(args.output).absolute()
+    selected = replay["cases"][args.case]
+    validation = task_dir / "validation"
+    command = [sys.executable, "-I", str(validation / replay["runner"]["path"]),
+               "--task", str(task_dir), "--image", args.image, "--output", str(output),
+               "--profile-id", "ci-" + hashlib.sha256(f"{args.task}/{args.case}".encode()).hexdigest()[:24],
+               "--binding", str(validation / selected["binding"]["path"]),
+               "--cpus", "limit", "--memory", "limit", "--no-artifacts", "--delete"]
+    if args.override_cpus is not None:
+        if args.override_cpus <= 0:
+            raise ContractError("CPU override must be positive")
+        command += ["--override-cpus", str(args.override_cpus)]
+    if args.case in {"base", "oracle"}:
+        command.append("--" + args.case)
+        expected_reward = 0 if args.case == "base" else 1
+    else:
+        case = next(case for case in manifest["cases"] if case["name"] == args.case)
+        command += ["--submission", str(validation / case["patch"])]
+        if case.get("apply_after", "base") == "oracle":
+            command.append("--after-oracle")
+        expected_reward = case["expected_reward"]
+    # Task-owned runners are explicit curator inputs, never candidate workspace
+    # code. The existing Harbor reward checker remains authoritative in CI.
+    with tempfile.TemporaryDirectory(prefix="reviewed-replay-inputs-") as temporary:
+        for role in ("scenario", "review_evidence"):
+            reference = selected[role]
+            if "content" in reference:
+                path = Path(temporary) / (role + ".json")
+                path.write_bytes(inline_replay_bytes(reference))
+            else:
+                path = validation / reference["path"]
+            command += ["--" + role.replace("_", "-"), str(path)]
+        subprocess.run(command, cwd=REPO_ROOT, check=True)
+    job_dir = output / "jobs" / "reviewed-replay"
+    command_check_result(argparse.Namespace(result=str(job_dir / "result.json"),
+                                           expected_reward=expected_reward))
+    shutil.copy2(output / "task" / "task.toml", job_dir / "prepared-task.toml")
 
 
 def command_image_check(args: argparse.Namespace) -> None:
@@ -715,6 +860,9 @@ for path in /tests /solution /validation; do
   test ! -e "$path"
 done
 cd {shlex.quote(workdir)}
+# The image may run as root while its checkout belongs to the agent. Trust
+# only this curator-declared checkout for these read-only audit commands.
+git() {{ command git -c safe.directory={shlex.quote(workdir)} "$@"; }}
 test "$(git rev-parse HEAD)" = {shlex.quote(str(expected_head))}
 test -z "$(git remote)"
 test -z "$(git rev-list --all --not {shlex.quote(str(expected_head))})"
@@ -788,7 +936,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     cases = subparsers.add_parser("cases")
     cases.add_argument("--task", required=True)
+    cases.add_argument("--filter", help="Explicit comma-separated subset; default is every declared case")
     cases.set_defaults(func=command_cases)
+
+    reviewed = subparsers.add_parser("run-reviewed-case")
+    reviewed.add_argument("--task", required=True)
+    reviewed.add_argument("--image", required=True)
+    reviewed.add_argument("--case", required=True)
+    reviewed.add_argument("--output", required=True)
+    reviewed.add_argument("--override-cpus", type=int)
+    reviewed.set_defaults(func=command_run_reviewed_case)
 
     image_check = subparsers.add_parser("image-check")
     image_check.add_argument("--task", required=True)

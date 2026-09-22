@@ -108,7 +108,7 @@ CONTROLS: dict[str, tuple[str, callable]] = {
     ),
     "control-write-failure-throws": (
         "a failed write throws out of the event handler instead of being caught and reported",
-        lambda t: must_replace(t, "\t\tif (!file || !resourceAttributes) return;\n\t\ttry {\n\t\t\twriteLine(span, phase);", "\t\tif (!file || !resourceAttributes) return;\n\t\twriteLine(span, phase);\n\t\ttry {\n\t\t\twriteLine(span, phase);"),
+        lambda t: must_replace(t, "\t\tif (!file || !resourceAttributes) return;\n\t\ttry {\n\t\t\twriteLine(span, phase);", "\t\tif (!file || !resourceAttributes) return;\n\t\twriteLine(span, phase);\n\t\ttry {"),
     ),
     "control-aborted-as-ok": (
         "an aborted assistant message leaves chat and turn spans OK",

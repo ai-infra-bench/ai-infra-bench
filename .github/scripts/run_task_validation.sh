@@ -5,6 +5,10 @@ set -euo pipefail
 : "${TARGET_PLATFORM:?TARGET_PLATFORM is required}"
 : "${PUBLISH_IMAGE:=false}"
 : "${HARBOR_JOBS_DIR:=${GITHUB_WORKSPACE:-$PWD}/harbor-jobs}"
+if [[ -n "${AI_INFRA_CASE_FILTER:-}" && "$PUBLISH_IMAGE" == true ]]; then
+  printf 'Image publication requires the complete case matrix; unset AI_INFRA_CASE_FILTER\n' >&2
+  exit 2
+fi
 
 # GitHub Actions treats differently cased env names as duplicate YAML keys.
 # Normalize the lowercase job values for tools that read uppercase proxy vars.
@@ -56,6 +60,14 @@ environment_key="$(
     --platform "$TARGET_PLATFORM"
 )"
 cache_hit=false
+local_runtime_image="${AI_INFRA_LOCAL_IMAGE:-}"
+if [[ -n "$local_runtime_image" ]]; then
+  if [[ ! "$local_runtime_image" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    printf 'AI_INFRA_LOCAL_IMAGE must be a complete immutable sha256 image ID\n' >&2
+    exit 2
+  fi
+  image_ref="$local_runtime_image"
+else
 if (( gpu_count > 0 )); then
   # Always rebuild on the local GPU runner. BuildKit reuses its persistent
   # local layers, while rebuilding ensures Dockerfile/environment changes can
@@ -112,6 +124,7 @@ else
     ((build_attempt += 1))
   done
 fi
+fi
 
 runtime_image="$image_ref"
 if (( gpu_count == 0 )) && [[ "$cache_hit" == true ]]; then
@@ -130,11 +143,30 @@ python3 .github/scripts/task_ci.py image-check \
   --image "$runtime_image"
 
 mkdir -p "$HARBOR_JOBS_DIR/$TASK_NAME"
-cases_json="$(python3 .github/scripts/task_ci.py cases --task "$TASK_NAME")"
+case_selection_args=()
+if [[ -n "${AI_INFRA_CASE_FILTER:-}" ]]; then
+  case_selection_args+=(--filter "$AI_INFRA_CASE_FILTER")
+fi
+cases_json="$(python3 .github/scripts/task_ci.py cases --task "$TASK_NAME" "${case_selection_args[@]}")"
 
 while IFS= read -r case_json; do
   case_name="$(jq -er '.name' <<<"$case_json")"
   expected_reward="$(jq -er '.expected_reward' <<<"$case_json")"
+  job_name="${TASK_NAME}--${case_name}"
+  if [[ "$(jq -r '.reviewed_replay // false' <<<"$case_json")" == true ]]; then
+    reviewed_image="$(docker image inspect --format '{{.Id}}' "$runtime_image")"
+    reviewed_resource_args=()
+    if (( gpu_count == 0 )); then
+      reviewed_resource_args+=(--override-cpus 4)
+    fi
+    printf 'Running %s through its explicitly reviewed replay profile, expected_reward=%s\n' \
+      "$job_name" "$expected_reward"
+    python3 .github/scripts/task_ci.py run-reviewed-case \
+      --task "$TASK_NAME" --image "$reviewed_image" --case "$case_name" \
+      --output "$HARBOR_JOBS_DIR/$TASK_NAME/${job_name}-replay" \
+      "${reviewed_resource_args[@]}"
+    continue
+  fi
   case_dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/ai-infra-case.XXXXXX")"
   agent="$(
     python3 .github/scripts/task_ci.py prepare-case \
@@ -168,7 +200,7 @@ while IFS= read -r case_json; do
 done < <(jq -c '.[]' <<<"$cases_json")
 
 published=false
-if (( gpu_count == 0 )) && [[ "$cache_hit" == false && "$PUBLISH_IMAGE" == true ]]; then
+if (( gpu_count == 0 )) && [[ -z "$local_runtime_image" && "$cache_hit" == false && "$PUBLISH_IMAGE" == true ]]; then
   docker push "$image_ref"
   published=true
 fi
@@ -186,6 +218,8 @@ jq -n \
   --arg digest "$digest" \
   --argjson cache_hit "$cache_hit" \
   --argjson published "$published" \
+  --arg local_runtime_image "$local_runtime_image" \
+  --arg case_filter "${AI_INFRA_CASE_FILTER:-}" \
   --argjson cases "$cases_json" \
   '{
     task: $task,
@@ -194,6 +228,9 @@ jq -n \
     registry_digest: $digest,
     cache_hit: $cache_hit,
     published: $published,
+    local_runtime_image: $local_runtime_image,
+    partial_selection: ($case_filter != ""),
+    case_filter: $case_filter,
     cases: $cases
   }' > "$summary"
 

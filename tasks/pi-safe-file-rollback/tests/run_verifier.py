@@ -139,10 +139,18 @@ def prepare(pins):
             contents = text.encode()
         elif name == 'packages/coding-agent/test/interactive-mode-startup-input.test.ts':
             text = contents.decode()
-            assert text.count('\t\tisCompacting: boolean;') == 1
-            assert text.count('\t\t\tisCompacting: false,') == 1
-            text = text.replace('\t\tisCompacting: boolean;', '\t\tgetRollbackState: () => { enabled: false; status: "ready" };\n\t\tisCompacting: boolean;')
-            text = text.replace('\t\t\tisCompacting: false,', '\t\t\tgetRollbackState: () => ({ enabled: false, status: "ready" }),\n\t\t\tisCompacting: false,')
+            # This test invokes a private InteractiveMode method on a partial
+            # receiver. Use the real prototype and a real disabled session so
+            # legitimate helper extraction does not turn into a regression.
+            # Keep all original input ordering and assertions unchanged.
+            anchor = 'const context = createSubmitContext();'
+            assert text.count(anchor) == 1
+            assert text.count('import { describe, expect, it, vi }') == 1
+            text = text.replace('import { describe, expect, it, vi }',
+                                'import { afterEach, describe, expect, it, vi }')
+            text = 'import { createHarness, type Harness } from "./suite/harness.ts";\n' + text
+            text += '\nconst liveHarnesses: Harness[] = [];\nafterEach(() => { for (const harness of liveHarnesses.splice(0)) harness.cleanup(); });\n'
+            text = text.replace(anchor, anchor + '\n\t\tconst harness = await createHarness();\n\t\tliveHarnesses.push(harness);\n\t\tcontext.session = harness.session;\n\t\tObject.setPrototypeOf(context, InteractiveMode.prototype);')
             contents = text.encode()
         path.write_bytes(contents)
         if name.endswith(('.test.ts','.test.js','.test.mjs')):

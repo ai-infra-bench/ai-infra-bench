@@ -1,6 +1,10 @@
 """Verifier-owned case inventory; contains no candidate imports."""
 
 CONTRACT_CASES = {
+    "a fresh user prompt after idle overflow compaction stays a prompt and references its own user entry",
+    "a user follow-up queued at agent_end opens a continuation run referencing its user entry",
+    "an error response without errorMessage uses aborted for chat and turn status",
+    "a child spawned after a concurrent sibling starts keeps its own tool parent through compaction",
     "a prompt with a tool call exports run, turn, chat and tool spans in OTLP/JSON tied to session entries",
     "a failing tool and an error response mark tool, chat and turn spans ERROR while the run stays OK",
     "runs started by an extension message are wakeups and runs queued at agent_end are continuations",
@@ -15,7 +19,7 @@ CONTRACT_CASES = {
     "concurrent tool calls of one assistant message get one overlapping span each with its own status and entry",
     "steering and follow-up messages start turns inside the run and are listed on it, never as new runs",
     "overflow recovery persists the failed chat, compacts with will_retry and continues in a run without a message",
-    "a child pi spawned by a tool joins the parent's trace under that tool span through PI_AGENT_TRACE_PARENT",
+    "a child pi spawned through the documented integration joins its spawning tool trace",
 }
 
 LIFECYCLE_CASES = {

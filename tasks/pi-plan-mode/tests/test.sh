@@ -60,6 +60,22 @@ chmod 0755 /workspace/pi/packages/coding-agent/node_modules/.vite /workspace/pi/
 # to be removed; root-owned configuration and source entries remain protected.
 chown root:root /workspace/pi/packages/coding-agent
 chmod 1777 /workspace/pi/packages/coding-agent
+# Restore the independently pinned utility suite so candidate test edits cannot
+# remove, weaken, rename or add to the old regression inventory.
+python3 - "$trusted_tests" <<'RESTORE_UTILITY'
+from pathlib import Path
+import hashlib, json, sys
+trusted = Path(sys.argv[1])
+name = "packages/coding-agent/test/plan-mode-utils.test.ts"
+raw = (trusted / "frozen/plan-mode-utils.test.ts").read_bytes()
+assert hashlib.sha256(raw).hexdigest() == json.loads((trusted / "base-manifest.json").read_text())["frozen"][name]
+path = Path("/workspace/pi") / name
+assert path.is_file() and not path.is_symlink()
+path.unlink()
+path.write_bytes(raw)
+path.chmod(0o444)
+RESTORE_UTILITY
+if [ "$?" -ne 0 ]; then exit 0; fi
 # Select only original Base test files; permitted candidate-added tests do not
 # alter the old-suite inventory. The four intentionally changed plan extension
 # tests are excluded; existing plan utility tests remain in this list.

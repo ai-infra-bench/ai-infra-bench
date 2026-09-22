@@ -11,6 +11,9 @@ problems = []
 for name, digest in manifest["frozen"].items():
     path = root / name
     content = str(path.readlink()).encode() if path.is_symlink() else path.read_bytes() if path.is_file() else None
+    # Relevant utility tests may be extended; grading restores the pinned Base copy.
+    if name == "packages/coding-agent/test/plan-mode-utils.test.ts" and path.is_file() and not path.is_symlink():
+        continue
     # Base .gitattributes deliberately checks Windows scripts out as CRLF;
     # Git blobs and archive-based Linux checkouts may contain LF.
     if content is not None and path.suffix in {".bat", ".cmd", ".ps1"}: content = content.replace(b"\r\n", b"\n")

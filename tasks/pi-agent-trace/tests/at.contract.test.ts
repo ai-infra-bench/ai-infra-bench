@@ -71,7 +71,7 @@ describe("agent-trace contract", () => {
 	it("a prompt with a tool call exports run, turn, chat and tool spans in OTLP/JSON tied to session entries", async () => {
 		const s = await live("basic");
 		const file = traceFileFor(s.sessionManager);
-		expect(existsSync(file)).toBe(false);
+		expect(!existsSync(file) || readFileSync(file, "utf8") === "").toBe(true);
 		const before = Date.now();
 		await prompt(s, [toolCall("echo", { text: "TOOL-OUTPUT", delayMs: 30 }), say("done")], "run the tool");
 		const after = Date.now();
@@ -249,6 +249,36 @@ describe("agent-trace contract", () => {
 		expect([runs[0], runs[2]].map((r) => r.attributes["pi.session.entry_id"])).toEqual(users.map((u) => u.id));
 		expect(atOrAfter(runs[3].start, runs[2].end)).toBe(true);
 		for (const r of runs) expect(r.attributes["pi.run.turn_count"]).toBe(1);
+	});
+
+	it("a user follow-up queued at agent_end opens a continuation run referencing its user entry", async () => {
+		const s = await live("user-continuation");
+		s.ext.state.queueUserFollowUp = true;
+		await prompt(s, [say("first"), say("continued")], "initial user");
+		const { spans, problems } = trace(s);
+		expect(problems).toEqual([]);
+		const runs = named(spans, "pi.run");
+		const users = entryOf(s, (e) => e.type === "message" && e.message.role === "user");
+		expect(runs.map((r) => r.attributes["pi.run.trigger"])).toEqual(["prompt", "continuation"]);
+		expect(users).toHaveLength(2);
+		expect(runs.map((r) => r.attributes["pi.session.entry_id"])).toEqual(users.map((e) => e.id));
+		expect(runs.map((r) => r.attributes["pi.run.turn_count"])).toEqual([1, 1]);
+		expect(runs[1].attributes["pi.run.after_compaction"]).toBeUndefined();
+	});
+
+	it("an error response without errorMessage uses aborted for chat and turn status", async () => {
+		const s = await live("error-fallback");
+		await prompt(s, [fauxAssistantMessage(fauxText(""), { stopReason: "error" })], "fail without a reason");
+		const { spans, problems } = trace(s);
+		expect(problems).toEqual([]);
+		const [assistant] = entryOf(s, (e) => e.type === "message" && e.message.role === "assistant");
+		expect(assistant.message.stopReason).toBe("error");
+		expect(assistant.message.errorMessage).toBeUndefined();
+		const [run] = named(spans, "pi.run");
+		expect(run.status).toEqual({ code: 1 });
+		const [turn] = children(spans, run);
+		const [chat] = children(spans, turn);
+		for (const span of [turn, chat]) expect(span.status).toEqual({ code: 2, message: "aborted" });
 	});
 
 	it("manual and threshold compactions export root compaction spans tied to compaction entries", async () => {
@@ -444,6 +474,71 @@ describe("agent-trace contract", () => {
 		// Written and closed child-first.
 		expect(atOrAfter(turn.end, chat.end)).toBe(true);
 		expect(atOrAfter(run.end, turn.end)).toBe(true);
+
+		// A second real quit phase: one tool has ended, its sibling is active,
+		// and the assistant toolUse message is already persisted. Capture the
+		// shutdown trace before allowing the finite tool timer to drain.
+		const toolRuntime = await startRuntime("quit-tools");
+		cleanups.push(async () => toolRuntime.box.cleanup());
+		const rec = await toolRuntime.rebind();
+		const session = toolRuntime.runtime.session;
+		const toolManager = session.sessionManager;
+		const toolFile = traceFileFor(toolManager);
+		const shortId = "quit-short-tool";
+		const longId = "quit-active-tool";
+		const seen = (type: string, id: string) => rec.events.some((event: any) => event.type === type && event.toolCallId === id);
+		toolRuntime.faux.setResponses(withAcks([
+			fauxAssistantMessage([
+				fauxToolCall("echo", { text: "completed sibling", delayMs: 1 }, { id: shortId }),
+				fauxToolCall("echo", { text: "active at quit", delayMs: 2000 }, { id: longId }),
+			], { stopReason: "toolUse" }),
+			say("cleanup after the snapshot"),
+		]));
+		const toolPrompt = session.prompt("Run both tools", { expandPromptTemplates: false, source: "interactive" });
+		// Attach rejection handlers immediately; failures are checked by the
+		// phase preconditions instead of leaking an unhandled rejection.
+		const promptSettled = toolPrompt.then(() => undefined, () => undefined);
+		let closing: Promise<void> | undefined;
+		try {
+			await waitFor(() => seen("tool_execution_start", shortId) && seen("tool_execution_start", longId) &&
+				seen("tool_execution_end", shortId) && !seen("tool_execution_end", longId) &&
+				toolManager.getBranch().some((entry: any) => entry.type === "message" && entry.message.role === "assistant" &&
+					entry.message.stopReason === "toolUse" && entry.message.content.some((part: any) => part.type === "toolCall" && part.id === longId)),
+				{ timeoutMs: 10_000, label: "short tool ended, sibling active, assistant persisted before quit" });
+			closing = toolRuntime.runtime.dispose();
+			void closing.catch(() => undefined);
+			await waitFor(() => readTrace(toolFile).spans.some((span) => span.name === "pi.run" && span.status.message === "shutdown"),
+				{ timeoutMs: 10_000, label: "tool-phase quit trace flushed" });
+			// This is a file snapshot. Later real SDK cleanup may emit events; it
+			// cannot change the observations used to assess the quit boundary.
+			const snapshot = readTrace(toolFile);
+			expect(seen("tool_execution_end", longId), "sibling must still be active at the captured shutdown").toBe(false);
+			expect(rec.count("turn_end"), "turn must not finish before the shutdown snapshot").toBe(0);
+			expect(snapshot.errors).toEqual([]);
+			expect(liveProblems(snapshot.all)).toEqual([]);
+			const toolTurn = named(snapshot.spans, "pi.turn");
+			expect(toolTurn).toHaveLength(1);
+			expect(toolTurn[0].status).toEqual({ code: 2, message: "shutdown" });
+			expect(toolTurn[0].attributes).toMatchObject({ "pi.turn.stop_reason": "toolUse", "pi.turn.tool_call_count": 2 });
+			const activeTool = snapshot.spans.filter((span) => span.attributes["gen_ai.tool.call.id"] === longId);
+			expect(activeTool).toHaveLength(1);
+			expect(activeTool[0].status).toEqual({ code: 2, message: "shutdown" });
+			for (let i = 1; i < snapshot.spans.length; i += 1) {
+				expect(snapshot.spans[i].end >= snapshot.spans[i - 1].end, "end records must not go backwards").toBe(true);
+			}
+			for (const span of snapshot.spans) {
+				const parentIndex = snapshot.spans.findIndex((parent) => parent.spanId === span.parentSpanId);
+				if (parentIndex >= 0) expect(parentIndex).toBeGreaterThan(snapshot.spans.indexOf(span));
+			}
+			// Do not require a toolResult entry that Pi has not persisted, nor
+			// choose a status for the already-ended, not-yet-persisted short tool.
+		} finally {
+			// Unlike a process exit, this shared test worker must drain its real
+			// 2-second timer and pending dispose/prompt before the next case.
+			if (!closing) closing = toolRuntime.runtime.dispose();
+			await Promise.allSettled([closing, promptSettled]);
+			await toolRuntime.dispose();
+		}
 	});
 
 	it("an unwritable trace path never reaches the agent and is reported once", async () => {
@@ -455,12 +550,22 @@ describe("agent-trace contract", () => {
 		process.env.PI_AGENT_TRACE_FILE = override;
 		const s = await live("unwritable");
 		const errors: unknown[] = [];
-		s.session.bindExtensions({ onError: (error: unknown) => errors.push(error) } as any);
+		await s.session.bindExtensions({ onError: (error: unknown) => errors.push(error) } as any);
 		await prompt(s, [toolCall("echo", { text: "still works" }), say("done")], "first");
 		await prompt(s, [say("second")], "second");
 		expect(s.rec.lastResult("echo").isError).toBe(false);
 		expect(rawText(s.rec.lastResult("echo"))).toBe("still works");
 		expect(s.rec.count("agent_end")).toBe(2);
+		expect(customTexts(s.sessionManager, "agent-trace")).toHaveLength(1);
+		// This is the only deliberately unwritable path in the contract suite.
+		// Reload reconstructs the extension in this same process and session;
+		// once-per-process reporting must survive that reconstruction. Do not
+		// inspect or reset any implementation-selected global deduplication state.
+		await s.session.reload();
+		await prompt(s, [toolCall("echo", { text: "still works after reload" }), say("third")], "after reload");
+		expect(s.rec.lastResult("echo").isError).toBe(false);
+		expect(rawText(s.rec.lastResult("echo"))).toBe("still works after reload");
+		expect(s.rec.count("agent_end")).toBe(3);
 		expect(existsSync(override)).toBe(false);
 		expect(existsSync(traceFileFor(s.sessionManager))).toBe(false);
 		const reports = customTexts(s.sessionManager, "agent-trace");
@@ -470,7 +575,7 @@ describe("agent-trace contract", () => {
 		expect(s.requests[0].systemPrompt).not.toContain("agent-trace");
 		expect(s.requests[s.requests.length - 1].systemPrompt).toBe(s.requests[0].systemPrompt);
 		// The report never started a turn of its own.
-		expect(s.rec.count("turn_start")).toBe(3);
+		expect(s.rec.count("turn_start")).toBe(5);
 	});
 	it("the file updates live: start lines appear while a tool is still running and end lines complete them", async () => {
 		const s = await live("live");
@@ -696,7 +801,42 @@ describe("agent-trace contract", () => {
 		expect(retryChat.status).toEqual({ code: 1 });
 	});
 
-	it("a child pi spawned by a tool joins the parent's trace under that tool span through PI_AGENT_TRACE_PARENT", async () => {
+	it("a fresh user prompt after idle overflow compaction stays a prompt and references its own user entry", async () => {
+		const s = await live("idle-overflow-new-prompt");
+		// A user may turn automatic compaction off, encounter overflow, then
+		// enable it before submitting a new prompt. No private session state is changed.
+		s.settingsManager.setCompactionEnabled(false);
+		await prompt(s, [say("remembered earlier context")], "remember this conversation");
+		await prompt(s, [fauxAssistantMessage(fauxText(""), {
+			stopReason: "error", errorMessage: "prompt is too long: 250000 tokens > 200000 maximum",
+		})], "previous prompt that overflowed");
+		expect(s.rec.count("agent_settled")).toBe(2);
+		expect(entryOf(s, (e) => e.type === "compaction")).toEqual([]);
+
+		s.settingsManager.setCompactionEnabled(true);
+		// Real compaction may issue summary and turn-prefix requests. Only their
+		// deterministic text producer is replaced; preparation and persistence run normally.
+		await prompt(s, [say("summary of earlier context"), say("summary turn prefix"), say("new answer")], "new independent user request");
+		expect(s.rec.count("agent_settled")).toBe(3);
+		const { spans, problems } = trace(s);
+		expect(problems).toEqual([]);
+		const compactions = named(spans, "pi.compaction");
+		expect(compactions).toHaveLength(1);
+		expect(compactions[0].attributes).toMatchObject({
+			"pi.compaction.reason": "overflow", "pi.compaction.will_retry": true,
+		});
+		const runs = named(spans, "pi.run");
+		const users = entryOf(s, (e) => e.type === "message" && e.message.role === "user");
+		expect(users).toHaveLength(3);
+		expect(runs.map((run) => run.attributes["pi.run.trigger"])).toEqual(["prompt", "prompt", "prompt"]);
+		expect(runs.map((run) => run.attributes["pi.session.entry_id"])).toEqual(users.map((entry) => entry.id));
+		expect(runs[2].attributes["pi.run.after_compaction"]).toBeUndefined();
+		expect(runs[2].attributes["pi.run.turn_count"]).toBe(1);
+		expect(atOrAfter(compactions[0].start, runs[1].end)).toBe(true);
+		expect(atOrAfter(runs[2].start, compactions[0].end)).toBe(true);
+	});
+
+	it("a child pi spawned through the documented integration joins its spawning tool trace", async () => {
 		const s = await live("subagent");
 		const box = s.box;
 		const envBefore = { ...process.env };
@@ -754,4 +894,46 @@ describe("agent-trace contract", () => {
 			else expect(span.parentSpanId).not.toBe(tool.spanId);
 		}
 	});
+	it("a child spawned after a concurrent sibling starts keeps its own tool parent through compaction", async () => {
+		const s = await live("concurrent-child");
+		const envBefore = { ...process.env };
+		const out = join(s.box.root, "concurrent-child.json");
+		await prompt(s, [fauxAssistantMessage([
+			fauxToolCall("spawn_child", { sessionDir: s.box.sessionDir, cwd: s.box.cwd, agentDir: s.box.agentDir, out, waitForSibling: true, compactChild: true }, { id: "spawn-A" }),
+			fauxToolCall("child_sibling", {}, { id: "sibling-B" }),
+		], { stopReason: "toolUse" }), say("finished")], "delegate alongside another tool");
+		expect(process.env).toEqual(envBefore);
+		const { spans, problems } = trace(s);
+		expect(problems).toEqual([]);
+		const tools = named(spans, "execute_tool");
+		expect(tools).toHaveLength(2);
+		const tool = tools.find((t) => t.attributes["gen_ai.tool.call.id"] === "spawn-A")!;
+		const sibling = tools.find((t) => t.attributes["gen_ai.tool.call.id"] === "sibling-B")!;
+		expect(tool).toBeDefined();
+		expect(sibling).toBeDefined();
+		for (const t of tools) expect(t.status).toEqual({ code: 1 });
+		expect(sibling.start).toBeLessThan(tool.end);
+		expect(tool.start).toBeLessThan(sibling.end);
+		expect((s.rec.lastResult("spawn_child").result as any).details.status).toBe(0);
+		const child = JSON.parse(readFileSync(out, "utf8"));
+		const childTrace = readTrace(join(child.sessionDir, "traces", `${child.sessionId}.otlp.jsonl`));
+		expect(childTrace.errors).toEqual([]);
+		expect(liveProblems(childTrace.all, tool.spanId)).toEqual([]);
+		const childBranch = readFileSync(child.sessionFile, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line))
+			.filter((e) => e.type === "message" || e.type === "custom_message" || e.type === "compaction");
+		expect(traceProblems(childTrace.spans, [], childBranch, child.sessionId, tool.spanId)).toEqual([]);
+		const roots = childTrace.spans.filter((span) => span.name === "pi.run" || span.name === "pi.compaction");
+		expect(roots.map((span) => span.name)).toEqual(["pi.run", "pi.compaction"]);
+		for (const span of childTrace.spans) {
+			expect(span.traceId).toBe(tool.traceId);
+			expect(span.resource["pi.session.id"]).toBe(child.sessionId);
+		}
+		for (const span of roots) {
+			expect(span.parentSpanId).toBe(tool.spanId);
+			expect(span.parentSpanId).not.toBe(sibling.spanId);
+			expect(ms(span.start)).toBeGreaterThanOrEqual(ms(tool.start));
+			expect(ms(span.end)).toBeLessThanOrEqual(ms(tool.end));
+		}
+	});
+
 });

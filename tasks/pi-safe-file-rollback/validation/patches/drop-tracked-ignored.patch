@@ -1,0 +1,15 @@
+diff --git a/packages/coding-agent/src/core/safe-rollback.ts b/packages/coding-agent/src/core/safe-rollback.ts
+index 79b21885b6b06df6c86ca4aced3408dce4777891..344498477d9fca167a0a41a232e1903c80430174 100644
+--- a/packages/coding-agent/src/core/safe-rollback.ts
++++ b/packages/coding-agent/src/core/safe-rollback.ts
+@@ -346,8 +346,10 @@ export class SafeRollbackStore {
+ 			.toString("utf8")
+ 			.split("\0")
+ 			.filter(Boolean);
++		const ignoredTracked = new Set(execFileSync("git", ["ls-files", "-z", "--cached", "--ignored", "--exclude-standard"], { cwd: this.journal.root }).toString("utf8").split("\0"));
+ 		const result: Snapshot = Object.create(null);
+ 		for (const path of [...new Set(paths)].sort()) {
++			if (ignoredTracked.has(path)) continue;
+ 			const absolute = this.absolute(path);
+ 			if (this.excludedPaths.includes(absolute)) continue;
+ 			this.assertNoSymlinkParents(absolute);

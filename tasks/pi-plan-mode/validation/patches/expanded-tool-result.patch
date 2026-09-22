@@ -1,0 +1,34 @@
+diff --git a/packages/coding-agent/examples/extensions/plan-mode/index.ts b/packages/coding-agent/examples/extensions/plan-mode/index.ts
+index 48312f60a0069f6c5335db40d771c8aaae314a43..f984025d7c16da8d4bfcba4b4a0f760456140132 100644
+--- a/packages/coding-agent/examples/extensions/plan-mode/index.ts
++++ b/packages/coding-agent/examples/extensions/plan-mode/index.ts
+@@ -103,10 +103,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
+ 		} else {
+ 			ctx.ui.setStatus("plan-mode", undefined);
+ 		}
+-		ctx.ui.setWidget(
+-			"plan-todos",
+-			todos.length ? todos.map((item) => `${item.completed ? "[x]" : "[ ]"} ${item.step}. ${item.text}`) : undefined,
+-		);
++
+ 	}
+ 
+ 	function result(operation: Operation, errorCode: ControlError | null): void {
+@@ -173,7 +170,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
+ 		const displayed = snapshot();
+ 		try {
+ 			const choice = await ctx.ui.select(
+-				`Plan ${displayed.planId}, revision ${displayed.revision}\n${displayed.steps.map((step, i) => `${i + 1}. ${step}`).join("\n")}\nWhat next?`,
++				"Review submitted plan",
+ 				["Execute the plan (track progress)", "Stay in plan mode", "Refine the plan"],
+ 			);
+ 			if (choice === "Execute the plan (track progress)" && displayed.planId) {
+@@ -213,7 +210,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
+ 			persist();
+ 			updateStatus(ctx);
+ 			const submitted = snapshot();
+-			return { content: [{ type: "text", text: JSON.stringify(submitted) }], details: submitted };
++			return { content: [{ type: "text", text: JSON.stringify({ metadata: Array.from({ length: 12 }, (_, i) => `Display context ${i}`), state: submitted }, null, 2) }], details: submitted };
+ 		},
+ 	});
+ 

@@ -1,5 +1,5 @@
 /** Verifier host: real SDK, resource loader, faux provider and file-backed sessions. */
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -8,6 +8,24 @@ import { Type } from "typebox";
 import { Container, Text, TuiMainScreen } from "@earendil-works/pi-tui";
 import { fauxProvider, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { createAgentSession, CustomMessageComponent, DefaultResourceLoader, SessionManager, SettingsManager, initTheme } from "@earendil-works/pi-coding-agent";
+
+// The host supplies Pi's real keybinding object; the package exports its type only.
+import { KeybindingsManager } from "../../src/core/keybindings.ts";
+import { ToolExecutionComponent } from "../../src/modes/interactive/components/tool-execution.ts";
+
+// UI text and the choice of public UI primitive are not part of the task's
+// wire contract. A reviewer may bind visible actions, independently of the
+// candidate's behavior, without changing the assertions or candidate code.
+const bindingPath = process.env.PI_TRUSTED_TESTS && join(process.env.PI_TRUSTED_TESTS, "ui-actions.json");
+const uiActions = bindingPath && existsSync(bindingPath) ? JSON.parse(readFileSync(bindingPath, "utf8")) : {};
+function selectAction(choices, kind) {
+  const label = uiActions.select?.[kind];
+  if (label !== undefined) {
+    if (typeof label !== "string" || !label.length) throw new Error(`Invalid UI binding for ${kind}`);
+    return choices.find((value) => value === label);
+  }
+  return choices.find((value) => value.toLowerCase().includes(kind.toLowerCase()));
+}
 
 export const WORKSPACE = process.env.PI_WORKSPACE ?? "/workspace/pi";
 export const EXTENSION = join(WORKSPACE, "packages/coding-agent/examples/extensions/plan-mode/index.ts");
@@ -103,9 +121,10 @@ export async function start(options = {}) {
   const baseUI = session.extensionRunner.getUIContext();
   // Only the physical terminal is substituted. Public widget factories receive
   // the real TUI and Theme, and their own components determine rendered text.
+  let terminalInput;
   const terminal = {
     columns: 120, rows: 40, kittyProtocolActive: false,
-    start() {}, stop() {}, async drainInput() {}, write: showText,
+    start(onInput) { terminalInput = onInput; }, stop() {}, async drainInput() {}, write: showText,
     moveBy() {}, hideCursor() {}, showCursor() {}, clearLine() {},
     clearFromCursor() {}, clearScreen() {}, setTitle() {}, setProgress() {},
   };
@@ -131,22 +150,84 @@ export async function start(options = {}) {
     select: async (title, choices) => {
       showText(title); choices.forEach(showText);
       const answer = deferred();
-      const dialog = { title, choices, answer, choose: (kind) => {
-        const choice = choices.find((value) => value.toLowerCase().includes(kind.toLowerCase()));
-        if (!choice) throw new Error(`Missing ${kind} action: ${JSON.stringify(choices)}`);
+      const dialog = { title, choices, answer, hasAction: (kind) => selectAction(choices, kind) !== undefined, choose: (kind) => {
+        const choice = selectAction(choices, kind);
+        if (choice === undefined) throw new Error(`Unbound public UI action ${kind}: ${JSON.stringify(choices)}. Review visible labels and supply ui-actions.json before interpreting this as a candidate failure.`);
         answer.resolve(choice);
       }};
       dialogs.push(dialog);
       if (!options.deferUI) {
-        const stay = choices.find((value) => /stay/i.test(value));
+        const stay = selectAction(choices, "stay");
         answer.resolve(stay);
       }
       return answer.promise;
     },
+    custom: async (factory, displayOptions = {}) => {
+      const answer = deferred();
+      let component, overlay, settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        if (component) {
+          if (overlay) overlay.hide(); else widgetTui.removeChild(component);
+          component.dispose?.(); widgetTui.renderNow(true);
+        }
+        answer.resolve(value);
+      };
+      component = await factory(widgetTui, baseUI.theme, new KeybindingsManager(), finish);
+      if (settled) { component.dispose?.(); return answer.promise; }
+      if (displayOptions.overlay) {
+        overlay = widgetTui.showOverlay(component, typeof displayOptions.overlayOptions === "function" ? displayOptions.overlayOptions() : displayOptions.overlayOptions);
+        displayOptions.onHandle?.(overlay);
+      } else { widgetTui.addChild(component); widgetTui.setFocus(component); }
+      widgetTui.start();
+      const rendered = () => component.render(terminal.columns).map(stripVTControlCharacters).join("\n");
+      const hasAction = (kind) => {
+        const binding = uiActions.custom?.[kind];
+        return !overlay?.isHidden() && typeof binding?.label === "string" && binding.label.length > 0 && rendered().includes(binding.label)
+          && Array.isArray(binding.keys) && binding.keys.length > 0 && binding.keys.length <= 64 && binding.keys.every((key) => typeof key === "string");
+      };
+      const dialog = { answer, cancel: () => finish(undefined), hasAction, choose: (kind) => {
+        if (settled) return;
+        if (!hasAction(kind)) throw new Error(`Unbound public custom UI action ${kind}. Bind its visible label and user keystrokes in ui-actions.json; do not infer action meaning from candidate state changes.`);
+        if (typeof terminalInput !== "function") throw new Error("Custom UI input was not attached to the terminal");
+        for (const key of uiActions.custom[kind].keys) {
+          terminalInput(key);
+          widgetTui.renderNow(true);
+        }
+      }};
+      widgetTui.renderNow(true);
+      showText(rendered());
+      dialogs.push(dialog);
+      if (!options.deferUI) dialog.choose("stay");
+      return answer.promise;
+    },
+    input: async () => options.refinement ?? "Refine without executing",
     editor: async () => options.refinement ?? "Refine without executing",
   };
+  const renderedTools = new Map();
   session.subscribe((event) => {
     events.push(event);
+    if (options.ui && event.type === "tool_execution_start" && event.toolName === "plan_submit") {
+      // This is the same public tool renderer used by InteractiveMode. Structured
+      // details alone are not visible; a custom renderer may deliberately hide them.
+      const component = new ToolExecutionComponent(event.toolName, event.toolCallId, event.args,
+        { showImages: false }, session.getToolDefinition(event.toolName), widgetTui, box.cwd);
+      component.setArgsComplete();
+      component.markExecutionStarted();
+      renderedTools.set(event.toolCallId, component);
+    }
+    if (options.ui && event.type === "tool_execution_end" && event.toolName === "plan_submit") {
+      const component = renderedTools.get(event.toolCallId);
+      if (!component) throw new Error("Missing tool execution renderer");
+      component.updateResult({ ...event.result, isError: event.isError });
+      // Readers can expand tool output before approval, including while the
+      // extension selector is open. Honor the actual renderer in that state.
+      component.setExpanded(true);
+      // Wrapped terminal rows remain visible to a reader as one flow of text.
+      showText(component.render(terminal.columns).map(stripVTControlCharacters).map((line) => line.trim()).join(" "));
+      renderedTools.delete(event.toolCallId);
+    }
     if (options.ui && event.type === "message_start" && event.message.role === "custom" && event.message.display) {
       // Pi displays these transcript messages independently of ctx.ui methods.
       // Run the real renderer, including a candidate's registered renderer;
@@ -175,17 +256,17 @@ export async function start(options = {}) {
     },
     controls: () => sessionManager.getEntries().filter((e) => e.type === "custom" && e.customType === "plan-control-result").map((e) => e.data),
     approved: () => sessionManager.getEntries().filter((e) => e.type === "custom_message" && e.customType === "plan-approved"),
-    async control(command, source = "rpc") {
+    async control(command, source = "rpc", options = {}) {
       const before = live.controls().length;
       await session.prompt(`/plan-control ${command}`, { source });
       const operation = command.trim().split(/\s+/)[0];
-      const found = live.controls().slice(before).filter((entry) => !["enter", "status", "approve"].includes(operation) || entry.operation === operation);
+      const found = live.controls().slice(before);
       if (found.length !== 1) throw new Error(`Expected one plan-control-result for ${command}; got ${found.length}`);
       const result = found.at(-1);
-      if (!result || typeof result !== "object" || !Object.hasOwn(result, "operation") || typeof result.ok !== "boolean") {
+      if (!result || typeof result !== "object" || typeof result.operation !== "string" || !result.operation.trim() || typeof result.ok !== "boolean") {
         throw new Error(`Invalid control result: ${JSON.stringify(result)}`);
       }
-      if (["enter", "status", "approve"].includes(operation) && result.operation !== operation) {
+      if (!options.malformed && ["enter", "status", "approve"].includes(operation) && result.operation !== operation) {
         throw new Error(`Control result does not identify ${operation}: ${JSON.stringify(result)}`);
       }
       const state = planState(result.state);
@@ -204,7 +285,7 @@ export async function start(options = {}) {
     },
     async close(remove = true) {
       gate.resolve();
-      for (const dialog of dialogs) dialog.answer.resolve(undefined);
+      for (const dialog of dialogs) { if (dialog.cancel) dialog.cancel(); else dialog.answer.resolve(undefined); }
       await session.abort();
       await session.agent.waitForIdle();
       await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });

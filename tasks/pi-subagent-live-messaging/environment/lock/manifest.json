@@ -10,9 +10,9 @@
       "source": "package-lock.json at base_commit, unchanged",
       "sha256": "b9ab7cb9d02e818ba16dd0874285175f3b2cad117326761de0e2c61f285a5e2b"
     },
-    "model-data.tar.gz": {
-      "source": "generated pi model catalog JSON files shipped in the build context (environment/model-data.tar.gz), validated by pi's check-model-data during the build",
-      "sha256": "90920cab1aeea089ea8f0401c5284bebef7eabe6b03f97eff1462904507951df"
+    "pi-ai-0.85.1.tgz": {
+      "source": "https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.85.1.tgz; package/dist/providers/data, checked by Pi check-model-data.ts",
+      "sha256": "af7d11986179445ce6fe88b37d57de22f823c0ffd3a65cae31c555b7f5e99253"
     }
   },
   "output": {
@@ -20,7 +20,9 @@
     "sha256": "b9ab7cb9d02e818ba16dd0874285175f3b2cad117326761de0e2c61f285a5e2b"
   },
   "notes": [
-    "The repository lock file at the base commit is used verbatim; the Dockerfile runs npm ci from the checkout's own copy (the same bytes) and does not check this recorded hash at build time.",
-    "Recorded 2026-09-20 from a native linux/amd64 build of this Dockerfile while migrating the task to the repository's normalized layout; the task previously had no lock directory."
+    "The package-lock.json at base_commit remains byte-for-byte unchanged; the generated Dockerfile verifies its recorded SHA256 before npm ci --ignore-scripts, retaining the original installation policy.",
+    "The common Pi template uses source workspace mode and the SHA256-pinned published catalog. Its 40 catalog files are byte-identical to the prior environment/model-data.tar.gz; that archive is retained for historical reproduction but is no longer a build input.",
+    "Source mode preserves the original task contract and does not build dist. The frozen Pi source and lock have an existing build:offline TS2322 in google-shared.ts; no Pi source or dependency version is changed to hide that failure.",
+    "Actual retained image identity and executed runtime evidence are recorded separately; metadata changes do not assert a successful build."
   ]
 }

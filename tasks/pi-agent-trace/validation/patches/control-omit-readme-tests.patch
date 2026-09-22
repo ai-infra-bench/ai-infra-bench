@@ -1,0 +1,465 @@
+diff --git a/packages/coding-agent/examples/extensions/agent-trace/README.md b/packages/coding-agent/examples/extensions/agent-trace/README.md
+deleted file mode 100644
+index 4654700609c62709e41055ff6283809f2365e78c..0000000000000000000000000000000000000000
+--- a/packages/coding-agent/examples/extensions/agent-trace/README.md
++++ /dev/null
+@@ -1,73 +0,0 @@
+-# Agent Trace
+-
+-Exports the agent loop as an OpenTelemetry trace, written as OTLP/JSON lines
+-so a collector (`otlpjsonfile` receiver) or any OTLP-aware viewer can load it.
+-
+-```bash
+-pi -e examples/extensions/agent-trace/index.ts
+-```
+-
+-## File
+-
+-`<sessionDir>/traces/<sessionId>.otlp.jsonl`, or `PI_AGENT_TRACE_FILE`. Every
+-line is one `ExportTraceServiceRequest` holding one span; resource attributes
+-carry `service.name`, `service.version`, `pi.session.id` and `process.pid`.
+-Every span has a start line immediately and an end line once its attributes
+-are known. Chat end lines are flushed at the first tool start (or `turn_end`
+-without tools); tool end lines wait for persisted entries at `turn_end`.
+-End lines follow end-time order and are never rewritten; `/reload` and later processes append to the same file with
+-the same trace id (derived from the session id).
+-
+-## Spans
+-
+-| name | kind | parent | attributes |
+-|---|---|---|---|
+-| `pi.run` | INTERNAL | root | `pi.run.trigger` (`prompt` / `wakeup` / `continuation`), `pi.run.turn_count`, `pi.session.entry_id` |
+-| `pi.turn` | INTERNAL | run | `pi.turn.index`, `pi.turn.stop_reason`, `pi.turn.tool_call_count` |
+-| `chat <model>` | CLIENT | turn | `gen_ai.operation.name`, `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `pi.usage.cache_read_tokens`, `pi.usage.cache_write_tokens`, `gen_ai.response.finish_reasons`, `pi.session.entry_id` |
+-| `execute_tool <name>` | INTERNAL | turn | `gen_ai.operation.name`, `gen_ai.tool.name`, `gen_ai.tool.call.id`, `pi.tool.is_error`, `pi.session.entry_id` |
+-| `pi.compaction` | INTERNAL | root | `pi.compaction.reason`, `pi.compaction.will_retry`, `pi.compaction.tokens_before`, `pi.session.entry_id` |
+-
+-Status is ERROR (with a message) for failed tool results, error or aborted
+-assistant messages and the turns that contain them, and failed compactions.
+-
+-User and custom follow-ups consumed within a run are listed in its steering
+-entry ids. A queued user or custom follow-up after `agent_end` but before
+-settling opens a continuation run referencing that message. An overflow retry
+-references its compaction instead. Error/aborted responses without an
+-`errorMessage` use status message `aborted`. Shutdown closes open spans as
+-`shutdown`; trace write failures are reported once as context-only messages.
+-
+-## Child processes: cooperative tool integration
+-
+-Inside a spawning tool's `execute(toolCallId, ...)`, request a private copy of
+-the child environment through pi's public extension event bus:
+-
+-```ts
+-let childEnv: NodeJS.ProcessEnv | undefined;
+-pi.events.emit("agent-trace:child-env", {
+-  toolCallId,
+-  env: process.env, // optional base environment; copy any caller overrides here
+-  reply: (env: NodeJS.ProcessEnv | undefined) => { childEnv = env; },
+-});
+-if (!childEnv) throw new Error("No active traced tool for this call id");
+-// spawn imported from node:child_process; use your ordinary child arguments.
+-const child = spawn(process.execPath, childArgs, { env: childEnv });
+-```
+-
+-The event handler replies synchronously. An unknown or ended call id returns
+-`undefined`; if the tracer is not loaded there is no reply. The copied env
+-contains `PI_AGENT_TRACE_PARENT=<traceId>-<toolSpanId>`. Load this extension in
+-the child too. It inherits that trace id, and both child runs and child
+-compactions attach directly to that tool. Each child uses its own session's
+-trace file by default; when supplying `PI_AGENT_TRACE_FILE`, choose a distinct
+-child path in the base environment.
+-
+-Concurrent tools must each request their own `toolCallId`; context is never
+-stored in `process.env`, and requesting one tool's env cannot affect a sibling
+-or the parent. Tools without this integration still get ordinary tool spans,
+-but their child processes are not automatically attributed. The tracer uses
+-only public extension events and does not wrap core execution or serialize
+-tools. The runtime owns event subscriptions and removes them on reload.
+-
+-Run the offline regression tests with `npm test -w packages/coding-agent`.
+diff --git a/packages/coding-agent/test/agent-trace-extension.test.ts b/packages/coding-agent/test/agent-trace-extension.test.ts
+deleted file mode 100644
+index 12ce93d66e8db23b1ef499999be46bfe5648628b..0000000000000000000000000000000000000000
+--- a/packages/coding-agent/test/agent-trace-extension.test.ts
++++ /dev/null
+@@ -1,293 +0,0 @@
+-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+-import { tmpdir } from "node:os";
+-import { join } from "node:path";
+-import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+-import type { ExtensionAPI } from "../src/core/extensions/types.ts";
+-import { Type } from "typebox";
+-import { afterEach, expect, it } from "vitest";
+-import { nanos, traceIdFor } from "../examples/extensions/agent-trace/index.ts";
+-import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
+-import { createAgentSession } from "../src/core/sdk.ts";
+-import { SessionManager } from "../src/core/session-manager.ts";
+-import { SettingsManager } from "../src/core/settings-manager.ts";
+-
+-const roots: string[] = [];
+-afterEach(() => {
+-	for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+-});
+-
+-it("agent-trace example: encodes ids and times", () => {
+-	expect(traceIdFor("abc")).toMatch(/^[0-9a-f]{32}$/);
+-	expect(traceIdFor("abc")).toBe(traceIdFor("abc"));
+-	expect(nanos(1_700_000_000_123)).toBe("1700000000123000000");
+-});
+-
+-it("agent-trace example: writes run, turn, chat and tool spans as OTLP/JSON lines", async () => {
+-	const root = mkdtempSync(join(tmpdir(), "pi-agent-trace-"));
+-	roots.push(root);
+-	const cwd = join(root, "project");
+-	const sessionDir = join(root, "sessions");
+-	const faux = fauxProvider({
+-		provider: "trace-faux",
+-		api: "trace-faux-api",
+-		models: [{ id: "trace-model", contextWindow: 200_000, maxTokens: 8_192 }],
+-	});
+-	const settingsManager = SettingsManager.inMemory({ retry: { enabled: false } });
+-	const loader = new DefaultResourceLoader({
+-		cwd,
+-		agentDir: join(root, "agent"),
+-		settingsManager,
+-		additionalExtensionPaths: [join(import.meta.dirname, "../examples/extensions/agent-trace/index.ts")],
+-		extensionFactories: [
+-			{
+-				name: "trace-test",
+-				factory: (pi) => {
+-					pi.registerProvider(faux.provider);
+-					pi.registerTool({
+-						name: "echo",
+-						label: "Echo",
+-						description: "echo",
+-						parameters: Type.Object({ text: Type.String() }),
+-						async execute(_id, params: { text: string }) {
+-							return { content: [{ type: "text", text: params.text }], details: {} };
+-						},
+-					});
+-				},
+-			},
+-		],
+-		noExtensions: true,
+-		noSkills: true,
+-		noPromptTemplates: true,
+-		noThemes: true,
+-		noContextFiles: true,
+-		systemPrompt: "test",
+-	});
+-	await loader.reload();
+-	const sessionManager = SessionManager.create(cwd, sessionDir);
+-	const { session } = await createAgentSession({
+-		cwd,
+-		agentDir: join(root, "agent"),
+-		model: faux.getModel(),
+-		thinkingLevel: "off",
+-		noTools: "builtin",
+-		resourceLoader: loader,
+-		sessionManager,
+-		settingsManager,
+-	});
+-	await session.bindExtensions({});
+-	faux.setResponses([
+-		fauxAssistantMessage(fauxToolCall("echo", { text: "hi" }), { stopReason: "toolUse" }),
+-		fauxAssistantMessage(fauxText("done")),
+-	]);
+-	await session.prompt("go", { expandPromptTemplates: false, source: "interactive" });
+-	session.dispose();
+-
+-	const file = join(sessionDir, "traces", `${sessionManager.getSessionId()}.otlp.jsonl`);
+-	expect(existsSync(file)).toBe(true);
+-	const lines = readFileSync(file, "utf8")
+-		.trimEnd()
+-		.split("\n")
+-		.map((line) => JSON.parse(line));
+-	const all = lines.map((line) => line.resourceSpans[0].scopeSpans[0].spans[0]);
+-	// Start lines (no end time) make the file live; the end lines describe the finished spans.
+-	const starts = all.filter((span) => !("endTimeUnixNano" in span));
+-	const spans = all.filter((span) => "endTimeUnixNano" in span);
+-	expect(starts.map((span) => span.name)).toEqual([
+-		"pi.run",
+-		"pi.turn",
+-		"chat trace-model",
+-		"execute_tool echo",
+-		"pi.turn",
+-		"chat trace-model",
+-	]);
+-	expect(new Set(starts.map((span) => span.spanId))).toEqual(new Set(spans.map((span) => span.spanId)));
+-	expect(spans.map((span) => span.name)).toEqual([
+-		"chat trace-model",
+-		"execute_tool echo",
+-		"pi.turn",
+-		"chat trace-model",
+-		"pi.turn",
+-		"pi.run",
+-	]);
+-	const run = spans[5];
+-	expect(run.parentSpanId).toBeUndefined();
+-	expect(run.traceId).toBe(traceIdFor(sessionManager.getSessionId()));
+-	expect(spans[2].parentSpanId).toBe(run.spanId);
+-	expect(spans[0].parentSpanId).toBe(spans[2].spanId);
+-	const attrs = Object.fromEntries(run.attributes.map((a: any) => [a.key, a.value]));
+-	expect(attrs["pi.run.trigger"]).toEqual({ stringValue: "prompt" });
+-	expect(attrs["pi.run.turn_count"]).toEqual({ intValue: "2" });
+-	const entryIds = new Set(sessionManager.getBranch().map((entry) => entry.id));
+-	for (const span of spans) {
+-		const id = span.attributes.find((a: any) => a.key === "pi.session.entry_id");
+-		if (span.name !== "pi.turn") expect(entryIds.has(id?.value.stringValue)).toBe(true);
+-	}
+-});
+-
+-// Regression fixture: only the provider is scripted. Scheduling, extension
+-// communication, session persistence and trace writes use the real public SDK.
+-async function regressionSession(tag: string, register: (pi: ExtensionAPI) => void = () => {}) {
+-	const root = mkdtempSync(join(tmpdir(), `pi-trace-${tag}-`));
+-	roots.push(root);
+-	const cwd = join(root, "project");
+-	const agentDir = join(root, "agent");
+-	const sessionDir = join(root, "sessions");
+-	const faux = fauxProvider({
+-		provider: `trace-${tag}`, api: `trace-${tag}-api`,
+-		models: [{ id: "trace-model", contextWindow: 200_000, maxTokens: 8_192 }],
+-	});
+-	const settingsManager = SettingsManager.inMemory({
+-		retry: { enabled: false }, compaction: { enabled: false, keepRecentTokens: 1, reserveTokens: 16_384 },
+-	});
+-	const loader = new DefaultResourceLoader({
+-		cwd, agentDir, settingsManager,
+-		additionalExtensionPaths: [join(import.meta.dirname, "../examples/extensions/agent-trace/index.ts")],
+-		extensionFactories: [{ name: `trace-${tag}`, factory(pi) { pi.registerProvider(faux.provider); register(pi); } }],
+-		noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
+-		noContextFiles: true, systemPrompt: "Offline trace regression.",
+-	});
+-	await loader.reload();
+-	const sessionManager = SessionManager.create(cwd, sessionDir);
+-	const { session } = await createAgentSession({
+-		cwd, agentDir, model: faux.getModel(), thinkingLevel: "off", noTools: "builtin",
+-		resourceLoader: loader, sessionManager, settingsManager,
+-	});
+-	await session.bindExtensions({});
+-	return {
+-		session, sessionManager, faux,
+-		spans: () => readFileSync(join(sessionDir, "traces", `${sessionManager.getSessionId()}.otlp.jsonl`), "utf8")
+-			.trim().split("\n").map((line) => JSON.parse(line).resourceSpans[0].scopeSpans[0].spans[0])
+-			.filter((span: any) => span.endTimeUnixNano),
+-	};
+-}
+-
+-const stringAttribute = (span: any, key: string) => span.attributes.find((a: any) => a.key === key)?.value.stringValue;
+-
+-it("an error response without details uses aborted for chat and turn status", async () => {
+-	const s = await regressionSession("no-error-message");
+-	try {
+-		s.faux.setResponses([fauxAssistantMessage(fauxText(""), { stopReason: "error" })]);
+-		await s.session.prompt("fail without details");
+-		const message = s.sessionManager.getBranch().find((e) => e.type === "message" && e.message.role === "assistant");
+-		expect(message && message.type === "message" && message.message.role === "assistant" && message.message.errorMessage).toBeUndefined();
+-		const failed = s.spans().filter((span: any) => span.name === "pi.turn" || span.name.startsWith("chat "));
+-		expect(failed).toHaveLength(2);
+-		for (const span of failed) expect(span.status).toEqual({ code: 2, message: "aborted" });
+-	} finally { s.session.dispose(); }
+-});
+-
+-it("a user follow-up queued after agent_end is a continuation with the new user entry", async () => {
+-	let queued = false;
+-	const s = await regressionSession("user-continuation", (pi) => {
+-		pi.on("agent_end", () => {
+-			if (queued) return;
+-			queued = true;
+-			pi.sendUserMessage("queued user follow-up", { deliverAs: "followUp" });
+-		});
+-	});
+-	try {
+-		s.faux.setResponses([fauxAssistantMessage(fauxText("first")), fauxAssistantMessage(fauxText("second"))]);
+-		await s.session.prompt("initial prompt");
+-		const runs = s.spans().filter((span: any) => span.name === "pi.run");
+-		const users = s.sessionManager.getBranch().filter((e) => e.type === "message" && e.message.role === "user");
+-		expect(runs).toHaveLength(2);
+-		expect(users).toHaveLength(2);
+-		expect(runs.map((span: any) => stringAttribute(span, "pi.run.trigger"))).toEqual(["prompt", "continuation"]);
+-		expect(runs.map((span: any) => stringAttribute(span, "pi.session.entry_id"))).toEqual(users.map((e) => e.id));
+-	} finally { s.session.dispose(); }
+-});
+-
+-it("child environments remain bound to the requested tool when sibling executions overlap", async () => {
+-	let siblingStarted!: () => void;
+-	const started = new Promise<void>((resolve) => { siblingStarted = resolve; });
+-	let releaseSibling!: () => void;
+-	const released = new Promise<void>((resolve) => { releaseSibling = resolve; });
+-	let api!: ExtensionAPI;
+-	let envA: NodeJS.ProcessEnv | undefined;
+-	let envB: NodeJS.ProcessEnv | undefined;
+-	const baseEnv: NodeJS.ProcessEnv = { ...process.env, TRACE_TEST_SENTINEL: "preserve" };
+-	function childEnv(toolCallId: string) {
+-		let result: NodeJS.ProcessEnv | undefined;
+-		api.events.emit("agent-trace:child-env", {
+-			toolCallId, env: baseEnv, reply: (env: NodeJS.ProcessEnv | undefined) => { result = env; },
+-		});
+-		return result;
+-	}
+-	const s = await regressionSession("concurrent-environments", (pi) => {
+-		api = pi;
+-		pi.registerTool({
+-			name: "trace_parent_a", label: "A", description: "Wait for B then request A context", parameters: Type.Object({}),
+-			async execute(id) {
+-				await started;
+-				try { envA = childEnv(id); } finally { releaseSibling(); }
+-				return { content: [{ type: "text", text: "A done" }], details: {} };
+-			},
+-		});
+-		pi.registerTool({
+-			name: "trace_parent_b", label: "B", description: "Overlap A", parameters: Type.Object({}),
+-			async execute(id) {
+-				envB = childEnv(id); siblingStarted(); await released;
+-				return { content: [{ type: "text", text: "B done" }], details: {} };
+-			},
+-		});
+-	});
+-	const before = { ...process.env };
+-	try {
+-		s.faux.setResponses([
+-			fauxAssistantMessage([fauxToolCall("trace_parent_a", {}, { id: "parent-A" }), fauxToolCall("trace_parent_b", {}, { id: "parent-B" })], { stopReason: "toolUse" }),
+-			fauxAssistantMessage(fauxText("done")),
+-		]);
+-		await s.session.prompt("overlap both tools");
+-		expect(envA).toBeDefined(); expect(envB).toBeDefined();
+-		const spans = s.spans();
+-		for (const [id, env] of [["parent-A", envA], ["parent-B", envB]] as const) {
+-			const span = spans.find((span: any) => stringAttribute(span, "gen_ai.tool.call.id") === id);
+-			expect(span).toBeDefined();
+-			expect(env?.PI_AGENT_TRACE_PARENT).toBe(`${span.traceId}-${span.spanId}`);
+-			expect(env?.TRACE_TEST_SENTINEL).toBe("preserve");
+-			expect(env).not.toBe(baseEnv);
+-		}
+-		expect(envA?.PI_AGENT_TRACE_PARENT).not.toBe(envB?.PI_AGENT_TRACE_PARENT);
+-		expect(childEnv("parent-A")).toBeUndefined();
+-		expect(childEnv("unknown")).toBeUndefined();
+-		expect(process.env).toEqual(before);
+-		expect(baseEnv.PI_AGENT_TRACE_PARENT).toBe(before.PI_AGENT_TRACE_PARENT);
+-	} finally { releaseSibling(); s.session.dispose(); }
+-}, 10_000);
+-
+-
+-it("a new user prompt after idle overflow compaction is not a retry run", async () => {
+-	const s = await regressionSession("pre-prompt-compaction", (pi) => {
+-		pi.on("session_before_compact", (event) => ({
+-			compaction: {
+-				summary: "Offline compaction of previous conversation.",
+-				firstKeptEntryId: event.preparation.firstKeptEntryId,
+-				tokensBefore: event.preparation.tokensBefore,
+-			},
+-		}));
+-	});
+-	try {
+-		s.faux.setResponses([fauxAssistantMessage(fauxText("remembered"))]);
+-		await s.session.prompt("remember this earlier context");
+-		s.faux.setResponses([fauxAssistantMessage(fauxText(""), {
+-			stopReason: "error", errorMessage: "prompt is too long: 250000 tokens > 200000 maximum",
+-		})]);
+-		await s.session.prompt("old failed prompt");
+-		// Automatic recovery was disabled for the old response. Enable it now:
+-		// the SDK checks that response before sending the next public prompt.
+-		s.session.setAutoCompactionEnabled(true);
+-		s.faux.setResponses([fauxAssistantMessage(fauxText("new answer"))]);
+-		await s.session.prompt("new independent user prompt");
+-		const spans = s.spans();
+-		const compactions = spans.filter((span: any) => span.name === "pi.compaction");
+-		expect(compactions).toHaveLength(1);
+-		expect(compactions[0].attributes.find((a: any) => a.key === "pi.compaction.will_retry")?.value.boolValue).toBe(true);
+-		const runs = spans.filter((span: any) => span.name === "pi.run");
+-		expect(runs).toHaveLength(3);
+-		const last = runs[2];
+-		expect(stringAttribute(last, "pi.run.trigger")).toBe("prompt");
+-		expect(stringAttribute(last, "pi.run.after_compaction")).toBeUndefined();
+-		const lastUser = s.sessionManager.getBranch().filter((e) => e.type === "message" && e.message.role === "user").at(-1);
+-		expect(stringAttribute(last, "pi.session.entry_id")).toBe(lastUser?.id);
+-	} finally { s.session.dispose(); }
+-});
+diff --git a/packages/coding-agent/test/agent-trace-write-failure.test.ts b/packages/coding-agent/test/agent-trace-write-failure.test.ts
+deleted file mode 100644
+index 1dc315b32f515ca4443dc44052ed4136c6384491..0000000000000000000000000000000000000000
+--- a/packages/coding-agent/test/agent-trace-write-failure.test.ts
++++ /dev/null
+@@ -1,81 +0,0 @@
+-import { spawnSync } from "node:child_process";
+-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+-import { tmpdir } from "node:os";
+-import { join } from "node:path";
+-import { expect, it } from "vitest";
+-
+-it("reports an unwritable trace only once across reload in the same process", () => {
+-	const root = mkdtempSync(join(tmpdir(), "pi-trace-process-failure-"));
+-	const blocker = join(root, "not-a-directory");
+-	writeFileSync(blocker, "blocked");
+-	try {
+-		// A dedicated process gives this test a fresh process lifetime without
+-		// reading or resetting any implementation-specific singleton.
+-		const result = spawnSync(process.execPath, ["--input-type=module", "-e", String.raw`
+-import assert from "node:assert/strict";
+-import { join } from "node:path";
+-import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+-import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+-import { Type } from "typebox";
+-const root = process.env.TRACE_TEST_ROOT;
+-const cwd = join(root, "project");
+-const agentDir = join(root, "agent");
+-const settingsManager = SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false } });
+-const faux = fauxProvider({ provider: "write-failure-test", api: "write-failure-api", models: [{ id: "test-model", contextWindow: 200000, maxTokens: 8192 }] });
+-let toolCalls = 0;
+-const loader = new DefaultResourceLoader({
+-  cwd, agentDir, settingsManager,
+-  additionalExtensionPaths: [process.env.TRACE_TEST_EXTENSION],
+-  extensionFactories: [{ name: "offline-process-test", factory(pi) {
+-    pi.registerProvider(faux.provider);
+-    pi.registerTool({ name: "check_alive", label: "Check alive", description: "Prove tools survive tracing failure", parameters: Type.Object({}),
+-      async execute() { toolCalls++; return { content: [{ type: "text", text: "still alive" }], details: {} }; }
+-    });
+-  } }],
+-  noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
+-  noContextFiles: true, systemPrompt: "Offline write-failure regression."
+-});
+-await loader.reload();
+-const sessionManager = SessionManager.create(cwd, join(root, "sessions"));
+-const { session } = await createAgentSession({ cwd, agentDir, model: faux.getModel(), thinkingLevel: "off", noTools: "builtin", resourceLoader: loader, sessionManager, settingsManager });
+-await session.bindExtensions({});
+-const reports = () => sessionManager.getBranch().filter((entry) => entry.type === "custom_message" && entry.customType === "agent-trace");
+-async function prompt(text) {
+-  faux.setResponses([
+-    fauxAssistantMessage(fauxToolCall("check_alive", {}), { stopReason: "toolUse" }),
+-    fauxAssistantMessage(fauxText("done")),
+-    fauxAssistantMessage(fauxText("unused ack")),
+-  ]);
+-  await session.prompt(text, { expandPromptTemplates: false, source: "interactive" });
+-}
+-try {
+-  await prompt("first");
+-  assert.equal(reports().length, 1, "first write failure must be reported");
+-  const reportId = reports()[0].id;
+-  await session.reload();
+-  await prompt("second, after reload");
+-  assert.equal(reports().length, 1, "reload must not reset the process report limit");
+-  assert.equal(reports()[0].id, reportId, "retain the original report");
+-  assert.equal(toolCalls, 2, "both real tool executions must finish");
+-  const reportText = reports()[0].content;
+-  assert.equal(typeof reportText, "string");
+-  assert.ok(reportText.startsWith("agent-trace: cannot write " + process.env.PI_AGENT_TRACE_FILE));
+-  console.log("TRACE_RELOAD_RESULT=" + JSON.stringify({ reports: reports().length, toolCalls }));
+-} finally { session.dispose(); }
+-process.exit(0);
+-`], {
+-			cwd: join(import.meta.dirname, ".."),
+-			env: {
+-				...process.env, NODE_OPTIONS: "", PI_OFFLINE: "1", PI_TELEMETRY: "0", PI_NO_LOCAL_LLM: "1",
+-				PI_AGENT_TRACE_FILE: join(blocker, "trace.jsonl"), TRACE_TEST_ROOT: root,
+-				TRACE_TEST_EXTENSION: join(import.meta.dirname, "../examples/extensions/agent-trace/index.ts"),
+-			},
+-			encoding: "utf8", timeout: 30_000,
+-		});
+-		expect(result.error, result.stderr).toBeUndefined();
+-		expect(result.status, result.stderr + result.stdout).toBe(0);
+-		const line = result.stdout.split("\n").find((line) => line.startsWith("TRACE_RELOAD_RESULT="));
+-		expect(line).toBeDefined();
+-		expect(JSON.parse(line!.slice("TRACE_RELOAD_RESULT=".length))).toEqual({ reports: 1, toolCalls: 2 });
+-	} finally { rmSync(root, { recursive: true, force: true }); }
+-}, 40_000);
