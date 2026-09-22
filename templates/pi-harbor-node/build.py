@@ -46,12 +46,34 @@ def run(*args: str, capture: bool = False) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, check=True, text=True, stdout=subprocess.PIPE if capture else None)
 
 
+def input_hashes(task_dir: Path) -> dict[str, str]:
+    environment = task_dir / "environment"
+    lock_manifest_path = environment / "lock/manifest.json"
+    lock_manifest = json.loads(lock_manifest_path.read_text())
+    lock_path = task_dir / lock_manifest["output"]["path"]
+    files = {
+        "Dockerfile": sha256_file(environment / "Dockerfile"),
+        lock_path.relative_to(environment).as_posix(): sha256_file(lock_path),
+        "lock/manifest.json": sha256_file(lock_manifest_path),
+    }
+    runtime_config = environment / "pi-template.json"
+    if runtime_config.is_file():
+        files["pi-template.json"] = sha256_file(runtime_config)
+    return files
+
+
 def build(task_dir: Path, platform: str | None) -> None:
     task_dir = task_dir.resolve()
     metadata, tag = load_task(task_dir)
     dockerfile = task_dir / "environment" / "Dockerfile"
     if not dockerfile.is_file():
         raise FileNotFoundError(dockerfile)
+    # Freeze provenance before validation/build; never attribute an image to inputs
+    # read for the first time after that image has already been built.
+    frozen_inputs = input_hashes(task_dir)
+    runtime_path = task_dir / "environment/pi-template.json"
+    runtime = json.loads(runtime_path.read_text()) if runtime_path.is_file() else {}
+    workspace_mode = runtime.get("workspace_mode", "prebuilt")
     run("python3", str(TEMPLATE_DIR / "generate.py"), "--check", str(task_dir))
 
     platform_args = ["--platform", platform] if platform else []
@@ -93,6 +115,8 @@ def build(task_dir: Path, platform: str | None) -> None:
         raise RuntimeError("built image has the wrong dependency-cutoff label")
     if labels.get("ai.infra.bench.environment-template") != TEMPLATE_DIR.name:
         raise RuntimeError("built image has the wrong environment-template label")
+    if labels.get("ai.infra.bench.workspace-mode", "prebuilt") != workspace_mode:
+        raise RuntimeError("built image has the wrong workspace-mode label")
 
     probe = (
         "set -e; cd /workspace/pi;"
@@ -118,25 +142,31 @@ def build(task_dir: Path, platform: str | None) -> None:
     )
     baseline = probe_result.pop("baseline")
     versions = probe_result
-    versions["pi"] = f"{versions['pi']} (workspace build)"
+    versions["pi"] = f"{versions['pi']} (workspace {'source' if workspace_mode == 'source' else 'build'})"
 
     # environment/image-manifest.json follows the repository format (templates/harbor-task/
     # README.md, "Image manifest"): the retained image id and the hashes of the build inputs.
     # Tags, timestamps, installed versions and the baseline summary are build records, not
     # task files; they are printed for the build log.
-    print("IMAGE " + json.dumps({"platform": f"{inspect.get('Os')}/{inspect.get('Architecture')}", "installed_versions": versions, "pass_to_pass_baseline": baseline}))
-    lock_manifest_path = task_dir / "environment" / "lock" / "manifest.json"
-    lock_manifest = json.loads(lock_manifest_path.read_text())
-    lock_path = task_dir / lock_manifest["output"]["path"]
+    build_record = {"platform": f"{inspect.get('Os')}/{inspect.get('Architecture')}", "installed_versions": versions, "pass_to_pass_baseline": baseline}
+    if workspace_mode == "source":
+        build_record.update({"workspace_mode": "source", "dist_built": False})
+    print("IMAGE " + json.dumps(build_record))
     environment = task_dir / "environment"
+    try:
+        current_inputs = input_hashes(task_dir)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise RuntimeError("build inputs changed or became unreadable; refusing to write image manifest") from exc
+    changed = sorted(
+        name for name in frozen_inputs.keys() | current_inputs.keys()
+        if frozen_inputs.get(name) != current_inputs.get(name)
+    )
+    if changed:
+        raise RuntimeError(f"build inputs changed: {', '.join(changed)}; refusing to write image manifest")
     manifest = normalize_manifest(
         {
             "image_id": inspect["Id"],
-            "files": {
-                "Dockerfile": sha256_file(dockerfile),
-                lock_path.relative_to(environment).as_posix(): sha256_file(lock_path),
-                "lock/manifest.json": sha256_file(lock_manifest_path),
-            },
+            "files": frozen_inputs,
         }
     )
     check_file_hashes(manifest, environment)

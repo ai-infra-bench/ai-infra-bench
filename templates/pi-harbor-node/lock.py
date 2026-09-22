@@ -4,8 +4,7 @@
 pi's monorepo commits its own package-lock.json and the image installs from it
 with `npm ci`, so the lock is the file at the base commit, copied verbatim, and
 environment/lock/manifest.json records its sha256 for the generator, the
-builder, and the repository audit. The Node image digest and its per-platform
-digests are taken from the template Dockerfile's pinned FROM line.
+builder, and the repository audit. The Node image is selected from the template's reviewed runtime configuration.
 
     python3 templates/pi-harbor-node/lock.py tasks/<task>
 """
@@ -22,6 +21,8 @@ from pathlib import Path
 
 import tomllib
 
+from generate import runtime_config
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE_DIR = Path(__file__).resolve().parent
 # task.toml [metadata] carries only task_type, base_commit and dependency_cutoff; the
@@ -32,6 +33,7 @@ PI_REPO = "https://github.com/earendil-works/pi.git"
 
 def generate(task_dir: Path) -> None:
     task_dir = task_dir.resolve()
+    runtime = runtime_config(task_dir)
     config = tomllib.loads((task_dir / "task.toml").read_text())
     base_commit = config["metadata"]["base_commit"]
     cutoff = config["metadata"]["dependency_cutoff"]
@@ -53,14 +55,12 @@ def generate(task_dir: Path) -> None:
     (lock_dir / "package-lock.json").write_text(lock_text)
     digest = hashlib.sha256(lock_text.encode()).hexdigest()
 
-    template = (TEMPLATE_DIR / "Dockerfile").read_text()
-    node_from = re.search(r"(?m)^FROM (node:[^\s]+)$", template)
-    node_image = node_from.group(1) if node_from else None
+    node_image = runtime["node_image"]
     node_version = re.search(r"node:([0-9.]+)", node_image or "")
 
     manifest = {
         "schema_version": "pi_dependency_lock.v1",
-        "resolver": "npm (npm ci --no-audit --no-fund)",
+        "resolver": f"npm (npm ci{' --ignore-scripts' if runtime['npm_ignore_scripts'] else ''} --no-audit --no-fund)",
         "repository": PI_REPOSITORY,
         "base_commit": base_commit,
         "dependency_cutoff": cutoff,
