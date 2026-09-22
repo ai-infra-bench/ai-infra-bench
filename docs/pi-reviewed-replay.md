@@ -166,3 +166,10 @@ results and image identity outside the task. Direct container grading or a
 successful `--check` does not cover Harbor artifact transfer or reward collection.
 Missing reward must remain an integration failure in the job results, never be
 coerced to numeric zero by a CI wrapper.
+
+Small JSON scenario and review inputs may be stored directly in the CI manifest as
+`{"content": {...}, "sha256": "..."}`. Hashes cover UTF-8 JSON serialized with
+`json.dumps(content, indent=2)` and a trailing newline. CI materializes these inputs
+for the existing replay runner and removes the temporary files afterward. Executable
+adapters and runners remain explicit, hashed files. Detailed review reports and
+run results are retained outside the task; only input identity metadata is needed here.

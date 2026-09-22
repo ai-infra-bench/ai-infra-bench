@@ -127,6 +127,41 @@ class ReviewedReplayTests(unittest.TestCase):
         with self.assertRaises(task_ci.ContractError):
             self.run_case('new-model')
 
+    def test_inline_inputs_preserve_bytes_and_are_removed_after_dispatch(self):
+        expected = {}
+        profile = self.manifest['reviewed_replay']['cases']['control']
+        for field, content in [('scenario', {'candidate_files': {'entry.ts': 'a' * 64}}),
+                               ('review_evidence', {'review': 'explicit contract'})]:
+            expected[field] = (json.dumps(content, indent=2) + '\n').encode()
+            profile[field] = {'content': content,
+                              'sha256': hashlib.sha256(expected[field]).hexdigest()}
+        self.save()
+        original_run = self.fake_run
+        paths = []
+        def inspect_run(argv, **kwargs):
+            for field in expected:
+                path = Path(argv[argv.index('--' + field.replace('_', '-')) + 1])
+                self.assertEqual(path.read_bytes(), expected[field])
+                paths.append(path)
+            return original_run(argv, **kwargs)
+        self.fake_run = inspect_run
+        self.run_case('control')
+        self.assertTrue(paths)
+        self.assertTrue(all(not path.exists() for path in paths))
+
+    def test_inline_inputs_reject_stale_hash_empty_data_and_inline_code(self):
+        content = {'review': 'explicit contract'}
+        reference = {'content': content,
+                     'sha256': hashlib.sha256((json.dumps(content, indent=2) + '\n').encode()).hexdigest()}
+        for field, invalid in [('scenario', dict(reference, sha256='0' * 64)),
+                               ('review_evidence', dict(reference, content={})),
+                               ('review_evidence', dict(reference, path='tools/review.json')),
+                               ('binding', reference)]:
+            broken = copy.deepcopy(self.manifest)
+            broken['reviewed_replay']['cases']['control'][field] = invalid
+            with self.subTest(field=field, invalid=invalid), self.assertRaises(task_ci.ContractError):
+                task_ci.reviewed_replay_config(self.task, broken)
+
     def test_gpu_opt_in_cannot_bypass_leasing(self):
         (self.task/'task.toml').write_text('[environment]\ngpus=1\n')
         with self.assertRaises(task_ci.ContractError):

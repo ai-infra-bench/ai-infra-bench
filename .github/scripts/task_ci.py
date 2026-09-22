@@ -14,6 +14,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -224,6 +225,17 @@ def validation_manifest(task_dir: Path) -> dict[str, Any]:
     return manifest
 
 
+def inline_replay_bytes(reference: Any) -> bytes:
+    """Serialize curator JSON inputs without a separate file for each case."""
+    if (not isinstance(reference, dict) or set(reference) != {"content", "sha256"}
+            or not isinstance(reference["content"], dict) or not reference["content"]):
+        raise ContractError("Inline replay inputs require nonempty JSON content and sha256")
+    content = (json.dumps(reference["content"], indent=2) + "\n").encode()
+    if hashlib.sha256(content).hexdigest() != reference["sha256"]:
+        raise ContractError("Changed inline reviewed replay input")
+    return content
+
+
 def reviewed_replay_config(task_dir: Path, manifest: dict[str, Any]) -> dict[str, Any] | None:
     """Validate curator-owned replay inputs; never infer an adapter from a solver."""
     if "reviewed_replay" not in manifest:
@@ -262,9 +274,13 @@ def reviewed_replay_config(task_dir: Path, manifest: dict[str, Any]) -> dict[str
     for name, inputs in config["cases"].items():
         if not isinstance(inputs, dict) or set(inputs) != {"binding", "scenario", "review_evidence"}:
             raise ContractError(f"{name}: explicit binding, scenario and review_evidence required")
-        for reference in inputs.values():
-            checked_file(reference)
-        evidence = json.loads(checked_file(inputs["review_evidence"]).read_text())
+        content = {}
+        for role, reference in inputs.items():
+            if role != "binding" and isinstance(reference, dict) and "content" in reference:
+                content[role] = inline_replay_bytes(reference)
+            else:
+                content[role] = checked_file(reference).read_bytes()
+        evidence = json.loads(content["review_evidence"])
         if not isinstance(evidence, dict) or not evidence:
             raise ContractError(f"{name}: reviewed replay evidence must be a nonempty object")
     return config
@@ -793,8 +809,6 @@ def command_run_reviewed_case(args: argparse.Namespace) -> None:
                "--task", str(task_dir), "--image", args.image, "--output", str(output),
                "--profile-id", "ci-" + hashlib.sha256(f"{args.task}/{args.case}".encode()).hexdigest()[:24],
                "--binding", str(validation / selected["binding"]["path"]),
-               "--scenario", str(validation / selected["scenario"]["path"]),
-               "--review-evidence", str(validation / selected["review_evidence"]["path"]),
                "--cpus", "limit", "--memory", "limit", "--no-artifacts", "--delete"]
     if args.override_cpus is not None:
         if args.override_cpus <= 0:
@@ -811,7 +825,16 @@ def command_run_reviewed_case(args: argparse.Namespace) -> None:
         expected_reward = case["expected_reward"]
     # Task-owned runners are explicit curator inputs, never candidate workspace
     # code. The existing Harbor reward checker remains authoritative in CI.
-    subprocess.run(command, cwd=REPO_ROOT, check=True)
+    with tempfile.TemporaryDirectory(prefix="reviewed-replay-inputs-") as temporary:
+        for role in ("scenario", "review_evidence"):
+            reference = selected[role]
+            if "content" in reference:
+                path = Path(temporary) / (role + ".json")
+                path.write_bytes(inline_replay_bytes(reference))
+            else:
+                path = validation / reference["path"]
+            command += ["--" + role.replace("_", "-"), str(path)]
+        subprocess.run(command, cwd=REPO_ROOT, check=True)
     job_dir = output / "jobs" / "reviewed-replay"
     command_check_result(argparse.Namespace(result=str(job_dir / "result.json"),
                                            expected_reward=expected_reward))
