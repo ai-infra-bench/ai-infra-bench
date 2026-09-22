@@ -53,6 +53,31 @@ def result(body):
     return json.loads(text(body["messages"][-1]))
 
 
+def history_contains(value, expected):
+    """Match intact original text, including inside losslessly encoded JSON.
+
+    Do not join fragments, unescape invalid JSON, or normalize the evidence.
+    Metadata layout is unspecified; inspect values without prescribing a schema.
+    """
+    if not isinstance(value, str):
+        return False
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, str):
+            if expected in item:
+                return True
+            try:
+                pending.append(json.loads(item))
+            except (ValueError, RecursionError):
+                pass
+        elif isinstance(item, dict):
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+    return False
+
+
 def pair_check(body):
     pending = set()
     for message in body["messages"]:
@@ -137,7 +162,7 @@ class Scenario:
             identity = {key:item[key] for key in ["window_id","item_id"]}
             assert all(isinstance(v,str) and v for v in identity.values()), "History IDs must be usable opaque strings"
             body = yield calls(call("history_read",**identity))
-            if expected in result(body)["text"]:
+            if history_contains(result(body)["text"], expected):
                 self.checked("original_record_recovered")
                 return body, identity
         raise AssertionError("No matching item exposes the complete original record")
@@ -149,8 +174,12 @@ class Scenario:
             body = yield calls(call("evidence",key="side"))
             assert self.evidence["side"] in all_text(body)
         elif self.name == "empty":
+            # No notes_write prerequisite, even when there is old work to discard.
+            body = yield dict(calls(call("evidence", key="old"), call("evidence", key="noise")), content=self.hypothesis)
+            assert self.secret in all_text(body), "Evidence never reached real model input"
             body = yield calls(call("new_context"))
             self.check_fresh(body,notes=False)
+            body, _ = yield from self.recover(self.anchor, self.evidence["old"])
             body = yield calls(call("evidence",key="side"))
             assert self.evidence["side"] in all_text(body)
         elif self.name == "clear_resume":
@@ -171,7 +200,7 @@ class Scenario:
                 body = yield calls(call("notes_read"))
                 assert result(body)["text"] == "", "Cleared notes not persisted"
                 body = yield calls(call("history_read",**self.saved["identity"]))
-                assert self.evidence["old"] in result(body)["text"], "Clearing working notes destroyed original evidence"
+                assert history_contains(result(body)["text"], self.evidence["old"]), "Clearing working notes destroyed original evidence"
                 self.checked("empty_note_replacement_survives_restart_without_erasing_history")
         elif phase == 1:
             if self.name == "resume":
@@ -181,7 +210,7 @@ class Scenario:
                 body = yield calls(call("notes_read"))
                 assert result(body)["text"] == self.summary
                 body = yield calls(call("history_read",**self.saved["identity"]))
-                assert self.evidence["old"] in result(body)["text"], "IDs/evidence did not survive real process restart"
+                assert history_contains(result(body)["text"], self.evidence["old"]), "IDs/evidence did not survive real process restart"
                 body = yield calls(call("new_context"))
                 self.check_fresh(body)
                 assert self.correction in all_text(body), "Later user correction lost on next transition"
@@ -197,7 +226,7 @@ class Scenario:
                 for item in result(body)["items"]:
                     identity={k:item[k] for k in ["window_id","item_id"]}
                     body = yield calls(call("history_read",**identity))
-                    assert self.secret not in result(body)["text"], "Other session's original record is searchable"
+                    assert not history_contains(result(body)["text"], self.secret), "Other session's original record is searchable"
                 body = yield calls(call("history_read",**self.saved["identity"]))
                 assert self.secret not in all_text(body), "Foreign history IDs reveal another session's content"
                 self.checked("same_directory_sessions_are_independent")
@@ -241,7 +270,7 @@ class Scenario:
             body = yield calls(call("notes_read"))
             assert result(body)["text"] == self.summary, "Unchanged working notes lost after eleven resets"
             body = yield calls(call("history_read", **identity))
-            assert self.evidence["old"] in result(body)["text"], "Old evidence/IDs lost after eleven resets"
+            assert history_contains(result(body)["text"], self.evidence["old"]), "Old evidence/IDs lost after eleven resets"
             body = yield calls(call("evidence", key="side"))
             assert self.evidence["side"] in all_text(body), "Tool loop stopped after repeated resets"
             self.checked("eleven_resets_preserve_unchanged_notes_and_original_evidence")
@@ -268,7 +297,7 @@ class Scenario:
             body,_=yield from self.recover(self.hypothesis,self.hypothesis)
             # Verify original assistant tool arguments, not only prose.
             body,identity=yield from self.recover('"old"','"old"')
-            assert "evidence" in result(body)["text"], "Assistant tool-call name was not archived"
+            assert history_contains(result(body)["text"], "evidence"), "Assistant tool-call name was not archived"
         elif self.name == "batch":
             body = yield from self.setup_window()
             previous=self.summary
