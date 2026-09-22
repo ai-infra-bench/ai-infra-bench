@@ -20,6 +20,7 @@ test('Bug fix metadata spellings share one facet',()=>{
  assert.deepEqual(facet('unknown'),['unknown']);
 });
 test('current tasks expose Inference, not project names or empty future domains',()=>{
+ assert.ok(tasks.every(t=>['inference','training','agent_harness'].includes(t.domain)));
  assert.deepEqual(availableDomains(tasks),['inference']);
  assert.ok(tasks.every(t=>taskDomain(t)==='inference'));
  assert.equal(apply({domain:'inference'}).length,tasks.length);
@@ -35,6 +36,7 @@ test('explicit domains support other projects without guessing their purpose',()
  assert.deepEqual(availableDomains(future),['inference','training','agent_harness']);
  assert.equal(filterTasks(future,{...DEFAULT_FILTERS,domain:'training'})[0].slug,'future-training');
  assert.equal(taskDomain({...tasks[0],domain:'not-a-domain'}),null);
+ assert.equal(taskDomain({...tasks[0],domain:'training'}),'training');
 });
 test('search intersects both supported facets and matches metadata',()=>{
  assert.equal(apply({q:'CHAT TEMPLATE'})[0].slug,'vllm-anthropic-inline-system-template');

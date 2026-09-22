@@ -4,29 +4,27 @@ on:
   pull_request:
     paths:
       - '.github/scripts/**'
+      - '.github/runner-classes.json'
       - '.agents/skills/ai-infra-bench-task-review/scripts/**'
       - '.github/workflows/ci-runner-tests.yml'
       - 'tools/sync_collect_hooks.py'
       - 'tools/normalize_task_configs.py'
       - 'tools/normalize_image_manifests.py'
       - 'templates/vllm-harbor-all-in-one/**'
-      - 'tasks/**/task.toml'
-      - 'tasks/**/environment/**'
-      - 'tasks/**/validation/**'
+      - 'tasks/**'
       - 'templates/harbor-task/task.toml'
   push:
     branches: [main]
     paths:
       - '.github/scripts/**'
+      - '.github/runner-classes.json'
       - '.agents/skills/ai-infra-bench-task-review/scripts/**'
       - '.github/workflows/ci-runner-tests.yml'
       - 'tools/sync_collect_hooks.py'
       - 'tools/normalize_task_configs.py'
       - 'tools/normalize_image_manifests.py'
       - 'templates/vllm-harbor-all-in-one/**'
-      - 'tasks/**/task.toml'
-      - 'tasks/**/environment/**'
-      - 'tasks/**/validation/**'
+      - 'tasks/**'
       - 'templates/harbor-task/task.toml'
   workflow_dispatch:
 
@@ -39,6 +37,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
+      - name: Validate source task contracts
+        run: python3 .github/scripts/task_ci.py validate
       - name: Test allocation and cancellation without GPUs
         run: python3 -m unittest discover -s .github/scripts/tests -v
       - name: Check validation shell syntax

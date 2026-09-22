@@ -73,6 +73,10 @@ or consumers may be substituted when the substitution preserves the relevant
 state, cardinality, ordering, timing class, and lifecycle semantics. The number
 of technologies mentioned in the user story does not determine E2E depth.
 
+Scored tests must follow explicit task requirements or necessary implications
+of normal product semantics discoverable in the solver's environment. They must
+not add requirements or depend on Oracle-specific internals.
+
 For Gate 3, independently check [fixture reachability](references/review-rubric.md#8-verify-fixture-reachability): reward-affecting cases must follow from the contract and supported inputs and lifecycle transitions, not merely constructible internal states. Keep unresolved reachability claims unverified rather than treating candidate failure as proof of a product defect.
 
 For Gate 3, apply the [early-exit checks](references/review-rubric.md#10-trace-scoring-trust-and-completion-integrity)
@@ -86,6 +90,9 @@ when candidate code can terminate a process participating in verification.
   verifier `7200`, environment build `10800`, and collection `300` seconds.
   Tasks declare 8 CPUs, 16384 MiB memory, and 51200 MiB storage; CPU CI's
   four-CPU override does not change the formal task configuration.
+- Metadata contains `domain`, `task_type`, `base_commit`, and `dependency_cutoff`,
+  in that order. Require an explicit domain of `inference`, `training`, or
+  `agent_harness`; the current vLLM corpus declares `inference`.
 - Read validation mode from `validation/ci-cases.json`, not task metadata.
   Approved `verifier_only` tasks have Base and declared controls, without an
   Oracle. Review their supported behavioral evidence and record missing
@@ -96,10 +103,11 @@ when candidate code can terminate a process participating in verification.
   a task-local evidence summary.
 - Cutoff applies to the target repository and history, models, tokenizers, data
   resources, external protocols, and runtime dependencies whose behavior
-  affects the task. General benchmark infrastructure such as the base image,
-  Python, Rust, uv, nextest, Harbor, compilers, and test tooling must be pinned
-  for reproducibility but need not predate the task cutoff unless their behavior
-  is part of the problem.
+  affects the task. Use `metadata.dependency_cutoff` by default and recorded
+  named-package overrides only for those packages; check that build config and
+  lock manifest agree, and review the exception's reason and scope. General
+  benchmark infrastructure need not predate cutoff unless its behavior is part
+  of the problem. Follow the rubric's [cutoff and version-pinning rules](references/review-rubric.md#53-cutoff-and-image-audit).
 - Treat information as a solver leak only when it is visible during the agent
   phase and materially reveals the answer, tests, or investigation path.
 - The Oracle is one reference implementation. Derive the behavioral contract
@@ -118,8 +126,12 @@ stability and Harbor results, and the exact uncommitted, commit, or PR state. Do
 not claim completion while a blocking finding remains open or evidence records
 results that were not actually run.
 
-You may run `scripts/audit_task_artifacts.py` for mechanical checks. Its JUnit,
-image, and staged checks are optional layers; static success does not establish
+Run `.github/scripts/task_ci.py validate <task-id>` for the shared source-task
+contract. `scripts/audit_task_artifacts.py` invokes that same validator, adds
+syntax checks, and supports optional image and staged checks. For saved JUnit
+reports, run the task's own checker with the arguments used in `tests/test.sh`,
+as shown in the [final-validation procedure](references/review-rubric.md#14-validate-the-final-snapshot-through-the-formal-entrypoint).
+Neither static entry point rewrites the task. Static success does not establish
 scenario authenticity, E2E quality, verifier fairness, or actual control
 behavior. Keep measured outcomes and input identities with the CI or Harbor run
 records; the task directory does not require a separate evidence summary.

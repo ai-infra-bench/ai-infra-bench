@@ -28,10 +28,27 @@ class TaskHardwareTests(unittest.TestCase):
     def configure(self, **environment):
         values = {"workdir": "/workspace/repo", **environment}
         (self.task / "task.toml").write_text(
-            "[environment]\n" + "".join(
+            '[metadata]\ndomain = "inference"\n[environment]\n' + "".join(
                 f"{key} = {json.dumps(value)}\n" for key, value in values.items()
             )
         )
+
+    def test_domain_accepts_declared_areas_and_rejects_missing_or_invalid_values(self):
+        self.configure(gpus=0)
+        path = self.task / "task.toml"
+        original = path.read_text()
+        declaration = 'domain = "inference"\n'
+        for domain in ("inference", "training", "agent_harness"):
+            with self.subTest(domain=domain):
+                path.write_text(original.replace(declaration, f'domain = "{domain}"\n'))
+                config, _ = task_ci.task_contract(self.task)
+                self.assertEqual(config["metadata"]["domain"], domain)
+        for value in ('"unknown"', '"Inference"', '""', 'true', '["inference"]', None):
+            with self.subTest(value=value):
+                replacement = "" if value is None else f"domain = {value}\n"
+                path.write_text(original.replace(declaration, replacement))
+                with self.assertRaisesRegex(ContractError, r"\[metadata\].domain"):
+                    task_ci.task_contract(self.task)
 
     def hardware_check(self, names):
         output = io.StringIO()
@@ -94,8 +111,10 @@ class TaskHardwareTests(unittest.TestCase):
                 with self.assertRaisesRegex(ContractError, "use .*gpus and gpu_types"):
                     task_ci.task_contract(self.task)
         self.configure(gpus=1)
-        with (self.task / "task.toml").open("a") as stream:
-            stream.write('\n[metadata]\nenvironment_profile = "gpu"\n')
+        path = self.task / "task.toml"
+        path.write_text(path.read_text().replace(
+            "[metadata]\n", '[metadata]\nenvironment_profile = "gpu"\n', 1,
+        ))
         with self.assertRaisesRegex(ContractError, "use .*gpus and gpu_types"):
             task_ci.task_contract(self.task)
 

@@ -56,7 +56,7 @@ class TaskMetadataTests(unittest.TestCase):
                         task_ci.validate_task(task)
                     path.write_bytes(original)
             manifest_path.unlink()
-            with self.assertRaisesRegex(task_ci.ContractError, "invalid image manifest"):
+            with self.assertRaisesRegex(task_ci.ContractError, "image-manifest.json"):
                 task_ci.validate_task(task)
 
     def test_ci_preparation_omits_snapshots_without_changing_formal_configs(self):
@@ -76,22 +76,13 @@ class TaskMetadataTests(unittest.TestCase):
                     self.assertEqual(path.read_text(), original)
 
     def test_corpus_metadata_and_order_are_uniform(self):
+        template = tomllib.loads((ROOT / "templates/harbor-task/task.toml").read_text())
+        self.assertEqual(template["metadata"]["domain"], "inference")
         paths = sorted((ROOT / "tasks").glob("*/task.toml"))
         self.assertTrue(paths, "the benchmark corpus must not be empty")
         for path in paths:
             with self.subTest(path=path):
-                text = path.read_text()
-                config = tomllib.loads(text)
-                self.assertEqual(list(config["metadata"]), ["task_type", "base_commit", "dependency_cutoff"])
-                self.assertIn(config["metadata"]["task_type"], {"feature", "bugfix", "performance"})
-                self.assertEqual(normalize_config(text), text)
-                manifest = json.loads((path.parent / "environment/image-manifest.json").read_text())
-                self.assertEqual(
-                    json.dumps(normalize_manifest(manifest), ensure_ascii=False, indent=2) + "\n",
-                    (path.parent / "environment/image-manifest.json").read_text(),
-                )
-                self.assertRegex(manifest["image_id"], r"^sha256:[0-9a-f]{64}$")
-                check_file_hashes(manifest, path.parent / "environment")
+                task_ci.validate_task(path.parent)
 
     def test_manifest_normalization_preserves_image_identity_and_build_overrides(self):
         manifest = json.loads((ROOT / "tasks/vllm-dp-multi-port-supervisor/environment/image-manifest.json").read_text())

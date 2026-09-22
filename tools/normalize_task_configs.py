@@ -12,12 +12,12 @@ import tomllib
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SECTION_ORDER = (
     "", "task", "metadata", "environment", "agent", "verifier",
-    "verifier.collect", "validation",
+    "verifier.collect",
 )
 KEY_ORDER = {
     "": ("schema_version", "artifacts", "source"),
     "task": ("name", "version", "description", "keywords", "authors"),
-    "metadata": ("task_type", "base_commit", "dependency_cutoff"),
+    "metadata": ("domain", "task_type", "base_commit", "dependency_cutoff"),
     "environment": (
         "workdir", "os", "docker_image", "cpus", "memory_mb", "storage_mb",
         "gpus", "gpu_types", "network_mode", "allowed_hosts", "build_timeout_sec",
@@ -27,7 +27,6 @@ KEY_ORDER = {
         "environment_mode", "user", "network_mode", "allowed_hosts", "timeout_sec", "env",
     ),
     "verifier.collect": ("service", "user", "timeout_sec", "command"),
-    "validation": ("scoring_integrity", "multi_rank"),
 }
 HEADER = re.compile(r"^\s*\[\[?([A-Za-z0-9_.-]+)\]\]?(?:\s*#.*)?\s*$")
 KEY = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)[ \t]*=")

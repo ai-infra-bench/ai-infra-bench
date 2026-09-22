@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import hashlib
 import json
 import os
@@ -23,11 +24,29 @@ import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "tools"))
-from normalize_image_manifests import check_file_hashes
+from normalize_image_manifests import check_file_hashes, normalize_manifest
+from normalize_task_configs import KEY_ORDER, SECTION_ORDER, normalize_config
+from sync_collect_hooks import render_command, updated_config
 
 TASKS_DIR = REPO_ROOT / "tasks"
 RUNNER_CLASSES_PATH = REPO_ROOT / ".github" / "runner-classes.json"
 ENV_HASH_EXCLUDES = {"image-manifest.json", ".DS_Store"}
+TASK_DOMAINS = ("inference", "training", "agent_harness")
+TASK_TYPES = ("feature", "bugfix", "performance")
+REQUIRED_FILES = (
+    "instruction.md", "environment/Dockerfile", "environment/image-manifest.json",
+    "environment/lock/manifest.json", "environment/lock/requirements.txt",
+    "tests/test.sh", "validation/ci-cases.json",
+)
+FIXED_CONFIG = {
+    "task": {"version": "1.0.0"},
+    "environment": {
+        "cpus": 8, "memory_mb": 16384, "storage_mb": 51200,
+        "build_timeout_sec": 10800, "network_mode": "no-network",
+    },
+    "agent": {"timeout_sec": 36000},
+    "verifier": {"timeout_sec": 7200},
+}
 
 
 class ContractError(ValueError):
@@ -73,6 +92,13 @@ def gpu_type_matches(actual: str, requested: str) -> bool:
 
 def task_contract(task_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     config = load_toml(task_dir / "task.toml")
+    if not all(isinstance(config.get(key, {}), dict) for key in ("metadata", "environment")):
+        raise ContractError(f"{task_dir.name}: metadata and environment must be tables")
+    domain = config.get("metadata", {}).get("domain")
+    if not isinstance(domain, str) or domain not in TASK_DOMAINS:
+        raise ContractError(
+            f"{task_dir.name}: [metadata].domain must be one of {', '.join(TASK_DOMAINS)}"
+        )
     environment = config.get("environment", {})
     legacy = {"accelerator", "topology"}.intersection(environment)
     if legacy or "environment_profile" in config.get("metadata", {}):
@@ -168,6 +194,7 @@ def validation_manifest(task_dir: Path) -> dict[str, Any]:
     cases = manifest.get("cases")
     if not isinstance(cases, list):
         raise ContractError(f"{task_dir.name}: validation cases must be a list")
+    validation_mode = task_validation_mode(task_dir, manifest)
 
     declared: set[str] = set()
     names: set[str] = set()
@@ -178,6 +205,10 @@ def validation_manifest(task_dir: Path) -> dict[str, Any]:
         patch_name = case.get("patch")
         if not isinstance(name, str) or not name or name in names:
             raise ContractError(f"{task_dir.name}: duplicate or invalid case name {name!r}")
+        if name in ("base", "oracle"):
+            raise ContractError(
+                f"{task_dir.name}: control name {name!r} is reserved for a built-in case"
+            )
         patch_parts = Path(patch_name).parts if isinstance(patch_name, str) else ()
         expected_parts = 2 if schema.endswith(".v2") else 1
         if (
@@ -190,12 +221,19 @@ def validation_manifest(task_dir: Path) -> dict[str, Any]:
             or patch_name in declared
         ):
             raise ContractError(f"{task_dir.name}: invalid patch path {patch_name!r}")
-        if case.get("expected_reward") not in (0, 1):
-            raise ContractError(f"{task_dir.name}/{name}: expected_reward must be 0 or 1")
+        expected_reward = case.get("expected_reward")
+        if type(expected_reward) is not int or expected_reward not in (0, 1):
+            raise ContractError(
+                f"{task_dir.name}/{name}: expected_reward must be integer 0 or 1"
+            )
         apply_after = case.get("apply_after", "base")
         if apply_after not in ("base", "oracle"):
             raise ContractError(
                 f"{task_dir.name}/{name}: apply_after must be base or oracle"
+            )
+        if validation_mode == "verifier_only" and apply_after == "oracle":
+            raise ContractError(
+                f"{task_dir.name}/{name}: verifier_only controls cannot use apply_after=oracle"
             )
         patch_path = task_dir / "validation" / patch_name
         if patch_path.is_symlink() or patch_path.parent.is_symlink() or not patch_path.is_file():
@@ -233,16 +271,143 @@ def task_validation_mode(task_dir: Path, manifest: dict[str, Any]) -> str:
     return validation_mode
 
 
-def validate_task(task_dir: Path) -> None:
-    task_contract(task_dir)
-    manifest = validation_manifest(task_dir)
-    task_validation_mode(task_dir, manifest)
-    environment = task_dir / "environment"
+def _require(condition: bool, message: str) -> None:
+    if not condition:
+        raise ContractError(message)
+
+
+def _text(value: Any, label: str) -> str:
+    _require(isinstance(value, str) and bool(value.strip()), f"{label} must be non-empty text")
+    stripped = value.strip()
+    _require(
+        not re.fullmatch(r"<[^<>]+>", stripped)
+        and stripped.upper() not in {"TODO", "TBD", "REPLACE_ME"},
+        f"{label} contains an unfilled placeholder",
+    )
+    return value
+
+
+def _project_config(config: dict[str, Any], slug: str, text: str) -> None:
+    sections = [name for name in SECTION_ORDER if name and "." not in name]
+    allowed_root = set(KEY_ORDER[""]) | set(sections)
+    _require(not config.keys() - allowed_root, f"unknown top-level keys: {sorted(config.keys() - allowed_root)}")
+    _require(config.get("schema_version") == "1.4", "schema_version must be '1.4'")
+    for section in sections:
+        table = config.get(section)
+        _require(isinstance(table, dict), f"[{section}] must be a table")
+        allowed = set(KEY_ORDER[section])
+        allowed -= {"authors", "docker_image", "environment_mode"}
+        if section == "verifier":
+            allowed.add("collect")
+        _require(not table.keys() - allowed, f"unknown or forbidden [{section}] keys: {sorted(table.keys() - allowed)}")
+
+    _require(bool(re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)+", slug)), "task directory must use semantic lowercase kebab-case")
+    _require(not re.search(r"(?:^|-)(?:pr|issue|candidate|instance)-[a-z0-9]+(?:-|$)", slug), "task directory must not contain a raw source ID")
+    task = config["task"]
+    _require(task.get("name") == f"ai-infra-bench/{slug}", f"[task].name must be ai-infra-bench/{slug}")
+    _text(task.get("description"), "[task].description")
+    keywords = task.get("keywords")
+    _require(isinstance(keywords, list) and 1 <= len(keywords) <= 4, "keywords must contain vllm and at most three topic tags")
+    _require(all(isinstance(word, str) for word in keywords), "keywords must be strings")
+    _require(keywords[0] == "vllm", "the first keyword must be vllm")
+    _require(len(set(keywords)) == len(keywords), "keywords must be unique")
+    for word in keywords:
+        _text(word, "keyword")
+        _require(word == word.strip(), "keywords must not have surrounding whitespace")
+        _require(not {"cpu", "gpu"} & set(re.findall(r"[a-z0-9]+", word.lower())), "keywords must not contain CPU/GPU tags")
+
+    metadata = config["metadata"]
+    _require(set(metadata) == set(KEY_ORDER["metadata"]), "metadata must contain domain, task_type, base_commit, and dependency_cutoff")
+    _require(metadata.get("task_type") in TASK_TYPES, f"task_type must be one of {', '.join(TASK_TYPES)}")
+    _require(isinstance(metadata.get("base_commit"), str) and bool(re.fullmatch(r"[0-9a-f]{40}", metadata["base_commit"])), "base_commit must be a full commit SHA")
+    cutoff = metadata.get("dependency_cutoff")
+    _require(isinstance(cutoff, str) and bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", cutoff)), "dependency_cutoff must use YYYY-MM-DDTHH:MM:SSZ")
     try:
-        image_manifest = json.loads((environment / "image-manifest.json").read_text())
-        check_file_hashes(image_manifest, environment)
-    except (OSError, ValueError) as exc:
-        raise ContractError(f"{task_dir.name}: invalid image manifest: {exc}") from exc
+        datetime.fromisoformat(cutoff)
+    except ValueError as exc:
+        raise ContractError("dependency_cutoff must be a valid UTC date/time") from exc
+
+    for section, fields in FIXED_CONFIG.items():
+        for key, expected in fields.items():
+            _require(config[section].get(key) == expected, f"[{section}].{key} must be {expected!r}")
+    environment = config["environment"]
+    _require(environment.get("os", "linux") == "linux", "environment.os must be linux")
+    gpus = environment.get("gpus")
+    _require(type(gpus) is int and gpus >= 0, "environment.gpus must be explicit and nonnegative")
+    if gpus:
+        _require(environment.get("gpu_types") == ["A100"], "GPU tasks must declare gpu_types = ['A100']")
+    else:
+        _require("gpu_types" not in environment, "CPU tasks must omit gpu_types")
+    _text(config["agent"].get("user"), "agent.user")
+    for section in ("environment", "agent", "verifier"):
+        table = config[section]
+        _require(table.get("network_mode", "no-network") == "no-network", f"[{section}] must preserve offline networking")
+        if "user" in table:
+            _text(table["user"], f"{section}.user")
+        if "env" in table:
+            _require(isinstance(table["env"], dict) and all(isinstance(k, str) and k and isinstance(v, str) for k, v in table["env"].items()), f"{section}.env must map names to strings")
+        if "allowed_hosts" in table:
+            _require(isinstance(table["allowed_hosts"], list) and all(isinstance(v, str) and v.strip() for v in table["allowed_hosts"]), f"{section}.allowed_hosts must be a list of host names")
+    if "source" in config:
+        _text(config["source"], "source")
+
+    _require(config.get("artifacts") == [environment["workdir"]], "artifacts must archive the complete environment.workdir")
+    hooks = config["verifier"].get("collect")
+    _require(isinstance(hooks, list) and len(hooks) == 1 and isinstance(hooks[0], dict), "one standard verifier.collect hook is required")
+    hook = hooks[0]
+    _require(set(hook) == set(KEY_ORDER["verifier.collect"]), "collector must contain service, user, timeout_sec, and command")
+    _require(hook["service"] == "main" and hook["timeout_sec"] == 300, "collector must use service main and timeout_sec = 300")
+    _require(hook["user"] == config["agent"]["user"], "collector must run as the agent user")
+    _require(hook["command"] == render_command(environment["workdir"], metadata["base_commit"]), "collector command is stale; run tools/sync_collect_hooks.py")
+    _require(normalize_config(text) == text, "task.toml order/format is stale; run tools/normalize_task_configs.py")
+    _require(updated_config(text) == text, "collector format is stale; run tools/sync_collect_hooks.py")
+
+
+def validate_task(task_dir: Path) -> None:
+    """Shared source-task checks for the CLI, Skill audit, and CI."""
+    try:
+        config, _ = task_contract(task_dir)
+        _project_config(config, task_dir.name, (task_dir / "task.toml").read_text())
+        manifest = validation_manifest(task_dir)
+        mode = task_validation_mode(task_dir, manifest)
+        required = list(REQUIRED_FILES)
+        if mode == "oracle":
+            required += ["solution/oracle.patch", "solution/solve.sh"]
+        missing = [name for name in required if not (task_dir / name).is_file()]
+        _require(not missing, f"required task files are missing: {missing}")
+        _text((task_dir / "instruction.md").read_text(), "instruction.md")
+
+        environment = task_dir / "environment"
+        image_path = environment / "image-manifest.json"
+        image_text = image_path.read_text()
+        image = json.loads(image_text)
+        check_file_hashes(image, environment)
+        _require(json.dumps(normalize_manifest(image), ensure_ascii=False, indent=2) + "\n" == image_text, "image manifest format is stale; run tools/normalize_image_manifests.py")
+        lock = json.loads((environment / "lock/manifest.json").read_text())
+        _require(isinstance(lock, dict), "lock manifest must be an object")
+        for key in ("base_commit", "dependency_cutoff"):
+            _require(lock.get(key) == config["metadata"][key], f"lock manifest has the wrong {key}")
+        output = lock.get("output")
+        _require(isinstance(output, dict), "lock manifest must record output.path and output.sha256")
+        relative = output.get("path")
+        _require(isinstance(relative, str) and relative and not Path(relative).is_absolute() and ".." not in Path(relative).parts and not any(c in relative for c in "\r\n\0"), "lock manifest output.path must be task-relative")
+        path = task_dir / relative
+        _require(path.resolve().is_relative_to(task_dir.resolve()) and path.is_file(), "lock manifest output is missing or escapes the task")
+        _require(isinstance(output.get("sha256"), str) and bool(re.fullmatch(r"[0-9a-f]{64}", output["sha256"])), "lock manifest output.sha256 must be a SHA-256")
+        _require(hashlib.sha256(path.read_bytes()).hexdigest() == output["sha256"], "lock manifest output hash is stale")
+
+        # Keep the existing release-layout checks in the shared entry point.
+        _require(manifest["schema_version"] == "ai_infra_bench_validation_cases.v2", "release tasks must use the v2 validation manifest")
+        validation = task_dir / "validation"
+        _require({p.name for p in validation.iterdir()} <= {"ci-cases.json", "patches", "tools"}, "validation may contain only ci-cases.json, patches, and tools")
+        for path in validation.rglob("*"):
+            _require("history" not in path.relative_to(validation).parts and path.suffix not in {".md", ".log", ".zip", ".gz"}, f"historical validation artifact must live outside the task: {path.name}")
+            if path.is_file() and path.suffix == ".py":
+                compile(path.read_text(), str(path), "exec")
+    except ContractError:
+        raise
+    except (OSError, ValueError, SyntaxError) as exc:
+        raise ContractError(f"{task_dir.name}: invalid task artifact: {exc}") from exc
 
 
 def changed_tasks(base: str, head: str) -> list[Path]:

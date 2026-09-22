@@ -44,8 +44,10 @@ Use the template's field order and current values:
   most three topic keywords derived from the instruction and available Oracle.
   Do not add CPU/GPU or grading-method tags. The website skips the first keyword
   when displaying and searching topics.
-- `[metadata]`: only `task_type` (`feature`, `bugfix`, or `performance`),
-  `base_commit`, and `dependency_cutoff`.
+- `[metadata]`, in order: `domain` (`inference`, `training`, or `agent_harness`),
+  `task_type` (`feature`, `bugfix`, or `performance`), `base_commit`, and
+  `dependency_cutoff`. Declare the domain explicitly; the current vLLM corpus
+  uses `inference`.
 - `[environment]`: 8 CPUs, 16384 MiB memory, 51200 MiB storage, runtime
   `no-network`, and `build_timeout_sec = 10800`. Keep a Dockerfile and omit
   `docker_image` from committed task configs. CPU tasks set `gpus = 0`; GPU
@@ -60,13 +62,16 @@ and agent user, regenerate it rather than writing a different per-task script:
 
 ```bash
 python3 tools/sync_collect_hooks.py
-python3 tools/normalize_task_configs.py --check
 ```
 
 Runtime assets and dependency-cutoff exceptions belong in
 `environment/build-config.json`; use the existing
 [all-in-one builder](../../../templates/vllm-harbor-all-in-one/README.md) when
-applicable. Do not reintroduce removed metadata, hardware aliases, or evidence
+applicable. The default cutoff is `metadata.dependency_cutoff`; recorded
+`dependency_cutoff_overrides` apply only to their named packages and must match
+the lock manifest. Record each exception's reason and scope with construction
+results, following the [cutoff rules](../ai-infra-bench-task-review/references/review-rubric.md#53-cutoff-and-image-audit).
+Do not reintroduce removed metadata, hardware aliases, or evidence
 summaries. Keep the initial-release version during editorial normalization;
 identify development and validation snapshots by commits and file hashes.
 
@@ -102,10 +107,17 @@ before making a case affect reward. Use the smallest complete production boundar
 that determines the required behavior. Different correct implementations must
 pass, including ones with different private helpers or representations.
 
-Use a pinned pytest or custom verifier appropriate to the task. Initialize
-`/logs/verifier/reward.txt` to `0`, and write `1` only after all required behavioral
-and completion checks succeed. Use absolute paths and preserve readable logs for
-the actual Harbor host user. Candidate code exiting successfully, suppressing
+Scored tests must follow explicit task requirements or necessary implications
+of normal product semantics discoverable in the solver's environment. They must
+not add requirements or depend on Oracle-specific internals.
+
+Use a pinned pytest or custom verifier appropriate to the task. Prevent reuse
+of an earlier reward with a fresh log directory or explicit cleanup. Either
+initialize `/logs/verifier/reward.txt` to `0` or leave it absent until the final
+result; write `1` only after all required behavioral and completion checks
+succeed. Report missing results and infrastructure failures explicitly rather
+than treating them as observed behavioral failures. Use absolute paths and
+preserve readable logs for the actual Harbor host user. Candidate code exiting successfully, suppressing
 assertions, or writing a success marker is not proof that checks completed.
 Do not add an online judge or runtime `uvx` dependency to these offline tasks.
 
@@ -133,9 +145,6 @@ Run repository checks and the actual Harbor entrypoint. For ordinary CPU tasks:
 
 ```bash
 python3 .github/scripts/task_ci.py validate <task-id>
-python3 tools/sync_collect_hooks.py --check
-python3 tools/normalize_task_configs.py --check
-python3 tools/normalize_image_manifests.py --check
 harbor run -p tasks/<task-id> -a nop --env docker --cpus limit --memory limit
 harbor run -p tasks/<task-id> -a oracle --env docker --cpus limit --memory limit
 ```
@@ -145,6 +154,12 @@ For GPU execution use the configured provider and allocation described in
 assignment. CPU CI adds a four-CPU override; formal task declarations remain at
 eight CPUs. Do not copy the CI override into the task config or disable CPU/RAM
 limits. Docker does not enforce the declared storage value as a disk quota.
+
+The validator is shared by CLI, Skill audit, and CI. It checks source-task
+fields and values, required/non-empty inputs, whole-value placeholders,
+keywords, TOML/collector formatting, and image/lock consistency. It only reports
+errors; use the normalization/synchronization commands for explicit write-back.
+Semantic instruction and verifier checks remain part of task construction.
 
 Use `task_ci.py cases` and `prepare-case` to run the declared controls on their
 correct bases. Base must receive zero for the target behavior; Oracle and
