@@ -27,12 +27,16 @@ TIMEOUT = 120
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)+$")
 RAW_ID = re.compile(r"(?:^|-)(?:pr|issue|candidate|instance)-[a-z0-9]+(?:-|$)")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+# The dependency lock is the target ecosystem's own: pip requirements for Python
+# targets (vLLM), the repository's package-lock.json for Node targets (pi).
+DEPENDENCY_LOCKS = ("environment/lock/requirements.txt", "environment/lock/package-lock.json")
+# The leading keyword names the project; the website derives the repository from it.
+PROJECT_KEYWORDS = ("vllm", "pi")
 REQUIRED_FILES = (
     "instruction.md",
     "environment/Dockerfile",
     "environment/image-manifest.json",
     "environment/lock/manifest.json",
-    "environment/lock/requirements.txt",
     "solution/oracle.patch",
     "solution/solve.sh",
     "tests/test.sh",
@@ -177,6 +181,8 @@ def check_task(task: Path, config: dict[str, Any], repo: Path, audit: Audit) -> 
     required_files = [path for path in REQUIRED_FILES if not (verifier_only and path.startswith("solution/"))]
     missing = [path for path in required_files if not (task / path).is_file()]
     audit.require(not missing, f"required task files are missing: {missing}")
+    locks = [path for path in DEPENDENCY_LOCKS if (task / path).is_file()]
+    audit.require(len(locks) == 1, f"exactly one dependency lock is required ({' or '.join(DEPENDENCY_LOCKS)}), found {locks}")
     audit.require(
         bool(re.fullmatch(r"[0-9a-f]{40}", str(metadata.get("base_commit", "")))),
         "[metadata].base_commit is not a full commit SHA",
@@ -211,9 +217,9 @@ def check_benchmark_config(config: dict[str, Any], audit: Audit) -> None:
     keywords = task.get("keywords")
     audit.require(
         isinstance(keywords, list) and 1 <= len(keywords) <= 4
-        and keywords[0] == "vllm"
+        and keywords[0] in PROJECT_KEYWORDS
         and all(isinstance(word, str) and word and not re.search(r"(?:^|[-_])(cpu|gpu)(?:$|[-_])", word, re.I) for word in keywords),
-        "keywords must start with vllm and contain at most three topic tags, without CPU/GPU tags",
+        f"keywords must start with the project ({' or '.join(PROJECT_KEYWORDS)}) and contain at most three topic tags, without CPU/GPU tags",
     )
     environment = mapping(config.get("environment"))
     agent = mapping(config.get("agent"))

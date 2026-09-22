@@ -101,6 +101,18 @@ class TaskMetadataTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown"):
             normalize_manifest({**manifest, "new_provenance": "retain until reviewed"})
 
+    def test_manifest_accepts_exactly_one_dependency_lock_kind(self):
+        image_id = "sha256:" + "0" * 64
+        digest = "1" * 64
+        node = {"image_id": image_id, "files": {"lock/manifest.json": digest, "lock/package-lock.json": digest, "Dockerfile": digest}}
+        self.assertEqual(list(normalize_manifest(node)["files"]), ["Dockerfile", "lock/package-lock.json", "lock/manifest.json"])
+        for files in (
+            {"Dockerfile": digest, "lock/manifest.json": digest},
+            {"Dockerfile": digest, "lock/manifest.json": digest, "lock/requirements.txt": digest, "lock/package-lock.json": digest},
+        ):
+            with self.assertRaisesRegex(ValueError, "exactly one dependency lock"):
+                normalize_manifest({"image_id": image_id, "files": files})
+
     def test_image_file_hash_checks_reject_stale_missing_and_escaping_inputs(self):
         with tempfile.TemporaryDirectory() as directory:
             env = Path(directory) / "environment"

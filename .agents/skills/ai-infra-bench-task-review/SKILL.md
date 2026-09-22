@@ -78,6 +78,16 @@ For Gate 3, independently check [fixture reachability](references/review-rubric.
 For Gate 3, apply the [early-exit checks](references/review-rubric.md#10-trace-scoring-trust-and-completion-integrity)
 when candidate code can terminate a process participating in verification.
 
+For Gate 3, also reject assertions that no sentence of the instruction supports
+and assertions that compare two timestamps for equality (or bound a duration
+the verifier did not itself introduce). A timestamp may be checked against a
+window the verifier observed and against ordering; sub-millisecond digits and
+per-record clock reads belong to the implementation. Check that every case
+fails on Base for the target behaviour with a readable reason, not with a
+helper exception. For agent-harness (pi) tasks, the pi facts that must be
+stated in the instruction are listed in
+[`create-task/references/ai-infra-agent-harness.md`](../create-task/references/ai-infra-agent-harness.md).
+
 ## Fixed project rules
 
 - Read the current [task conventions](../../../templates/harbor-task/README.md).

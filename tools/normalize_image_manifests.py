@@ -11,7 +11,10 @@ import re
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-REQUIRED_FILES = ("Dockerfile", "lock/requirements.txt", "lock/manifest.json")
+# One dependency lock per task: pip requirements (Python targets) or the repository's
+# package-lock.json (Node targets).
+DEPENDENCY_LOCKS = ("lock/requirements.txt", "lock/package-lock.json")
+REQUIRED_FILES = ("Dockerfile", "lock/manifest.json")
 BUILD_FIELDS = ("dockerfile", "parent_image_id", "args")
 
 
@@ -27,6 +30,9 @@ def normalize_manifest(manifest: dict) -> dict:
     files = manifest.get("files")
     if not isinstance(files, dict) or not set(REQUIRED_FILES) <= files.keys():
         raise ValueError(f"files must include {', '.join(REQUIRED_FILES)}")
+    locks = [name for name in DEPENDENCY_LOCKS if name in files]
+    if len(locks) != 1:
+        raise ValueError(f"files must include exactly one dependency lock ({' or '.join(DEPENDENCY_LOCKS)})")
     for relative, digest in files.items():
         if (
             not isinstance(relative, str) or not relative
@@ -57,7 +63,8 @@ def normalize_manifest(manifest: dict) -> dict:
             raise ValueError("build.args must map argument names to string values")
         if build:
             result["build"] = {key: build[key] for key in BUILD_FIELDS if key in build}
-    order = [*REQUIRED_FILES, *sorted(files.keys() - set(REQUIRED_FILES))]
+    leading = ["Dockerfile", *locks, "lock/manifest.json"]
+    order = [*leading, *sorted(files.keys() - set(leading))]
     result["files"] = {relative: files[relative] for relative in order}
     return result
 

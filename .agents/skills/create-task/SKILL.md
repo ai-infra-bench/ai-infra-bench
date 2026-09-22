@@ -30,6 +30,14 @@ and agent-visibility rules in the independent
 [review rubric](../ai-infra-bench-task-review/references/review-rubric.md#5-audit-solvability-visibility-and-runtime-conditions).
 These construction checks do not perform the independent review itself.
 
+For a coding-agent harness target (pi) whose deliverable is an extension or core
+change judged by a deterministic verifier, read
+[references/ai-infra-agent-harness.md](references/ai-infra-agent-harness.md): the
+pi facts the contract must state, the timing rules that keep the judge from
+rejecting correct submissions, scoring trust in the shared container, and the
+validation hygiene that real rollouts taught. Build the image from
+`templates/pi-harbor-node`.
+
 Write `instruction.md` as a developer request with the observable symptom or
 feature, relevant inputs, supported modes, and behavior that must remain intact.
 Do not reveal the reference fix, private helpers, hidden tests, or curation
