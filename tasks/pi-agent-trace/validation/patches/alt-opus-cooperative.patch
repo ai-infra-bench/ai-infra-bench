@@ -1,0 +1,2210 @@
+diff --git a/packages/coding-agent/examples/extensions/agent-trace/README.md b/packages/coding-agent/examples/extensions/agent-trace/README.md
+new file mode 100644
+index 000000000..e64f15a750f59266449b7f411599b28c30ae4274
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/agent-trace/README.md
+@@ -0,0 +1,135 @@
++# Agent Trace
++
++Exports the agent loop as an OpenTelemetry trace: one span per run, turn, provider
++request, tool execution and compaction, written to a local file in OTLP/JSON so a
++collector or any OTLP-aware viewer can load it — while the session is still running.
++
++```bash
++pi -e ./examples/extensions/agent-trace/index.ts
++```
++
++The extension uses only the public extension API. It adds no dependencies, no tools and
++no commands, and never fails a session: if the trace file cannot be written, tracing
++stops, the agent is unaffected, and the failure is reported once (see below).
++
++## The file
++
++```
++<SessionManager.getSessionDir()>/traces/<session id>.otlp.jsonl
++```
++
++The directory is created on demand. Setting `PI_AGENT_TRACE_FILE` replaces the path.
++
++Every line is one OTLP/JSON `ExportTraceServiceRequest` holding exactly one span record:
++
++```json
++{"resourceSpans":[{"resource":{"attributes":[...]},"scopeSpans":[{"scope":{"name":"pi.agent-trace","version":"1"},"spans":[{...}]}]}]}
++```
++
++Resource attributes: `service.name` (`"pi"`), `service.version` (the coding-agent
++package version), `pi.session.id`, `process.pid`.
++
++Each span is written twice:
++
++- a **start line** when the span starts — no `endTimeUnixNano`, no `status`, the
++  attribute `pi.span.phase: "start"`, and the attributes that identify the span;
++- an **end line** when it has ended — the same ids, name, kind and start time, every
++  start-line attribute unchanged plus the rest, `endTimeUnixNano`, and `status`
++  (`{"code":1}` = OK, `{"code":2,"message":...}` = ERROR).
++
++A span with a start line and no end line is in progress (or was lost to a crash).
++Nothing is ever rewritten or exported twice, so the file only grows: `/reload` and a
++later pi process resuming the session continue the same trace, in the same file, under
++the same trace id. A reader that tails the file and de-duplicates by span id (last line
++wins) always holds the current state of the trace.
++
++End lines appear in the order the spans ended, so `endTimeUnixNano` never decreases from
++one end line to the next. An end line may lag its span's end by a moment: it is held
++until pi has persisted the session entry the span names.
++
++Loading a trace, for example with `jq`:
++
++```bash
++jq -c '.resourceSpans[0].scopeSpans[0].spans[0] | select(.endTimeUnixNano)' \
++  ~/.pi/agent/sessions/<project>/traces/<session id>.otlp.jsonl
++```
++
++## Spans
++
++| name | kind | parent | attributes on the end line |
++|---|---|---|---|
++| `pi.run` | INTERNAL | none (see sub-agents) | `pi.run.trigger`, `pi.run.turn_count`, `pi.session.entry_id`, `pi.run.after_compaction`, `pi.run.steer_count`, `pi.run.steer_entry_ids` |
++| `pi.turn` | INTERNAL | the run | `pi.turn.index`, `pi.turn.stop_reason`, `pi.turn.tool_call_count` |
++| `chat <model>` | CLIENT | the turn | `gen_ai.operation.name`, `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `pi.usage.cache_read_tokens`, `pi.usage.cache_write_tokens`, `gen_ai.response.finish_reasons`, `pi.session.entry_id` |
++| `execute_tool <tool>` | INTERNAL | the turn | `gen_ai.operation.name`, `gen_ai.tool.name`, `gen_ai.tool.call.id`, `pi.tool.is_error`, `pi.session.entry_id` |
++| `pi.compaction` | INTERNAL | none (see sub-agents) | `pi.compaction.reason`, `pi.compaction.will_retry`, `pi.compaction.tokens_before`, `pi.compaction.first_kept_entry_id`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `pi.session.entry_id` |
++
++A run spans the agent loop, a turn its turn, a chat the assistant message, a tool its
++execution, a compaction its preparation through to success or failure. Nesting is
++strict; within a turn, tool spans start after the chat span ends, and concurrent tool
++calls overlap as their executions did. Compactions happen between runs (or between two
++turns of a run, when pi compacts before the next assistant response) and are root spans.
++The summary requests a compaction makes are not chat spans.
++
++`pi.run.trigger` is `prompt` for a run a user prompt started, `wakeup` for a run an
++extension message started while pi was idle, and `continuation` for a run that follows
++the previous one without settling in between — a queued follow-up, an automatic retry,
++or an overflow retry. An overflow retry names no message of its own; it carries
++`pi.run.after_compaction`, the entry id of the compaction that recovered it.
++
++Messages the agent loop consumes while a run is already active (steering and follow-up
++prompts, and extension messages delivered as `steer`/`followUp`) continue that run in a
++new turn and are listed in `pi.run.steer_entry_ids`, in delivery order. A context-only
++extension message is referenced by no span.
++
++## Status
++
++ERROR, with a message, for a tool result with `isError` (the result's text), an
++assistant message that stopped with `error` or `aborted` and the turn containing it
++(its `errorMessage`, else `aborted`), a failed compaction, and every span a shutdown
++closed (`shutdown`). Everything else is OK — including a run whose turns failed.
++
++## Session entries
++
++Every `pi.session.entry_id` is an entry on the current branch, and the branch is covered
++exactly once: user messages are named by their `prompt` or user `continuation` run, or by a run's
++`pi.run.steer_entry_ids`; every assistant message (including aborted and failed ones),
++tool result and compaction entry is named by exactly one span of its kind; an extension
++message is named at most once. A span a shutdown closed may name no entry, because pi
++had not persisted it yet.
++
++## Sub-agents
++
++Spawning tools opt into tracing through the public extension event bus. Inside
++`execute(toolCallId, ...)`, obtain an environment for that specific call:
++
++```ts
++let env: NodeJS.ProcessEnv | undefined;
++pi.events.emit("agent-trace:request-child-context", {
++  callId: toolCallId,
++  baseEnv: process.env,
++  accept: (value: NodeJS.ProcessEnv | undefined) => { env = value; },
++});
++if (!env) throw new Error("No active trace context for this tool call");
++const child = spawn(process.execPath, childArgs, { env });
++```
++
++The handler invokes `accept` synchronously and supplies a fresh copy containing
++`PI_AGENT_TRACE_ID` and `PI_AGENT_TRACE_PARENT_SPAN_ID`. Unknown or ended calls
++return `undefined`; without the tracer loaded there is no callback. Load this
++extension in the child: every span joins the inherited trace, and every child
++root (run and compaction) attaches to the named tool span. Children retain their
++own default trace paths; choose a distinct child override if `PI_AGENT_TRACE_FILE`
++is set. Do not replace the returned propagation variables before spawning.
++
++The parent process environment is never modified, and each concurrent tool
++requests its own call id. Nonparticipating tools still get normal tool spans;
++automatic attribution from unmodified spawning tools is outside scope.
++
++## Write failures
++
++If the trace file cannot be written, tracing is disabled for the process — no exception
++reaches pi, and tools and later turns run normally. The failure is reported once per
++process as a custom message (`customType: "agent-trace"`) whose text starts with
++`agent-trace: cannot write` followed by the path. It is delivered without starting a
++turn and never enters the system prompt.
+diff --git a/packages/coding-agent/examples/extensions/agent-trace/index.ts b/packages/coding-agent/examples/extensions/agent-trace/index.ts
+new file mode 100644
+index 000000000..de3fa4c6378eaf37167572b7031c726d876733b3
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/agent-trace/index.ts
+@@ -0,0 +1,851 @@
++/**
++ * Agent Trace - export the agent loop as an OpenTelemetry trace.
++ *
++ * Writes one span per run, turn, provider request, tool execution and compaction to
++ * `<session dir>/traces/<session id>.otlp.jsonl` (override with `PI_AGENT_TRACE_FILE`).
++ * Every line is an OTLP/JSON `ExportTraceServiceRequest` carrying exactly one span record:
++ * a start line when the span starts, an end line once it has ended. The file is
++ * append-only, so a reader that tails it and de-duplicates by span id (last line wins)
++ * always holds the current state of the trace, including while the session is running.
++ *
++ * Usage:
++ *   pi -e ./examples/extensions/agent-trace/index.ts
++ *
++ * See README.md for the span/attribute reference.
++ */
++
++import { createHash, randomBytes } from "node:crypto";
++import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
++import { dirname, join } from "node:path";
++import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
++
++// =============================================================================
++// Constants
++// =============================================================================
++
++const SCOPE_NAME = "pi.agent-trace";
++const SCOPE_VERSION = "1";
++const CUSTOM_TYPE = "agent-trace";
++
++/** Replaces the default trace file path. */
++const ENV_FILE = "PI_AGENT_TRACE_FILE";
++/** Trace id a spawned pi process joins, provided through its copied environment. */
++const ENV_TRACE_ID = "PI_AGENT_TRACE_ID";
++/** Span id of the tool execution that spawned this process. */
++const ENV_PARENT_SPAN_ID = "PI_AGENT_TRACE_PARENT_SPAN_ID";
++
++const KIND_INTERNAL = 1;
++const KIND_CLIENT = 3;
++
++const STATUS_OK = 1;
++const STATUS_ERROR = 2;
++
++type SessionManagerLike = ExtensionContext["sessionManager"];
++type AttributeValue = string | number | boolean | string[];
++type SpanStatus = { code: number; message?: string };
++
++// =============================================================================
++// Process-wide state
++//
++// Kept on globalThis so `/reload` (which re-imports this module) neither loses the
++// inherited sub-agent context nor re-reports a write failure.
++// =============================================================================
++
++interface ProcessState {
++	/** Trace id inherited from a spawning pi process, if any. */
++	inheritedTraceId: string | undefined;
++	/** Tool span of the spawning pi process, if any. */
++	inheritedParentSpanId: string | undefined;
++	writeFailureReported: boolean;
++}
++
++const PROCESS_STATE_KEY = Symbol.for("pi.agent-trace.process-state");
++
++function processState(): ProcessState {
++	const holder = globalThis as unknown as Record<symbol, ProcessState | undefined>;
++	let state = holder[PROCESS_STATE_KEY];
++	if (!state) {
++		state = {
++			inheritedTraceId: normalizeHex(process.env[ENV_TRACE_ID], 32),
++			inheritedParentSpanId: normalizeHex(process.env[ENV_PARENT_SPAN_ID], 16),
++			writeFailureReported: false,
++		};
++		holder[PROCESS_STATE_KEY] = state;
++	}
++	return state;
++}
++
++function normalizeHex(value: string | undefined, length: number): string | undefined {
++	if (!value) return undefined;
++	const lower = value.trim().toLowerCase();
++	if (lower.length !== length || !/^[0-9a-f]+$/.test(lower) || /^0+$/.test(lower)) return undefined;
++	return lower;
++}
++
++// =============================================================================
++// Ids, time and OTLP encoding
++// =============================================================================
++
++/** Stable per session: the same session always produces the same trace id. */
++function traceIdForSession(sessionId: string): string {
++	return createHash("sha256").update(`pi.agent-trace:${sessionId}`).digest("hex").slice(0, 32);
++}
++
++function newSpanId(): string {
++	return randomBytes(8).toString("hex");
++}
++
++/**
++ * Wall-clock epoch nanoseconds, advanced by a monotonic clock so timestamps never
++ * go backwards when the system clock is adjusted mid-session.
++ */
++const CLOCK_EPOCH_MS = BigInt(Date.now());
++const CLOCK_ORIGIN = process.hrtime.bigint();
++
++function nowNanos(): bigint {
++	return CLOCK_EPOCH_MS * 1_000_000n + (process.hrtime.bigint() - CLOCK_ORIGIN);
++}
++
++function millisToNanos(millis: number): bigint {
++	return BigInt(Math.trunc(millis)) * 1_000_000n;
++}
++
++function maxBigInt(a: bigint, b: bigint): bigint {
++	return a > b ? a : b;
++}
++
++function encodeAttribute(key: string, value: AttributeValue): Record<string, unknown> {
++	if (typeof value === "string") return { key, value: { stringValue: value } };
++	if (typeof value === "boolean") return { key, value: { boolValue: value } };
++	if (typeof value === "number") return { key, value: { intValue: String(Math.trunc(value)) } };
++	return { key, value: { arrayValue: { values: value.map((item) => ({ stringValue: item })) } } };
++}
++
++function readPackageVersion(): string {
++	try {
++		const pkg = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf-8")) as {
++			version?: string;
++		};
++		return pkg.version ?? "0.0.0";
++	} catch {
++		return "0.0.0";
++	}
++}
++
++// =============================================================================
++// Span bookkeeping
++// =============================================================================
++
++interface Span {
++	spanId: string;
++	parent: Span | undefined;
++	parentSpanId: string | undefined;
++	name: string;
++	kind: number;
++	start: bigint;
++	/** Attributes accumulated so far. Start-line values are never changed. */
++	attributes: Map<string, AttributeValue>;
++	/** Latest end of any child, so a parent never ends before its children. */
++	maxChildEnd: bigint;
++	closed: boolean;
++}
++
++/** An ended span waiting for the session entry it names to be persisted. */
++interface PendingEnd {
++	span: Span;
++	end: bigint;
++	status: SpanStatus;
++	/** Fills the remaining attributes. Returns false while they are still unknown. */
++	resolve?: (branch: SessionEntry[]) => boolean;
++}
++
++interface DeliveredMessage {
++	message: { role?: string; content?: unknown; customType?: string };
++	firstTurn: boolean;
++}
++
++interface RunState {
++	span: Span;
++	turnCount: number;
++	/** Overflow retries reference the compaction they follow instead of a message. */
++	isOverflowRetry: boolean;
++	delivered: DeliveredMessage[];
++}
++
++interface CompactionState {
++	span: Span;
++	/** Kept from the start line: the failure event always reports false. */
++	willRetry: boolean;
++}
++
++// =============================================================================
++// Tracer
++// =============================================================================
++
++class AgentTrace {
++	readonly sessionId: string;
++	readonly traceId: string;
++	readonly filePath: string;
++	readonly rootParentSpanId: string | undefined;
++	sessionManager: SessionManagerLike;
++
++	private readonly serviceVersion: string;
++	private readonly onWriteFailure: (filePath: string, error: string) => void;
++
++	private enabled = true;
++	private dirReady = false;
++	private disposed = false;
++
++	private pending: PendingEnd[] = [];
++	private lastEnd = 0n;
++	private claimed = new Set<string>();
++	private flushTimer: ReturnType<typeof setTimeout> | undefined;
++
++	private run: RunState | undefined;
++	private turn: Span | undefined;
++	private chat: Span | undefined;
++	private compaction: CompactionState | undefined;
++	private tools = new Map<string, Span>();
++
++	private pendingPromptRun = false;
++	private runEndedWithoutSettle = false;
++	private pendingOverflowRetry: string | undefined;
++
++	constructor(
++		sessionManager: SessionManagerLike,
++		serviceVersion: string,
++		onWriteFailure: (filePath: string, error: string) => void,
++	) {
++		const state = processState();
++		this.sessionManager = sessionManager;
++		this.sessionId = sessionManager.getSessionId();
++		this.serviceVersion = serviceVersion;
++		this.onWriteFailure = onWriteFailure;
++		this.traceId = state.inheritedTraceId ?? traceIdForSession(this.sessionId);
++		this.rootParentSpanId = state.inheritedParentSpanId;
++		this.filePath =
++			process.env[ENV_FILE] ?? join(sessionManager.getSessionDir(), "traces", `${this.sessionId}.otlp.jsonl`);
++	}
++
++	// -------------------------------------------------------------------------
++	// Writing
++	// -------------------------------------------------------------------------
++
++	private write(line: string): void {
++		if (!this.enabled) return;
++		try {
++			if (!this.dirReady) {
++				mkdirSync(dirname(this.filePath), { recursive: true });
++				this.dirReady = true;
++			}
++			appendFileSync(this.filePath, line);
++		} catch (error) {
++			// Tracing must never disturb the agent: stop writing and report once.
++			this.enabled = false;
++			this.pending = [];
++			this.onWriteFailure(this.filePath, error instanceof Error ? error.message : String(error));
++		}
++	}
++
++	private emit(span: Span, phase: "start" | "end", end?: bigint, status?: SpanStatus): void {
++		if (!this.enabled) return;
++		const attributes: Record<string, unknown>[] = [];
++		if (phase === "start") attributes.push(encodeAttribute("pi.span.phase", "start"));
++		for (const [key, value] of span.attributes) attributes.push(encodeAttribute(key, value));
++
++		const record: Record<string, unknown> = {
++			traceId: this.traceId,
++			spanId: span.spanId,
++			name: span.name,
++			kind: span.kind,
++			startTimeUnixNano: String(span.start),
++			attributes,
++		};
++		if (span.parentSpanId) record.parentSpanId = span.parentSpanId;
++		if (phase === "end") {
++			record.endTimeUnixNano = String(end);
++			record.status = status;
++		}
++
++		this.write(
++			`${JSON.stringify({
++				resourceSpans: [
++					{
++						resource: {
++							attributes: [
++								encodeAttribute("service.name", "pi"),
++								encodeAttribute("service.version", this.serviceVersion),
++								encodeAttribute("pi.session.id", this.sessionId),
++								encodeAttribute("process.pid", process.pid),
++							],
++						},
++						scopeSpans: [{ scope: { name: SCOPE_NAME, version: SCOPE_VERSION }, spans: [record] }],
++					},
++				],
++			})}\n`,
++		);
++	}
++
++	private startSpan(
++		name: string,
++		kind: number,
++		parent: Span | undefined,
++		attributes: [string, AttributeValue][],
++		start?: bigint,
++	): Span {
++		const parentSpanId = parent ? parent.spanId : this.rootParentSpanId;
++		const span: Span = {
++			spanId: newSpanId(),
++			parent,
++			parentSpanId,
++			name,
++			kind,
++			start: maxBigInt(start ?? nowNanos(), parent ? parent.start : 0n),
++			attributes: new Map(attributes),
++			maxChildEnd: 0n,
++			closed: false,
++		};
++		this.emit(span, "start");
++		return span;
++	}
++
++	private endSpan(
++		span: Span | undefined,
++		status: SpanStatus,
++		attributes: [string, AttributeValue][] = [],
++		resolve?: (branch: SessionEntry[]) => boolean,
++	): void {
++		if (!span || span.closed) return;
++		span.closed = true;
++		for (const [key, value] of attributes) span.attributes.set(key, value);
++		const end = maxBigInt(maxBigInt(nowNanos(), span.start), span.maxChildEnd);
++		if (span.parent) span.parent.maxChildEnd = maxBigInt(span.parent.maxChildEnd, end);
++		this.pending.push({ span, end, status, resolve });
++		this.scheduleFlush();
++	}
++
++	/**
++	 * Write out ended spans, oldest first, so end lines stay ordered by end time.
++	 * Without `force`, a span whose session entry is not persisted yet holds the queue.
++	 */
++	flush(force = false): void {
++		if (!this.enabled) {
++			this.pending = [];
++			return;
++		}
++		let branch: SessionEntry[] | undefined;
++		while (this.pending.length > 0) {
++			const head = this.pending[0];
++			if (head.resolve) {
++				if (!branch) branch = this.readBranch();
++				if (!head.resolve(branch) && !force) break;
++			}
++			this.pending.shift();
++			const end = maxBigInt(head.end, this.lastEnd);
++			this.lastEnd = end;
++			this.emit(head.span, "end", end, head.status);
++		}
++		if (this.pending.length === 0 && this.flushTimer) {
++			clearTimeout(this.flushTimer);
++			this.flushTimer = undefined;
++		}
++	}
++
++	/** Get ends on disk promptly even when no further agent event arrives (long tools). */
++	private scheduleFlush(): void {
++		if (this.flushTimer || this.disposed) return;
++		this.flushTimer = setTimeout(() => {
++			this.flushTimer = undefined;
++			try {
++				this.flush();
++			} catch {
++				// Never surface tracing failures.
++			}
++		}, 0);
++		this.flushTimer.unref();
++	}
++
++	// -------------------------------------------------------------------------
++	// Session entries
++	// -------------------------------------------------------------------------
++
++	private readBranch(): SessionEntry[] {
++		try {
++			return this.sessionManager.getBranch();
++		} catch {
++			return [];
++		}
++	}
++
++	/** Newest entry matching `predicate` that no other span has named yet. */
++	private claimEntry(branch: SessionEntry[], predicate: (entry: SessionEntry) => boolean): string | undefined {
++		for (let i = branch.length - 1; i >= 0; i--) {
++			const entry = branch[i];
++			if (this.claimed.has(entry.id)) continue;
++			if (!predicate(entry)) continue;
++			this.claimed.add(entry.id);
++			return entry.id;
++		}
++		return undefined;
++	}
++
++	/** Entries hold the very message object the event carried, so identity is exact. */
++	private messageEntry(message: unknown): (entry: SessionEntry) => boolean {
++		const custom = message as { role?: string; customType?: string; content?: unknown };
++		return (entry: SessionEntry) => {
++			if (entry.type === "message") return entry.message === message;
++			if (entry.type === "custom_message") {
++				return (
++					custom.role === "custom" && entry.customType === custom.customType && entry.content === custom.content
++				);
++			}
++			return false;
++		};
++	}
++
++	private setEntryId(span: Span, branch: SessionEntry[], predicate: (entry: SessionEntry) => boolean): boolean {
++		if (span.attributes.has("pi.session.entry_id")) return true;
++		const id = this.claimEntry(branch, predicate);
++		if (id === undefined) return false;
++		span.attributes.set("pi.session.entry_id", id);
++		return true;
++	}
++
++	// -------------------------------------------------------------------------
++	// Sub-agent context
++	//
++	// A cooperative spawning tool names its own active call. Return a copy so
++	// concurrent calls never share mutable propagation state.
++	// -------------------------------------------------------------------------
++
++	childEnvironment(callId: string, baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv | undefined {
++		const tool = this.tools.get(callId);
++		if (!tool || tool.closed) return undefined;
++		return { ...baseEnv, [ENV_TRACE_ID]: this.traceId, [ENV_PARENT_SPAN_ID]: tool.spanId };
++	}
++
++	// -------------------------------------------------------------------------
++	// Agent loop
++	// -------------------------------------------------------------------------
++
++	onAgentStart(): void {
++		this.flush();
++		// Defensive: a run that never ended must not swallow the next one.
++		this.closeOpenSpans("shutdown", false);
++
++		let trigger: string;
++		let afterCompaction: string | undefined;
++		// A run after agent_end but before settle remains a continuation. Once
++		// idle, a new prompt wins over a pre-prompt compaction's retry marker.
++		if (this.runEndedWithoutSettle) {
++			trigger = "continuation";
++			afterCompaction = this.pendingOverflowRetry;
++		} else if (this.pendingPromptRun) {
++			trigger = "prompt";
++		} else if (this.pendingOverflowRetry) {
++			trigger = "continuation";
++			afterCompaction = this.pendingOverflowRetry;
++		} else {
++			trigger = "wakeup";
++		}
++		this.pendingOverflowRetry = undefined;
++		this.pendingPromptRun = false;
++		this.runEndedWithoutSettle = false;
++
++		const attributes: [string, AttributeValue][] = [["pi.run.trigger", trigger]];
++		if (afterCompaction) attributes.push(["pi.run.after_compaction", afterCompaction]);
++		this.run = {
++			span: this.startSpan("pi.run", KIND_INTERNAL, undefined, attributes),
++			turnCount: 0,
++			isOverflowRetry: afterCompaction !== undefined,
++			delivered: [],
++		};
++	}
++
++	onTurnStart(turnIndex: number, timestamp: number): void {
++		this.flush();
++		if (!this.run) this.onAgentStart();
++		this.endSpan(this.turn, { code: STATUS_OK });
++		this.turn = undefined;
++		const run = this.run;
++		if (!run) return;
++		run.turnCount++;
++		this.turn = this.startSpan(
++			"pi.turn",
++			KIND_INTERNAL,
++			run.span,
++			[["pi.turn.index", turnIndex]],
++			millisToNanos(timestamp),
++		);
++	}
++
++	onMessageStart(message: any): void {
++		this.flush();
++		if (message?.role !== "assistant" || !this.run) return;
++		this.endSpan(this.chat, { code: STATUS_OK });
++		this.chat = this.startSpan(`chat ${message.model}`, KIND_CLIENT, this.turn ?? this.run.span, [
++			["gen_ai.operation.name", "chat"],
++			["gen_ai.system", String(message.provider ?? "")],
++			["gen_ai.request.model", String(message.model ?? "")],
++		]);
++	}
++
++	onMessageEnd(message: any): void {
++		this.flush();
++		const run = this.run;
++		if (!run) return;
++
++		if (message?.role === "assistant") {
++			const chat = this.chat;
++			this.chat = undefined;
++			if (!chat) return;
++			// Tools may still be running when shutdown closes this turn. Keep fields
++			// already known from its completed assistant on that turn's own span.
++			const turn = chat.parent;
++			if (turn && turn === this.turn && !turn.closed) {
++				if (typeof message.stopReason === "string") turn.attributes.set("pi.turn.stop_reason", message.stopReason);
++				if (Array.isArray(message.content)) {
++					turn.attributes.set("pi.turn.tool_call_count",
++						message.content.filter((part: { type?: string }) => part?.type === "toolCall").length);
++				}
++			}
++			const usage = message.usage ?? {};
++			const attributes: [string, AttributeValue][] = [
++				["gen_ai.usage.input_tokens", Number(usage.input ?? 0)],
++				["gen_ai.usage.output_tokens", Number(usage.output ?? 0)],
++				["pi.usage.cache_read_tokens", Number(usage.cacheRead ?? 0)],
++				["pi.usage.cache_write_tokens", Number(usage.cacheWrite ?? 0)],
++				["gen_ai.response.finish_reasons", [String(message.stopReason ?? "")]],
++			];
++			const predicate = this.messageEntry(message);
++			this.endSpan(chat, assistantStatus(message), attributes, (branch) => this.setEntryId(chat, branch, predicate));
++			return;
++		}
++
++		if (message?.role === "user" || message?.role === "custom") {
++			run.delivered.push({ message, firstTurn: run.turnCount <= 1 });
++		}
++	}
++
++	onToolStart(toolCallId: string, toolName: string): void {
++		this.flush();
++		const parent = this.turn ?? this.run?.span;
++		const span = this.startSpan(`execute_tool ${toolName}`, KIND_INTERNAL, parent, [
++			["gen_ai.operation.name", "execute_tool"],
++			["gen_ai.tool.name", toolName],
++			["gen_ai.tool.call.id", toolCallId],
++		]);
++		this.tools.set(toolCallId, span);
++	}
++
++	onToolEnd(toolCallId: string, result: unknown, isError: boolean): void {
++		this.flush();
++		const span = this.tools.get(toolCallId);
++		if (!span) return;
++		this.tools.delete(toolCallId);
++		const status: SpanStatus = isError
++			? { code: STATUS_ERROR, message: resultText(result) }
++			: { code: STATUS_OK };
++		this.endSpan(span, status, [["pi.tool.is_error", isError]], (branch) =>
++			this.setEntryId(
++				span,
++				branch,
++				(entry) =>
++					entry.type === "message" &&
++					entry.message.role === "toolResult" &&
++					entry.message.toolCallId === toolCallId,
++			),
++		);
++	}
++
++	onTurnEnd(message: any, toolResults: unknown[]): void {
++		this.flush();
++		for (const [toolCallId, span] of [...this.tools]) {
++			this.tools.delete(toolCallId);
++			this.endSpan(span, { code: STATUS_OK });
++		}
++		this.endSpan(this.chat, { code: STATUS_OK });
++		this.chat = undefined;
++
++		const turn = this.turn;
++		this.turn = undefined;
++		if (!turn) return;
++		const toolCallCount = Array.isArray(message?.content)
++			? message.content.filter((part: { type?: string }) => part?.type === "toolCall").length
++			: Array.isArray(toolResults)
++				? toolResults.length
++				: 0;
++		this.endSpan(turn, assistantStatus(message), [
++			["pi.turn.stop_reason", String(message?.stopReason ?? "")],
++			["pi.turn.tool_call_count", toolCallCount],
++		]);
++		this.flush(true);
++	}
++
++	onAgentEnd(): void {
++		this.flush();
++		const run = this.run;
++		this.run = undefined;
++		this.runEndedWithoutSettle = true;
++		if (!run) return;
++		this.endSpan(run.span, { code: STATUS_OK }, [["pi.run.turn_count", run.turnCount]], (branch) =>
++			this.resolveRunEntries(run, branch),
++		);
++		this.flush(true);
++	}
++
++	onAgentSettled(): void {
++		this.runEndedWithoutSettle = false;
++		this.pendingOverflowRetry = undefined;
++		this.pendingPromptRun = false;
++		this.flush(true);
++	}
++
++	onBeforeAgentStart(): void {
++		this.pendingPromptRun = true;
++	}
++
++	/**
++	 * The first message of a run is what started it; everything delivered later
++	 * steered or followed up inside it. Context messages an extension attached to a
++	 * prompt (delivered in the first turn, after the trigger) start nothing.
++	 */
++	private resolveRunEntries(run: RunState, branch: SessionEntry[]): boolean {
++		const triggerIndex = run.isOverflowRetry ? -1 : 0;
++		let resolved = true;
++		const steerIds: string[] = [];
++		for (let i = 0; i < run.delivered.length; i++) {
++			const delivered = run.delivered[i];
++			const predicate = this.messageEntry(delivered.message);
++			if (i === triggerIndex) {
++				if (!this.setEntryId(run.span, branch, predicate)) resolved = false;
++				continue;
++			}
++			if (delivered.firstTurn && delivered.message.role !== "user") continue;
++			const id = this.claimEntry(branch, predicate);
++			if (id === undefined) {
++				resolved = false;
++				continue;
++			}
++			steerIds.push(id);
++		}
++		// Ids already claimed on an earlier attempt must not be claimed twice.
++		const previous = run.span.attributes.get("pi.run.steer_entry_ids");
++		const merged = Array.isArray(previous) ? [...previous, ...steerIds] : steerIds;
++		run.span.attributes.set("pi.run.steer_entry_ids", merged);
++		run.span.attributes.set("pi.run.steer_count", merged.length);
++		return resolved;
++	}
++
++	// -------------------------------------------------------------------------
++	// Compaction
++	// -------------------------------------------------------------------------
++
++	onBeforeCompact(reason: string, willRetry: boolean): void {
++		this.flush();
++		this.endSpan(this.compaction?.span, { code: STATUS_OK });
++		this.compaction = {
++			span: this.startSpan("pi.compaction", KIND_INTERNAL, undefined, [
++				["pi.compaction.reason", reason],
++				["pi.compaction.will_retry", willRetry],
++			]),
++			willRetry,
++		};
++	}
++
++	onCompact(entry: any, reason: string, willRetry: boolean): void {
++		this.flush();
++		const compaction = this.compaction ?? this.synthesizeCompaction(reason, willRetry);
++		this.compaction = undefined;
++		const attributes: [string, AttributeValue][] = [];
++		if (typeof entry?.tokensBefore === "number") attributes.push(["pi.compaction.tokens_before", entry.tokensBefore]);
++		if (entry?.firstKeptEntryId) {
++			attributes.push(["pi.compaction.first_kept_entry_id", String(entry.firstKeptEntryId)]);
++		}
++		if (entry?.usage) {
++			attributes.push(["gen_ai.usage.input_tokens", Number(entry.usage.input ?? 0)]);
++			attributes.push(["gen_ai.usage.output_tokens", Number(entry.usage.output ?? 0)]);
++		}
++		if (entry?.id) {
++			attributes.push(["pi.session.entry_id", String(entry.id)]);
++			this.claimed.add(String(entry.id));
++			if (compaction.willRetry) this.pendingOverflowRetry = String(entry.id);
++		}
++		this.endSpan(compaction.span, { code: STATUS_OK }, attributes);
++		this.flush(true);
++	}
++
++	onCompactFailed(reason: string, willRetry: boolean, errorMessage: string | undefined): void {
++		this.flush();
++		const compaction = this.compaction ?? this.synthesizeCompaction(reason, willRetry);
++		this.compaction = undefined;
++		this.endSpan(compaction.span, { code: STATUS_ERROR, message: errorMessage ?? "aborted" });
++		this.flush(true);
++	}
++
++	/** Compaction can fail before `session_before_compact` is ever emitted. */
++	private synthesizeCompaction(reason: string, willRetry: boolean): CompactionState {
++		this.onBeforeCompact(reason, willRetry);
++		return this.compaction as CompactionState;
++	}
++
++	// -------------------------------------------------------------------------
++	// Shutdown
++	// -------------------------------------------------------------------------
++
++	closeOpenSpans(message: string, includeCompaction = true): void {
++		const status: SpanStatus = { code: STATUS_ERROR, message };
++		for (const [toolCallId, span] of [...this.tools]) {
++			this.tools.delete(toolCallId);
++			this.endSpan(span, status);
++		}
++		this.endSpan(this.chat, status);
++		this.chat = undefined;
++		this.endSpan(this.turn, status);
++		this.turn = undefined;
++		const run = this.run;
++		this.run = undefined;
++		if (run) {
++			this.endSpan(run.span, status, [["pi.run.turn_count", run.turnCount]], (branch) =>
++				this.resolveRunEntries(run, branch),
++			);
++		}
++		if (includeCompaction) {
++			this.endSpan(this.compaction?.span, status);
++			this.compaction = undefined;
++		}
++	}
++
++	onShutdown(): void {
++		this.flush(true);
++		this.closeOpenSpans("shutdown");
++		this.flush(true);
++		this.dispose();
++	}
++
++	dispose(): void {
++		this.disposed = true;
++		if (this.flushTimer) {
++			clearTimeout(this.flushTimer);
++			this.flushTimer = undefined;
++		}
++	}
++}
++
++// =============================================================================
++// Helpers
++// =============================================================================
++
++function assistantStatus(message: any): SpanStatus {
++	const stopReason = message?.stopReason;
++	if (stopReason === "error" || stopReason === "aborted") {
++		return { code: STATUS_ERROR, message: message?.errorMessage ?? "aborted" };
++	}
++	return { code: STATUS_OK };
++}
++
++function resultText(result: unknown): string {
++	const content = (result as { content?: unknown })?.content;
++	if (typeof content === "string") return content;
++	if (!Array.isArray(content)) return "";
++	return content
++		.filter((part: { type?: string }) => part?.type === "text")
++		.map((part: { text?: string }) => part.text ?? "")
++		.join("\n");
++}
++
++// =============================================================================
++// Extension
++// =============================================================================
++
++export default function (pi: ExtensionAPI) {
++	const serviceVersion = readPackageVersion();
++	let tracer: AgentTrace | undefined;
++
++	const reportWriteFailure = (filePath: string, error: string) => {
++		const state = processState();
++		if (state.writeFailureReported) return;
++		state.writeFailureReported = true;
++		try {
++			pi.sendMessage(
++				{
++					customType: CUSTOM_TYPE,
++					content: `agent-trace: cannot write ${filePath} (${error}). Tracing is disabled for this process; the session is unaffected.`,
++					display: true,
++				},
++				{ triggerTurn: false },
++			);
++		} catch {
++			// The report is best effort; a failing session must not fail the agent.
++		}
++	};
++
++	const trace = (ctx: ExtensionContext): AgentTrace | undefined => {
++		const sessionManager = ctx.sessionManager;
++		const sessionId = sessionManager.getSessionId();
++		if (!sessionId) return undefined;
++		if (!tracer || tracer.sessionId !== sessionId) {
++			tracer?.dispose();
++			tracer = new AgentTrace(sessionManager, serviceVersion, reportWriteFailure);
++		}
++		tracer.sessionManager = sessionManager;
++		return tracer;
++	};
++
++	/** Tracing never throws into pi. */
++	const safe = (ctx: ExtensionContext, handler: (active: AgentTrace) => void): undefined => {
++		try {
++			const active = trace(ctx);
++			if (active) handler(active);
++		} catch {
++			// Ignore: a broken trace must not break the session.
++		}
++		return undefined;
++	};
++
++	// Documented inter-extension protocol; neither the caller nor the verifier
++	// imports this class or accesses its state.
++	pi.events.on("agent-trace:request-child-context", (data: unknown) => {
++		const request = data as {
++			callId?: unknown;
++			baseEnv?: NodeJS.ProcessEnv;
++			accept?: (env: NodeJS.ProcessEnv | undefined) => void;
++		} | undefined;
++		if (typeof request?.accept !== "function") return;
++		request.accept(typeof request.callId === "string"
++			? tracer?.childEnvironment(request.callId, request.baseEnv ?? process.env)
++			: undefined);
++	});
++
++	pi.on("session_start", (_event, ctx) => safe(ctx, () => {}));
++	// Marks the runs pi starts from a user prompt; nothing can abort the run after this.
++	pi.on("before_agent_start", (_event, ctx) => safe(ctx, (active) => active.onBeforeAgentStart()));
++	pi.on("agent_start", (_event, ctx) => safe(ctx, (active) => active.onAgentStart()));
++	pi.on("turn_start", (event, ctx) => safe(ctx, (active) => active.onTurnStart(event.turnIndex, event.timestamp)));
++	pi.on("message_start", (event, ctx) => safe(ctx, (active) => active.onMessageStart(event.message)));
++	pi.on("message_end", (event, ctx) => safe(ctx, (active) => active.onMessageEnd(event.message)));
++	pi.on("tool_execution_start", (event, ctx) =>
++		safe(ctx, (active) => active.onToolStart(event.toolCallId, event.toolName)),
++	);
++	pi.on("tool_execution_end", (event, ctx) =>
++		safe(ctx, (active) => active.onToolEnd(event.toolCallId, event.result, event.isError)),
++	);
++	pi.on("turn_end", (event, ctx) => safe(ctx, (active) => active.onTurnEnd(event.message, event.toolResults)));
++	pi.on("agent_end", (_event, ctx) => safe(ctx, (active) => active.onAgentEnd()));
++	pi.on("agent_settled", (_event, ctx) => safe(ctx, (active) => active.onAgentSettled()));
++	pi.on("session_before_compact", (event, ctx) =>
++		safe(ctx, (active) => active.onBeforeCompact(event.reason, event.willRetry)),
++	);
++	pi.on("session_compact", (event, ctx) =>
++		safe(ctx, (active) => active.onCompact(event.compactionEntry, event.reason, event.willRetry)),
++	);
++	pi.on("session_compact_failed", (event, ctx) =>
++		safe(ctx, (active) => active.onCompactFailed(event.reason, event.willRetry, event.errorMessage)),
++	);
++	pi.on("session_shutdown", (_event, ctx) =>
++		safe(ctx, (active) => {
++			active.onShutdown();
++			tracer = undefined;
++		}),
++	);
++}
+diff --git a/packages/coding-agent/test/agent-trace-extension.test.ts b/packages/coding-agent/test/agent-trace-extension.test.ts
+new file mode 100644
+index 000000000..0338cac7ce956a929bdabbaf5fd56bad35ad2e74
+--- /dev/null
++++ b/packages/coding-agent/test/agent-trace-extension.test.ts
+@@ -0,0 +1,1119 @@
++/**
++ * Tests for the agent-trace example extension.
++ *
++ * Drives the extension with the event sequences the agent loop produces and checks
++ * the resulting OTLP/JSON Lines file against the export contract.
++ */
++
++import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
++import { EventEmitter } from "node:events";
++import { tmpdir } from "node:os";
++import { dirname, join } from "node:path";
++import { fileURLToPath } from "node:url";
++import { afterEach, beforeEach, describe, expect, it } from "vitest";
++import agentTraceExtension from "../examples/extensions/agent-trace/index.ts";
++import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/index.ts";
++import { loadExtensions } from "../src/core/extensions/loader.ts";
++import type { SessionEntry } from "../src/core/session-manager.ts";
++
++const PROCESS_STATE_KEY = Symbol.for("pi.agent-trace.process-state");
++
++// =============================================================================
++// Trace file parsing
++// =============================================================================
++
++interface ParsedSpan {
++	line: number;
++	phase: "start" | "end";
++	traceId: string;
++	spanId: string;
++	parentSpanId?: string;
++	name: string;
++	kind: number;
++	start: bigint;
++	end?: bigint;
++	status?: { code: number; message?: string };
++	attributes: Record<string, string | number | boolean | string[]>;
++	resource: Record<string, string | number | boolean | string[]>;
++	scope: { name: string; version: string };
++}
++
++function decodeAttributes(list: any[]): Record<string, any> {
++	const out: Record<string, any> = {};
++	for (const attr of list) {
++		expect(Object.keys(attr.value)).toHaveLength(1);
++		if ("stringValue" in attr.value) out[attr.key] = attr.value.stringValue;
++		else if ("intValue" in attr.value) out[attr.key] = Number(attr.value.intValue);
++		else if ("boolValue" in attr.value) out[attr.key] = attr.value.boolValue;
++		else out[attr.key] = attr.value.arrayValue.values.map((v: any) => v.stringValue);
++		// Decimal string encoding for integers.
++		if ("intValue" in attr.value) expect(attr.value.intValue).toMatch(/^-?\d+$/);
++	}
++	expect(Object.keys(out)).toHaveLength(list.length);
++	return out;
++}
++
++function parseTrace(file: string): ParsedSpan[] {
++	const raw = readFileSync(file, "utf-8");
++	expect(raw.endsWith("\n")).toBe(true);
++	return raw
++		.split("\n")
++		.filter((line) => line.length > 0)
++		.map((line, index) => {
++			const request = JSON.parse(line);
++			expect(request.resourceSpans).toHaveLength(1);
++			const resourceSpan = request.resourceSpans[0];
++			expect(resourceSpan.scopeSpans).toHaveLength(1);
++			const scopeSpan = resourceSpan.scopeSpans[0];
++			expect(scopeSpan.spans).toHaveLength(1);
++			const span = scopeSpan.spans[0];
++			const attributes = decodeAttributes(span.attributes);
++			const phase = attributes["pi.span.phase"];
++			delete attributes["pi.span.phase"];
++			return {
++				line: index,
++				phase: phase === "start" ? "start" : "end",
++				traceId: span.traceId,
++				spanId: span.spanId,
++				parentSpanId: span.parentSpanId,
++				name: span.name,
++				kind: span.kind,
++				start: BigInt(span.startTimeUnixNano),
++				end: span.endTimeUnixNano === undefined ? undefined : BigInt(span.endTimeUnixNano),
++				status: span.status,
++				attributes,
++				resource: decodeAttributes(resourceSpan.resource.attributes),
++				scope: scopeSpan.scope,
++			} satisfies ParsedSpan;
++		});
++}
++
++interface TraceView {
++	records: ParsedSpan[];
++	starts: ParsedSpan[];
++	ends: ParsedSpan[];
++	/** Completed spans (end line), by name. */
++	byName(name: string): ParsedSpan[];
++	one(name: string): ParsedSpan;
++	open: ParsedSpan[];
++}
++
++/** Parses the file and asserts every invariant the export contract states. */
++function readTrace(file: string, options?: { allowOpen?: boolean }): TraceView {
++	const records = parseTrace(file);
++	const starts = records.filter((r) => r.phase === "start");
++	const ends = records.filter((r) => r.phase === "end");
++
++	for (const record of records) {
++		expect(record.traceId).toMatch(/^[0-9a-f]{32}$/);
++		expect(record.spanId).toMatch(/^[0-9a-f]{16}$/);
++		if (record.parentSpanId !== undefined) expect(record.parentSpanId).toMatch(/^[0-9a-f]{16}$/);
++		expect([1, 3]).toContain(record.kind);
++		expect(record.scope).toEqual({ name: "pi.agent-trace", version: "1" });
++		expect(record.resource["service.name"]).toBe("pi");
++		expect(record.resource["service.version"]).toBe("0.85.1");
++		expect(record.resource["process.pid"]).toBe(process.pid);
++		expect(typeof record.resource["pi.session.id"]).toBe("string");
++	}
++	expect(new Set(records.map((r) => r.traceId)).size).toBe(1);
++
++	// One start line and at most one end line per span id.
++	expect(new Set(starts.map((r) => r.spanId)).size).toBe(starts.length);
++	expect(new Set(ends.map((r) => r.spanId)).size).toBe(ends.length);
++	const startById = new Map(starts.map((r) => [r.spanId, r]));
++	for (const end of ends) {
++		const start = startById.get(end.spanId);
++		expect(start, `end line without start line for ${end.name}`).toBeDefined();
++		if (!start) continue;
++		expect(start.line).toBeLessThan(end.line);
++		expect(end.name).toBe(start.name);
++		expect(end.kind).toBe(start.kind);
++		expect(end.start).toBe(start.start);
++		expect(end.parentSpanId).toBe(start.parentSpanId);
++		// Start-line attributes survive unchanged on the end line.
++		for (const [key, value] of Object.entries(start.attributes)) {
++			expect(end.attributes[key], `attribute ${key} of ${end.name}`).toEqual(value);
++		}
++		expect(end.status).toBeDefined();
++		expect([1, 2]).toContain(end.status?.code);
++		if (end.status?.code === 2) expect(typeof end.status.message).toBe("string");
++		else expect(end.status).toEqual({ code: 1 });
++		expect(end.end).toBeGreaterThanOrEqual(end.start);
++	}
++	for (const start of starts) {
++		expect(start.status).toBeUndefined();
++		expect(start.end).toBeUndefined();
++	}
++
++	// End lines are ordered by end time.
++	for (let i = 1; i < ends.length; i++) {
++		expect(ends[i].end! >= ends[i - 1].end!).toBe(true);
++	}
++
++	// Strict nesting, and a parent's start line precedes its children's.
++	const endById = new Map(ends.map((r) => [r.spanId, r]));
++	for (const start of starts) {
++		if (!start.parentSpanId) continue;
++		const parentStart = startById.get(start.parentSpanId);
++		if (!parentStart) continue; // sub-agent: parent lives in the parent process' file
++		expect(parentStart.line).toBeLessThan(start.line);
++		expect(start.start >= parentStart.start).toBe(true);
++		const parentEnd = endById.get(start.parentSpanId);
++		const selfEnd = endById.get(start.spanId);
++		if (parentEnd && selfEnd) expect(selfEnd.end! <= parentEnd.end!).toBe(true);
++	}
++
++	const open = starts.filter((r) => !endById.has(r.spanId));
++	if (!options?.allowOpen) expect(open.map((r) => r.name)).toEqual([]);
++
++	return {
++		records,
++		starts,
++		ends,
++		open,
++		byName: (name: string) => ends.filter((r) => r.name === name),
++		one: (name: string) => {
++			const matches = ends.filter((r) => r.name === name);
++			expect(matches, `expected exactly one ${name} span`).toHaveLength(1);
++			return matches[0];
++		},
++	};
++}
++
++// =============================================================================
++// Fakes
++// =============================================================================
++
++let entryCounter = 0;
++
++/** Minimal append-only session store with the reads the extension uses. */
++class FakeSession {
++	entries: SessionEntry[] = [];
++	readonly dir: string;
++	readonly id: string;
++
++	constructor(dir: string, id: string) {
++		this.dir = dir;
++		this.id = id;
++	}
++
++	private append<T extends Record<string, any>>(entry: T): string {
++		const id = `entry-${++entryCounter}`;
++		const parentId = this.entries.length > 0 ? this.entries[this.entries.length - 1].id : null;
++		this.entries.push({ ...entry, id, parentId, timestamp: new Date().toISOString() } as unknown as SessionEntry);
++		return id;
++	}
++
++	appendMessage(message: unknown): string {
++		return this.append({ type: "message", message });
++	}
++
++	appendCustomMessage(message: { customType: string; content: unknown; display?: boolean }): string {
++		return this.append({
++			type: "custom_message",
++			customType: message.customType,
++			content: message.content,
++			display: message.display ?? true,
++		});
++	}
++
++	appendCompaction(entry: Record<string, unknown>): Record<string, unknown> {
++		this.append({ type: "compaction", ...entry });
++		return this.entries[this.entries.length - 1] as unknown as Record<string, unknown>;
++	}
++
++	get manager(): ExtensionContext["sessionManager"] {
++		return {
++			getSessionId: () => this.id,
++			getSessionDir: () => this.dir,
++			getBranch: () => [...this.entries],
++			getEntries: () => [...this.entries],
++		} as unknown as ExtensionContext["sessionManager"];
++	}
++}
++
++interface CapturedMessage {
++	message: { customType: string; content: unknown; display?: boolean };
++	options?: { triggerTurn?: boolean; deliverAs?: string };
++}
++
++/** Fake ExtensionAPI plus the event pump that mirrors pi's emission order. */
++function createHarness(session: FakeSession) {
++	const handlers = new Map<string, ((event: any, ctx: any) => unknown)[]>();
++	const sentMessages: CapturedMessage[] = [];
++	const events = new EventEmitter();
++	const pi = {
++		events: {
++			on(name: string, handler: (value: unknown) => void) { events.on(name, handler); return () => events.off(name, handler); },
++			emit(name: string, value: unknown) { events.emit(name, value); },
++		},
++		on(event: string, handler: (event: any, ctx: any) => unknown) {
++			const list = handlers.get(event) ?? [];
++			list.push(handler);
++			handlers.set(event, list);
++		},
++		sendMessage(message: any, options: any) {
++			sentMessages.push({ message, options });
++		},
++	} as unknown as ExtensionAPI;
++
++	const ctx = { sessionManager: session.manager } as unknown as ExtensionContext;
++
++	const emit = async (event: Record<string, unknown>) => {
++		for (const handler of handlers.get(event.type as string) ?? []) {
++			await handler(event, ctx);
++		}
++	};
++
++	let turnIndex = 0;
++
++	const api = {
++		pi,
++		ctx,
++		sentMessages,
++		emit,
++		childEnvironment(callId: string, baseEnv: NodeJS.ProcessEnv = process.env) {
++			let result: NodeJS.ProcessEnv | undefined;
++			pi.events.emit("agent-trace:request-child-context", { callId, baseEnv, accept: (env: NodeJS.ProcessEnv | undefined) => { result = env; } });
++			return result;
++		},
++		async beforeAgentStart() {
++			await emit({ type: "before_agent_start", prompt: "hi", systemPrompt: "", systemPromptOptions: {} });
++		},
++		async agentStart() {
++			turnIndex = 0;
++			await emit({ type: "agent_start" });
++		},
++		async turnStart(timestamp = Date.now()) {
++			await emit({ type: "turn_start", turnIndex, timestamp });
++		},
++		/** message_start/message_end then persistence, exactly like AgentSession. */
++		async deliver(message: any) {
++			await emit({ type: "message_start", message });
++			await emit({ type: "message_end", message });
++			if (message.role === "custom") session.appendCustomMessage(message);
++			else session.appendMessage(message);
++			return message;
++		},
++		async toolStart(toolCallId: string, toolName: string, args: unknown = {}) {
++			await emit({ type: "tool_execution_start", toolCallId, toolName, args });
++		},
++		async toolEnd(toolCallId: string, toolName: string, result: unknown, isError = false) {
++			await emit({ type: "tool_execution_end", toolCallId, toolName, result, isError });
++		},
++		async turnEnd(message: any, toolResults: unknown[] = []) {
++			await emit({ type: "turn_end", turnIndex, message, toolResults });
++			turnIndex++;
++		},
++		async agentEnd(messages: unknown[] = []) {
++			await emit({ type: "agent_end", messages });
++		},
++		async agentSettled() {
++			await emit({ type: "agent_settled" });
++		},
++		async beforeCompact(reason: string, willRetry = false) {
++			await emit({ type: "session_before_compact", reason, willRetry, preparation: {}, branchEntries: [] });
++		},
++		async compacted(reason: string, willRetry: boolean, entry: Record<string, unknown>) {
++			const saved = session.appendCompaction(entry);
++			await emit({ type: "session_compact", compactionEntry: saved, fromExtension: false, reason, willRetry });
++			return saved;
++		},
++		async compactFailed(reason: string, options: { errorMessage?: string; aborted?: boolean; willRetry?: boolean }) {
++			await emit({
++				type: "session_compact_failed",
++				reason,
++				errorMessage: options.errorMessage,
++				aborted: options.aborted ?? false,
++				willRetry: options.willRetry ?? false,
++				fromExtension: false,
++			});
++		},
++		async shutdown(reason = "quit") {
++			await emit({ type: "session_shutdown", reason });
++		},
++	};
++
++	agentTraceExtension(pi);
++	return api;
++}
++
++function assistantMessage(overrides: Record<string, unknown> = {}) {
++	return {
++		role: "assistant",
++		content: [{ type: "text", text: "ok" }],
++		api: "anthropic-messages",
++		provider: "anthropic",
++		model: "test-model",
++		usage: { input: 10, output: 5, cacheRead: 2, cacheWrite: 1, totalTokens: 18 },
++		stopReason: "stop",
++		timestamp: Date.now(),
++		...overrides,
++	};
++}
++
++function toolCallMessage(calls: { id: string; name: string }[], overrides: Record<string, unknown> = {}) {
++	return assistantMessage({
++		content: calls.map((call) => ({ type: "toolCall", id: call.id, name: call.name, arguments: {} })),
++		stopReason: "toolUse",
++		...overrides,
++	});
++}
++
++function toolResultMessage(toolCallId: string, toolName: string, text: string, isError = false) {
++	return {
++		role: "toolResult",
++		toolCallId,
++		toolName,
++		content: [{ type: "text", text }],
++		isError,
++		timestamp: Date.now(),
++	};
++}
++
++function userMessage(text: string) {
++	return { role: "user", content: [{ type: "text", text }], timestamp: Date.now() };
++}
++
++function customMessage(customType: string, text: string) {
++	return { role: "custom", customType, content: [{ type: "text", text }], display: true, timestamp: Date.now() };
++}
++
++function toolResult(text: string) {
++	return { content: [{ type: "text", text }], details: {} };
++}
++
++/** Entry ids named by spans, for the "branch covered exactly once" checks. */
++function referencedEntryIds(view: TraceView): string[] {
++	const ids: string[] = [];
++	for (const span of view.ends) {
++		const entryId = span.attributes["pi.session.entry_id"];
++		if (typeof entryId === "string") ids.push(entryId);
++		const steer = span.attributes["pi.run.steer_entry_ids"];
++		if (Array.isArray(steer)) ids.push(...steer);
++	}
++	return ids;
++}
++
++// =============================================================================
++// Tests
++// =============================================================================
++
++describe("agent-trace extension", () => {
++	let dir: string;
++	let session: FakeSession;
++	const savedEnv: Record<string, string | undefined> = {};
++
++	beforeEach(() => {
++		dir = mkdtempSync(join(tmpdir(), "agent-trace-"));
++		session = new FakeSession(dir, "session-abc");
++		for (const key of ["PI_AGENT_TRACE_FILE", "PI_AGENT_TRACE_ID", "PI_AGENT_TRACE_PARENT_SPAN_ID"]) {
++			savedEnv[key] = process.env[key];
++			delete process.env[key];
++		}
++		delete (globalThis as any)[PROCESS_STATE_KEY];
++	});
++
++	afterEach(() => {
++		for (const [key, value] of Object.entries(savedEnv)) {
++			if (value === undefined) delete process.env[key];
++			else process.env[key] = value;
++		}
++		delete (globalThis as any)[PROCESS_STATE_KEY];
++	});
++
++	const traceFile = () => join(dir, "traces", "session-abc.otlp.jsonl");
++
++	/** One prompt run: a tool-calling turn followed by a final answer. */
++	async function runBasicSession(h: ReturnType<typeof createHarness>) {
++		await h.beforeAgentStart();
++		await h.agentStart();
++		await h.turnStart();
++		await h.deliver(userMessage("hello"));
++		const first = toolCallMessage([{ id: "call-1", name: "bash" }]);
++		await h.deliver(first);
++		await h.toolStart("call-1", "bash");
++		await h.toolEnd("call-1", "bash", toolResult("files listed"));
++		await h.deliver(toolResultMessage("call-1", "bash", "files listed"));
++		await h.turnEnd(first, [{}]);
++		await h.turnStart();
++		const second = assistantMessage();
++		await h.deliver(second);
++		await h.turnEnd(second, []);
++		await h.agentEnd();
++		await h.agentSettled();
++	}
++
++	it("traces run, turns, provider requests and tool executions", async () => {
++		const h = createHarness(session);
++		await runBasicSession(h);
++
++		const view = readTrace(traceFile());
++		expect(view.records[0].resource["pi.session.id"]).toBe("session-abc");
++
++		const run = view.one("pi.run");
++		expect(run.parentSpanId).toBeUndefined();
++		expect(run.kind).toBe(1);
++		expect(run.attributes["pi.run.trigger"]).toBe("prompt");
++		expect(run.attributes["pi.run.turn_count"]).toBe(2);
++		expect(run.attributes["pi.run.steer_count"]).toBe(0);
++		expect(run.attributes["pi.run.steer_entry_ids"]).toEqual([]);
++		expect(run.status).toEqual({ code: 1 });
++
++		const turns = view.byName("pi.turn");
++		expect(turns).toHaveLength(2);
++		expect(turns.map((t) => t.attributes["pi.turn.index"])).toEqual([0, 1]);
++		expect(turns.every((t) => t.parentSpanId === run.spanId)).toBe(true);
++		expect(turns[0].attributes["pi.turn.stop_reason"]).toBe("toolUse");
++		expect(turns[0].attributes["pi.turn.tool_call_count"]).toBe(1);
++		expect(turns[1].attributes["pi.turn.tool_call_count"]).toBe(0);
++
++		const chats = view.byName("chat test-model");
++		expect(chats).toHaveLength(2);
++		expect(chats[0].kind).toBe(3);
++		expect(chats[0].parentSpanId).toBe(turns[0].spanId);
++		expect(chats[0].attributes["gen_ai.operation.name"]).toBe("chat");
++		expect(chats[0].attributes["gen_ai.system"]).toBe("anthropic");
++		expect(chats[0].attributes["gen_ai.request.model"]).toBe("test-model");
++		expect(chats[0].attributes["gen_ai.usage.input_tokens"]).toBe(10);
++		expect(chats[0].attributes["gen_ai.usage.output_tokens"]).toBe(5);
++		expect(chats[0].attributes["pi.usage.cache_read_tokens"]).toBe(2);
++		expect(chats[0].attributes["pi.usage.cache_write_tokens"]).toBe(1);
++		expect(chats[0].attributes["gen_ai.response.finish_reasons"]).toEqual(["toolUse"]);
++
++		const tool = view.one("execute_tool bash");
++		expect(tool.kind).toBe(1);
++		expect(tool.parentSpanId).toBe(turns[0].spanId);
++		expect(tool.attributes["gen_ai.operation.name"]).toBe("execute_tool");
++		expect(tool.attributes["gen_ai.tool.name"]).toBe("bash");
++		expect(tool.attributes["gen_ai.tool.call.id"]).toBe("call-1");
++		expect(tool.attributes["pi.tool.is_error"]).toBe(false);
++		// Tool spans start only after the provider request they came from ended.
++		expect(tool.start >= chats[0].end!).toBe(true);
++
++		// Every branch entry is named exactly once, by a span of the matching kind.
++		const referenced = referencedEntryIds(view);
++		expect([...referenced].sort()).toEqual(session.entries.map((e) => e.id).sort());
++		const byId = new Map(session.entries.map((e) => [e.id, e]));
++		expect((byId.get(run.attributes["pi.session.entry_id"] as string) as any).message.role).toBe("user");
++		expect((byId.get(chats[0].attributes["pi.session.entry_id"] as string) as any).message.role).toBe("assistant");
++		expect((byId.get(tool.attributes["pi.session.entry_id"] as string) as any).message.role).toBe("toolResult");
++	});
++
++	it("start lines identify their span and appear before the span ends", async () => {
++		const h = createHarness(session);
++		await h.beforeAgentStart();
++		await h.agentStart();
++		await h.turnStart();
++		await h.deliver(userMessage("hello"));
++		const message = toolCallMessage([{ id: "call-1", name: "bash" }]);
++		await h.deliver(message);
++		await h.toolStart("call-1", "bash");
++
++		// Mid-flight: the reader already sees the run, the turn, the finished provider
++		// request and the tool that is still executing.
++		const live = readTrace(traceFile(), { allowOpen: true });
++		expect(live.starts.map((s) => s.name)).toEqual(["pi.run", "pi.turn", "chat test-model", "execute_tool bash"]);
++		expect(live.open.map((s) => s.name)).toEqual(["pi.run", "pi.turn", "execute_tool bash"]);
++		const runStart = live.starts[0];
++		expect(runStart.attributes).toEqual({ "pi.run.trigger": "prompt" });
++		expect(live.starts[1].attributes).toEqual({ "pi.turn.index": 0 });
++		expect(live.starts[2].attributes).toEqual({
++			"gen_ai.operation.name": "chat",
++			"gen_ai.system": "anthropic",
++			"gen_ai.request.model": "test-model",
++		});
++		expect(live.starts[3].attributes).toEqual({
++			"gen_ai.operation.name": "execute_tool",
++			"gen_ai.tool.name": "bash",
++			"gen_ai.tool.call.id": "call-1",
++		});
++
++		// Crash safety: the provider request of the running turn is already complete on disk.
++		expect(live.ends.map((e) => e.name)).toEqual(["chat test-model"]);
++		expect(live.ends[0].line).toBeLessThan(live.starts[3].line);
++	});
++
++	it("completes a span without waiting for the next agent event", async () => {
++		const h = createHarness(session);
++		await h.beforeAgentStart();
++		await h.agentStart();
++		await h.turnStart();
++		await h.deliver(userMessage("hello"));
++		await h.deliver(assistantMessage({ stopReason: "toolUse" }));
++		// No further event: the entry id became known as soon as pi persisted the message.
++		await new Promise((resolve) => setTimeout(resolve, 5));
++
++		const view = readTrace(traceFile(), { allowOpen: true });
++		const chat = view.ends.find((e) => e.name === "chat test-model");
++		expect(chat?.attributes["pi.session.entry_id"]).toBe(session.entries[1].id);
++	});
++
++	it("appends to one file with one trace id across reloads", async () => {
++		const first = createHarness(session);
++		await runBasicSession(first);
++		await first.shutdown("reload");
++		const afterReload = readFileSync(traceFile(), "utf-8");
++
++		// A reloaded runtime is a fresh extension instance on the same session.
++		const second = createHarness(session);
++		await runBasicSession(second);
++
++		const raw = readFileSync(traceFile(), "utf-8");
++		expect(raw.startsWith(afterReload)).toBe(true);
++		const view = readTrace(traceFile());
++		expect(view.byName("pi.run")).toHaveLength(2);
++		expect(new Set(view.records.map((r) => r.traceId)).size).toBe(1);
++		expect(new Set(view.starts.map((r) => r.spanId)).size).toBe(view.starts.length);
++	});
++
++	it("honours PI_AGENT_TRACE_FILE", async () => {
++		const custom = join(dir, "nested", "custom.otlp.jsonl");
++		process.env.PI_AGENT_TRACE_FILE = custom;
++		const h = createHarness(session);
++		await runBasicSession(h);
++		expect(existsSync(traceFile())).toBe(false);
++		expect(readTrace(custom).byName("pi.run")).toHaveLength(1);
++	});
++
++	it("marks failed tools, failed responses and their turns as errors", async () => {
++		const h = createHarness(session);
++		await h.beforeAgentStart();
++		await h.agentStart();
++		await h.turnStart();
++		await h.deliver(userMessage("hello"));
++		const first = toolCallMessage([{ id: "call-1", name: "bash" }]);
++		await h.deliver(first);
++		await h.toolStart("call-1", "bash");
++		await h.toolEnd("call-1", "bash", toolResult("command not found"), true);
++		await h.deliver(toolResultMessage("call-1", "bash", "command not found", true));
++		await h.turnEnd(first, [{}]);
++		await h.turnStart();
++		const failed = assistantMessage({ stopReason: "error", errorMessage: "overloaded", usage: undefined });
++		await h.deliver(failed);
++		await h.turnEnd(failed, []);
++		await h.agentEnd();
++		await h.agentSettled();
++
++		const view = readTrace(traceFile());
++		const tool = view.one("execute_tool bash");
++		expect(tool.attributes["pi.tool.is_error"]).toBe(true);
++		expect(tool.status).toEqual({ code: 2, message: "command not found" });
++
++		const chats = view.byName("chat test-model");
++		expect(chats[0].status).toEqual({ code: 1 });
++		expect(chats[1].status).toEqual({ code: 2, message: "overloaded" });
++		expect(chats[1].attributes["gen_ai.usage.input_tokens"]).toBe(0);
++
++		const turns = view.byName("pi.turn");
++		expect(turns[0].status).toEqual({ code: 1 });
++		expect(turns[1].status).toEqual({ code: 2, message: "overloaded" });
++		// A run whose turns failed is still OK.
++		expect(view.one("pi.run").status).toEqual({ code: 1 });
++	});
++
++	it("traces an aborted response", async () => {
++		const h = createHarness(session);
++		await h.beforeAgentStart();
++		await h.agentStart();
++		await h.turnStart();
++		await h.deliver(userMessage("hello"));
++		const aborted = assistantMessage({ stopReason: "aborted" });
++		await h.deliver(aborted);
++		await h.turnEnd(aborted, []);
++		await h.agentEnd();
++		await h.agentSettled();
++
++		const view = readTrace(traceFile());
++		expect(view.one("chat test-model").status).toEqual({ code: 2, message: "aborted" });
++		expect(view.one("pi.turn").status).toEqual({ code: 2, message: "aborted" });
++	});
++
++	it("traces overflow recovery: rejected response, compaction and retry run", async () => {
++		const h = createHarness(session);
++		await h.beforeAgentStart();
++		await h.agentStart();
++		await h.turnStart();
++		await h.deliver(userMessage("hello"));
++		const overflow = assistantMessage({
++			stopReason: "error",
++			errorMessage: "input length exceeds context window",
++			usage: { input: 190000, output: 0, cacheRead: 0, cacheWrite: 0 },
++		});
++		await h.deliver(overflow);
++		await h.turnEnd(overflow, []);
++		await h.agentEnd();
++
++		// pi compacts between the rejected run and the retry.
++		await h.beforeCompact("overflow", true);
++		const compactionEntry = await h.compacted("overflow", true, {
++			summary: "summary",
++			firstKeptEntryId: "entry-1",
++			tokensBefore: 190000,
++			usage: { input: 1000, output: 200, cacheRead: 0, cacheWrite: 0 },
++		});
++
++		await h.agentStart();
++		await h.turnStart();
++		const retry = assistantMessage();
++		await h.deliver(retry);
++		await h.turnEnd(retry, []);
++		await h.agentEnd();
++		await h.agentSettled();
++
++		const view = readTrace(traceFile());
++		const compaction = view.one("pi.compaction");
++		expect(compaction.parentSpanId).toBeUndefined();
++		expect(compaction.attributes["pi.compaction.reason"]).toBe("overflow");
++		expect(compaction.attributes["pi.compaction.will_retry"]).toBe(true);
++		expect(compaction.attributes["pi.compaction.tokens_before"]).toBe(190000);
++		expect(compaction.attributes["pi.compaction.first_kept_entry_id"]).toBe("entry-1");
++		expect(compaction.attributes["gen_ai.usage.input_tokens"]).toBe(1000);
++		expect(compaction.attributes["gen_ai.usage.output_tokens"]).toBe(200);
++		expect(compaction.attributes["pi.session.entry_id"]).toBe(compactionEntry.id);
++
++		const runs = view.byName("pi.run");
++		expect(runs).toHaveLength(2);
++		expect(runs[0].attributes["pi.run.trigger"]).toBe("prompt");
++		expect(runs[1].attributes["pi.run.trigger"]).toBe("continuation");
++		expect(runs[1].attributes["pi.run.after_compaction"]).toBe(compactionEntry.id);
++		// An overflow retry references no message of its own.
++		expect(runs[1].attributes["pi.session.entry_id"]).toBeUndefined();
++		expect(runs[1].attributes["pi.run.steer_count"]).toBe(0);
++
++		expect([...referencedEntryIds(view)].sort()).toEqual(session.entries.map((e) => e.id).sort());
++	});
++
++	it("traces a failed compaction and keeps tracing afterwards", async () => {
++		const h = createHarness(session);
++		await h.beforeCompact("manual", false);
++		await h.compactFailed("manual", { errorMessage: "Compaction failed: boom" });
++
++		// A compaction that fails before session_before_compact still gets a full span.
++		await h.compactFailed("threshold", { aborted: true });
++
++		const h2 = h;
++		await h2.beforeAgentStart();
++		await h2.agentStart();
++		await h2.turnStart();
++		await h2.deliver(userMessage("carry on"));
++		const message = assistantMessage();
++		await h2.deliver(message);
++		await h2.turnEnd(message, []);
++		await h2.agentEnd();
++		await h2.agentSettled();
++
++		const view = readTrace(traceFile());
++		const compactions = view.byName("pi.compaction");
++		expect(compactions).toHaveLength(2);
++		expect(compactions[0].status).toEqual({ code: 2, message: "Compaction failed: boom" });
++		expect(compactions[1].status).toEqual({ code: 2, message: "aborted" });
++		expect(compactions[1].attributes["pi.compaction.reason"]).toBe("threshold");
++		// Nothing from the compaction entry is present when it failed.
++		for (const compaction of compactions) {
++			expect(compaction.attributes["pi.compaction.tokens_before"]).toBeUndefined();
++			expect(compaction.attributes["pi.session.entry_id"]).toBeUndefined();
++		}
++		expect(view.byName("pi.run")).toHaveLength(1);
++	});
++
++	it("keeps a failed overflow compaction out of the next run's attribution", async () => {
++		const h = createHarness(session);
++		// pi compacts an overflowing context before submitting the next prompt.
++		await h.beforeCompact("overflow", true);
++		await h.compactFailed("overflow", { errorMessage: "Context overflow recovery failed: boom" });
++		await h.beforeAgentStart();
++		await h.agentStart();
++		await h.turnStart();
++		await h.deliver(userMessage("hello"));
++		const message = assistantMessage();
++		await h.deliver(message);
++		await h.turnEnd(message, []);
++		await h.agentEnd();
++		await h.agentSettled();
++
++		const view = readTrace(traceFile());
++		const compaction = view.one("pi.compaction");
++		// will_retry keeps the value its start line published.
++		expect(compaction.attributes["pi.compaction.will_retry"]).toBe(true);
++		expect(compaction.status?.code).toBe(2);
++		const run = view.one("pi.run");
++		expect(run.attributes["pi.run.trigger"]).toBe("prompt");
++		expect(run.attributes["pi.run.after_compaction"]).toBeUndefined();
++	});
++
++	it("attributes a prompt run to the prompt even after a retryable compaction", async () => {
++		const h = createHarness(session);
++		// A successful overflow compaction that pi runs before a new prompt instead of
++		// before a retry: the next run is the prompt's, not the retry's.
++		await h.beforeCompact("overflow", true);
++		await h.compacted("overflow", true, { summary: "s", firstKeptEntryId: "x", tokensBefore: 9 });
++		await h.beforeAgentStart();
++		await h.agentStart();
++		await h.turnStart();
++		await h.deliver(userMessage("hello"));
++		const message = assistantMessage();
++		await h.deliver(message);
++		await h.turnEnd(message, []);
++		await h.agentEnd();
++		await h.agentSettled();
++
++		const run = readTrace(traceFile()).one("pi.run");
++		expect(run.attributes["pi.run.trigger"]).toBe("prompt");
++		expect(run.attributes["pi.run.after_compaction"]).toBeUndefined();
++		expect(run.attributes["pi.session.entry_id"]).toBe(session.entries[1].id);
++	});
++
++	it("traces threshold compaction between runs", async () => {
++		const h = createHarness(session);
++		await h.beforeAgentStart();
++		await h.agentStart();
++		await h.turnStart();
++		await h.deliver(userMessage("hello"));
++		const message = assistantMessage();
++		await h.deliver(message);
++		await h.turnEnd(message, []);
++		await h.agentEnd();
++		await h.beforeCompact("threshold", false);
++		await h.compacted("threshold", false, { summary: "s", firstKeptEntryId: "entry-1", tokensBefore: 120 });
++		await h.agentSettled();
++
++		const view = readTrace(traceFile());
++		const compaction = view.one("pi.compaction");
++		expect(compaction.attributes["pi.compaction.will_retry"]).toBe(false);
++		expect(compaction.attributes["gen_ai.usage.input_tokens"]).toBeUndefined();
++		expect(compaction.status).toEqual({ code: 1 });
++		// A compaction with will_retry false does not make the next run a retry.
++		expect(view.one("pi.run").attributes["pi.run.trigger"]).toBe("prompt");
++	});
++
++	it("lists steering and follow-up messages on the run that consumed them", async () => {
++		const h = createHarness(session);
++		await h.beforeAgentStart();
++		await h.agentStart();
++		await h.turnStart();
++		const prompt = await h.deliver(userMessage("hello"));
++		const first = toolCallMessage([{ id: "call-1", name: "bash" }]);
++		await h.deliver(first);
++		await h.toolStart("call-1", "bash");
++		await h.toolEnd("call-1", "bash", toolResult("done"));
++		await h.deliver(toolResultMessage("call-1", "bash", "done"));
++		await h.turnEnd(first, [{}]);
++
++		// Steering: consumed at the start of the next turn of the same run.
++		await h.turnStart();
++		const steer = await h.deliver(userMessage("actually, stop"));
++		const extensionSteer = await h.deliver(customMessage("reminder", "budget is low"));
++		const second = assistantMessage();
++		await h.deliver(second);
++		await h.turnEnd(second, []);
++		await h.agentEnd();
++		await h.agentSettled();
++
++		const view = readTrace(traceFile());
++		const run = view.one("pi.run");
++		const entryIds = session.entries.map((e) => e.id);
++		expect(run.attributes["pi.session.entry_id"]).toBe(entryIds[0]);
++		expect(run.attributes["pi.run.steer_count"]).toBe(2);
++		expect(run.attributes["pi.run.steer_entry_ids"]).toEqual([entryIds[3], entryIds[4]]);
++		expect(run.attributes["pi.run.turn_count"]).toBe(2);
++		expect(view.byName("pi.run")).toHaveLength(1);
++		expect(prompt.role).toBe("user");
++		expect(steer.role).toBe("user");
++		expect(extensionSteer.role).toBe("custom");
++		expect([...referencedEntryIds(view)].sort()).toEqual(entryIds.sort());
++	});
++
++	it("opens a wakeup run for an extension message delivered while idle", async () => {
++		const h = createHarness(session);
++		await h.agentStart();
++		await h.turnStart();
++		const wakeup = await h.deliver(customMessage("cron", "run the checks"));
++		const message = assistantMessage();
++		await h.deliver(message);
++		await h.turnEnd(message, []);
++		await h.agentEnd();
++		await h.agentSettled();
++
++		const view = readTrace(traceFile());
++		const run = view.one("pi.run");
++		expect(run.attributes["pi.run.trigger"]).toBe("wakeup");
++		expect(run.attributes["pi.session.entry_id"]).toBe(session.entries[0].id);
++		expect(wakeup.customType).toBe("cron");
++	});
++
++	it.each(["custom", "user"])("opens a continuation run for a queued %s message", async (role) => {
++		const h = createHarness(session);
++		await h.beforeAgentStart();
++		await h.agentStart();
++		await h.turnStart();
++		await h.deliver(userMessage("hello"));
++		const first = assistantMessage();
++		await h.deliver(first);
++		await h.turnEnd(first, []);
++		await h.agentEnd();
++
++		// An agent_end handler queued a message: pi continues without settling first.
++		await h.agentStart();
++		await h.turnStart();
++		const queued = await h.deliver(role === "custom" ? customMessage("followup", "and now this") : userMessage("and now this"));
++		const second = assistantMessage();
++		await h.deliver(second);
++		await h.turnEnd(second, []);
++		await h.agentEnd();
++		await h.agentSettled();
++
++		const view = readTrace(traceFile());
++		const runs = view.byName("pi.run");
++		expect(runs.map((r) => r.attributes["pi.run.trigger"])).toEqual(["prompt", "continuation"]);
++		expect(runs[1].attributes["pi.session.entry_id"]).toBe(
++			session.entries.find((e) => e.type === "message" ? e.message === queued : e.type === "custom_message" && e.customType === "followup")?.id,
++		);
++		expect(runs[1].attributes["pi.run.after_compaction"]).toBeUndefined();
++		expect(queued.role).toBe(role);
++	});
++
++	it("never references a context-only extension message", async () => {
++		const h = createHarness(session);
++		await h.beforeAgentStart();
++		await h.agentStart();
++		await h.turnStart();
++		await h.deliver(userMessage("hello"));
++		const message = assistantMessage();
++		await h.deliver(message);
++		await h.turnEnd(message, []);
++		// A context-only message is appended without any message event.
++		const contextOnly = session.appendCustomMessage(customMessage("note", "fyi"));
++		await h.agentEnd();
++		await h.agentSettled();
++
++		const view = readTrace(traceFile());
++		expect(referencedEntryIds(view)).not.toContain(contextOnly);
++	});
++
++	it("gives each of several concurrent tool calls its own overlapping span", async () => {
++		const h = createHarness(session);
++		await h.beforeAgentStart();
++		await h.agentStart();
++		await h.turnStart();
++		await h.deliver(userMessage("hello"));
++		const message = toolCallMessage([
++			{ id: "call-1", name: "read" },
++			{ id: "call-2", name: "grep" },
++		]);
++		await h.deliver(message);
++
++		// pi starts both executions before either finishes, and they finish out of order.
++		await h.toolStart("call-1", "read");
++		await h.toolStart("call-2", "grep");
++		const baseEnv = { MARKER: "retained" };
++		const childA = h.childEnvironment("call-1", baseEnv);
++		const childB = h.childEnvironment("call-2", baseEnv);
++		expect(childA?.PI_AGENT_TRACE_PARENT_SPAN_ID).not.toBe(childB?.PI_AGENT_TRACE_PARENT_SPAN_ID);
++		expect(childA?.MARKER).toBe("retained");
++		expect(baseEnv).toEqual({ MARKER: "retained" });
++		await h.toolEnd("call-2", "grep", toolResult("no matches"), true);
++		await h.toolEnd("call-1", "read", toolResult("file body"));
++		await h.deliver(toolResultMessage("call-1", "read", "file body"));
++		await h.deliver(toolResultMessage("call-2", "grep", "no matches", true));
++		await h.turnEnd(message, [{}, {}]);
++		await h.agentEnd();
++		await h.agentSettled();
++
++		const view = readTrace(traceFile());
++		const read = view.one("execute_tool read");
++		const grep = view.one("execute_tool grep");
++		expect(childA?.PI_AGENT_TRACE_PARENT_SPAN_ID).toBe(read.spanId);
++		expect(childB?.PI_AGENT_TRACE_PARENT_SPAN_ID).toBe(grep.spanId);
++		expect(read.attributes["pi.tool.is_error"]).toBe(false);
++		expect(grep.attributes["pi.tool.is_error"]).toBe(true);
++		expect(grep.status).toEqual({ code: 2, message: "no matches" });
++		// Overlapping in time: each started before the other ended.
++		expect(read.start <= grep.end!).toBe(true);
++		expect(grep.start <= read.end!).toBe(true);
++		expect(view.one("pi.turn").attributes["pi.turn.tool_call_count"]).toBe(2);
++
++		const byId = new Map(session.entries.map((e) => [e.id, e]));
++		const readEntry = byId.get(read.attributes["pi.session.entry_id"] as string) as any;
++		const grepEntry = byId.get(grep.attributes["pi.session.entry_id"] as string) as any;
++		expect(readEntry.message.toolCallId).toBe("call-1");
++		expect(grepEntry.message.toolCallId).toBe("call-2");
++	});
++
++	it("closes every open span with status shutdown", async () => {
++		const h = createHarness(session);
++		await h.beforeAgentStart();
++		await h.agentStart();
++		await h.turnStart();
++		await h.deliver(userMessage("hello"));
++		const message = toolCallMessage([{ id: "call-1", name: "bash" }]);
++		await h.deliver(message);
++		await h.toolStart("call-1", "bash");
++		await h.shutdown("quit");
++
++		const view = readTrace(traceFile());
++		expect(view.open).toHaveLength(0);
++		for (const name of ["pi.run", "pi.turn", "execute_tool bash"]) {
++			expect(view.one(name).status).toEqual({ code: 2, message: "shutdown" });
++		}
++		// The provider request finished normally before the shutdown.
++		expect(view.one("chat test-model").status).toEqual({ code: 1 });
++		const run = view.one("pi.run");
++		// Known at shutdown time.
++		expect(run.attributes["pi.run.trigger"]).toBe("prompt");
++		expect(run.attributes["pi.run.turn_count"]).toBe(1);
++		expect(run.attributes["pi.session.entry_id"]).toBe(session.entries[0].id);
++		// The tool result was never persisted, so the tool span names no entry.
++		expect(view.one("execute_tool bash").attributes["pi.session.entry_id"]).toBeUndefined();
++		// The completed assistant already declared its stop reason and one tool call.
++		expect(view.one("pi.turn").attributes["pi.turn.stop_reason"]).toBe("toolUse");
++		expect(view.one("pi.turn").attributes["pi.turn.tool_call_count"]).toBe(1);
++	});
++
++	it("reports an unwritable trace file once and keeps the session running", async () => {
++		const blocker = join(dir, "blocker");
++		writeFileSync(blocker, "not a directory");
++		process.env.PI_AGENT_TRACE_FILE = join(blocker, "trace.otlp.jsonl");
++
++		const h = createHarness(session);
++		await runBasicSession(h);
++		await runBasicSession(h);
++
++		expect(h.sentMessages).toHaveLength(1);
++		const report = h.sentMessages[0];
++		expect(report.message.customType).toBe("agent-trace");
++		expect(String(report.message.content)).toContain(
++			`agent-trace: cannot write ${join(blocker, "trace.otlp.jsonl")}`,
++		);
++		expect(report.options?.triggerTurn).toBe(false);
++		expect(existsSync(traceFile())).toBe(false);
++	});
++
++	it("returns the spawning tool context without changing the parent environment", async () => {
++		const h = createHarness(session);
++		await h.beforeAgentStart();
++		await h.agentStart();
++		await h.turnStart();
++		await h.deliver(userMessage("hello"));
++		const message = toolCallMessage([{ id: "call-1", name: "subagent" }]);
++		await h.deliver(message);
++
++		expect(process.env.PI_AGENT_TRACE_ID).toBeUndefined();
++		await h.toolStart("call-1", "subagent");
++		const childEnv = h.childEnvironment("call-1");
++		const childTraceId = childEnv?.PI_AGENT_TRACE_ID;
++		const childParentSpanId = childEnv?.PI_AGENT_TRACE_PARENT_SPAN_ID;
++		expect(process.env.PI_AGENT_TRACE_ID).toBeUndefined();
++		expect(process.env.PI_AGENT_TRACE_PARENT_SPAN_ID).toBeUndefined();
++		expect(childTraceId).toMatch(/^[0-9a-f]{32}$/);
++		expect(childParentSpanId).toMatch(/^[0-9a-f]{16}$/);
++
++		await h.toolEnd("call-1", "subagent", toolResult("child done"));
++		expect(h.childEnvironment("call-1")).toBeUndefined();
++		expect(h.childEnvironment("unknown")).toBeUndefined();
++		// Nothing leaks once the tool is done.
++		expect(process.env.PI_AGENT_TRACE_ID).toBeUndefined();
++		expect(process.env.PI_AGENT_TRACE_PARENT_SPAN_ID).toBeUndefined();
++
++		await h.deliver(toolResultMessage("call-1", "subagent", "child done"));
++		await h.turnEnd(message, [{}]);
++		await h.agentEnd();
++		await h.agentSettled();
++
++		const view = readTrace(traceFile());
++		const tool = view.one("execute_tool subagent");
++		expect(childTraceId).toBe(tool.traceId);
++		expect(childParentSpanId).toBe(tool.spanId);
++	});
++
++	it("puts a spawned pi process into the spawning tool's trace", async () => {
++		// What the child process sees in its environment.
++		process.env.PI_AGENT_TRACE_ID = "0123456789abcdef0123456789abcdef";
++		process.env.PI_AGENT_TRACE_PARENT_SPAN_ID = "fedcba9876543210";
++
++		const childSession = new FakeSession(dir, "child-session");
++		const child = createHarness(childSession);
++		await child.beforeAgentStart();
++		await child.agentStart();
++		await child.turnStart();
++		await child.deliver(userMessage("Task: do the thing"));
++		const message = assistantMessage();
++		await child.deliver(message);
++		await child.turnEnd(message, []);
++		await child.agentEnd();
++		await child.beforeCompact("threshold", false);
++		await child.compacted("threshold", false, { summary: "s", firstKeptEntryId: "x", tokensBefore: 10 });
++		await child.agentSettled();
++
++		// The child writes its own session's file...
++		const childFile = join(dir, "traces", "child-session.otlp.jsonl");
++		const view = readTrace(childFile);
++		// ...with the parent's trace id, and its root spans under the spawning tool span.
++		expect(new Set(view.records.map((r) => r.traceId))).toEqual(new Set(["0123456789abcdef0123456789abcdef"]));
++		expect(view.records[0].resource["pi.session.id"]).toBe("child-session");
++		expect(view.one("pi.run").parentSpanId).toBe("fedcba9876543210");
++		expect(view.one("pi.compaction").parentSpanId).toBe("fedcba9876543210");
++		expect(view.one("pi.turn").parentSpanId).toBe(view.one("pi.run").spanId);
++
++		// A child tool receives its own copied context without changing the
++		// inherited context of the child process itself.
++		expect(process.env.PI_AGENT_TRACE_PARENT_SPAN_ID).toBe("fedcba9876543210");
++		await child.agentStart();
++		await child.turnStart();
++		const withTool = toolCallMessage([{ id: "call-9", name: "bash" }]);
++		await child.deliver(withTool);
++		await child.toolStart("call-9", "bash");
++		expect(child.childEnvironment("call-9")?.PI_AGENT_TRACE_PARENT_SPAN_ID).not.toBe("fedcba9876543210");
++		expect(process.env.PI_AGENT_TRACE_PARENT_SPAN_ID).toBe("fedcba9876543210");
++		await child.toolEnd("call-9", "bash", toolResult("ok"));
++		expect(process.env.PI_AGENT_TRACE_ID).toBe("0123456789abcdef0123456789abcdef");
++		expect(process.env.PI_AGENT_TRACE_PARENT_SPAN_ID).toBe("fedcba9876543210");
++	});
++
++	it("loads through pi's extension loader as a directory extension", async () => {
++		const extensionDir = join(dirname(fileURLToPath(import.meta.url)), "..", "examples", "extensions", "agent-trace");
++		const result = await loadExtensions([extensionDir], dir);
++		expect(result.errors).toEqual([]);
++		expect(result.extensions).toHaveLength(1);
++		// Subscribes to the loop events it needs and adds nothing else.
++		expect([...result.extensions[0].handlers.keys()].sort()).toEqual(
++			[
++				"agent_end",
++				"agent_settled",
++				"agent_start",
++				"before_agent_start",
++				"message_end",
++				"message_start",
++				"session_before_compact",
++				"session_compact",
++				"session_compact_failed",
++				"session_shutdown",
++				"session_start",
++				"tool_execution_end",
++				"tool_execution_start",
++				"turn_end",
++				"turn_start",
++			].sort(),
++		);
++		expect(result.extensions[0].tools.size).toBe(0);
++		expect(result.extensions[0].commands.size).toBe(0);
++	});
++
++	it("uses a stable trace id derived from the session id", async () => {
++		const h = createHarness(session);
++		await runBasicSession(h);
++		const traceId = readTrace(traceFile()).records[0].traceId;
++
++		const otherDir = mkdtempSync(join(tmpdir(), "agent-trace-"));
++		const sameSession = new FakeSession(otherDir, "session-abc");
++		const other = createHarness(sameSession);
++		await runBasicSession(other);
++		const otherTraceId = readTrace(join(otherDir, "traces", "session-abc.otlp.jsonl")).records[0].traceId;
++		expect(otherTraceId).toBe(traceId);
++
++		const differentSession = new FakeSession(otherDir, "session-xyz");
++		const different = createHarness(differentSession);
++		await runBasicSession(different);
++		expect(readTrace(join(otherDir, "traces", "session-xyz.otlp.jsonl")).records[0].traceId).not.toBe(traceId);
++	});
++});
+diff --git a/packages/coding-agent/test/agent-trace-write-failure.test.ts b/packages/coding-agent/test/agent-trace-write-failure.test.ts
+new file mode 100644
+index 000000000..1dc315b32f515ca4443dc44052ed4136c6384491
+--- /dev/null
++++ b/packages/coding-agent/test/agent-trace-write-failure.test.ts
+@@ -0,0 +1,81 @@
++import { spawnSync } from "node:child_process";
++import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { expect, it } from "vitest";
++
++it("reports an unwritable trace only once across reload in the same process", () => {
++	const root = mkdtempSync(join(tmpdir(), "pi-trace-process-failure-"));
++	const blocker = join(root, "not-a-directory");
++	writeFileSync(blocker, "blocked");
++	try {
++		// A dedicated process gives this test a fresh process lifetime without
++		// reading or resetting any implementation-specific singleton.
++		const result = spawnSync(process.execPath, ["--input-type=module", "-e", String.raw`
++import assert from "node:assert/strict";
++import { join } from "node:path";
++import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
++import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
++import { Type } from "typebox";
++const root = process.env.TRACE_TEST_ROOT;
++const cwd = join(root, "project");
++const agentDir = join(root, "agent");
++const settingsManager = SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false } });
++const faux = fauxProvider({ provider: "write-failure-test", api: "write-failure-api", models: [{ id: "test-model", contextWindow: 200000, maxTokens: 8192 }] });
++let toolCalls = 0;
++const loader = new DefaultResourceLoader({
++  cwd, agentDir, settingsManager,
++  additionalExtensionPaths: [process.env.TRACE_TEST_EXTENSION],
++  extensionFactories: [{ name: "offline-process-test", factory(pi) {
++    pi.registerProvider(faux.provider);
++    pi.registerTool({ name: "check_alive", label: "Check alive", description: "Prove tools survive tracing failure", parameters: Type.Object({}),
++      async execute() { toolCalls++; return { content: [{ type: "text", text: "still alive" }], details: {} }; }
++    });
++  } }],
++  noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
++  noContextFiles: true, systemPrompt: "Offline write-failure regression."
++});
++await loader.reload();
++const sessionManager = SessionManager.create(cwd, join(root, "sessions"));
++const { session } = await createAgentSession({ cwd, agentDir, model: faux.getModel(), thinkingLevel: "off", noTools: "builtin", resourceLoader: loader, sessionManager, settingsManager });
++await session.bindExtensions({});
++const reports = () => sessionManager.getBranch().filter((entry) => entry.type === "custom_message" && entry.customType === "agent-trace");
++async function prompt(text) {
++  faux.setResponses([
++    fauxAssistantMessage(fauxToolCall("check_alive", {}), { stopReason: "toolUse" }),
++    fauxAssistantMessage(fauxText("done")),
++    fauxAssistantMessage(fauxText("unused ack")),
++  ]);
++  await session.prompt(text, { expandPromptTemplates: false, source: "interactive" });
++}
++try {
++  await prompt("first");
++  assert.equal(reports().length, 1, "first write failure must be reported");
++  const reportId = reports()[0].id;
++  await session.reload();
++  await prompt("second, after reload");
++  assert.equal(reports().length, 1, "reload must not reset the process report limit");
++  assert.equal(reports()[0].id, reportId, "retain the original report");
++  assert.equal(toolCalls, 2, "both real tool executions must finish");
++  const reportText = reports()[0].content;
++  assert.equal(typeof reportText, "string");
++  assert.ok(reportText.startsWith("agent-trace: cannot write " + process.env.PI_AGENT_TRACE_FILE));
++  console.log("TRACE_RELOAD_RESULT=" + JSON.stringify({ reports: reports().length, toolCalls }));
++} finally { session.dispose(); }
++process.exit(0);
++`], {
++			cwd: join(import.meta.dirname, ".."),
++			env: {
++				...process.env, NODE_OPTIONS: "", PI_OFFLINE: "1", PI_TELEMETRY: "0", PI_NO_LOCAL_LLM: "1",
++				PI_AGENT_TRACE_FILE: join(blocker, "trace.jsonl"), TRACE_TEST_ROOT: root,
++				TRACE_TEST_EXTENSION: join(import.meta.dirname, "../examples/extensions/agent-trace/index.ts"),
++			},
++			encoding: "utf8", timeout: 30_000,
++		});
++		expect(result.error, result.stderr).toBeUndefined();
++		expect(result.status, result.stderr + result.stdout).toBe(0);
++		const line = result.stdout.split("\n").find((line) => line.startsWith("TRACE_RELOAD_RESULT="));
++		expect(line).toBeDefined();
++		expect(JSON.parse(line!.slice("TRACE_RELOAD_RESULT=".length))).toEqual({ reports: 1, toolCalls: 2 });
++	} finally { rmSync(root, { recursive: true, force: true }); }
++}, 40_000);

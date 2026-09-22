@@ -18,7 +18,7 @@ under a protected path, existing tests must be untouched. New files anywhere els
 (the extension, its tests, docs, scratch files) are never penalised.
 
 Usage: check_scope.py <workspace> <base-manifest.json> <build-manifest.sha256> <summary.json>
-Exit status is a bit mask: 1 scope violated, 2 existing tests modified, 4 check error.
+Exit status is a bit mask: 1 scope violated, 2 existing tests modified, 4 check error, 8 required deliverable missing.
 """
 
 from __future__ import annotations
@@ -111,7 +111,8 @@ def main() -> int:
                 if scope.search(rel):
                     scope_added.append(rel)
                 elif rel.startswith(tests_prefix) and re.search(r"\.(test|spec)\.[cm]?[jt]sx?$", name):
-                    new_test_files.append(rel)
+                    if Path(root / rel).is_file() and not Path(root / rel).is_symlink() and (root / rel).stat().st_size > 0:
+                        new_test_files.append(rel)
 
         built_modified = []
         for rel, expected in built.items():
@@ -119,9 +120,16 @@ def main() -> int:
             if reason:
                 built_modified.append(f"{rel}: {reason}")
 
+        readme = root / "packages/coding-agent/examples/extensions/agent-trace/README.md"
+        missing_deliverables = []
+        if not readme.is_file() or readme.is_symlink() or not readme.read_text().strip():
+            missing_deliverables.append("nonempty README.md next to the extension")
+        if not new_test_files:
+            missing_deliverables.append("new offline unit test under packages/coding-agent/test/")
+
         status = (1 if scope_modified or scope_added or built_modified else 0) | (
             2 if tests_modified else 0
-        )
+        ) | (8 if missing_deliverables else 0)
         summary.update(
             passed=status == 0,
             protected_files=len(files),
@@ -131,6 +139,7 @@ def main() -> int:
             built_modified=sorted(built_modified)[:LIMIT],
             tests_modified=sorted(tests_modified)[:LIMIT],
             new_test_files=sorted(new_test_files),
+            missing_deliverables=missing_deliverables,
         )
     except (OSError, ValueError, KeyError) as error:
         summary["error"] = f"{type(error).__name__}: {error}"

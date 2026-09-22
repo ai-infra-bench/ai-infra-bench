@@ -71,7 +71,8 @@
       "name": "control-write-failure-throws",
       "expected_reward": 0,
       "patch": "patches/control-write-failure-throws.patch",
-      "patch_sha256": "ef4b99cdba0ee7f108e3d112feb697c4182b5250c8c33597ba5cc2a57accdbd0"
+      "patch_sha256": "4a66ec88b6db0624676c4892d08fbda2bcb23a4d326de8c22a368617fb65700d",
+      "reason": "Full-base negative control derived from the current Oracle: one writeLine call outside catch protection. Its bounded normal prompt/tool case passes; unwritable-file case fails for missing custom report (17 other contract cases skipped). Expected reward 0 remains the target for complete v9 qualification."
     },
     {
       "name": "control-aborted-as-ok",
@@ -131,7 +132,7 @@
       "name": "control-forged-junit",
       "expected_reward": 0,
       "patch": "patches/control-forged-junit.patch",
-      "patch_sha256": "a0220c9eefe516556c1f0fe56db63e6d1e20c51a62887aba670ab2d44142bed4"
+      "patch_sha256": "538472176f5713944b56dc8283d2c7067f1906600d648de1259396844ba755c4"
     },
     {
       "name": "control-process-exit-zero-after-registration",
@@ -159,21 +160,24 @@
     },
     {
       "name": "alt-grok-run5",
-      "expected_reward": 1,
+      "expected_reward": 0,
       "patch": "patches/alt-grok-run5.patch",
-      "patch_sha256": "bfe60391eab5e7366e6893957f8bbf7c972c0149bcbc4e521afb566755521474"
+      "patch_sha256": "bfe60391eab5e7366e6893957f8bbf7c972c0149bcbc4e521afb566755521474",
+      "reason": "Historical submission retained unchanged. Actual v4 replay scored 0: concurrent child processes can inherit the sibling tool parent; unwritable-trace reporting repeats after reload. This candidate is a regression diagnostic under the current contract, not a passing alternative."
     },
     {
       "name": "alt-grok-run8-fixed",
-      "expected_reward": 1,
+      "expected_reward": 0,
       "patch": "patches/alt-grok-run8-fixed.patch",
-      "patch_sha256": "87c7ff027eb4d9e2e730368b2fa2f02c51fcb96083a6fdbed47c9223aa24e602"
+      "patch_sha256": "87c7ff027eb4d9e2e730368b2fa2f02c51fcb96083a6fdbed47c9223aa24e602",
+      "reason": "Historical submission retained unchanged. Actual v4 replay scored 0: concurrent child processes can inherit the sibling tool parent; unwritable-trace reporting repeats after reload. This candidate is a regression diagnostic under the current contract, not a passing alternative."
     },
     {
       "name": "alt-opus-run1",
-      "expected_reward": 1,
+      "expected_reward": 0,
       "patch": "patches/alt-opus-run1.patch",
-      "patch_sha256": "9817d4ffcb6dc7cf129ddb627cff82a3b3a1974789e17aee133f5ab0bd027479"
+      "patch_sha256": "9817d4ffcb6dc7cf129ddb627cff82a3b3a1974789e17aee133f5ab0bd027479",
+      "reason": "Historical submission retained unchanged. Actual v4 replay scored 0: concurrent child processes can inherit the sibling tool parent. This candidate is a regression diagnostic under the current contract, not a passing alternative."
     },
     {
       "name": "control-toolchain-config-injected",
@@ -200,6 +204,591 @@
       "apply_after": "oracle",
       "patch": "patches/control-built-dist-tampered.patch",
       "patch_sha256": "34b2986a790d756d103fdd2ce2abed6efb86a55319fb795c675c62d6460369eb"
+    },
+    {
+      "name": "control-omit-readme-tests",
+      "expected_reward": 0,
+      "apply_after": "oracle",
+      "patch": "patches/control-omit-readme-tests.patch",
+      "patch_sha256": "fda84ab3410689b08a98bbd253bf2115b2251901b8fdccdfb9646f5a38a4e718",
+      "reason": "Trace implementation without the required README and new offline unit test must be rejected."
+    },
+    {
+      "name": "control-error-fallback-error",
+      "expected_reward": 0,
+      "apply_after": "oracle",
+      "patch": "patches/control-error-fallback-error.patch",
+      "patch_sha256": "aa9ce254ba1524c97bd088d27b4f73ab666b134299fd38e81e04559983347d08",
+      "reason": "An error response without errorMessage must use the contract fallback aborted."
+    },
+    {
+      "name": "control-child-latest-tool",
+      "expected_reward": 0,
+      "apply_after": "oracle",
+      "patch": "patches/control-child-latest-tool.patch",
+      "patch_sha256": "ff8fdb1724e5517ed19694b8ac74390474d632f9934077503e2bc5732f394f21",
+      "reason": "A child context requested by A while B executes must name A, not the most recently started tool."
+    },
+    {
+      "name": "alt-opus-cooperative",
+      "expected_reward": 1,
+      "patch": "patches/alt-opus-cooperative.patch",
+      "patch_sha256": "8b32e3b80da252aac32ce9d486b0e8b127068562ea30a96bf592ac3a49cc44e4",
+      "reason": "Alternative cooperative implementation with its own documented public child API. Alternative-v4 only corrects the shutdown self-test expectation; production is unchanged from v3. This exact patch passed 25 self-tests and the bounded real-SDK quit regression. Expected reward 1 remains the target for full v9 qualification, not a claimed result."
     }
-  ]
+  ],
+  "reviewed_replay": {
+    "runner": {
+      "path": "tools/replay_reviewed.py",
+      "sha256": "25bb3be07cd451c15e93b5b5fd048ffded9a5d3c16382fb52eb5888c3bffa0e2"
+    },
+    "cases": {
+      "base": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/base.json",
+          "sha256": "721a2f98af9a03dd5b64fcc0156b9e2026e2be0a88a8d683014dd31a7e27ebac"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/base.review.json",
+          "sha256": "780bd7df716fe1c7e547b8f2f0cb685463c1036df5f391691b8d017182bf738b"
+        }
+      },
+      "oracle": {
+        "binding": {
+          "path": "tools/cooperative_child_binding.mjs",
+          "sha256": "89a718bf97b9ffcc297e54705e235074f47e2bdf0f1c260e497812093f454d87"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/oracle.json",
+          "sha256": "484561a66e1e4a8058d5b0d298a5f53094a0d1c6dd7e714c0418a4db9d0b61e7"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/oracle.review.json",
+          "sha256": "2e41137494787e7c9432d37653ac4197542c26c93886b953a7660aa1bafe2d54"
+        }
+      },
+      "control-int-attributes-as-numbers": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-int-attributes-as-numbers.json",
+          "sha256": "fd0819352b50151efbe9a2cf8571212a247f2fe620d8796e6850bb407d3f818f"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-int-attributes-as-numbers.review.json",
+          "sha256": "110d8a3a37312f4ea855f97be68178ebba46d9c0e6ade63576cb7ddd3752b45d"
+        }
+      },
+      "control-chat-written-before-persist": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-chat-written-before-persist.json",
+          "sha256": "b9c966069548ab5251cdcbe51069065b39091779a513886dabfb7cea524290e1"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-chat-written-before-persist.review.json",
+          "sha256": "06eeaaa046ac32895466f47eb09229dab1dc49bff3d063dd3b51a642cd77aaa0"
+        }
+      },
+      "control-trace-id-per-process": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-trace-id-per-process.json",
+          "sha256": "239988da5340ce4873d1398665d2122e250ef059b4d3a8e8d614a81824d48d4d"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-trace-id-per-process.review.json",
+          "sha256": "b9e72b8016e8a18ea0b4a0835f54ee2c5891d03ac4278503557d6c3e9bea2984"
+        }
+      },
+      "control-wakeup-as-prompt": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-wakeup-as-prompt.json",
+          "sha256": "f1b4ccb9b071c412ba493e307dac2678962491f344839ce461f11800cc3ad197"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-wakeup-as-prompt.review.json",
+          "sha256": "ed1e3ae1800622e7ca6c10239a7738e18664be714b6436f02fa2e34c1cfabb78"
+        }
+      },
+      "control-continuation-as-wakeup": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-continuation-as-wakeup.json",
+          "sha256": "3daab2e18ad36c434a5cb0adb8b851419c2e426815af4852092961be9ef4cc53"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-continuation-as-wakeup.review.json",
+          "sha256": "c7babfc291daf9f8f758c0c32c49e089ff10b90bf4649245cc8c9493e17985bb"
+        }
+      },
+      "control-tool-error-status-ok": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-tool-error-status-ok.json",
+          "sha256": "f180f033492e365e2c1ac1dcdf598678772c8d7606845c0a5966e38ebbd3e5f9"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-tool-error-status-ok.review.json",
+          "sha256": "24f6dfa591d9987b29d9abcb7aef67db803b942c3f34522f89f538e80454dc5c"
+        }
+      },
+      "control-compaction-under-last-run": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-compaction-under-last-run.json",
+          "sha256": "89acb98ff6f369b1e7bede059552e0c408449e88b528553b35dd692b136efa25"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-compaction-under-last-run.review.json",
+          "sha256": "405d58a1b7d474e3fa7294e81c6906ba8e9fd7b0ee6e50a01a52899ed2c8830b"
+        }
+      },
+      "control-missing-line-terminator": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-missing-line-terminator.json",
+          "sha256": "cbd503e442aafb1acda0aee5f76181b6efd0858334e581a3d9eab0cd81e3448a"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-missing-line-terminator.review.json",
+          "sha256": "3aeab576097861a365f9d121615c4ed73d7c9dcc52f310fbc6658e63b6759512"
+        }
+      },
+      "control-error-status-without-message": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-error-status-without-message.json",
+          "sha256": "8933fd5fb4d1c81e2a95a15440d8310dcd55d79736e10f15f3afca63dfacaa8d"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-error-status-without-message.review.json",
+          "sha256": "bf1d900e40d5d5c7899e2936730e7ff1744f0e018859b764f65771bf9936053d"
+        }
+      },
+      "control-chat-held-until-turn-end": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-chat-held-until-turn-end.json",
+          "sha256": "852ff715419f6648f1206fa8200bc76c613c2b67c928f4b611fc2ab0f4e201a1"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-chat-held-until-turn-end.review.json",
+          "sha256": "1b5fdd7a44dfe11796c61f2f1bc9a4a2e4ddf92577b6fbac32fe8980f87406ba"
+        }
+      },
+      "control-no-shutdown-flush": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-no-shutdown-flush.json",
+          "sha256": "a57ed33235e936c742070039834c5d3d4ccbd1b786b34344ed41f881d17e025f"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-no-shutdown-flush.review.json",
+          "sha256": "5ef9fa59446fb40f00bf4d14e9eb434f325622dd60679acf9bae90c1db724c0a"
+        }
+      },
+      "control-write-failure-throws": {
+        "binding": {
+          "path": "tools/cooperative_child_binding.mjs",
+          "sha256": "89a718bf97b9ffcc297e54705e235074f47e2bdf0f1c260e497812093f454d87"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-write-failure-throws.json",
+          "sha256": "72b5cf0e52336d47810cfae8ade937b509e2d9d3f35638610bc2ff9dd94d6f2c"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-write-failure-throws.review.json",
+          "sha256": "8255e09864e4e11ba0944873d8c08d66dd44f6929f9bb795e5c5b7242c0a2485"
+        }
+      },
+      "control-aborted-as-ok": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-aborted-as-ok.json",
+          "sha256": "4e2dd6846e6538ef7f62f772beb872270dc55b547e175899f0801c83b3d1f029"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-aborted-as-ok.review.json",
+          "sha256": "7d356ac9334bc425ca934da32370874ad410acec1fc1b62f9f15577ddcd39eaf"
+        }
+      },
+      "control-no-start-lines": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-no-start-lines.json",
+          "sha256": "165ed5f260fb4d4812f4917ddf844198bcb08d6089d020307db53f604e2bbcc6"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-no-start-lines.review.json",
+          "sha256": "3cf5982eb18626a0e1021fbea4db55d244781d3c662e980bac0f0b975dd2bbac"
+        }
+      },
+      "control-end-line-keeps-phase": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-end-line-keeps-phase.json",
+          "sha256": "e9cfd533889303a19edd7f73139362fb50b4fe63421c81a06026e51cb7782554"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-end-line-keeps-phase.review.json",
+          "sha256": "4e17395d2cc08a8a5de7b1ea295422ca02fd695ceaf407139dfb46f53e8506af"
+        }
+      },
+      "control-single-tool-slot": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-single-tool-slot.json",
+          "sha256": "6f6e3ecd55abba8eb6dbf049f87243861942958222f5faed9c83002ce6845d82"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-single-tool-slot.review.json",
+          "sha256": "96f8de9193283cd6468e095e9014ecb58f451a7ef755e04e4857e49deab38490"
+        }
+      },
+      "control-steer-messages-unrecorded": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-steer-messages-unrecorded.json",
+          "sha256": "4cd7b66ff490f5889c94cab33e8b8b25e7790f2a7edcd7a83adc13dd7c1900b6"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-steer-messages-unrecorded.review.json",
+          "sha256": "d8101d31469225e25d9121c4abd6dc6f18c1c9f822b8893f55b06cea1b95ffc9"
+        }
+      },
+      "control-compaction-usage-omitted": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-compaction-usage-omitted.json",
+          "sha256": "cae7ddf7275fb62aef5dfbc9eff1db043c86376930fb399928b3747841acb024"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-compaction-usage-omitted.review.json",
+          "sha256": "83f3e137623b1362309b46d136bc51f5d69f3e0fb1b0a1473b1f8b346eaed636"
+        }
+      },
+      "control-no-trace-propagation": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-no-trace-propagation.json",
+          "sha256": "fd42311242a0a668b52609982195d2b7c1b06b2491ab1a50efad168d07748e90"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-no-trace-propagation.review.json",
+          "sha256": "f85f4f1b64ab13c2d073f4aecab718af9f4b20977956ffd7d8ad2e2ec82c4060"
+        }
+      },
+      "control-retry-run-claims-a-message": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-retry-run-claims-a-message.json",
+          "sha256": "b0be4946678c5264c2b199459213541fd20cdaf79a8b4ad466de983966e7c342"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-retry-run-claims-a-message.review.json",
+          "sha256": "649758e6435f2e4b026d0b4fea3a52ed5a9f5c047b8a1ad6aec9b56e65483d04"
+        }
+      },
+      "control-overflow-will-retry-false": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-overflow-will-retry-false.json",
+          "sha256": "b7524cd0b80d6b5f7f66edbf629a8c79537728e40f8e6a38cff8d0636ad40b6a"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-overflow-will-retry-false.review.json",
+          "sha256": "556c77a0b84e640762382543539e2c58ff3e706dbef94ce640dcfea1f0b31625"
+        }
+      },
+      "control-forged-junit": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-forged-junit.json",
+          "sha256": "8efae18dad3762eda65dcd01d4f2aab2e6556316d6c3ecc489eb2f9f14173752"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-forged-junit.review.json",
+          "sha256": "f054b117bebcbf4815cbb4e9a757c20898b023ac4777a14753c1e18bbe8c682f"
+        }
+      },
+      "control-process-exit-zero-after-registration": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-process-exit-zero-after-registration.json",
+          "sha256": "472a871982eefd80fd2712b84ca1620707e5e6ec3ba3414b0dc4836d419dfd68"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-process-exit-zero-after-registration.review.json",
+          "sha256": "a40d2de9e30594e4c0ef58c9d031d2ddfb693a0aca93bbbc9cbc375226e37f9e"
+        }
+      },
+      "alt-grok-run1": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/alt-grok-run1.json",
+          "sha256": "78c8af61d289ce6d18974c27effff693a5fba4e59f27e323d1fa8c89f9e0d76f"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/alt-grok-run1.review.json",
+          "sha256": "1a046f90eb90d6e4a6af68c1a9e44da526d5a014b7d3b4969e05f3d191409d06"
+        }
+      },
+      "alt-grok-run3": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/alt-grok-run3.json",
+          "sha256": "46d493ab5628273dd7baed004ca25ed4740a659231c95bb4a56bc8502640ab62"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/alt-grok-run3.review.json",
+          "sha256": "7ad3c83f4a28f8c19ac36d059f272efb282ef637b0ff6b0cfe473571dcca4b1e"
+        }
+      },
+      "alt-grok-run4": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/alt-grok-run4.json",
+          "sha256": "84062a2016002effce5660ea9c6f3143c02a5823c25d0e657aa47aee81ab69dc"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/alt-grok-run4.review.json",
+          "sha256": "6feb8a3f4d09239562d4b05ff7d483459098f322da47a15e4352971e5fdc2e13"
+        }
+      },
+      "alt-grok-run5": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/alt-grok-run5.json",
+          "sha256": "82fc682530552a51e32e903d6005041a2d679bf039af8d8be9e002098284e764"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/alt-grok-run5.review.json",
+          "sha256": "b7bfcd24d6fea98638be821185e5129f8d799ab303b8793590bc5c70e4eb1c02"
+        }
+      },
+      "alt-grok-run8-fixed": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/alt-grok-run8-fixed.json",
+          "sha256": "c0c4d7efd051e6af82bc4b73eb0d50babd229256690eb207a5eaf5a775ad74e6"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/alt-grok-run8-fixed.review.json",
+          "sha256": "63bf1eca399ba69aec956609f9462d4ff0b87377dab0d58b46c7b246820e5494"
+        }
+      },
+      "alt-opus-run1": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/alt-opus-run1.json",
+          "sha256": "f3f96955f7c79c2d6370ab500ea488d1c489749b52a3e4f70720855771ed1d0f"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/alt-opus-run1.review.json",
+          "sha256": "0701b0d1c0fe702f886f9c637282cab0e0d5994667a33f85aa0407ef2e05540b"
+        }
+      },
+      "control-toolchain-config-injected": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-toolchain-config-injected.json",
+          "sha256": "88c93fddda2f308f3482810fadfff4067a70b20fa59a8b8be725a4a143bda601"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-toolchain-config-injected.review.json",
+          "sha256": "6a24f16d1a0b273f0f594d58bf6a0f8ecbbf92172bcbfeb7294fa29c13210d8e"
+        }
+      },
+      "control-verifier-runner-escape": {
+        "binding": {
+          "path": "tools/passthrough_child_binding.mjs",
+          "sha256": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-verifier-runner-escape.json",
+          "sha256": "39f86ef4be6c21bd6e76dc8a9b101b2b49e29758064f91d7a496374e8cbe2f4a"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-verifier-runner-escape.review.json",
+          "sha256": "6c292903ee7a68e1a42e3116ee60b67d11b1f65fccc35ea6bd4c68606fe6f76b"
+        }
+      },
+      "control-scope-hidden-by-gitignore": {
+        "binding": {
+          "path": "tools/cooperative_child_binding.mjs",
+          "sha256": "89a718bf97b9ffcc297e54705e235074f47e2bdf0f1c260e497812093f454d87"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-scope-hidden-by-gitignore.json",
+          "sha256": "484561a66e1e4a8058d5b0d298a5f53094a0d1c6dd7e714c0418a4db9d0b61e7"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-scope-hidden-by-gitignore.review.json",
+          "sha256": "c39c8d735cfaf610b54e2f54ed3db27986c288d2454b40527e5cb97e154319cd"
+        }
+      },
+      "control-built-dist-tampered": {
+        "binding": {
+          "path": "tools/cooperative_child_binding.mjs",
+          "sha256": "89a718bf97b9ffcc297e54705e235074f47e2bdf0f1c260e497812093f454d87"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-built-dist-tampered.json",
+          "sha256": "484561a66e1e4a8058d5b0d298a5f53094a0d1c6dd7e714c0418a4db9d0b61e7"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-built-dist-tampered.review.json",
+          "sha256": "fdd3ea97ae45a69045f3fa69aa7cbe8909fc8c88b3175f98359075c3711ab376"
+        }
+      },
+      "control-omit-readme-tests": {
+        "binding": {
+          "path": "tools/cooperative_child_binding.mjs",
+          "sha256": "89a718bf97b9ffcc297e54705e235074f47e2bdf0f1c260e497812093f454d87"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-omit-readme-tests.json",
+          "sha256": "27e536fbe163bb33f1621eae05a0c6966a769bbefb9e3c22f08c60d9f588fec6"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-omit-readme-tests.review.json",
+          "sha256": "cb93835de37d122fee4c3192e6e055f3f86643d04ccdd07fcd469c56e7633f80"
+        }
+      },
+      "control-error-fallback-error": {
+        "binding": {
+          "path": "tools/cooperative_child_binding.mjs",
+          "sha256": "89a718bf97b9ffcc297e54705e235074f47e2bdf0f1c260e497812093f454d87"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-error-fallback-error.json",
+          "sha256": "2c2a25070b3cf66c1c2c38b36544408af1f790161552954aba455a3b51eb8b27"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-error-fallback-error.review.json",
+          "sha256": "cfcbcb11c9462d5195b46bf9ee21aaa752c61dad1b084a3feae9f3eece8f6046"
+        }
+      },
+      "control-child-latest-tool": {
+        "binding": {
+          "path": "tools/cooperative_child_binding.mjs",
+          "sha256": "89a718bf97b9ffcc297e54705e235074f47e2bdf0f1c260e497812093f454d87"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/control-child-latest-tool.json",
+          "sha256": "d8333b88ac52c41aec4d9cc3b34da1e70f850385b50c4465d99a790758014f66"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/control-child-latest-tool.review.json",
+          "sha256": "e374eb7f1d1d658869ce935aebce8407c33b029c228b5bef682df62cbb85f319"
+        }
+      },
+      "alt-opus-cooperative": {
+        "binding": {
+          "path": "tools/alternative_child_binding.mjs",
+          "sha256": "341dc79b1625667876f2296127c678490c8fc228d3183f97c3a1e7b74d0b163d"
+        },
+        "scenario": {
+          "path": "tools/reviewed-bindings/alt-opus-cooperative.json",
+          "sha256": "c81f23b09337995db0e364997e58a672f5e94adf1e56dec967e061ac2c829a80"
+        },
+        "review_evidence": {
+          "path": "tools/reviewed-bindings/alt-opus-cooperative.review.json",
+          "sha256": "5f965c71b1239cee30f82ccbb0a88b8c52c713dc4c3c12ba65b4ec5a6135e656"
+        }
+      }
+    }
+  }
 }

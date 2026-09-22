@@ -1,0 +1,10 @@
+{
+  "schema_version": "pi-agent-trace-binding.v1",
+  "kind": "documented",
+  "adapter_sha256": "341dc79b1625667876f2296127c678490c8fc228d3183f97c3a1e7b74d0b163d",
+  "candidate_files": {
+    "packages/coding-agent/examples/extensions/agent-trace/README.md": "d91943bbc763b0dcc5dc09a06786c0de07e2b444ac4cdc24ee64fdbd074455d5",
+    "packages/coding-agent/examples/extensions/agent-trace/index.ts": "303096857923a8bb7763dc55da33d46f6881650ca1377de4fd170f17090ece94"
+  },
+  "readme_evidence": "## Sub-agents\n\nSpawning tools opt into tracing through the public extension event bus. Inside\n`execute(toolCallId, ...)`, obtain an environment for that specific call:\n\n```ts\nlet env: NodeJS.ProcessEnv | undefined;\npi.events.emit(\"agent-trace:request-child-context\", {\n  callId: toolCallId,\n  baseEnv: process.env,\n  accept: (value: NodeJS.ProcessEnv | undefined) => { env = value; },\n});\nif (!env) throw new Error(\"No active trace context for this tool call\");\nconst child = spawn(process.execPath, childArgs, { env });\n```\n\nThe handler invokes `accept` synchronously and supplies a fresh copy containing\n`PI_AGENT_TRACE_ID` and `PI_AGENT_TRACE_PARENT_SPAN_ID`. Unknown or ended calls\nreturn `undefined`; without the tracer loaded there is no callback. Load this\nextension in the child: every span joins the inherited trace, and every child\nroot (run and compaction) attaches to the named tool span. Children retain their\nown default trace paths; choose a distinct child override if `PI_AGENT_TRACE_FILE`\nis set. Do not replace the returned propagation variables before spawning.\n\nThe parent process environment is never modified, and each concurrent tool\nrequests its own call id. Nonparticipating tools still get normal tool spans;\nautomatic attribution from unmodified spawning tools is outside scope.\n\n"
+}

@@ -21,8 +21,21 @@
 # its .git belong to the agent, so check_scope.py hashes the protected files against
 # tests/base-manifest.json and the image's root-owned build manifest (see its docstring).
 set -uo pipefail
-mkdir -p /logs/verifier
-rm -f /logs/verifier/{reward.txt,reward.json,contract-junit.xml,lifecycle-junit.xml,contract-summary.json,lifecycle-summary.json,scope.log,scope-summary.json,candidate-tests-junit.xml}
+# Reap agent-phase writers before changing ownership or touching old outputs.
+reap_node() {
+  pkill -9 -u node 2>/dev/null || true
+  for _ in $(seq 1 100); do pgrep -u node >/dev/null 2>&1 || break; sleep 0.1; done
+}
+reap_node
+umask 022
+# Harbor may provide writable output mounts and pre-existing node-owned files.
+# Establish the boundary explicitly, preserving already-open stdout files.
+/usr/bin/python3 -I /tests/prepare_verifier_output.py || exit 2
+if ! su -p node -s /bin/bash -c '/usr/bin/python3 -I /tests/prepare_verifier_output.py --check-not-writable'; then
+  echo "verifier output isolation failed: candidate can still write an output path"
+  exit 2
+fi
+rm -f /logs/verifier/{integration-needed.json,reward.txt,reward.json,contract-junit.xml,lifecycle-junit.xml,contract-summary.json,lifecycle-summary.json,scope.log,scope-summary.json,candidate-tests-junit.xml}
 export PI_WORKSPACE=/workspace/pi
 export PI_VERIFIER_FIXTURES=/tests/fixtures
 export PI_OFFLINE=1 PI_TELEMETRY=0 PI_NO_LOCAL_LLM=1
@@ -53,12 +66,6 @@ rm -rf "$VOUT" && mkdir -p "$VOUT" && chown node:node "$VOUT"
 # (-p keeps HOME/PI_*/NODE_OPTIONS and the unset provider keys). exec so the
 # timeout/kill lands on node, not on su.
 as_node() { su -p node -s /bin/bash -c "cd /workspace/pi/packages/coding-agent && $*"; }
-# Kill anything the candidate left running before root reads a report or writes
-# the reward, so no node-owned process can rewrite them afterwards.
-reap_node() {
-  pkill -9 -u node 2>/dev/null || true
-  for _ in $(seq 1 100); do pgrep -u node >/dev/null 2>&1 || break; sleep 0.1; done
-}
 
 if ! cd /workspace/pi/packages/coding-agent; then
   echo "verifier: workspace /workspace/pi/packages/coding-agent is missing" | tee /logs/verifier/verifier-error.log
@@ -68,10 +75,15 @@ if ! cd /workspace/pi/packages/coding-agent; then
 fi
 # Nothing the agent phase left running may touch the workspace while it is judged.
 reap_node
+if ! python3 /tests/check_binding.py /workspace/pi /tests/child-binding.json /tests/child-binding.mjs /logs/verifier/integration-needed.json; then
+  echo "INTEGRATION_NEEDED: supply a reviewed binding for this frozen submission; no reward produced."
+  exit 2
+fi
+export PI_TRACE_CHILD_BINDING=/tests/child-binding.mjs
 as_node 'rm -rf test/__verifier__' || true
 # The checkers, pins and manifests in /tests decide the reward; the candidate runs as
 # `node` and must not be able to write them.
-if su node -s /bin/bash -c 'test -w /tests || test -w /tests/test.sh || test -w /opt/pi-baseline'; then
+if su node -s /bin/bash -c 'test -w /tests || test -w /tests/test.sh || test -w /tests/child-binding.mjs || test -w /tests/child-binding.json || test -w /opt/pi-baseline'; then
   echo "verifier: /tests or /opt/pi-baseline is writable by the candidate user" | tee /logs/verifier/verifier-error.log
   printf '0\n' > /logs/verifier/reward.txt
   printf '{"reward":0,"command_exit_code":1,"error":"verifier files writable by candidate"}\n' > /logs/verifier/reward.json
@@ -102,8 +114,8 @@ run_scope_check() {
   local rc=0
   python3 /tests/check_scope.py /workspace/pi /tests/base-manifest.json \
     /opt/pi-baseline/build-manifest.sha256 "/logs/verifier/$1" > "/logs/verifier/${1%.json}.log" 2>&1 || rc=$?
-  if [ $((rc & 5)) -ne 0 ]; then
-    echo "SCOPE ($1): the submission changed pi core, the build/test toolchain or the built dist, which the instruction forbids:"
+  if [ $((rc & 13)) -ne 0 ]; then
+    echo "SCOPE ($1): protected files changed, a required deliverable is missing, or the scope check failed:"
     cat "/logs/verifier/${1%.json}.log"
     scope_rc=1
   fi
@@ -147,12 +159,15 @@ else
 
   mapfile -t new_tests < <(python3 -c 'import json,sys; print("\n".join("/workspace/pi/" + p for p in json.load(open(sys.argv[1]))["new_test_files"]))' /logs/verifier/scope-summary.json)
   if [ "${#new_tests[@]}" -gt 0 ] && [ -n "${new_tests[0]}" ]; then
-    as_node "exec timeout 600 node ../../node_modules/vitest/vitest.mjs run --retry 2 --maxWorkers=4 --reporter=junit --outputFile=$VOUT/candidate-tests-junit.xml ${new_tests[*]}" \
+    printf -v quoted_new_tests '%q ' "${new_tests[@]}"
+    as_node "exec timeout 600 node ../../node_modules/vitest/vitest.mjs run --retry 2 --maxWorkers=4 --reporter=junit --outputFile=$VOUT/candidate-tests-junit.xml ${quoted_new_tests}" \
       > /logs/verifier/candidate-tests.log 2>&1 || candidate_tests_rc=$?
     reap_node
     cp "$VOUT/candidate-tests-junit.xml" /logs/verifier/candidate-tests-junit.xml 2>/dev/null || true
     tail -n 20 /logs/verifier/candidate-tests.log
+    python3 /tests/check_candidate_tests.py /logs/verifier/candidate-tests-junit.xml || candidate_tests_rc=1
   else
+    candidate_tests_rc=1
     echo "candidate tests: the submission added no test file" | tee /logs/verifier/candidate-tests.log
   fi
 fi

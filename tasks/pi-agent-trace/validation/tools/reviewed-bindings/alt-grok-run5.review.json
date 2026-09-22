@@ -1,0 +1,48 @@
+{
+  "schema_version": "pi-agent-trace-reviewed-replay.v1",
+  "case": "alt-grok-run5",
+  "kind": "submission",
+  "after_oracle": false,
+  "base_commit": "d981de1229ef899957bbe968bc8dcda02a21f477",
+  "input_sha256": {
+    "binding": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86",
+    "scenario": "82fc682530552a51e32e903d6005041a2d679bf039af8d8be9e002098284e764",
+    "submission": "bfe60391eab5e7366e6893957f8bbf7c972c0149bcbc4e521afb566755521474"
+  },
+  "oracle_sha256": {},
+  "decision": "Manually reviewed candidate README section \"Sub-agents\": the tool publishes its trace context in process.env and children inherit ordinary environment. Pass the actual tool-time environment through unchanged. This is an integration decision, not evidence that concurrent parent attribution or the revised contract passes; reward must come from actual replay.",
+  "candidate_readme": "# Agent Trace\n\nExports the pi agent loop as a local OpenTelemetry trace so eval harnesses can see what a run actually did, with timings and token accounting.\n\nLoad it with `pi -e packages/coding-agent/examples/extensions/agent-trace` or by pointing `DefaultResourceLoader` at this directory.\n\n## Trace file\n\nSpans are appended as JSON Lines to:\n\n```\n<SessionManager.getSessionDir()>/traces/<session-id>.otlp.jsonl\n```\n\nSet `PI_AGENT_TRACE_FILE` to replace that path. The directory is created on demand. Each line is one OTLP/JSON `ExportTraceServiceRequest` holding a single span. A span is written twice: a **start** line (attribute `pi.span.phase` = `\"start\"`, no `endTimeUnixNano` or `status`) at the event that opens it, and an **end** line with the same ids, `endTimeUnixNano`, and `status` once the span has finished. A reader that de-duplicates by `spanId` (last line wins) always holds the current state; a start without an end is in progress. Reloads and later processes append to the same file.\n\n## Spans\n\n| name | kind | parent | start / end |\n|---|---|---|---|\n| `pi.run` | INTERNAL (1) | none, or `PI_AGENT_TRACE_PARENT` | `agent_start` / `agent_end` |\n| `pi.turn` | INTERNAL (1) | the run | `turn_start` / `turn_end` |\n| `chat <model>` | CLIENT (3) | the turn | assistant `message_start` / first `tool_execution_start` or `turn_end` |\n| `execute_tool <name>` | INTERNAL (1) | the turn | `tool_execution_start` / `turn_end` |\n| `pi.compaction` | INTERNAL (1) | none, or `PI_AGENT_TRACE_PARENT` | `session_before_compact` / `session_compact` or `session_compact_failed` |\n\nRun triggers: `prompt` (a `before_agent_start` preceded the start), `continuation` (start arrived before the previous run's `agent_settled`), or `wakeup` (idle `sendMessage` with `triggerTurn`). Steering messages stay in the same run (`pi.run.steer_count` / `pi.run.steer_entry_ids`). Overflow recovery is a `continuation` with `pi.run.after_compaction` and no `pi.session.entry_id`.\n\n## Sub-agents\n\nWhile a tool runs, `PI_AGENT_TRACE_PARENT` is set to `<traceId>-<spanId>` of that tool span (the most recently started still-running tool if several overlap). Child pi processes inherit it, use that `traceId`, and parent their root spans (runs, compactions) on that `spanId`. Each process still writes its own session trace file.\n\n## Failures\n\n- Tool `isError`, assistant `stopReason` `error`/`aborted`, and failed compaction are ERROR (`status.code` 2). Runs stay OK even when a turn fails.\n- `session_shutdown` ends every open span with ERROR `\"shutdown\"`, child-first.\n- A write failure is reported once per process via `sendMessage` (`customType: \"agent-trace\"`, `triggerTurn: false`) whose text starts with `agent-trace: cannot write`. Later spans are still attempted if the path recovers.\n",
+  "score_claim": "Actual v4 Harbor reward 0 with unchanged input hashes. Historical patch retained without repair; failures listed in validation_evidence.",
+  "validation_evidence": {
+    "run_case": "alt-grok-run5-v4",
+    "result": {
+      "case": "alt-grok-run5-v4",
+      "reward": [
+        0
+      ],
+      "failed_contract": [
+        "an unwritable trace path never reaches the agent and is reported once",
+        "a child spawned after a concurrent sibling starts keeps its own tool parent through compaction"
+      ],
+      "unchanged": true
+    },
+    "source_status_record_sha256": "2782ab8205be248b9416354da10be3333985b2b72acaa99c84c434fc53fcc301",
+    "candidate_patch_sha256": "bfe60391eab5e7366e6893957f8bbf7c972c0149bcbc4e521afb566755521474",
+    "verifier_sha256": {
+      "tests/at.contract.test.ts": "0188115aa9350d8f24bff18b4132ad9198741a40fc19e6526de69ea1ecff2db8",
+      "tests/at.lifecycle.test.ts": "9fa73df9709ac0ac094bb4c2de2a57640990ebbbdefe7e3c5b0a8c043babcdd6",
+      "tests/at_support.ts": "2aea2d299dd85e30b442a07ce2eec2499ed20f875ec84031bd0b9a5775331071",
+      "tests/base-manifest.json": "973d673f83c0870fbee036018a29374295bd728dfeb2b446b49bb259d1175494",
+      "tests/baseline-pins.json": "a1618c332ca4f20f37c06ca13a53b30b759bc9dd1044f6d9c4bb38c2c7ef04b9",
+      "tests/case_contract.py": "d590550b84d3ea86b5ed406db1885137d60c8bd3fcf9d3e295663916a1ca8532",
+      "tests/check_binding.py": "583457d29ed579b65ce2eeb9617a1415ac82d8ab60e6767338242ed1dc8a7c8e",
+      "tests/check_candidate_tests.py": "93e387ccbe8aaacf0a243908cbfdb10ea122f73043b2d36bb73aca9b0d76dee1",
+      "tests/check_junit.py": "c83c7f28d13b83d57295855e497f8eb443eeb16592777baa8fcbf84799cf6760",
+      "tests/check_pass_to_pass.py": "ac4bd04ff68c54786bb8bfd523f4e39575d59c6690064a85e12ae78679e46e27",
+      "tests/check_scope.py": "969db47d27a5f2173b3c643d71601d3e929842c9b0f17639cdf818f620691c93",
+      "tests/fixtures/pi_child.mjs": "ecadfdb5d0293ee220d85cd01a005cdaea339742ca22708c8b6ccf0f34580dc7",
+      "tests/test.sh": "e71f5c206bcf16d15cbda9ae4e001e9543132c2b4f02f990f3c943e58ef24a83"
+    }
+  },
+  "current_classification": "historical_candidate_with_confirmed_contract_failures"
+}

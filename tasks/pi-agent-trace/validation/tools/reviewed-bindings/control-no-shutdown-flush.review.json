@@ -1,0 +1,16 @@
+{
+  "schema_version": "pi-agent-trace-reviewed-replay.v1",
+  "case": "control-no-shutdown-flush",
+  "kind": "submission",
+  "after_oracle": false,
+  "base_commit": "d981de1229ef899957bbe968bc8dcda02a21f477",
+  "input_sha256": {
+    "binding": "1d77de862777cba756f059fc19bfbf21ec99cc79217bf4bf0bcc7d5c47425c86",
+    "scenario": "a57ed33235e936c742070039834c5d3d4ccbd1b786b34344ed41f881d17e025f",
+    "submission": "7d2c7000b0c7a91799370ff54db9fb25180a750b013e2ccb0ddbe95156be1ce5"
+  },
+  "oracle_sha256": {},
+  "decision": "Explicit missing-feature diagnostic: The frozen README does not document a child-process integration API (or the extension is absent). Use ordinary environment inheritance to exercise the diagnostic without inventing an API or repairing the candidate. This binding is not a correctness approval.",
+  "candidate_readme": "# Agent Trace\n\nExports the agent loop as an OpenTelemetry trace, written as OTLP/JSON lines\nso a collector (`otlpjsonfile` receiver) or any OTLP-aware viewer can load it.\n\n```bash\npi -e examples/extensions/agent-trace/index.ts\n```\n\n## File\n\n`<sessionDir>/traces/<sessionId>.otlp.jsonl`, or `PI_AGENT_TRACE_FILE`. Every\nline is one `ExportTraceServiceRequest` holding one span; resource attributes\ncarry `service.name`, `service.version`, `pi.session.id` and `process.pid`.\nSpans are appended in end order once their attributes are known (chat and\ntool spans wait for `turn_end`, when pi has persisted their session entries),\nnever rewritten; `/reload` and later processes append to the same file with\nthe same trace id (derived from the session id).\n\n## Spans\n\n| name | kind | parent | attributes |\n|---|---|---|---|\n| `pi.run` | INTERNAL | root | `pi.run.trigger` (`prompt` / `wakeup` / `continuation`), `pi.run.turn_count`, `pi.session.entry_id` |\n| `pi.turn` | INTERNAL | run | `pi.turn.index`, `pi.turn.stop_reason`, `pi.turn.tool_call_count` |\n| `chat <model>` | CLIENT | turn | `gen_ai.operation.name`, `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `pi.usage.cache_read_tokens`, `pi.usage.cache_write_tokens`, `gen_ai.response.finish_reasons`, `pi.session.entry_id` |\n| `execute_tool <name>` | INTERNAL | turn | `gen_ai.operation.name`, `gen_ai.tool.name`, `gen_ai.tool.call.id`, `pi.tool.is_error`, `pi.session.entry_id` |\n| `pi.compaction` | INTERNAL | root | `pi.compaction.reason`, `pi.compaction.will_retry`, `pi.compaction.tokens_before`, `pi.session.entry_id` |\n\nStatus is ERROR (with a message) for failed tool results, error or aborted\nassistant messages and the turns that contain them, and failed compactions.\n",
+  "score_claim": "None: binding approval only; revised verifier must establish the score."
+}

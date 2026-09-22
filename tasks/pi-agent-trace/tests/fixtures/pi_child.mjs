@@ -70,7 +70,7 @@ const loader = new DefaultResourceLoader({
 });
 await loader.reload();
 
-const sessionManager = mode === "build" || mode === "child-run" ? SessionManager.create(cwd, target) : SessionManager.open(target, dirname(target));
+const sessionManager = mode === "build" || mode === "child-run" || mode === "child-compact" ? SessionManager.create(cwd, target) : SessionManager.open(target, dirname(target));
 const { session } = await createAgentSession({
 	cwd,
 	agentDir,
@@ -109,8 +109,9 @@ if (mode === "build") {
 	await prompt([toolCall("echo", { text: "resumed" }), say("done again")], "resume");
 } else if (mode === "slow-tool") {
 	await prompt([toolCall("echo", { text: "slow" }), say("never reached")], "slow");
-} else if (mode === "child-run") {
+} else if (mode === "child-run" || mode === "child-compact") {
 	await prompt([toolCall("echo", { text: "child work" }), say("child done")], "child task");
+	if (mode === "child-compact") await compact();
 } else {
 	throw new Error(`unknown mode ${mode}`);
 }
