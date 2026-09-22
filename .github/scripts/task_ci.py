@@ -860,6 +860,9 @@ for path in /tests /solution /validation; do
   test ! -e "$path"
 done
 cd {shlex.quote(workdir)}
+# The image may run as root while its checkout belongs to the agent. Trust
+# only this curator-declared checkout for these read-only audit commands.
+git() {{ command git -c safe.directory={shlex.quote(workdir)} "$@"; }}
 test "$(git rev-parse HEAD)" = {shlex.quote(str(expected_head))}
 test -z "$(git remote)"
 test -z "$(git rev-list --all --not {shlex.quote(str(expected_head))})"
