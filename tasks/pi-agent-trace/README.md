@@ -6,24 +6,9 @@ The CI catalog in `validation/ci-cases.json` binds every case to an explicit
 reviewed child API adapter and frozen candidate file hashes. Missing or mismatched integration is
 unscored; it must not be reported as a candidate reward of zero.
 
-The following expectations come from actual v4 Harbor replays with unchanged
-input hashes. These checks qualify the named patches, not every implementation
-that uses the same interface.
-
-| Case | Expected reward | Current finding |
-|---|---:|---|
-| `alt-opus-cooperative` | 1 | Passed the current contract with its independently documented child-context event and payload. |
-| `alt-grok-run5` | 0 | Concurrent child inherits the wrong tool parent; write-failure reporting repeats after reload. |
-| `alt-grok-run8-fixed` | 0 | Concurrent child inherits the wrong tool parent; write-failure reporting repeats after reload. |
-| `alt-opus-run1` | 0 | Concurrent child inherits the wrong tool parent. |
-
-The three historical submissions remain byte-for-byte unchanged. Their earlier
-results belong to the earlier verifier; they are now regression diagnostics,
-not passing alternatives. Per-case `validation/tools/reviewed-bindings/*.review.json` files
-retain the reviewed README, patch identity, observed failing contract names and
-verifier hashes. The cooperative positive uses
-`agent-trace:request-child-context` (`callId`, `baseEnv`, `accept`), distinct from
-the Oracle API; CI does not require the Oracle helper or event name.
+Case-specific JSON inputs and their hashes are stored in the CI catalog. The
+shared runner materializes them only for that replay. Full review narratives and
+measured results are retained with the external run evidence and PR discussion.
 
 Run a named case from the repository root through the generic CI entry point:
 
@@ -101,12 +86,3 @@ docker build --network none \
 The parent identity used for the recorded image is retained in
 `environment/image-manifest.json`. `baseline_check.py` matches the baseline checker
 embedded in the full recipe. Incremental builds do not download source or dependencies.
-
-## Qualification
-
-`validation/tools/qualification.json` records the exact tested source hashes,
-image identity and fresh replay results. The 39 profiles pass input/hash checks;
-69 repository CI unit tests pass. Fresh final-v10 Harbor replays pass for the Oracle and the independent
-cooperative alternative (reward 1 each); the write-failure and forged-JUnit
-controls are rejected (reward 0 each). The full 39-case CI matrix is separate;
-an input check is not a behavioral pass.
