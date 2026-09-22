@@ -106,6 +106,7 @@ embedded in the full recipe. Incremental builds do not download source or depend
 
 `validation/tools/qualification.json` records the exact tested source hashes,
 image identity and fresh replay results. The 39 profiles pass input/hash checks;
-69 repository CI unit tests pass. The final v10 Oracle has also passed a fresh
-Harbor replay. Selected alternative/control replays and the full CI matrix are
-reported separately; an input check is not a behavioral pass.
+69 repository CI unit tests pass. Fresh final-v10 Harbor replays pass for the Oracle and the independent
+cooperative alternative (reward 1 each); the write-failure and forged-JUnit
+controls are rejected (reward 0 each). The full 39-case CI matrix is separate;
+an input check is not a behavioral pass.
