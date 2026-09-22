@@ -9,10 +9,11 @@
  * This file is copied into packages/coding-agent/test/__verifier__/ at verify
  * time, so relative imports point at the workspace source tree.
  */
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { Context } from "@earendil-works/pi-ai";
 import {
 	type FauxProviderHandle,
@@ -136,7 +137,7 @@ export interface VerifierExtension {
 	factory: (pi: ExtensionAPI) => void;
 	api: () => ExtensionAPI;
 	/** When true, the next agent_end queues one follow-up message (a continuation run). */
-	state: { queueFollowUp: boolean; turnStarts: number[]; compactFailures: string[] };
+	state: { queueFollowUp: boolean; queueUserFollowUp: boolean; turnStarts: number[]; compactFailures: string[] };
 }
 
 /**
@@ -146,7 +147,9 @@ export interface VerifierExtension {
  */
 export function verifierExtension(faux: FauxProviderHandle, tag: string): VerifierExtension {
 	let current: ExtensionAPI | undefined;
-	const state = { queueFollowUp: false, turnStarts: [] as number[], compactFailures: [] as string[] };
+	let siblingStarted = false;
+	let childFinished = false;
+	const state = { queueFollowUp: false, queueUserFollowUp: false, turnStarts: [] as number[], compactFailures: [] as string[] };
 	return {
 		name: `at-verifier-${tag}`,
 		state,
@@ -168,43 +171,48 @@ export function verifierExtension(faux: FauxProviderHandle, tag: string): Verifi
 				},
 			});
 			pi.registerTool({
+				name: "child_sibling",
+				label: "Concurrent sibling",
+				description: "Starts alongside the child-spawning tool and remains active until it finishes.",
+				parameters: Type.Object({}),
+				async execute() {
+					siblingStarted = true;
+					await waitFor(() => childFinished, { timeoutMs: 90_000, label: "child finished before sibling" });
+					return { content: [{ type: "text", text: "sibling finished" }], details: {} };
+				},
+			});
+			pi.registerTool({
 				name: "spawn_child",
 				label: "Spawn child pi",
-				description:
-					"Verifier tool that runs a child pi process (a sub-agent) with the current environment and waits for it.",
+				description: "Runs a child pi using the extension's documented child-context integration.",
 				parameters: Type.Object({
-					sessionDir: Type.String(),
-					cwd: Type.String(),
-					agentDir: Type.String(),
-					out: Type.String(),
+					sessionDir: Type.String(), cwd: Type.String(), agentDir: Type.String(), out: Type.String(),
+					waitForSibling: Type.Optional(Type.Boolean()), compactChild: Type.Optional(Type.Boolean()),
 				}),
-				async execute(_id: string, params: { sessionDir: string; cwd: string; agentDir: string; out: string }) {
-					const child = join(WORKSPACE, "packages/coding-agent/test/__verifier__/pi_child.mjs");
-					mkdirSync(join(WORKSPACE, "packages/coding-agent/test/__verifier__"), { recursive: true });
-					copyFileSync(join(FIXTURES, "pi_child.mjs"), child);
-					const result = spawnSync(
-						process.execPath,
-						[child, "child-run", params.sessionDir, params.cwd, params.agentDir, params.out],
-						{
-							cwd: join(WORKSPACE, "packages/coding-agent"),
-							env: {
-								...process.env,
-								PI_WORKSPACE: WORKSPACE,
-								PI_VERIFIER_FIXTURES: FIXTURES,
-								PI_OFFLINE: "1",
-								PI_TELEMETRY: "0",
-								PI_NO_LOCAL_LLM: "1",
-								NODE_OPTIONS: "",
-							},
-							encoding: "utf8",
-							timeout: 60_000,
-						},
-					);
-					const text = `child exited ${result.status}\n${result.stdout}${result.stderr}`;
-					return {
-						content: [{ type: "text", text }],
-						details: { status: result.status },
-					};
+				async execute(toolCallId: string, params: { sessionDir: string; cwd: string; agentDir: string; out: string; waitForSibling?: boolean; compactChild?: boolean }, _signal: unknown, _update: unknown, context: unknown) {
+					try {
+						if (params.waitForSibling) await waitFor(() => siblingStarted, { timeoutMs: 10_000, label: "concurrent sibling entered execute" });
+						const child = join(WORKSPACE, "packages/coding-agent/test/__verifier__/pi_child.mjs");
+						mkdirSync(join(WORKSPACE, "packages/coding-agent/test/__verifier__"), { recursive: true });
+						copyFileSync(join(FIXTURES, "pi_child.mjs"), child);
+						// This explicit, curator-reviewed module only maps a documented public interface.
+						// It is frozen against this submission before scoring; no helper discovery occurs here.
+						const binding = await import(pathToFileURL(process.env.PI_TRACE_CHILD_BINDING ?? "/tests/child-binding.mjs").href);
+						const env = await binding.childEnvironment({ pi, toolCallId, context, extensionPath: EXTENSION_PATH, env: { ...process.env } });
+						if (!env || typeof env !== "object") throw new Error("documented child integration did not return an environment");
+						const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+							const processChild = spawn(process.execPath,
+								[child, params.compactChild ? "child-compact" : "child-run", params.sessionDir, params.cwd, params.agentDir, params.out],
+								{ cwd: join(WORKSPACE, "packages/coding-agent"), env: { ...env, PI_WORKSPACE: WORKSPACE, PI_VERIFIER_FIXTURES: FIXTURES, PI_OFFLINE: "1", PI_TELEMETRY: "0", PI_NO_LOCAL_LLM: "1", NODE_OPTIONS: "" }, stdio: ["ignore", "pipe", "pipe"] });
+							let stdout = "", stderr = "";
+							processChild.stdout.on("data", (part) => { stdout += part; });
+							processChild.stderr.on("data", (part) => { stderr += part; });
+							const timer = setTimeout(() => processChild.kill("SIGKILL"), 60_000);
+							processChild.on("error", (error) => { clearTimeout(timer); reject(error); });
+							processChild.on("close", (status) => { clearTimeout(timer); resolve({ status, stdout, stderr }); });
+						});
+						return { content: [{ type: "text", text: `child exited ${result.status}\n${result.stdout}${result.stderr}` }], details: { status: result.status } };
+					} finally { childFinished = true; }
 				},
 			});
 			pi.registerTool({
@@ -223,6 +231,11 @@ export function verifierExtension(faux: FauxProviderHandle, tag: string): Verifi
 				state.compactFailures.push(event.errorMessage ?? "");
 			});
 			pi.on("agent_end", async () => {
+				if (state.queueUserFollowUp) {
+					state.queueUserFollowUp = false;
+					pi.sendUserMessage("queued user continuation", { deliverAs: "followUp" });
+					return;
+				}
 				if (!state.queueFollowUp) return;
 				state.queueFollowUp = false;
 				pi.sendMessage(
@@ -302,7 +315,9 @@ export async function startSession(
 		sessionManager,
 		settingsManager,
 	});
-	await session.bindExtensions({});
+	// An empty binding emits startup, but the SDK skips session_start on reload
+	// unless a UI, command, shutdown, or error binding is present.
+	await session.bindExtensions({ onError: () => {} });
 	const rec = record(session);
 	return {
 		session,
@@ -753,13 +768,14 @@ export function traceProblems(
 			problems.push(`run ${r.spanId}: pi.run.steer_count does not match steer_entry_ids`);
 	}
 	const customIdSet = new Set(entries((e) => e.type === "custom_message"));
+	const userIdSet = new Set(entries((e) => e.type === "message" && e.message.role === "user"));
 	const userSteerIds = steerIds.filter((id) => !customIdSet.has(id));
 	const customSteerIds = steerIds.filter((id) => customIdSet.has(id));
 	expectRefs(
 		"pi.run (prompt) + user steering",
 		[
 			...runs
-				.filter((r) => r.attributes["pi.run.trigger"] === "prompt")
+				.filter((r) => r.attributes["pi.run.trigger"] === "prompt" || (r.attributes["pi.run.trigger"] === "continuation" && userIdSet.has(String(r.attributes["pi.session.entry_id"]))))
 				.map((r) => r.attributes["pi.session.entry_id"]),
 			...userSteerIds,
 		],
@@ -787,7 +803,8 @@ export function traceProblems(
 	if (seen.size !== customSteerIds.length) problems.push("a custom message is listed twice as a steering message");
 	for (const r of otherRuns) {
 		const id = String(r.attributes["pi.session.entry_id"]);
-		if (!customIds.has(id)) problems.push(`run ${r.spanId}: entry ${id} is not a custom message on the branch`);
+		if (!customIds.has(id) && !(r.attributes["pi.run.trigger"] === "continuation" && userIdSet.has(id)))
+			problems.push(`run ${r.spanId}: entry ${id} is not a permitted message on the branch`);
 		if (seen.has(id)) problems.push(`run ${r.spanId}: entry ${id} referenced twice`);
 		seen.add(id);
 		if (!["wakeup", "continuation"].includes(String(r.attributes["pi.run.trigger"])))

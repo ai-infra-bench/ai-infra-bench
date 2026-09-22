@@ -1,0 +1,72 @@
+# Optional local incremental build; canonical Dockerfile is the portable full build.
+ARG PI_BASE_IMAGE
+FROM ${PI_BASE_IMAGE}
+ARG PI_BASE_SHA=d981de1229ef899957bbe968bc8dcda02a21f477
+ARG PI_DEPENDENCY_CUTOFF=2026-09-05T11:54:46Z
+ARG PI_CACHE_NAMESPACE=d981de1229ef899957bbe968bc8dcda02a21f477-e3569b99e673a005
+# Agent-phase view: no verifier, solution, or validation material is present.
+# The agent phase runs as the unprivileged `node` user (task.toml `[agent].user`), and
+# so does the verifier's execution of candidate code (tests/test.sh runs every suite via
+# `su node`). The checkout belongs to the agent; the installed toolchain (node_modules,
+# node, python3, bash) stays root-owned and read-only for it, so candidate code cannot
+# rewrite the runner, interpreter or baseline that later produce the verifier's reports.
+# vite needs a writable temp dir next to each package's node_modules, and root's git must
+# accept a checkout owned by another user. This ownership is established BEFORE the
+# baseline runs, so the baseline is recorded under the same `node` conditions the
+# candidate suite runs under (see below).
+RUN chown -R node:node /workspace/pi \
+ && find /workspace/pi -type d -name node_modules -prune -exec chown -R root:root {} + \
+ && find /workspace/pi -type d -name node_modules -prune -exec chmod -R go-w {} + \
+ && for d in $(find /workspace/pi -type d -name node_modules -not -path '*/node_modules/*/node_modules'); do \
+      install -d -o node -g node -m 0755 "$d/.vite-temp" "$d/.vite"; \
+    done \
+ && git config --system --add safe.directory /workspace/pi \
+ && su node -c 'cd /workspace/pi && git status --porcelain | wc -l && test ! -w node_modules/vitest/vitest.mjs' \
+ && test "$(stat -c %U /workspace/pi/node_modules)" = root
+
+# PASS_TO_PASS baseline: pi's own coding-agent suite on the unmodified Base, run
+# with the verifier's environment (offline, no credentials, throwaway HOME) AS THE
+# `node` USER, so the baseline pass/fail set matches what the candidate suite (also
+# run as `node` by tests/test.sh) produces. A few cases fail in this environment on
+# Base itself (install-method detection when the install path is not writable, a
+# timing-sensitive coalesced-reload case); baseline_check.py records them and the
+# verifier only requires cases that passed on Base to keep passing. --retry 2 absorbs
+# the timing-sensitive cases that flake inside containers; the verifier uses the same
+# policy. node writes the report to a node-owned scratch dir; root copies it into the
+# root-owned /opt/pi-baseline so candidate code can never rewrite the baseline.
+COPY baseline_check.py /opt/pi-baseline/baseline_check.py
+RUN rm -rf /tmp/pi-baseline-home /tmp/pi-baseline-out \
+ && install -d -o node -g node /tmp/pi-baseline-home /tmp/pi-baseline-out \
+ && (su -p node -s /bin/bash -c 'cd /workspace/pi/packages/coding-agent \
+      && HOME=/tmp/pi-baseline-home PI_OFFLINE=1 PI_TELEMETRY=0 PI_NO_LOCAL_LLM=1 \
+         node ../../node_modules/vitest/vitest.mjs run --retry 2 --reporter=junit \
+         --outputFile=/tmp/pi-baseline-out/coding-agent-junit.xml \
+         > /tmp/pi-baseline-out/coding-agent-run.log 2>&1' || true) \
+ && cp /tmp/pi-baseline-out/coding-agent-junit.xml /opt/pi-baseline/coding-agent-junit.xml \
+ && cp /tmp/pi-baseline-out/coding-agent-run.log /opt/pi-baseline/coding-agent-run.log \
+ && chown -R root:root /opt/pi-baseline && chmod -R go-w /opt/pi-baseline \
+ && python3 /opt/pi-baseline/baseline_check.py \
+ && rm -rf /tmp/pi-baseline-out /tmp/pi-baseline-home \
+ && for d in $(find /workspace/pi -type d -name node_modules -not -path '*/node_modules/*/node_modules'); do \
+      rm -rf "$d/.vite-temp" "$d/.vite"; install -d -o node -g node -m 0755 "$d/.vite-temp" "$d/.vite"; \
+    done
+
+# Identity of what the image build generated inside the checkout: the built dist/ trees
+# (the verifier's lifecycle suites run the published dist/ entry points) and generated
+# sources such as packages/ai/src/providers/data. These files are gitignored, live in the
+# agent-owned checkout, and their bytes depend on the image build (the model catalog is
+# fetched at build time), so they cannot be pinned in tests/. Record them here, root-owned,
+# so tests/check_scope.py can reject a submission that edited the built pi core. A rebuild
+# from unchanged sources reproduces these bytes.
+RUN cd /workspace/pi \
+ && git ls-files --others -z | grep -zv -E '(^|/)node_modules/' | sort -z | xargs -0 sha256sum > /opt/pi-baseline/build-manifest.sha256 \
+ && test "$(grep -c -E '  packages/coding-agent/dist/' /opt/pi-baseline/build-manifest.sha256)" -gt 500 \
+ && chown root:root /opt/pi-baseline/build-manifest.sha256 && chmod 0444 /opt/pi-baseline/build-manifest.sha256
+RUN test ! -e /tests && test ! -e /solution && test ! -e /validation
+
+LABEL ai.infra.bench.environment-template=pi-harbor-node \
+      ai.infra.bench.base-commit=$PI_BASE_SHA \
+      ai.infra.bench.dependency-cutoff=$PI_DEPENDENCY_CUTOFF \
+      ai.infra.bench.cache-namespace=$PI_CACHE_NAMESPACE
+ENTRYPOINT []
+CMD ["sleep", "infinity"]

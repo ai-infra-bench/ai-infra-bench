@@ -1,9 +1,9 @@
 diff --git a/packages/coding-agent/examples/extensions/agent-trace/README.md b/packages/coding-agent/examples/extensions/agent-trace/README.md
 new file mode 100644
-index 0000000..971f963
+index 000000000..465470060
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/agent-trace/README.md
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,73 @@
 +# Agent Trace
 +
 +Exports the agent loop as an OpenTelemetry trace, written as OTLP/JSON lines
@@ -18,9 +18,10 @@ index 0000000..971f963
 +`<sessionDir>/traces/<sessionId>.otlp.jsonl`, or `PI_AGENT_TRACE_FILE`. Every
 +line is one `ExportTraceServiceRequest` holding one span; resource attributes
 +carry `service.name`, `service.version`, `pi.session.id` and `process.pid`.
-+Spans are appended in end order once their attributes are known (chat and
-+tool spans wait for `turn_end`, when pi has persisted their session entries),
-+never rewritten; `/reload` and later processes append to the same file with
++Every span has a start line immediately and an end line once its attributes
++are known. Chat end lines are flushed at the first tool start (or `turn_end`
++without tools); tool end lines wait for persisted entries at `turn_end`.
++End lines follow end-time order and are never rewritten; `/reload` and later processes append to the same file with
 +the same trace id (derived from the session id).
 +
 +## Spans
@@ -35,12 +36,52 @@ index 0000000..971f963
 +
 +Status is ERROR (with a message) for failed tool results, error or aborted
 +assistant messages and the turns that contain them, and failed compactions.
++
++User and custom follow-ups consumed within a run are listed in its steering
++entry ids. A queued user or custom follow-up after `agent_end` but before
++settling opens a continuation run referencing that message. An overflow retry
++references its compaction instead. Error/aborted responses without an
++`errorMessage` use status message `aborted`. Shutdown closes open spans as
++`shutdown`; trace write failures are reported once as context-only messages.
++
++## Child processes: cooperative tool integration
++
++Inside a spawning tool's `execute(toolCallId, ...)`, request a private copy of
++the child environment through pi's public extension event bus:
++
++```ts
++let childEnv: NodeJS.ProcessEnv | undefined;
++pi.events.emit("agent-trace:child-env", {
++  toolCallId,
++  env: process.env, // optional base environment; copy any caller overrides here
++  reply: (env: NodeJS.ProcessEnv | undefined) => { childEnv = env; },
++});
++if (!childEnv) throw new Error("No active traced tool for this call id");
++// spawn imported from node:child_process; use your ordinary child arguments.
++const child = spawn(process.execPath, childArgs, { env: childEnv });
++```
++
++The event handler replies synchronously. An unknown or ended call id returns
++`undefined`; if the tracer is not loaded there is no reply. The copied env
++contains `PI_AGENT_TRACE_PARENT=<traceId>-<toolSpanId>`. Load this extension in
++the child too. It inherits that trace id, and both child runs and child
++compactions attach directly to that tool. Each child uses its own session's
++trace file by default; when supplying `PI_AGENT_TRACE_FILE`, choose a distinct
++child path in the base environment.
++
++Concurrent tools must each request their own `toolCallId`; context is never
++stored in `process.env`, and requesting one tool's env cannot affect a sibling
++or the parent. Tools without this integration still get ordinary tool spans,
++but their child processes are not automatically attributed. The tracer uses
++only public extension events and does not wrap core execution or serialize
++tools. The runtime owns event subscriptions and removes them on reload.
++
++Run the offline regression tests with `npm test -w packages/coding-agent`.
 diff --git a/packages/coding-agent/examples/extensions/agent-trace/index.ts b/packages/coding-agent/examples/extensions/agent-trace/index.ts
 new file mode 100644
-index 0000000..48dda27
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/agent-trace/index.ts
-@@ -0,0 +1,511 @@
+@@ -0,0 +1,539 @@
 +/**
 + * Agent Trace Extension
 + *
@@ -82,6 +123,14 @@ index 0000000..48dda27
 +const KIND_CLIENT = 3;
 +const STATUS_OK = 1;
 +const STATUS_ERROR = 2;
++
++// Reload re-instantiates extensions, but a write failure is reported only once
++// during this Node process. A symbol slot survives module reloads without using
++// environment variables or touching Pi core.
++interface TraceProcessState { writeFailureReported: boolean }
++const PROCESS_STATE_KEY = Symbol.for("pi.agent-trace.write-failure-state.v1");
++const processStates = globalThis as unknown as Record<symbol, TraceProcessState | undefined>;
++const traceProcessState = processStates[PROCESS_STATE_KEY] ??= { writeFailureReported: false };
 +
 +// ---------------------------------------------------------------------------
 +// OTLP/JSON encoding
@@ -153,10 +202,10 @@ index 0000000..48dda27
 +	return undefined;
 +}
 +
-+function runEntryId(branch: SessionEntry[], before: number, trigger: string): string | undefined {
++function runEntryId(branch: SessionEntry[], before: number, role: "user" | "custom"): string | undefined {
 +	for (let i = before - 1; i >= 0; i--) {
 +		const entry = branch[i];
-+		if (trigger === "prompt") {
++		if (role === "user") {
 +			if (entry.type === "message" && entry.message.role === "user") return entry.id;
 +		} else if (entry.type === "custom_message") {
 +			return entry.id;
@@ -175,7 +224,7 @@ index 0000000..48dda27
 +	let resourceAttributes: Map<string, AttributeValue> | undefined;
 +	/** The span every root span of this session hangs under when a parent pi spawned this process. */
 +	let rootParentSpanId: string | undefined;
-+	/** The value of the propagation variable this process started with (restored whenever no tool runs). */
++	/** Inherited once; child context is returned in copied environments, never published process-wide. */
 +	const inheritedTraceParent = process.env[TRACE_PARENT_ENV];
 +
 +	/** Bind to the session lazily: a reloaded runtime may see its first event without a session_start. */
@@ -224,15 +273,14 @@ index 0000000..48dda27
 +		span.status = { code: STATUS_ERROR, message };
 +	}
 +
-+	let writeFailureReported = false;
 +
 +	function write(span: Span, phase: "start" | "end" = "end") {
 +		if (!file || !resourceAttributes) return;
 +		try {
 +			writeLine(span, phase);
 +		} catch (error) {
-+			if (writeFailureReported) return;
-+			writeFailureReported = true;
++			if (traceProcessState.writeFailureReported) return;
++			traceProcessState.writeFailureReported = true;
 +			const reason = error instanceof Error ? error.message : String(error);
 +			pi.sendMessage(
 +				{ customType: "agent-trace", content: `agent-trace: cannot write ${file}: ${reason}`, display: true },
@@ -278,6 +326,7 @@ index 0000000..48dda27
 +	let turnCount = 0;
 +	/** The run's first user/custom message is its trigger; later ones are steering or follow-up messages. */
 +	let runMessagesSeen = 0;
++	let runEntryRole: "user" | "custom" = "custom";
 +	let steerThisTurn = 0;
 +	let steerEntryIds: string[] = [];
 +	let previousAssistantIndex = -1;
@@ -294,15 +343,22 @@ index 0000000..48dda27
 +	let compaction: Span | undefined;
 +	/** Set by an overflow compaction that pi retries: the next run is that retry and has no message of its own. */
 +	let retryAfterCompaction: string | undefined;
-+	/** Running tool spans in start order, for the propagation variable. */
-+	const runningTools: string[] = [];
-+
-+	function publishTraceParent() {
-+		const current = runningTools[runningTools.length - 1];
-+		if (current && traceId) process.env[TRACE_PARENT_ENV] = `${traceId}-${current}`;
-+		else if (inheritedTraceParent !== undefined) process.env[TRACE_PARENT_ENV] = inheritedTraceParent;
-+		else delete process.env[TRACE_PARENT_ENV];
-+	}
++	// Public extension-to-extension integration. Each request names its own
++	// active tool call, so an overlapping sibling cannot replace its context.
++	// EventBus invokes handlers synchronously; reply does not cross an await.
++	pi.events.on("agent-trace:child-env", (data: unknown) => {
++		const request = data as {
++			toolCallId?: unknown;
++			env?: NodeJS.ProcessEnv;
++			reply?: (env: NodeJS.ProcessEnv | undefined) => void;
++		} | undefined;
++		if (!request || typeof request.reply !== "function") return;
++		const span = typeof request.toolCallId === "string" ? tools.get(request.toolCallId) : undefined;
++		request.reply(span ? {
++			...(request.env ?? process.env),
++			[TRACE_PARENT_ENV]: `${span.traceId}-${span.spanId}`,
++		} : undefined);
++	});
 +
 +	pi.on("session_start", async (_event, ctx) => {
 +		bind(ctx.sessionManager);
@@ -315,14 +371,18 @@ index 0000000..48dda27
 +	pi.on("agent_start", async (_event, ctx) => {
 +		bind(ctx.sessionManager);
 +		const now = Date.now();
-+		runTrigger = sawBeforeAgentStart ? "prompt" : previousRunSettled ? "wakeup" : "continuation";
++		// A fresh prompt may follow an idle pre-prompt compaction whose willRetry
++		// flag describes the old response. That new prompt is not a retry run.
++		runTrigger = !previousRunSettled ? "continuation" : sawBeforeAgentStart ? "prompt" : retryAfterCompaction ? "continuation" : "wakeup";
++		const isOverflowRetry = runTrigger === "continuation" && retryAfterCompaction !== undefined;
++		runEntryRole = runTrigger === "prompt" ? "user" : "custom";
 +		sawBeforeAgentStart = false;
 +		previousRunSettled = false;
 +		const known: Array<[string, AttributeValue]> = [["pi.run.trigger", runTrigger]];
-+		if (retryAfterCompaction) known.push(["pi.run.after_compaction", retryAfterCompaction]);
++		if (isOverflowRetry) known.push(["pi.run.after_compaction", retryAfterCompaction!]);
 +		run = start("pi.run", KIND_INTERNAL, undefined, now, known);
 +		// An overflow retry resumes the existing context: no message of its own, no entry id.
-+		runEntryResolved = retryAfterCompaction !== undefined;
++		runEntryResolved = isOverflowRetry;
 +		retryAfterCompaction = undefined;
 +		turnCount = 0;
 +		runMessagesSeen = 0;
@@ -339,6 +399,7 @@ index 0000000..48dda27
 +		turn = start("pi.turn", KIND_INTERNAL, run, event.timestamp, [["pi.turn.index", event.turnIndex]]);
 +		turnChats = [];
 +		turnTools = [];
++		chatMessage = undefined;
 +		tools.clear();
 +	});
 +
@@ -347,6 +408,7 @@ index 0000000..48dda27
 +			// Messages the agent loop consumes: the first one of a run is its trigger, later ones steer it.
 +			if (run) {
 +				runMessagesSeen += 1;
++				if (runMessagesSeen === 1) runEntryRole = event.message.role;
 +				if (runMessagesSeen > 1) steerThisTurn += 1;
 +			}
 +			return;
@@ -385,11 +447,17 @@ index 0000000..48dda27
 +		chat.attributes.set("pi.usage.cache_read_tokens", usage.cacheRead);
 +		chat.attributes.set("pi.usage.cache_write_tokens", usage.cacheWrite);
 +		chat.attributes.set("gen_ai.response.finish_reasons", [message.stopReason]);
-+		if (message.stopReason === "error") fail(chat, message.errorMessage ?? "error");
++		if (message.stopReason === "error") fail(chat, message.errorMessage ?? "aborted");
 +		else if (message.stopReason === "aborted") fail(chat, message.errorMessage ?? "aborted");
 +		end(chat);
 +		turnChats.push(chat);
 +		chatMessage = message;
++		// These facts are known before tools finish and turn_end is emitted.
++		// Retain them if quit interrupts the tool phase of this turn.
++		if (turn) {
++			turn.attributes.set("pi.turn.stop_reason", message.stopReason);
++			turn.attributes.set("pi.turn.tool_call_count", message.content.filter((part) => part.type === "toolCall").length);
++		}
 +		chat = undefined;
 +	});
 +
@@ -401,17 +469,12 @@ index 0000000..48dda27
 +			["gen_ai.tool.call.id", event.toolCallId],
 +		]);
 +		tools.set(event.toolCallId, span);
-+		runningTools.push(span.spanId);
-+		publishTraceParent();
 +	});
 +
 +	pi.on("tool_execution_end", async (event) => {
 +		const span = tools.get(event.toolCallId);
 +		if (!span) return;
 +		tools.delete(event.toolCallId);
-+		const at = runningTools.indexOf(span.spanId);
-+		if (at >= 0) runningTools.splice(at, 1);
-+		publishTraceParent();
 +		span.attributes.set("pi.tool.is_error", event.isError);
 +		if (event.isError) fail(span, resultText(event.result));
 +		end(span);
@@ -451,13 +514,13 @@ index 0000000..48dda27
 +		turn.attributes.set("pi.turn.stop_reason", message?.stopReason ?? "unknown");
 +		turn.attributes.set("pi.turn.tool_call_count", turnTools.length);
 +		if (chatFailed || message?.stopReason === "error" || message?.stopReason === "aborted") {
-+			fail(turn, message?.errorMessage ?? (message?.stopReason === "aborted" ? "aborted" : "error"));
++			fail(turn, message?.errorMessage ?? "aborted");
 +		}
 +		write(end(turn));
 +		turnCount += 1;
 +
 +		if (run && !runEntryResolved && assistantIndex >= 0) {
-+			const entryId = runEntryId(branch, assistantIndex, runTrigger);
++			const entryId = runEntryId(branch, assistantIndex, runEntryRole);
 +			if (entryId) run.attributes.set("pi.session.entry_id", entryId);
 +			runEntryResolved = true;
 +		}
@@ -511,7 +574,7 @@ index 0000000..48dda27
 +		const now = Date.now();
 +		if (run && !runEntryResolved) {
 +			const branch = ctx.sessionManager.getBranch();
-+			const entryId = runEntryId(branch, branch.length, runTrigger);
++			const entryId = runEntryId(branch, branch.length, runEntryRole);
 +			if (entryId) run.attributes.set("pi.session.entry_id", entryId);
 +			runEntryResolved = true;
 +		}
@@ -528,15 +591,21 @@ index 0000000..48dda27
 +			run.attributes.set("pi.run.steer_entry_ids", [...steerEntryIds]);
 +			closing.push(run);
 +		}
++		for (const span of closing) end(span, now);
++		// Ended spans can still be waiting for their session entry. Write those
++		// before later shutdown closes; stable ties retain the child-first order.
++		closing.sort((a, b) => {
++			const left = BigInt(a.endTimeUnixNano!);
++			const right = BigInt(b.endTimeUnixNano!);
++			return left < right ? -1 : left > right ? 1 : 0;
++		});
 +		for (const span of closing) {
 +			fail(span, "shutdown");
-+			write(end(span, now));
++			write(span);
 +		}
 +		chat = undefined;
 +		turnChats = [];
 +		tools.clear();
-+		runningTools.length = 0;
-+		publishTraceParent();
 +		turnTools = [];
 +		turn = undefined;
 +		compaction = undefined;
@@ -554,14 +623,15 @@ index 0000000..48dda27
 +}
 diff --git a/packages/coding-agent/test/agent-trace-extension.test.ts b/packages/coding-agent/test/agent-trace-extension.test.ts
 new file mode 100644
-index 0000000..465f6e0
+index 000000000..12ce93d66
 --- /dev/null
 +++ b/packages/coding-agent/test/agent-trace-extension.test.ts
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,293 @@
 +import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import { join } from "node:path";
 +import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
++import type { ExtensionAPI } from "../src/core/extensions/types.ts";
 +import { Type } from "typebox";
 +import { afterEach, expect, it } from "vitest";
 +import { nanos, traceIdFor } from "../examples/extensions/agent-trace/index.ts";
@@ -682,3 +752,258 @@ index 0000000..465f6e0
 +		if (span.name !== "pi.turn") expect(entryIds.has(id?.value.stringValue)).toBe(true);
 +	}
 +});
++
++// Regression fixture: only the provider is scripted. Scheduling, extension
++// communication, session persistence and trace writes use the real public SDK.
++async function regressionSession(tag: string, register: (pi: ExtensionAPI) => void = () => {}) {
++	const root = mkdtempSync(join(tmpdir(), `pi-trace-${tag}-`));
++	roots.push(root);
++	const cwd = join(root, "project");
++	const agentDir = join(root, "agent");
++	const sessionDir = join(root, "sessions");
++	const faux = fauxProvider({
++		provider: `trace-${tag}`, api: `trace-${tag}-api`,
++		models: [{ id: "trace-model", contextWindow: 200_000, maxTokens: 8_192 }],
++	});
++	const settingsManager = SettingsManager.inMemory({
++		retry: { enabled: false }, compaction: { enabled: false, keepRecentTokens: 1, reserveTokens: 16_384 },
++	});
++	const loader = new DefaultResourceLoader({
++		cwd, agentDir, settingsManager,
++		additionalExtensionPaths: [join(import.meta.dirname, "../examples/extensions/agent-trace/index.ts")],
++		extensionFactories: [{ name: `trace-${tag}`, factory(pi) { pi.registerProvider(faux.provider); register(pi); } }],
++		noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
++		noContextFiles: true, systemPrompt: "Offline trace regression.",
++	});
++	await loader.reload();
++	const sessionManager = SessionManager.create(cwd, sessionDir);
++	const { session } = await createAgentSession({
++		cwd, agentDir, model: faux.getModel(), thinkingLevel: "off", noTools: "builtin",
++		resourceLoader: loader, sessionManager, settingsManager,
++	});
++	await session.bindExtensions({});
++	return {
++		session, sessionManager, faux,
++		spans: () => readFileSync(join(sessionDir, "traces", `${sessionManager.getSessionId()}.otlp.jsonl`), "utf8")
++			.trim().split("\n").map((line) => JSON.parse(line).resourceSpans[0].scopeSpans[0].spans[0])
++			.filter((span: any) => span.endTimeUnixNano),
++	};
++}
++
++const stringAttribute = (span: any, key: string) => span.attributes.find((a: any) => a.key === key)?.value.stringValue;
++
++it("an error response without details uses aborted for chat and turn status", async () => {
++	const s = await regressionSession("no-error-message");
++	try {
++		s.faux.setResponses([fauxAssistantMessage(fauxText(""), { stopReason: "error" })]);
++		await s.session.prompt("fail without details");
++		const message = s.sessionManager.getBranch().find((e) => e.type === "message" && e.message.role === "assistant");
++		expect(message && message.type === "message" && message.message.role === "assistant" && message.message.errorMessage).toBeUndefined();
++		const failed = s.spans().filter((span: any) => span.name === "pi.turn" || span.name.startsWith("chat "));
++		expect(failed).toHaveLength(2);
++		for (const span of failed) expect(span.status).toEqual({ code: 2, message: "aborted" });
++	} finally { s.session.dispose(); }
++});
++
++it("a user follow-up queued after agent_end is a continuation with the new user entry", async () => {
++	let queued = false;
++	const s = await regressionSession("user-continuation", (pi) => {
++		pi.on("agent_end", () => {
++			if (queued) return;
++			queued = true;
++			pi.sendUserMessage("queued user follow-up", { deliverAs: "followUp" });
++		});
++	});
++	try {
++		s.faux.setResponses([fauxAssistantMessage(fauxText("first")), fauxAssistantMessage(fauxText("second"))]);
++		await s.session.prompt("initial prompt");
++		const runs = s.spans().filter((span: any) => span.name === "pi.run");
++		const users = s.sessionManager.getBranch().filter((e) => e.type === "message" && e.message.role === "user");
++		expect(runs).toHaveLength(2);
++		expect(users).toHaveLength(2);
++		expect(runs.map((span: any) => stringAttribute(span, "pi.run.trigger"))).toEqual(["prompt", "continuation"]);
++		expect(runs.map((span: any) => stringAttribute(span, "pi.session.entry_id"))).toEqual(users.map((e) => e.id));
++	} finally { s.session.dispose(); }
++});
++
++it("child environments remain bound to the requested tool when sibling executions overlap", async () => {
++	let siblingStarted!: () => void;
++	const started = new Promise<void>((resolve) => { siblingStarted = resolve; });
++	let releaseSibling!: () => void;
++	const released = new Promise<void>((resolve) => { releaseSibling = resolve; });
++	let api!: ExtensionAPI;
++	let envA: NodeJS.ProcessEnv | undefined;
++	let envB: NodeJS.ProcessEnv | undefined;
++	const baseEnv: NodeJS.ProcessEnv = { ...process.env, TRACE_TEST_SENTINEL: "preserve" };
++	function childEnv(toolCallId: string) {
++		let result: NodeJS.ProcessEnv | undefined;
++		api.events.emit("agent-trace:child-env", {
++			toolCallId, env: baseEnv, reply: (env: NodeJS.ProcessEnv | undefined) => { result = env; },
++		});
++		return result;
++	}
++	const s = await regressionSession("concurrent-environments", (pi) => {
++		api = pi;
++		pi.registerTool({
++			name: "trace_parent_a", label: "A", description: "Wait for B then request A context", parameters: Type.Object({}),
++			async execute(id) {
++				await started;
++				try { envA = childEnv(id); } finally { releaseSibling(); }
++				return { content: [{ type: "text", text: "A done" }], details: {} };
++			},
++		});
++		pi.registerTool({
++			name: "trace_parent_b", label: "B", description: "Overlap A", parameters: Type.Object({}),
++			async execute(id) {
++				envB = childEnv(id); siblingStarted(); await released;
++				return { content: [{ type: "text", text: "B done" }], details: {} };
++			},
++		});
++	});
++	const before = { ...process.env };
++	try {
++		s.faux.setResponses([
++			fauxAssistantMessage([fauxToolCall("trace_parent_a", {}, { id: "parent-A" }), fauxToolCall("trace_parent_b", {}, { id: "parent-B" })], { stopReason: "toolUse" }),
++			fauxAssistantMessage(fauxText("done")),
++		]);
++		await s.session.prompt("overlap both tools");
++		expect(envA).toBeDefined(); expect(envB).toBeDefined();
++		const spans = s.spans();
++		for (const [id, env] of [["parent-A", envA], ["parent-B", envB]] as const) {
++			const span = spans.find((span: any) => stringAttribute(span, "gen_ai.tool.call.id") === id);
++			expect(span).toBeDefined();
++			expect(env?.PI_AGENT_TRACE_PARENT).toBe(`${span.traceId}-${span.spanId}`);
++			expect(env?.TRACE_TEST_SENTINEL).toBe("preserve");
++			expect(env).not.toBe(baseEnv);
++		}
++		expect(envA?.PI_AGENT_TRACE_PARENT).not.toBe(envB?.PI_AGENT_TRACE_PARENT);
++		expect(childEnv("parent-A")).toBeUndefined();
++		expect(childEnv("unknown")).toBeUndefined();
++		expect(process.env).toEqual(before);
++		expect(baseEnv.PI_AGENT_TRACE_PARENT).toBe(before.PI_AGENT_TRACE_PARENT);
++	} finally { releaseSibling(); s.session.dispose(); }
++}, 10_000);
++
++
++it("a new user prompt after idle overflow compaction is not a retry run", async () => {
++	const s = await regressionSession("pre-prompt-compaction", (pi) => {
++		pi.on("session_before_compact", (event) => ({
++			compaction: {
++				summary: "Offline compaction of previous conversation.",
++				firstKeptEntryId: event.preparation.firstKeptEntryId,
++				tokensBefore: event.preparation.tokensBefore,
++			},
++		}));
++	});
++	try {
++		s.faux.setResponses([fauxAssistantMessage(fauxText("remembered"))]);
++		await s.session.prompt("remember this earlier context");
++		s.faux.setResponses([fauxAssistantMessage(fauxText(""), {
++			stopReason: "error", errorMessage: "prompt is too long: 250000 tokens > 200000 maximum",
++		})]);
++		await s.session.prompt("old failed prompt");
++		// Automatic recovery was disabled for the old response. Enable it now:
++		// the SDK checks that response before sending the next public prompt.
++		s.session.setAutoCompactionEnabled(true);
++		s.faux.setResponses([fauxAssistantMessage(fauxText("new answer"))]);
++		await s.session.prompt("new independent user prompt");
++		const spans = s.spans();
++		const compactions = spans.filter((span: any) => span.name === "pi.compaction");
++		expect(compactions).toHaveLength(1);
++		expect(compactions[0].attributes.find((a: any) => a.key === "pi.compaction.will_retry")?.value.boolValue).toBe(true);
++		const runs = spans.filter((span: any) => span.name === "pi.run");
++		expect(runs).toHaveLength(3);
++		const last = runs[2];
++		expect(stringAttribute(last, "pi.run.trigger")).toBe("prompt");
++		expect(stringAttribute(last, "pi.run.after_compaction")).toBeUndefined();
++		const lastUser = s.sessionManager.getBranch().filter((e) => e.type === "message" && e.message.role === "user").at(-1);
++		expect(stringAttribute(last, "pi.session.entry_id")).toBe(lastUser?.id);
++	} finally { s.session.dispose(); }
++});
+diff --git a/packages/coding-agent/test/agent-trace-write-failure.test.ts b/packages/coding-agent/test/agent-trace-write-failure.test.ts
+new file mode 100644
+index 000000000..1dc315b32
+--- /dev/null
++++ b/packages/coding-agent/test/agent-trace-write-failure.test.ts
+@@ -0,0 +1,81 @@
++import { spawnSync } from "node:child_process";
++import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { expect, it } from "vitest";
++
++it("reports an unwritable trace only once across reload in the same process", () => {
++	const root = mkdtempSync(join(tmpdir(), "pi-trace-process-failure-"));
++	const blocker = join(root, "not-a-directory");
++	writeFileSync(blocker, "blocked");
++	try {
++		// A dedicated process gives this test a fresh process lifetime without
++		// reading or resetting any implementation-specific singleton.
++		const result = spawnSync(process.execPath, ["--input-type=module", "-e", String.raw`
++import assert from "node:assert/strict";
++import { join } from "node:path";
++import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
++import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
++import { Type } from "typebox";
++const root = process.env.TRACE_TEST_ROOT;
++const cwd = join(root, "project");
++const agentDir = join(root, "agent");
++const settingsManager = SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false } });
++const faux = fauxProvider({ provider: "write-failure-test", api: "write-failure-api", models: [{ id: "test-model", contextWindow: 200000, maxTokens: 8192 }] });
++let toolCalls = 0;
++const loader = new DefaultResourceLoader({
++  cwd, agentDir, settingsManager,
++  additionalExtensionPaths: [process.env.TRACE_TEST_EXTENSION],
++  extensionFactories: [{ name: "offline-process-test", factory(pi) {
++    pi.registerProvider(faux.provider);
++    pi.registerTool({ name: "check_alive", label: "Check alive", description: "Prove tools survive tracing failure", parameters: Type.Object({}),
++      async execute() { toolCalls++; return { content: [{ type: "text", text: "still alive" }], details: {} }; }
++    });
++  } }],
++  noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
++  noContextFiles: true, systemPrompt: "Offline write-failure regression."
++});
++await loader.reload();
++const sessionManager = SessionManager.create(cwd, join(root, "sessions"));
++const { session } = await createAgentSession({ cwd, agentDir, model: faux.getModel(), thinkingLevel: "off", noTools: "builtin", resourceLoader: loader, sessionManager, settingsManager });
++await session.bindExtensions({});
++const reports = () => sessionManager.getBranch().filter((entry) => entry.type === "custom_message" && entry.customType === "agent-trace");
++async function prompt(text) {
++  faux.setResponses([
++    fauxAssistantMessage(fauxToolCall("check_alive", {}), { stopReason: "toolUse" }),
++    fauxAssistantMessage(fauxText("done")),
++    fauxAssistantMessage(fauxText("unused ack")),
++  ]);
++  await session.prompt(text, { expandPromptTemplates: false, source: "interactive" });
++}
++try {
++  await prompt("first");
++  assert.equal(reports().length, 1, "first write failure must be reported");
++  const reportId = reports()[0].id;
++  await session.reload();
++  await prompt("second, after reload");
++  assert.equal(reports().length, 1, "reload must not reset the process report limit");
++  assert.equal(reports()[0].id, reportId, "retain the original report");
++  assert.equal(toolCalls, 2, "both real tool executions must finish");
++  const reportText = reports()[0].content;
++  assert.equal(typeof reportText, "string");
++  assert.ok(reportText.startsWith("agent-trace: cannot write " + process.env.PI_AGENT_TRACE_FILE));
++  console.log("TRACE_RELOAD_RESULT=" + JSON.stringify({ reports: reports().length, toolCalls }));
++} finally { session.dispose(); }
++process.exit(0);
++`], {
++			cwd: join(import.meta.dirname, ".."),
++			env: {
++				...process.env, NODE_OPTIONS: "", PI_OFFLINE: "1", PI_TELEMETRY: "0", PI_NO_LOCAL_LLM: "1",
++				PI_AGENT_TRACE_FILE: join(blocker, "trace.jsonl"), TRACE_TEST_ROOT: root,
++				TRACE_TEST_EXTENSION: join(import.meta.dirname, "../examples/extensions/agent-trace/index.ts"),
++			},
++			encoding: "utf8", timeout: 30_000,
++		});
++		expect(result.error, result.stderr).toBeUndefined();
++		expect(result.status, result.stderr + result.stdout).toBe(0);
++		const line = result.stdout.split("\n").find((line) => line.startsWith("TRACE_RELOAD_RESULT="));
++		expect(line).toBeDefined();
++		expect(JSON.parse(line!.slice("TRACE_RELOAD_RESULT=".length))).toEqual({ reports: 1, toolCalls: 2 });
++	} finally { rmSync(root, { recursive: true, force: true }); }
++}, 40_000);
