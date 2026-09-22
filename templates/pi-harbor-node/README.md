@@ -1,7 +1,8 @@
 # pi Harbor Node Dockerfile template
 
 Environment template for agent-harness tasks on [pi](https://github.com/earendil-works/pi)
-(`earendil-works/pi`, a Node 22 npm workspace). Each task keeps its own
+(`earendil-works/pi`, a Node 22 npm workspace), with a prebuilt default and an
+explicit source workspace mode. Each task keeps its own
 self-contained `environment/Dockerfile`, generated from this template and the
 task's `task.toml` (`base_commit`, `dependency_cutoff`) plus the checked-in
 dependency lock. The layout and conventions (generate / build / lock scripts,
@@ -9,7 +10,7 @@ empty build context, provenance labels, image manifest) are the same as
 `templates/vllm-harbor-all-in-one`, so the two kinds of task are reviewed and
 built the same way.
 
-What the generated image contains:
+What the default prebuilt image contains:
 
 - pi's monorepo at the pinned commit, fetched by SHA with no tags, remotes, or
   reflogs (the source stage CI's `image-check` expects).
@@ -42,6 +43,9 @@ python3 templates/pi-harbor-node/generate.py --check tasks/pi-*
 # Build with an empty context and write environment/image-manifest.json.
 # CI validates on x64; on an arm64 host pass --platform linux/amd64 (qemu).
 python3 templates/pi-harbor-node/build.py --platform linux/amd64 tasks/pi-background-processes
+
+# Exercise rendering, ownership selection and rejected configuration:
+python3 -m unittest discover -s templates/pi-harbor-node/tests -v
 ```
 
 Edit the template, not a generated Dockerfile. `generate.py --check` is a
@@ -52,7 +56,7 @@ checker script is embedded in the Dockerfile with a heredoc `COPY` for the same
 reason. `build.py` writes `environment/image-manifest.json` in the repository
 format (`templates/harbor-task/README.md`, "Image manifest"): the retained
 `image_id` and the hashes of `Dockerfile`, `lock/package-lock.json` and
-`lock/manifest.json`. Installed versions and the baseline summary are printed as an
+`lock/manifest.json`, plus `pi-template.json` when configured. Installed versions and the baseline summary are printed as an
 `IMAGE {...}` line for the build log; they are build records, not task files.
 
 After every rebuild, compare that line's `pass_to_pass_baseline.failed_on_base`
@@ -62,7 +66,87 @@ extend the pin.
 
 ## Agent user and toolchain ownership
 
-The rendered image leaves the checkout owned by the `node` user and the installed toolchain (`node_modules`, `node`, `python3`, `bash`) owned by root and read-only for others; tasks set `[agent].user = "node"` so the agent cannot rewrite the test runner the verifier (root) executes. vite's transient config bundles go to `node_modules/.vite-temp` and `.vite`, which are node-owned; verifiers remove them before running. Root's git is configured with `safe.directory /workspace/pi`. Pair this with a verifier-side check that the submission did not change pi source or the build/test toolchain (see the pi task `tests/test.sh` scope check).
+By default, the rendered image leaves the checkout owned by the `node` user and the installed toolchain (`node_modules`, `node`, `python3`, `bash`) owned by root and read-only for others; tasks set `[agent].user = "node"` so the agent cannot rewrite the test runner the verifier (root) executes. vite's transient config bundles go to `node_modules/.vite-temp` and `.vite`, which belong to the selected agent user; verifiers remove them before running. Root's git is configured with `safe.directory /workspace/pi`. Pair this with a verifier-side check that the submission did not change pi source or the build/test toolchain (see the pi task `tests/test.sh` scope check).
+
+Tasks that already use the reviewed Node 22.23.2 runtime and the `agent` account
+can preserve both with `environment/pi-template.json`:
+
+```json
+{
+  "node_image": "node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5",
+  "agent_user": "agent",
+  "source_cli": true,
+  "npm_ignore_scripts": true,
+  "workspace_mode": "source"
+}
+```
+
+These are the only accepted keys. Missing keys retain the Node 22.19.0 / `node`
+defaults, both boolean options set to `false`, and `workspace_mode: "prebuilt"`;
+no configuration file preserves the existing generated Dockerfile
+bytes. `node_image` accepts only the two reviewed, digest-pinned Node images in
+`generate.py`, and must agree with the lock manifest's recorded image. The
+generator also accepts the older manifest format with platform notes after the
+image reference. `lock.py` uses this same runtime selection for new manifests.
+
+`agent_user` accepts only `node` or `agent`. Selecting `agent` creates that account
+without removing the image's existing `node` account, and uses it consistently
+for checkout ownership, Vite directories and the upstream baseline run. The Node
+interpreter is still invoked as `node`. The generator requires the task's
+`[agent].user` to match; keep the verifier's candidate execution user aligned
+with it as well. The toolchain and baseline remain root-owned. This configuration
+does not change the Pi commit, dependency lock, model catalog source or empty
+build context. The workspace mode below determines whether dist is built.
+
+`source_cli: true` adds a root-owned `/usr/local/bin/pi` wrapper from the inline
+script in `source-cli.Dockerfile`. The wrapper sets `TSX_TSCONFIG_PATH` and
+the TSX loader in `NODE_OPTIONS`, then executes
+`node /workspace/pi/packages/coding-agent/src/cli.ts` with the original arguments.
+In prebuilt mode this option does not set image-wide Node options; vitest and
+other Node processes keep their normal environment. Source mode also preserves
+the original global loader, as described below. The wrapper is installed and checked with
+`pi --version` without network before the ownership and native baseline steps,
+so the baseline sees the same CLI command as the final image.
+
+`npm_ignore_scripts: true` preserves tasks whose installation uses
+`npm ci --ignore-scripts --no-audit --no-fund`; it does not add native compilation
+dependencies or change the lock. `lock.py` records the same install policy in
+the manifest's `resolver` field. Both options require JSON booleans; strings and
+numbers are rejected. With either option omitted or `false`, its generated
+Dockerfile content remains unchanged.
+
+## Source workspace mode
+
+`workspace_mode` accepts only `prebuilt` (default) or `source`. Source mode
+requires both `source_cli: true` and `npm_ignore_scripts: true`. It validates the
+frozen model catalog with Pi's own `node packages/ai/scripts/check-model-data.ts`
+and checks that tracked sources remain unchanged. It does **not** compile dist
+or require dist entry points. The source CLI, offline path-utils smoke test,
+fd/ripgrep installation, complete native baseline and root-owned toolchain
+protections remain enabled. The baseline failure allowance is unchanged.
+
+Source mode sets the original image-wide values before catalog checks, smoke
+tests and the native baseline:
+`TSX_TSCONFIG_PATH=/workspace/pi/tsconfig.json` and
+`NODE_OPTIONS=--import=/workspace/pi/node_modules/tsx/dist/loader.mjs`.
+These are required for dynamic imports and child Node processes to resolve
+workspace sources instead of nonexistent `chord/dist` or `pi-tui/dist` modules.
+A loader confined to the `pi` wrapper does not preserve those behaviors.
+Compare individual native test outcomes across image changes; a total below the
+failure allowance does not justify new failures in previously passing cases.
+
+The root-owned build manifest still hashes generated workspace files; source
+mode requires at least 40 model catalog JSON entries instead of 500 dist entries.
+Its image carries `ai.infra.bench.workspace-mode=source`, and `build.py` records
+`workspace_mode: "source"`, `dist_built: false` and `pi: "… (workspace source)"`
+in its `IMAGE` log record. This does not constitute a successful dist build.
+
+For frozen Pi `71dca871bc80b6bc97be37f0ca3189399d651fff`, the unmodified
+`npm run build:offline` passes catalog validation but reports TS2322 at
+`packages/ai/src/api/google-shared.ts:402`: `FinishReason.TOO_MANY_TOOL_CALLS` is
+not assignable to `never`. Source mode preserves the original source execution
+contract without changing that code, dependency lock or TypeScript checks; the
+compiler failure remains a recorded limitation.
 
 ## Scope check by content
 

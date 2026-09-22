@@ -33,7 +33,7 @@ RUN test -n "$PI_BASE_SHA" \
  && test -z "$(git -C /src/pi status --porcelain)"
 
 ######################### NODE WORKSPACE #########################
-FROM node:22.19.0-bookworm-slim@sha256:4a4884e8a44826194dff92ba316264f392056cbe243dcc9fd3551e71cea02b90
+FROM __PI_NODE_IMAGE__
 ENV DEBIAN_FRONTEND=noninteractive \
     PI_OFFLINE=1 \
     PI_TELEMETRY=0 \
@@ -87,7 +87,7 @@ ARG PI_AI_VERSION=0.85.1
 ARG PI_AI_TARBALL_SHA256=af7d11986179445ce6fe88b37d57de22f823c0ffd3a65cae31c555b7f5e99253
 RUN echo "$PI_LOCK_SHA256  package-lock.json" | sha256sum -c - \
  && test "$(node -p "require('./packages/ai/package.json').version")" = "$PI_AI_VERSION" \
- && npm ci --no-audit --no-fund \
+ && npm ci__PI_NPM_IGNORE_SCRIPTS__ --no-audit --no-fund \
  && npm cache clean --force \
  && curl -fsSL -o /tmp/pi-ai.tgz "https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-${PI_AI_VERSION}.tgz" \
  && echo "$PI_AI_TARBALL_SHA256  /tmp/pi-ai.tgz" | sha256sum -c - \
@@ -96,51 +96,35 @@ RUN echo "$PI_LOCK_SHA256  package-lock.json" | sha256sum -c - \
  && cp -r /tmp/pi-ai/package/dist/providers/data packages/ai/src/providers/data \
  && rm -rf /tmp/pi-ai /tmp/pi-ai.tgz
 
-# The build itself runs without network: pi's own root `build:offline` script (the root
-# `build` with the ai package's `build:offline`, i.e. without `generate-models`). No tracked
-# file may change.
-RUN --network=none npm run build:offline \
- && test -z "$(git status --porcelain)"
-
-# Smoke: the published entry points exist, the faux provider is importable,
-# vitest collects, and the CLI starts without network.
-RUN test -f packages/coding-agent/dist/index.js \
- && test -f packages/ai/dist/providers/faux.js \
- && node -e "import('@earendil-works/pi-ai/providers/faux').then(m => { if (typeof m.fauxProvider !== 'function') throw new Error('faux missing'); })" \
- && (cd packages/coding-agent && node ../../node_modules/vitest/vitest.mjs run --reporter=dot test/path-utils.test.ts) \
- && node packages/coding-agent/dist/cli.js --version \
- && node --input-type=module -e "import { DefaultResourceLoader, SettingsManager } from '@earendil-works/pi-coding-agent'; const l = new DefaultResourceLoader({ cwd: '/workspace/pi', agentDir: '/tmp/pi-smoke-agent', settingsManager: SettingsManager.inMemory({}), additionalExtensionPaths: ['/workspace/pi/packages/coding-agent/examples/extensions/hello.ts'], noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true }); await l.reload(); const e = l.getExtensions(); if (e.errors.length || e.extensions.length !== 1) { console.error(e.errors); process.exit(1); }" \
- && command -v fd && command -v rg
-
-# Agent-phase view: no verifier, solution, or validation material is present.
-# The agent phase runs as the unprivileged `node` user (task.toml `[agent].user`), and
+__PI_WORKSPACE____PI_SOURCE_CLI__# Agent-phase view: no verifier, solution, or validation material is present.
+# The agent phase runs as the unprivileged `__PI_AGENT_USER__` user (task.toml `[agent].user`), and
 # so does the verifier's execution of candidate code (tests/test.sh runs every suite via
-# `su node`). The checkout belongs to the agent; the installed toolchain (node_modules,
+# `su __PI_AGENT_USER__`). The checkout belongs to the agent; the installed toolchain (node_modules,
 # node, python3, bash) stays root-owned and read-only for it, so candidate code cannot
 # rewrite the runner, interpreter or baseline that later produce the verifier's reports.
 # vite needs a writable temp dir next to each package's node_modules, and root's git must
 # accept a checkout owned by another user. This ownership is established BEFORE the
-# baseline runs, so the baseline is recorded under the same `node` conditions the
+# baseline runs, so the baseline is recorded under the same `__PI_AGENT_USER__` conditions the
 # candidate suite runs under (see below).
-RUN chown -R node:node /workspace/pi \
+__PI_CREATE_AGENT_USER__RUN chown -R __PI_AGENT_USER__:__PI_AGENT_USER__ /workspace/pi \
  && find /workspace/pi -type d -name node_modules -prune -exec chown -R root:root {} + \
  && find /workspace/pi -type d -name node_modules -prune -exec chmod -R go-w {} + \
  && for d in $(find /workspace/pi -type d -name node_modules -not -path '*/node_modules/*/node_modules'); do \
-      install -d -o node -g node -m 0755 "$d/.vite-temp" "$d/.vite"; \
+      install -d -o __PI_AGENT_USER__ -g __PI_AGENT_USER__ -m 0755 "$d/.vite-temp" "$d/.vite"; \
     done \
  && git config --system --add safe.directory /workspace/pi \
- && su node -c 'cd /workspace/pi && git status --porcelain | wc -l && test ! -w node_modules/vitest/vitest.mjs' \
+ && su __PI_AGENT_USER__ -c 'cd /workspace/pi && git status --porcelain | wc -l && test ! -w node_modules/vitest/vitest.mjs' \
  && test "$(stat -c %U /workspace/pi/node_modules)" = root
 
 # PASS_TO_PASS baseline: pi's own coding-agent suite on the unmodified Base, run
 # with the verifier's environment (offline, no credentials, throwaway HOME) AS THE
-# `node` USER, so the baseline pass/fail set matches what the candidate suite (also
-# run as `node` by tests/test.sh) produces. A few cases fail in this environment on
+# `__PI_AGENT_USER__` USER, so the baseline pass/fail set matches what the candidate suite (also
+# run as `__PI_AGENT_USER__` by tests/test.sh) produces. A few cases fail in this environment on
 # Base itself (install-method detection when the install path is not writable, a
 # timing-sensitive coalesced-reload case); baseline_check.py records them and the
 # verifier only requires cases that passed on Base to keep passing. --retry 2 absorbs
 # the timing-sensitive cases that flake inside containers; the verifier uses the same
-# policy. node writes the report to a node-owned scratch dir; root copies it into the
+# policy. __PI_AGENT_USER__ writes the report to a __PI_AGENT_USER__-owned scratch dir; root copies it into the
 # root-owned /opt/pi-baseline so candidate code can never rewrite the baseline.
 COPY <<'PI_BASELINE_CHECK_EOF' /opt/pi-baseline/baseline_check.py
 #!/usr/bin/env python3
@@ -177,8 +161,8 @@ if totals["failures"] + totals["errors"] > ALLOWED_ENVIRONMENTAL_FAILURES:
     print("too many environmental failures on Base; fix the image", file=sys.stderr)
     sys.exit(1)
 PI_BASELINE_CHECK_EOF
-RUN install -d -o node -g node /tmp/pi-baseline-home /tmp/pi-baseline-out \
- && (su -p node -s /bin/bash -c 'cd /workspace/pi/packages/coding-agent \
+RUN install -d -o __PI_AGENT_USER__ -g __PI_AGENT_USER__ /tmp/pi-baseline-home /tmp/pi-baseline-out \
+ && (su -p __PI_AGENT_USER__ -s /bin/bash -c 'cd /workspace/pi/packages/coding-agent \
       && HOME=/tmp/pi-baseline-home PI_OFFLINE=1 PI_TELEMETRY=0 PI_NO_LOCAL_LLM=1 \
          node ../../node_modules/vitest/vitest.mjs run --retry 2 --reporter=junit \
          --outputFile=/tmp/pi-baseline-out/coding-agent-junit.xml \
@@ -189,7 +173,7 @@ RUN install -d -o node -g node /tmp/pi-baseline-home /tmp/pi-baseline-out \
  && python3 /opt/pi-baseline/baseline_check.py \
  && rm -rf /tmp/pi-baseline-out /tmp/pi-baseline-home \
  && for d in $(find /workspace/pi -type d -name node_modules -not -path '*/node_modules/*/node_modules'); do \
-      rm -rf "$d/.vite-temp" "$d/.vite"; install -d -o node -g node -m 0755 "$d/.vite-temp" "$d/.vite"; \
+      rm -rf "$d/.vite-temp" "$d/.vite"; install -d -o __PI_AGENT_USER__ -g __PI_AGENT_USER__ -m 0755 "$d/.vite-temp" "$d/.vite"; \
     done
 
 # Identity of what the image build generated inside the checkout: the built dist/ trees
@@ -201,11 +185,11 @@ RUN install -d -o node -g node /tmp/pi-baseline-home /tmp/pi-baseline-out \
 # from unchanged sources reproduces these bytes.
 RUN cd /workspace/pi \
  && git ls-files --others -z | grep -zv -E '(^|/)node_modules/' | sort -z | xargs -0 sha256sum > /opt/pi-baseline/build-manifest.sha256 \
- && test "$(grep -c -E '  packages/coding-agent/dist/' /opt/pi-baseline/build-manifest.sha256)" -gt 500 \
+ && __PI_BUILD_MANIFEST_CHECK__ \
  && chown root:root /opt/pi-baseline/build-manifest.sha256 && chmod 0444 /opt/pi-baseline/build-manifest.sha256
 RUN test ! -e /tests && test ! -e /solution && test ! -e /validation
 
-LABEL ai.infra.bench.environment-template=pi-harbor-node \
+__PI_WORKSPACE_LABEL__LABEL ai.infra.bench.environment-template=pi-harbor-node \
       ai.infra.bench.base-commit=$PI_BASE_SHA \
       ai.infra.bench.dependency-cutoff=$PI_DEPENDENCY_CUTOFF \
       ai.infra.bench.cache-namespace=$PI_CACHE_NAMESPACE
