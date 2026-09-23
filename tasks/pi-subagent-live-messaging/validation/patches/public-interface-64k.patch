@@ -7,21 +7,21 @@ index da74f32660f216258f87cb73fdbc939318b89556..4afc297a1e57d696ceb60f08fd82601f
  - Agents discovered fresh on each invocation (allows editing mid-session)
  - Parallel mode limited to 8 tasks, 4 concurrent
 +
-+## Live team collaboration
++## Live team communication
 +
-+For a parallel dispatch, set `collaboration: true` and give every task a unique
-+`id`, for example `{ collaboration: true, tasks: [{id: "research", agent:
++For a parallel dispatch, set `communication: true` and give every task a unique
++`id`, for example `{ communication: true, tasks: [{id: "research", agent:
 +"worker", task: "Investigate"}, {id: "implement", agent: "worker", task: "Implement"}] }`.
-+Workers use `crew_roster({})` to discover instance IDs, then
-+`crew_send({to: "implement", body: "The endpoint requires cursor pagination"})`
-+or `crew_send({broadcast: true, body: "The endpoint requires cursor pagination"})`.
++Workers use `team_members({})` to discover instance IDs, then
++`team_send({to: "implement", message: "The endpoint requires cursor pagination"})`
++or `team_send({broadcast: true, message: "The endpoint requires cursor pagination"})`.
 +Incoming findings enter model context at the next turn boundary automatically.
 +Sending reports accepted and failed recipients; it does not await a response.
 +IDs are scoped to one dispatch. Pending and finished workers cannot receive new
 +messages. Cancellation cleans up the team's temporary mailboxes after children stop.
 +This implementation uses local temporary storage and does not recover from host crashes.
 +
-+This interface returns `{me, peers: [{address}]}` for the roster (other teammates only), and `{delivered, rejected}` for sends. Findings use the `body` field and a documented limit of 65536 UTF-8 bytes.
++This interface returns a peer-only `{self, members: [{id, label}], extra}` roster and `{accepted, failed, extra}` send results. Findings use `message` with a limit of 65536 UTF-8 bytes.
 diff --git a/packages/coding-agent/examples/extensions/subagent/index.ts b/packages/coding-agent/examples/extensions/subagent/index.ts
 index 71b1a33dc75981289f9a8beaa8e3ebb129ef1ba3..fdd6a5671c286ec618c91e883f32e08d012d9d0b 100644
 --- a/packages/coding-agent/examples/extensions/subagent/index.ts
@@ -82,7 +82,7 @@ index 71b1a33dc75981289f9a8beaa8e3ebb129ef1ba3..fdd6a5671c286ec618c91e883f32e08d
  }
  
  const TaskItem = Type.Object({
-+	id: Type.Optional(Type.String({ description: "Unique worker instance ID when collaboration is enabled" })),
++	id: Type.Optional(Type.String({ description: "Unique worker instance ID when communication is enabled" })),
  	agent: Type.String({ description: "Name of the agent to invoke" }),
  	task: Type.String({ description: "Task to delegate to the agent" }),
  	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
@@ -90,7 +90,7 @@ index 71b1a33dc75981289f9a8beaa8e3ebb129ef1ba3..fdd6a5671c286ec618c91e883f32e08d
  });
  
  const SubagentParams = Type.Object({
-+	collaboration: Type.Optional(Type.Boolean({ description: "Enable collaboration in this parallel dispatch" })),
++	communication: Type.Optional(Type.Boolean({ description: "Enable communication in this parallel dispatch" })),
  	agent: Type.Optional(Type.String({ description: "Name of the agent to invoke (for single mode)" })),
  	task: Type.Optional(Type.String({ description: "Task to delegate (for single mode)" })),
  	tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
@@ -98,7 +98,7 @@ index 71b1a33dc75981289f9a8beaa8e3ebb129ef1ba3..fdd6a5671c286ec618c91e883f32e08d
  			const hasTasks = (params.tasks?.length ?? 0) > 0;
  			const hasSingle = Boolean(params.agent && params.task);
  			const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle);
-+			if (params.collaboration && !hasTasks) throw new Error("Communication requires parallel tasks");
++			if (params.communication && !hasTasks) throw new Error("Communication requires parallel tasks");
  
  			const makeDetails =
  				(mode: "single" | "parallel" | "chain") =>
@@ -129,7 +129,7 @@ index 71b1a33dc75981289f9a8beaa8e3ebb129ef1ba3..fdd6a5671c286ec618c91e883f32e08d
 -					emitParallelUpdate();
 -					return result;
 -				});
-+				const team = params.collaboration ? createTeam(params.tasks) : undefined;
++				const team = params.communication ? createTeam(params.tasks) : undefined;
 +				let results: SingleResult[];
 +				try {
 +					results = await mapWithConcurrencyLimit(params.tasks, MAX_CONCURRENCY, async (t, index) => {
@@ -169,13 +169,14 @@ index 71b1a33dc75981289f9a8beaa8e3ebb129ef1ba3..fdd6a5671c286ec618c91e883f32e08d
  				const summaries = results.map((r) => {
 diff --git a/packages/coding-agent/examples/extensions/subagent/team-worker.ts b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..3d117d80bc31776d89aac6d88c7126020a56d7ef
+index 0000000000000000000000000000000000000000..aa0d4ff8d35f153a73fae7eb317a2e5517273938
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,107 @@
 +import { randomUUID } from "node:crypto";
 +import * as fs from "node:fs";
 +import * as path from "node:path";
++import type { AgentMessage } from "@earendil-works/pi-agent-core";
 +import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 +import { Type } from "typebox";
 +import { type Envelope, inbox, locked, readMembers, saveMembers } from "./team.ts";
@@ -185,27 +186,38 @@ index 0000000000000000000000000000000000000000..3d117d80bc31776d89aac6d88c712602
 +	const self = process.env.PI_TEAM_MEMBER;
 +	if (!directory || !self) throw new Error("Team membership is not configured");
 +	let sequence = 0;
++	const pendingContext = new Map<string, Extract<AgentMessage, { role: "custom" }>>();
++	pi.on("context", (event) => {
++		// Steering may be behind unrelated queued input. Include accepted findings
++		// immediately, until their persistent message reaches normal history.
++		for (const message of event.messages) {
++			if (message.role !== "custom" || message.customType !== "team_findings") continue;
++			const details = message.details as { batchId?: string } | undefined;
++			if (details?.batchId) pendingContext.delete(details.batchId);
++		}
++		if (pendingContext.size) return { messages: [...event.messages, ...pendingContext.values()] };
++	});
 +	pi.registerTool({
-+		name: "crew_roster",
++		name: "team_members",
 +		label: "Team members",
 +		description: "Discover the instances in this parallel dispatch.",
 +		parameters: Type.Object({}),
 +		async execute() {
-+			const result = await locked(directory, () => ({ me: self, peers: readMembers(directory).filter((m) => m.id !== self).map((m) => ({ address: m.id })) }));
++			const result = await locked(directory, () => ({ self, members: readMembers(directory).filter((m) => m.id !== self).map((m) => ({ id: m.id, label: m.agent })), extra: "allowed" }));
 +			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
 +		},
 +	});
 +	pi.registerTool({
-+		name: "crew_send",
++		name: "team_send",
 +		label: "Share a finding",
 +		description: "Send a finding to an instance ID or broadcast to current live teammates.",
 +		parameters: Type.Object({
 +			to: Type.Optional(Type.String()),
 +			broadcast: Type.Optional(Type.Boolean()),
-+			body: Type.String(),
++			message: Type.String(),
 +		}),
 +		async execute(_call, args) {
-+			if (!args.body || Buffer.byteLength(args.body, "utf8") > 64 * 1024) {
++			if (!args.message || Buffer.byteLength(args.message, "utf8") > 64 * 1024) {
 +				throw new Error("message must be nonempty and no larger than 64 KiB");
 +			}
 +			if ((args.broadcast === true) === (typeof args.to === "string" && args.to.length > 0)) {
@@ -218,7 +230,7 @@ index 0000000000000000000000000000000000000000..3d117d80bc31776d89aac6d88c712602
 +					: [args.to!];
 +				const accepted: string[] = [];
 +				const failed: { id: string; reason: string }[] = [];
-+				const envelope: Envelope = { id: randomUUID(), from: self, text: args.body, sequence: ++sequence };
++				const envelope: Envelope = { id: randomUUID(), from: self, text: args.message, sequence: ++sequence };
 +				for (const id of targets) {
 +					const member = members.find((entry) => entry.id === id);
 +					if (!member || member.state !== "running" || id === self) {
@@ -232,12 +244,12 @@ index 0000000000000000000000000000000000000000..3d117d80bc31776d89aac6d88c712602
 +						failed.push({ id, reason: String(error) });
 +					}
 +				}
-+				return { delivered: accepted, rejected: failed };
++				return { accepted, failed, extra: "allowed" };
 +			});
 +			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
 +		},
 +	});
-+	pi.on("turn_end", async (event) => {
++	pi.on("turn_end", async (event, ctx) => {
 +		const messages = await locked(directory, () => {
 +			const mailbox = inbox(directory, self);
 +			const files = fs.readdirSync(mailbox).filter((file) => file.endsWith(".json"));
@@ -245,7 +257,7 @@ index 0000000000000000000000000000000000000000..3d117d80bc31776d89aac6d88c712602
 +			queued.sort((a, b) => a.from.localeCompare(b.from) || a.sequence - b.sequence);
 +			for (const file of files) fs.unlinkSync(path.join(mailbox, file));
 +			const terminal = event.message.role === "assistant" && event.message.stopReason !== "toolUse";
-+			if (queued.length === 0 && terminal) {
++			if (queued.length === 0 && terminal && !ctx.hasPendingMessages()) {
 +				const members = readMembers(directory);
 +				const member = members.find((entry) => entry.id === self);
 +				if (member) member.state = "finished";
@@ -254,15 +266,17 @@ index 0000000000000000000000000000000000000000..3d117d80bc31776d89aac6d88c712602
 +			return queued;
 +		});
 +		if (messages.length > 0) {
-+			pi.sendMessage(
-+				{
-+					customType: "team_findings",
-+					content: messages.map((message) => `Message from ${message.from}:\n${message.text}`).join("\n\n"),
-+					display: true,
-+					details: { messages },
-+				},
-+				{ deliverAs: "steer", triggerTurn: true },
-+			);
++			const batchId = randomUUID();
++			const message: Extract<AgentMessage, { role: "custom" }> = {
++				role: "custom",
++				customType: "team_findings",
++				content: messages.map((message) => `Message from ${message.from}:\n${message.text}`).join("\n\n"),
++				display: true,
++				details: { messages, batchId },
++				timestamp: Date.now(),
++			};
++			pendingContext.set(batchId, message);
++			pi.sendMessage(message, { deliverAs: "steer", triggerTurn: true });
 +		}
 +	});
 +}

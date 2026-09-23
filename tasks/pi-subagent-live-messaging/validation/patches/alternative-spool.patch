@@ -2,7 +2,7 @@ diff --git a/packages/coding-agent/examples/extensions/subagent/README.md b/pack
 index da74f32..95d29c9 100644
 --- a/packages/coding-agent/examples/extensions/subagent/README.md
 +++ b/packages/coding-agent/examples/extensions/subagent/README.md
-@@ -175,3 +175,17 @@ Project agents override user agents with the same name when `agentScope: "both"`
+@@ -175,3 +175,19 @@ Project agents override user agents with the same name when `agentScope: "both"`
  - Parallel model-visible output is capped at 50 KB per task; full results remain in tool details
  - Agents discovered fresh on each invocation (allows editing mid-session)
  - Parallel mode limited to 8 tasks, 4 concurrent
@@ -17,6 +17,8 @@ index da74f32..95d29c9 100644
 +or `team_send({broadcast: true, message: "The endpoint requires cursor pagination"})`.
 +Incoming findings enter model context at the next turn boundary automatically.
 +Sending reports accepted and failed recipients; it does not await a response.
++Messages may contain up to 1 MiB (1,048,576 bytes) of UTF-8 text. Larger
++messages are rejected explicitly without delivery.
 +IDs are scoped to one dispatch. Pending and finished workers cannot receive new
 +messages. Cancellation cleans up the team's temporary mailboxes after children stop.
 +This implementation uses local temporary storage and does not recover from host crashes.
@@ -167,13 +169,14 @@ index 71b1a33..d301f7b 100644
  				const summaries = results.map((r) => {
 diff --git a/packages/coding-agent/examples/extensions/subagent/team-worker.ts b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
 new file mode 100644
-index 0000000..3a2315b
+index 0000000000000000000000000000000000000000..0086d1c1c4fec00091f9a9be313b19dd49ca159d
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,107 @@
 +import { randomUUID } from "node:crypto";
 +import * as fs from "node:fs";
 +import * as path from "node:path";
++import type { AgentMessage } from "@earendil-works/pi-agent-core";
 +import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 +import { Type } from "typebox";
 +import { type Envelope, inbox, locked, readMembers, saveMembers } from "./team.ts";
@@ -183,6 +186,17 @@ index 0000000..3a2315b
 +	const self = process.env.PI_TEAM_MEMBER;
 +	if (!directory || !self) throw new Error("Team membership is not configured");
 +	let sequence = 0;
++	const pendingContext = new Map<string, Extract<AgentMessage, { role: "custom" }>>();
++	pi.on("context", (event) => {
++		// Steering may be behind unrelated queued input. Include accepted findings
++		// immediately, until their persistent message reaches normal history.
++		for (const message of event.messages) {
++			if (message.role !== "custom" || message.customType !== "team_findings") continue;
++			const details = message.details as { batchId?: string } | undefined;
++			if (details?.batchId) pendingContext.delete(details.batchId);
++		}
++		if (pendingContext.size) return { messages: [...event.messages, ...pendingContext.values()] };
++	});
 +	pi.registerTool({
 +		name: "team_members",
 +		label: "Team members",
@@ -235,7 +249,7 @@ index 0000000..3a2315b
 +			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
 +		},
 +	});
-+	pi.on("turn_end", async (event) => {
++	pi.on("turn_end", async (event, ctx) => {
 +		const messages = await locked(directory, () => {
 +			const mailbox = inbox(directory, self);
 +			const spool = path.join(mailbox, "spool.jsonl");
@@ -243,7 +257,7 @@ index 0000000..3a2315b
 +			const queued = lines ? lines.split("\n").map((line) => JSON.parse(line) as Envelope) : [];
 +			fs.rmSync(spool, { force: true });
 +			const terminal = event.message.role === "assistant" && event.message.stopReason !== "toolUse";
-+			if (queued.length === 0 && terminal) {
++			if (queued.length === 0 && terminal && !ctx.hasPendingMessages()) {
 +				const members = readMembers(directory);
 +				const member = members.find((entry) => entry.id === self);
 +				if (member) member.state = "finished";
@@ -252,15 +266,17 @@ index 0000000..3a2315b
 +			return queued;
 +		});
 +		if (messages.length > 0) {
-+			pi.sendMessage(
-+				{
-+					customType: "team_findings",
-+					content: messages.map((message) => `Message from ${message.from}:\n${message.text}`).join("\n\n"),
-+					display: true,
-+					details: { messages },
-+				},
-+				{ deliverAs: "steer", triggerTurn: true },
-+			);
++			const batchId = randomUUID();
++			const message: Extract<AgentMessage, { role: "custom" }> = {
++				role: "custom",
++				customType: "team_findings",
++				content: messages.map((message) => `Message from ${message.from}:\n${message.text}`).join("\n\n"),
++				display: true,
++				details: { messages, batchId },
++				timestamp: Date.now(),
++			};
++			pendingContext.set(batchId, message);
++			pi.sendMessage(message, { deliverAs: "steer", triggerTurn: true });
 +		}
 +	});
 +}

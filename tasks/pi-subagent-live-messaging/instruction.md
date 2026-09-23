@@ -10,6 +10,11 @@ During normal execution, deliver accepted messages once and preserve each sender
 
 Keep each dispatch's messages private to its team, including when a parent launches multiple teams or reuses task identities. Cancelling the parent must stop its children and clean up communication resources. Later dispatches must not receive old messages. Preserve existing subagent behavior and configuration when communication is disabled.
 
-Use the existing subagent entry point. Choose and document how to enable communication, address workers, and expose the communication tools; new tool names, arguments, return formats, and transport are up to you. Include usage examples. Cross-session communication, crash recovery, nested teams, persistent shared memory, and a new UI are outside scope.
+Use the existing `subagent` entry point with `communication: true` and a distinct nonempty string `id` on each parallel task. Workers expose these minimum public interfaces; return the result object as JSON in the tool's text content:
+
+- `team_members({})` returns `{self: string, members: [{id: string}]}`. IDs address task instances in this dispatch. Include running teammates; including self and other team members is optional.
+- `team_send({to: string, message: string})` sends privately; `team_send({broadcast: true, message: string})` broadcasts. Specify exactly one of `to` or `broadcast: true`. Return `{accepted: string[], failed: [{id: string, reason: string}]}`. Each attempted recipient appears once in one of these lists. Invalid arguments may instead produce an explicit tool error.
+
+Support nonempty Unicode text without silent truncation. If you impose a message size limit, document it and explicitly reject messages that exceed it. Beyond the required interfaces above, you may add optional parameters and result fields; internal implementation is unrestricted. Include usage examples. This task only requires live communication within the current team; communication between independently launched Pi sessions, crash recovery, nested teams, and a new UI are outside scope.
 
 Work in `/workspace/pi` with the installed dependencies and deliver code and documentation changes. Pi runs directly from TypeScript source. The six pre-existing provider/catalog errors in `npm run check` are unrelated to this task.

@@ -1,0 +1,24 @@
+--- a/packages/coding-agent/examples/extensions/subagent/team-worker.ts
++++ b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
+@@ -29,7 +29,9 @@
+ 		parameters: Type.Object({}),
+ 		async execute() {
+ 			const result = await locked(directory, () => ({ self, members: readMembers(directory) }));
+-			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
++			const aliases = readMembers(directory).map((member, index) => [member.id, String.fromCharCode(65 + index)] as const);
++            const publicResult = JSON.parse(JSON.stringify(result), (_key, value) => typeof value === "string" ? (aliases.find(([id]) => id === value)?.[1] ?? value) : value);
++            return { content: [{ type: "text", text: JSON.stringify(publicResult) }], details: publicResult };
+ 		},
+ 	});
+ 	pi.registerTool({
+@@ -71,7 +73,9 @@
+ 				}
+ 				return { accepted, failed };
+ 			});
+-			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
++			const aliases = readMembers(directory).map((member, index) => [member.id, String.fromCharCode(65 + index)] as const);
++            const publicResult = JSON.parse(JSON.stringify(result), (_key, value) => typeof value === "string" ? (aliases.find(([id]) => id === value)?.[1] ?? value) : value);
++            return { content: [{ type: "text", text: JSON.stringify(publicResult) }], details: publicResult };
+ 		},
+ 	});
+ 	pi.on("turn_end", async (event, ctx) => {

@@ -81,7 +81,8 @@ can preserve both with `environment/pi-template.json`:
 }
 ```
 
-These are the only accepted keys. Missing keys retain the Node 22.19.0 / `node`
+These keys and the optional `strace_version` below are the only accepted keys.
+Missing keys retain the Node 22.19.0 / `node`
 defaults, both boolean options set to `false`, and `workspace_mode: "prebuilt"`;
 no configuration file preserves the existing generated Dockerfile
 bytes. `node_image` accepts only the two reviewed, digest-pinned Node images in
@@ -114,6 +115,15 @@ dependencies or change the lock. `lock.py` records the same install policy in
 the manifest's `resolver` field. Both options require JSON booleans; strings and
 numbers are rejected. With either option omitted or `false`, its generated
 Dockerfile content remains unchanged.
+
+`strace_version: "6.1-0.1"` optionally installs the reviewed Debian Bookworm
+strace package, with an exact package-version check during the image build.
+No other value is accepted. Omitting the key preserves the generated Dockerfile
+bytes and does not install strace. This is general syscall observation tooling;
+it adds no task-specific fixture, candidate restriction, or tracing privilege.
+Only `pi-subagent-live-messaging` currently enables it. The verifier must still
+check tracing permissions in the actual runtime; installation alone does not
+prove that observation works under Harbor's process and container settings.
 
 ## Source workspace mode
 
