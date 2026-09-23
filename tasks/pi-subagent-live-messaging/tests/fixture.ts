@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { fauxProvider, fauxAssistantMessage, fauxToolCall, observeProviderRequest, observeFixtureReady } from "./trusted_faux.mjs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
@@ -12,66 +12,35 @@ export default function fixture(pi: ExtensionAPI) {
 	const event = async (name: string, fields: Record<string, unknown> = {}) => {
 		if (!role) return; // RPC workers receive their task after session startup.
 		await fetch(`${endpoint}/event`, {
-			method: "POST", body: JSON.stringify({ role, group, event: name, pid: process.pid, resourceHints: Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith("PI_TEAM_"))), ...fields }),
+			method: "POST", body: JSON.stringify({ role, group, event: name, pid: process.pid, ...fields }),
 		});
 	};
 
-    // Test-only OS fault: arm one actual receiver endpoint, then shut its write
-    // half immediately before the candidate attempts the finding write. No send
-    // result is fabricated; the original write and candidate error handling run.
-    let faultArmed = false;
-    let faultChecking = false;
-    if (process.env.PI_TEXT_ENDPOINT_FAULT === "1") {
-        const timer = setInterval(async () => {
-            if (role !== "ROOT" || faultArmed || faultChecking) return;
-            faultChecking = true;
-            try {
-                const plan = await (await fetch(`${endpoint}/fault-plan`, {method:"POST",body:"{}"})).json() as any;
-                if (!plan) return;
-                const handles = (process as any)._getActiveHandles();
-                let target: any;
-                if (plan.mode === "rpc") {
-                    target = handles.find((h:any) => h.constructor?.name === "ChildProcess" && h.pid === plan.pid)?.stdin;
-                } else if (plan.mode === "tcp") {
-                    target = handles.find((h:any) => h.constructor?.name === "Socket" && h.remotePort === plan.port);
-                } else if (plan.mode === "unix") {
-                    for (const h of handles) {
-                        if (h.constructor?.name !== "Socket" || h.remotePort || !Number.isInteger(h._handle?.fd)) continue;
-                        const probe = spawnSync("/usr/bin/python3", ["-I", "-c", "import socket,struct; s=socket.socket(fileno=3); print(struct.unpack('3i',s.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12))[0])"], {stdio:["ignore","pipe","pipe",h._handle.fd]});
-                        if (Number(probe.stdout?.toString().trim()) === plan.pid) { target = h; break; }
-                    }
-                }
-                if (!target || !Number.isInteger(target._handle?.fd)) throw new Error("selected receiver endpoint was not found");
-                const original = target.write;
-                const fd = target._handle.fd;
-                target.write = function(...args: any[]) {
-                    if (String(args[0]).includes(plan.marker)) {
-                        target.write = original;
-                        const fault = spawnSync("/usr/bin/python3", ["-I", "-c", "import socket; socket.socket(fileno=3).shutdown(socket.SHUT_WR)"], {stdio:["ignore","pipe","pipe",fd]});
-                        if (fault.status !== 0) throw new Error(`OS fault failed: ${fault.stderr}`);
-                        const record = spawnSync("/usr/bin/python3", ["-I", "-c", "import urllib.request,sys; urllib.request.urlopen(urllib.request.Request(sys.argv[1],data=sys.argv[2].encode(),method='POST'),timeout=5).read()", `${endpoint}/event`, JSON.stringify({role,group,event:"endpoint_fault_triggered",pid:process.pid,mode:plan.mode,receiverPid:plan.pid})], {stdio:["ignore","pipe","pipe"]});
-                        if (record.status !== 0) throw new Error(`Fault observation failed: ${record.stderr}`);
-                    }
-                    return original.apply(this, args);
-                };
-                faultArmed = true;
-                clearInterval(timer);
-                await event("endpoint_fault_armed", {mode:plan.mode, receiverPid:plan.pid});
-            } catch (error) {
-                await event("endpoint_fault_error", {error:String(error)});
-            } finally { faultChecking = false; }
-        }, 25);
-        timer.unref();
-    }
-	pi.registerProvider("text-test", {
-		baseUrl: `${endpoint}/v1`, apiKey: "local-test-only", api: "openai-completions",
-		headers: { "X-Pi-Test-Pid": String(process.pid) },
-		models: [{
-			id: "scripted", name: "Text behavior test", reasoning: false, input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 4194304, maxTokens: 2097152,
-		}],
-	});
+
+    const faux = fauxProvider({
+        provider: "text-test", api: "faux-pilot", tokenSize: { min: 1048576, max: 1048576 },
+        models: [{ id: "scripted", contextWindow: 4194304, maxTokens: 2097152 }],
+    });
+    const nextResponse = async (context: any, options: any) => {
+        const response = await fetch(`${endpoint}/faux`, {
+            method: "POST", headers: { "X-Pi-Test-Pid": String(process.pid) },
+            body: observeProviderRequest(context), signal: options?.signal,
+        });
+        if (!response.ok) throw new Error(await response.text());
+        const delta = await response.json();
+        // The coordinator decides only what the model says, never peer delivery.
+        faux.appendResponses([nextResponse]);
+        const content = delta.tool_calls
+            ? delta.tool_calls.map((call: any) => fauxToolCall(
+                call.function.name, JSON.parse(call.function.arguments), { id: call.id }))
+            : delta.content ?? "";
+        return fauxAssistantMessage(content, {
+            stopReason: delta.tool_calls ? "toolUse" : "stop",
+        });
+    };
+    faux.setResponses([nextResponse]);
+    pi.registerProvider(faux.provider);
+
 	// Bind unknown identities from the real prompt event, before any model/tool call.
 	// This observes RPC input; it never supplies or changes the worker's context.
 	pi.on("before_agent_start", async ({ prompt }) => {
@@ -100,6 +69,10 @@ export default function fixture(pi: ExtensionAPI) {
 		await event("resource_snapshot", {resources});
 	});
 	pi.on("session_start", async () => { await event("session_start"); });
+    pi.on("tool_execution_end", async (result) => {
+        await event("tool_execution_end", {toolCallId: result.toolCallId, toolName: result.toolName,
+            result: result.result, isError: result.isError});
+    });
 	pi.on("session_shutdown", async () => { await event("session_shutdown"); });
 	pi.on("message_end", async ({ message }) => {
 		if (message.role === "toolResult" && message.isError) {
@@ -116,6 +89,12 @@ export default function fixture(pi: ExtensionAPI) {
 			});
 			if (!response.ok) throw new Error(await response.text());
 			const text = await response.text();
+			if (process.env.PI_TEST_ORDINARY_STEERING === "1" && role === "B" && args.stage === "slow_work") {
+				for (const content of ["Ordinary steering one: continue the investigation.", "Ordinary steering two: keep the answer concise."]) {
+					pi.sendMessage({ customType: "ordinary-steering", content, display: false }, { deliverAs: "steer" });
+				}
+				await event("ordinary_steering_queued", { count: 2 });
+			}
 			await event(`tool_end:${args.stage}`);
 			return { content: [{ type: "text", text }] };
 		},
@@ -128,5 +107,7 @@ export default function fixture(pi: ExtensionAPI) {
 			return {content: [{type: "text", text: await response.text()}]};
 		},
 	});
+
+    observeFixtureReady();
 
 }

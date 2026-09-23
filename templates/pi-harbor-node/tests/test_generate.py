@@ -41,12 +41,39 @@ class GenerateTest(unittest.TestCase):
         return generate.render(self.task, generate.TEMPLATE_PATH.read_text())[1]
 
     def test_existing_tasks_still_render_byte_for_byte(self):
-        # Catches default substitutions that silently invalidate unchanged tasks.
-        for name in ("pi-background-processes", "pi-agent-trace"):
+        # Catches default substitutions that silently invalidate template-managed tasks.
+        # plan-mode and safe-file-rollback use task-local Dockerfiles.
+        for name in ("pi-background-processes", "pi-agent-trace", "pi-context-management"):
             with self.subTest(task=name):
                 task = ROOT / "tasks" / name
                 output, actual = generate.render(task, generate.TEMPLATE_PATH.read_text())
                 self.assertEqual(output.read_bytes(), actual.encode())
+
+    def test_strace_version_installs_only_the_pinned_tool(self):
+        config = {"node_image": NODE_22_23, "agent_user": "agent"}
+        self.config.write_text(json.dumps(config))
+        default = self.render()
+        self.assertNotIn("strace", default)
+        self.config.write_text(json.dumps({**config, "strace_version": "6.1-0.1"}))
+        actual = self.render()
+        self.assertIn("apt-get install -y --no-install-recommends strace=6.1-0.1", actual)
+        self.assertIn("dpkg-query -W -f='${Version}' strace", actual)
+        self.assertIn('= "6.1-0.1"', actual)
+        # Optional observer tooling must preserve the expensive baseline layers.
+        self.assertLess(actual.index("python3 /opt/pi-baseline/baseline_check.py"), actual.index("strace=6.1-0.1"))
+        self.assertLess(actual.index("strace=6.1-0.1"), actual.index("ENTRYPOINT []"))
+        self.assertNotIn("__PI_", actual)
+        self.assertNotRegex(actual, r"(?m)^COPY (?!--from=|<<)")
+
+    def test_unreviewed_strace_versions_never_overwrite_dockerfile(self):
+        for version in (None, False, True, 6.1, [], {}, "", "latest", "6.2-0.1", "6.1-0.1; id", "6.1-0.1\nRUN id"):
+            with self.subTest(version=version):
+                self.config.write_text(json.dumps({"node_image": NODE_22_23, "agent_user": "agent", "strace_version": version}))
+                self.output.write_text("do not replace\n")
+                proc = subprocess.run([sys.executable, str(TEMPLATE_DIR / "generate.py"), str(self.task)], capture_output=True, text=True)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIn("strace_version must be 6.1-0.1", proc.stderr)
+                self.assertEqual(self.output.read_text(), "do not replace\n")
 
     def test_config_preserves_node_runtime_and_agent_ownership(self):
         # Catches ignored runtime configuration and incomplete user substitution.

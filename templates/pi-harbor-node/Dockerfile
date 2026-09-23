@@ -193,5 +193,5 @@ __PI_WORKSPACE_LABEL__LABEL ai.infra.bench.environment-template=pi-harbor-node \
       ai.infra.bench.base-commit=$PI_BASE_SHA \
       ai.infra.bench.dependency-cutoff=$PI_DEPENDENCY_CUTOFF \
       ai.infra.bench.cache-namespace=$PI_CACHE_NAMESPACE
-ENTRYPOINT []
+__PI_OPTIONAL_TOOLS__ENTRYPOINT []
 CMD ["sleep", "infinity"]

@@ -1,0 +1,10 @@
+--- a/packages/coding-agent/examples/extensions/subagent/team-worker.ts
++++ b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
+@@ -50,6 +50,7 @@
+ 			}
+ 			const result = await locked(directory, () => {
+ 				const members = readMembers(directory);
++                if (args.to && (args.to === self || !members.some((member) => member.id === args.to))) throw new Error("Invalid recipient: " + args.to);
+ 				const targets = args.broadcast
+ 					? members.filter((member) => member.state === "running" && member.id !== self).map((member) => member.id)
+ 					: [args.to!];

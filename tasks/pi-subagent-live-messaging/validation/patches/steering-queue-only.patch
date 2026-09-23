@@ -1,0 +1,74 @@
+diff --git a/packages/coding-agent/examples/extensions/subagent/team-worker.ts b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
+--- a/packages/coding-agent/examples/extensions/subagent/team-worker.ts
++++ b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
+@@ -1,7 +1,6 @@
+ import { randomUUID } from "node:crypto";
+ import * as fs from "node:fs";
+ import * as path from "node:path";
+-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+ import { Type } from "typebox";
+ import { type Envelope, inbox, locked, readMembers, saveMembers } from "./team.ts";
+@@ -11,17 +10,6 @@
+ 	const self = process.env.PI_TEAM_MEMBER;
+ 	if (!directory || !self) throw new Error("Team membership is not configured");
+ 	let sequence = 0;
+-	const pendingContext = new Map<string, Extract<AgentMessage, { role: "custom" }>>();
+-	pi.on("context", (event) => {
+-		// Steering may be behind unrelated queued input. Include accepted findings
+-		// immediately, until their persistent message reaches normal history.
+-		for (const message of event.messages) {
+-			if (message.role !== "custom" || message.customType !== "team_findings") continue;
+-			const details = message.details as { batchId?: string } | undefined;
+-			if (details?.batchId) pendingContext.delete(details.batchId);
+-		}
+-		if (pendingContext.size) return { messages: [...event.messages, ...pendingContext.values()] };
+-	});
+ 	pi.registerTool({
+ 		name: "team_members",
+ 		label: "Team members",
+@@ -74,7 +62,7 @@
+ 			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+ 		},
+ 	});
+-	pi.on("turn_end", async (event, ctx) => {
++	pi.on("turn_end", async (event) => {
+ 		const messages = await locked(directory, () => {
+ 			const mailbox = inbox(directory, self);
+ 			const files = fs.readdirSync(mailbox).filter((file) => file.endsWith(".json"));
+@@ -82,7 +70,7 @@
+ 			queued.sort((a, b) => a.from.localeCompare(b.from) || a.sequence - b.sequence);
+ 			for (const file of files) fs.unlinkSync(path.join(mailbox, file));
+ 			const terminal = event.message.role === "assistant" && event.message.stopReason !== "toolUse";
+-			if (queued.length === 0 && terminal && !ctx.hasPendingMessages()) {
++			if (queued.length === 0 && terminal) {
+ 				const members = readMembers(directory);
+ 				const member = members.find((entry) => entry.id === self);
+ 				if (member) member.state = "finished";
+@@ -91,17 +79,15 @@
+ 			return queued;
+ 		});
+ 		if (messages.length > 0) {
+-			const batchId = randomUUID();
+-			const message: Extract<AgentMessage, { role: "custom" }> = {
+-				role: "custom",
+-				customType: "team_findings",
+-				content: messages.map((message) => `Message from ${message.from}:\n${message.text}`).join("\n\n"),
+-				display: true,
+-				details: { messages, batchId },
+-				timestamp: Date.now(),
+-			};
+-			pendingContext.set(batchId, message);
+-			pi.sendMessage(message, { deliverAs: "steer", triggerTurn: true });
++			pi.sendMessage(
++				{
++					customType: "team_findings",
++					content: messages.map((message) => `Message from ${message.from}:\n${message.text}`).join("\n\n"),
++					display: true,
++					details: { messages },
++				},
++				{ deliverAs: "steer", triggerTurn: true },
++			);
+ 		}
+ 	});
+ }

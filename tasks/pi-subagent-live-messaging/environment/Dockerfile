@@ -219,5 +219,10 @@ LABEL ai.infra.bench.environment-template=pi-harbor-node \
       ai.infra.bench.base-commit=$PI_BASE_SHA \
       ai.infra.bench.dependency-cutoff=$PI_DEPENDENCY_CUTOFF \
       ai.infra.bench.cache-namespace=$PI_CACHE_NAMESPACE
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends strace=6.1-0.1 \
+ && test "$(dpkg-query -W -f='${Version}' strace)" = "6.1-0.1" \
+ && rm -rf /var/lib/apt/lists/*
+
 ENTRYPOINT []
 CMD ["sleep", "infinity"]

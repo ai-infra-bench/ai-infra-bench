@@ -1,0 +1,21 @@
+diff --git a/packages/coding-agent/examples/extensions/subagent/team-worker.ts b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
+--- a/packages/coding-agent/examples/extensions/subagent/team-worker.ts
++++ b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
+@@ -11,6 +11,7 @@
+ 	const self = process.env.PI_TEAM_MEMBER;
+ 	if (!directory || !self) throw new Error("Team membership is not configured");
+ 	let sequence = 0;
++	let replay: Envelope[] = [];
+ 	const pendingContext = new Map<string, Extract<AgentMessage, { role: "custom" }>>();
+ 	pi.on("context", (event) => {
+ 		// Steering may be behind unrelated queued input. Include accepted findings
+@@ -90,6 +91,9 @@
+ 			}
+ 			return queued;
+ 		});
++		const current = messages.slice();
++		messages.push(...replay);
++		replay = current;
+ 		if (messages.length > 0) {
+ 			const batchId = randomUUID();
+ 			const message: Extract<AgentMessage, { role: "custom" }> = {
