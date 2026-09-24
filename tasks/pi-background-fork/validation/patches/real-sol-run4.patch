@@ -1,0 +1,626 @@
+diff --git a/packages/coding-agent/examples/extensions/fork/README.md b/packages/coding-agent/examples/extensions/fork/README.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..720b4cd8aadb4cea353b4ca2438abee5f83ecdf0
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/fork/README.md
+@@ -0,0 +1,11 @@
++# Fork extension
++
++Add this extension to the agent directory's `settings.json`:
++
++```json
++{
++  "extensions": ["/absolute/path/to/pi/packages/coding-agent/examples/extensions/fork/index.ts"]
++}
++```
++
++The `fork` tool accepts `{ "task": "..." }`. It starts a separate pi process with a snapshot of the current conversation, using the parent's model, thinking level, agent directory, and settings. The process writes a linked session file in the parent's session directory. Its final answer or failure appears in the parent session as a visible `fork-result` message. Running forks stop when the parent session ends.
+diff --git a/packages/coding-agent/examples/extensions/fork/index.ts b/packages/coding-agent/examples/extensions/fork/index.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c4b8549e6dc1f9f38ccfdeb0bfab0c05148d28a2
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/fork/index.ts
+@@ -0,0 +1,357 @@
++import { type ChildProcess, spawn } from "node:child_process";
++import { randomUUID } from "node:crypto";
++import { existsSync } from "node:fs";
++import { basename } from "node:path";
++import type { AgentMessage } from "@earendil-works/pi-agent-core";
++import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
++import {
++	convertToLlm,
++	type ExtensionAPI,
++	type ExtensionContext,
++	SessionManager,
++} from "@earendil-works/pi-coding-agent";
++import { Type } from "typebox";
++
++const PARENT_PID_ENV = "PI_FORK_PARENT_PID";
++
++interface ForkResultDetails {
++	forkId: string;
++	status: "completed" | "failed";
++	sessionFile?: string;
++	error?: string;
++}
++
++interface PendingResult {
++	details: ForkResultDetails;
++	content: string;
++	seen: boolean;
++}
++
++interface ForkState {
++	sessionId: string;
++	api: ExtensionAPI;
++	context: AgentMessage[];
++	inNextRequest: Set<string>;
++	children: Map<string, ChildProcess>;
++	pending: Map<string, PendingResult>;
++	closed: boolean;
++}
++
++// The extension module is evaluated again on /reload. Keep running processes and
++// their delivery state in the pi process, then bind the new ExtensionAPI to them.
++const processState = globalThis as typeof globalThis & {
++	__piExampleForkState?: ForkState;
++	__piExampleForkExitInstalled?: boolean;
++};
++
++function stopForks(state: ForkState): void {
++	state.closed = true;
++	state.pending.clear();
++	for (const child of state.children.values()) {
++		child.kill("SIGTERM");
++		const timer = setTimeout(() => {
++			if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
++		}, 3_000);
++		timer.unref();
++	}
++	state.children.clear();
++}
++
++function deliver(state: ForkState, result: PendingResult): void {
++	if (state.closed || result.seen) return;
++	state.api.sendMessage(
++		{
++			customType: "fork-result",
++			content: result.content,
++			display: true,
++			details: result.details,
++		},
++		{ triggerTurn: true, deliverAs: "steer" },
++	);
++}
++
++function report(state: ForkState, details: ForkResultDetails, content: string): void {
++	if (state.closed) return;
++	const result: PendingResult = { details, content, seen: false };
++	state.pending.set(details.forkId, result);
++	deliver(state, result);
++}
++
++function getInvocation(args: string[]): { command: string; args: string[] } {
++	const script = process.argv[1];
++	if (script && !script.startsWith("/$bunfs/root/") && existsSync(script)) {
++		return { command: process.execPath, args: [script, ...args] };
++	}
++	if (!/^(node|bun)(\.exe)?$/i.test(basename(process.execPath))) {
++		return { command: process.execPath, args };
++	}
++	return { command: "pi", args };
++}
++
++function seedSession(
++	ctx: ExtensionContext,
++	state: ForkState,
++	assistant: AssistantMessage,
++	toolCallId: string,
++	forkId: string,
++): string {
++	const parentSession = ctx.sessionManager.getSessionFile();
++	if (!parentSession) throw new Error("fork requires a saved parent session");
++	const manager = SessionManager.create(ctx.cwd, ctx.sessionManager.getSessionDir(), { parentSession });
++	for (const message of convertToLlm(state.context)) manager.appendMessage(message);
++	manager.appendMessage(assistant);
++	const recordedResults = new Map<string, ToolResultMessage>();
++	for (const entry of ctx.sessionManager.getEntries()) {
++		if (entry.type === "message" && entry.message.role === "toolResult") {
++			recordedResults.set(entry.message.toolCallId, entry.message);
++		}
++	}
++	for (const call of assistant.content) {
++		if (call.type !== "toolCall") continue;
++		const recorded = recordedResults.get(call.id);
++		if (recorded) {
++			manager.appendMessage(recorded);
++			continue;
++		}
++		const ownCall = call.id === toolCallId;
++		const result: ToolResultMessage = {
++			role: "toolResult",
++			toolCallId: call.id,
++			toolName: call.name,
++			content: [
++				{
++					type: "text",
++					text: ownCall ? `Fork ${forkId} started.` : "This tool's result was pending when the fork started.",
++				},
++			],
++			isError: false,
++			timestamp: Date.now(),
++		};
++		manager.appendMessage(result);
++	}
++	const file = manager.getSessionFile();
++	if (!file) throw new Error("fork could not create a session file");
++	return file;
++}
++
++export default function (pi: ExtensionAPI) {
++	// The same settings load this extension in every fork. A fork only watches its
++	// parent and never registers the tool, so recursion is impossible.
++	const parentPid = Number(process.env[PARENT_PID_ENV]);
++	if (Number.isSafeInteger(parentPid) && parentPid > 0) {
++		const timer = setInterval(() => {
++			if (process.ppid !== parentPid) process.exit(143);
++		}, 250);
++		timer.unref();
++		return;
++	}
++
++	let state = processState.__piExampleForkState;
++	if (state && !state.closed) state.api = pi;
++
++	pi.on("session_start", (event, ctx) => {
++		if (event.reason === "reload" && state && !state.closed) {
++			state.api = pi;
++			return;
++		}
++		if (state && !state.closed) stopForks(state);
++		state = {
++			sessionId: ctx.sessionManager.getSessionId(),
++			api: pi,
++			context: [],
++			inNextRequest: new Set(),
++			children: new Map(),
++			pending: new Map(),
++			closed: false,
++		};
++		processState.__piExampleForkState = state;
++	});
++
++	pi.on("session_shutdown", (event) => {
++		if (event.reason !== "reload" && state && !state.closed) stopForks(state);
++	});
++
++	pi.on("context", (event) => {
++		if (!state || state.closed) return;
++		state.context = structuredClone(event.messages);
++		state.inNextRequest.clear();
++		for (const message of event.messages) {
++			if (message.role !== "custom" || message.customType !== "fork-result") continue;
++			const details = message.details as ForkResultDetails | undefined;
++			if (details && state.pending.has(details.forkId)) state.inNextRequest.add(details.forkId);
++		}
++	});
++
++	pi.on("before_provider_request", () => {
++		if (!state || state.closed) return;
++		for (const id of state.inNextRequest) {
++			const result = state.pending.get(id);
++			if (result) result.seen = true;
++		}
++		state.inNextRequest.clear();
++	});
++
++	pi.on("agent_settled", (_event, ctx) => {
++		if (!state || state.closed || ctx.sessionManager.getSessionId() !== state.sessionId) return;
++		for (const result of state.pending.values()) {
++			if (result.seen) continue;
++			const persisted = ctx.sessionManager
++				.getEntries()
++				.some(
++					(entry) =>
++						entry.type === "custom_message" &&
++						entry.customType === "fork-result" &&
++						(entry.details as ForkResultDetails | undefined)?.forkId === result.details.forkId,
++				);
++			if (persisted) {
++				// Escape can stop a run after the result was recorded but before a model
++				// request. Wake the model without recording the result a second time.
++				state.api.sendMessage({ customType: "fork-resume", content: "", display: false }, { triggerTurn: true });
++			} else {
++				deliver(state, result);
++			}
++		}
++	});
++
++	if (!processState.__piExampleForkExitInstalled) {
++		processState.__piExampleForkExitInstalled = true;
++		process.once("exit", () => {
++			const active = processState.__piExampleForkState;
++			if (active && !active.closed) stopForks(active);
++		});
++	}
++
++	pi.registerTool({
++		name: "fork",
++		label: "Fork",
++		description:
++			"Start a background pi process with this conversation and a separate task. Its result returns later.",
++		parameters: Type.Object({ task: Type.String() }),
++		executionMode: "parallel",
++		async execute(toolCallId, params, _signal, _onUpdate, ctx) {
++			if (!params.task.trim()) {
++				return { content: [{ type: "text", text: "Fork task must not be empty." }], details: {}, isError: true };
++			}
++			if (!state || state.closed || state.sessionId !== ctx.sessionManager.getSessionId()) {
++				return { content: [{ type: "text", text: "Fork session is unavailable." }], details: {}, isError: true };
++			}
++			if (!ctx.model) {
++				return { content: [{ type: "text", text: "Fork requires an active model." }], details: {}, isError: true };
++			}
++			const forkState = state;
++			const assistant = [...ctx.sessionManager.getEntries()]
++				.reverse()
++				.find(
++					(entry) =>
++						entry.type === "message" &&
++						entry.message.role === "assistant" &&
++						entry.message.content.some((part) => part.type === "toolCall" && part.id === toolCallId),
++				);
++			if (!assistant || assistant.type !== "message" || assistant.message.role !== "assistant") {
++				return {
++					content: [{ type: "text", text: "Fork could not find its assistant message." }],
++					details: {},
++					isError: true,
++				};
++			}
++			const forkId = randomUUID();
++			let sessionFile: string | undefined;
++			try {
++				sessionFile = seedSession(ctx, forkState, assistant.message, toolCallId, forkId);
++				const args = [
++					"--mode",
++					"json",
++					"--print",
++					"--session",
++					sessionFile,
++					"--model",
++					`${ctx.model.provider}/${ctx.model.id}`,
++					"--thinking",
++					ctx.thinkingLevel ?? "off",
++					params.task,
++				];
++				const invocation = getInvocation(args);
++				const child = spawn(invocation.command, invocation.args, {
++					cwd: ctx.cwd,
++					env: { ...process.env, [PARENT_PID_ENV]: String(process.pid) },
++					stdio: ["ignore", "pipe", "pipe"],
++				});
++				await new Promise<void>((resolve, reject) => {
++					child.once("spawn", resolve);
++					child.once("error", reject);
++				});
++				if (forkState.closed) {
++					child.kill("SIGTERM");
++					return {
++						content: [{ type: "text", text: "Fork session ended before the process started." }],
++						details: {},
++						isError: true,
++					};
++				}
++				forkState.children.set(forkId, child);
++				let stdout = "";
++				let stderr = "";
++				let lastAssistant: AssistantMessage | undefined;
++				child.stdout?.setEncoding("utf8");
++				child.stdout?.on("data", (chunk: string) => {
++					stdout += chunk;
++					let newline = stdout.indexOf("\n");
++					while (newline >= 0) {
++						const line = stdout.slice(0, newline);
++						stdout = stdout.slice(newline + 1);
++						try {
++							const event = JSON.parse(line) as { type?: string; message?: AssistantMessage };
++							if (event.type === "message_end" && event.message?.role === "assistant")
++								lastAssistant = event.message;
++						} catch {
++							/* ignore non-JSON output */
++						}
++						newline = stdout.indexOf("\n");
++					}
++				});
++				child.stderr?.setEncoding("utf8");
++				child.stderr?.on("data", (chunk: string) => {
++					stderr += chunk;
++				});
++				child.once("close", (code, signal) => {
++					forkState.children.delete(forkId);
++					if (forkState.closed) return;
++					const modelError = lastAssistant?.stopReason === "error" || lastAssistant?.stopReason === "aborted";
++					const failed = code !== 0 || signal !== null || modelError || !lastAssistant;
++					const reason = modelError
++						? lastAssistant?.errorMessage || `Model response ended with ${lastAssistant?.stopReason}`
++						: signal
++							? `Fork process was killed by ${signal}`
++							: code !== 0
++								? stderr.trim() || `Fork process exited with code ${code}`
++								: !lastAssistant
++									? stderr.trim() || "Fork produced no assistant response"
++									: undefined;
++					const content = failed
++						? reason || "Fork failed"
++						: (lastAssistant?.content ?? [])
++								.filter((part) => part.type === "text")
++								.map((part) => part.text)
++								.join("");
++					report(
++						forkState,
++						{
++							forkId,
++							status: failed ? "failed" : "completed",
++							sessionFile,
++							...(failed ? { error: content } : {}),
++						},
++						content,
++					);
++				});
++				return { content: [{ type: "text", text: `Fork ${forkId} started.` }], details: { forkId } };
++			} catch (error) {
++				return {
++					content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
++					details: {},
++					isError: true,
++				};
++			}
++		},
++	});
++}
+diff --git a/packages/coding-agent/test/fork-extension.test.ts b/packages/coding-agent/test/fork-extension.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..0feb725d1673824b6a7aaee6fcd96b78d78a0806
+--- /dev/null
++++ b/packages/coding-agent/test/fork-extension.test.ts
+@@ -0,0 +1,240 @@
++import { EventEmitter } from "node:events";
++import * as fs from "node:fs";
++import * as os from "node:os";
++import * as path from "node:path";
++import { PassThrough } from "node:stream";
++import type { AssistantMessage } from "@earendil-works/pi-ai";
++import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
++import forkExtension from "../examples/extensions/fork/index.ts";
++import { type ExtensionAPI, type ExtensionContext, SessionManager } from "../src/index.ts";
++
++const spawned: FakeChild[] = [];
++const spawnCalls: { args: string[]; env: NodeJS.ProcessEnv }[] = [];
++
++class FakeChild extends EventEmitter {
++	stdout = new PassThrough();
++	stderr = new PassThrough();
++	exitCode: number | null = null;
++	signalCode: NodeJS.Signals | null = null;
++	kill = vi.fn(() => true);
++}
++
++vi.mock("node:child_process", () => ({
++	spawn: (_command: string, args: string[], options: { env: NodeJS.ProcessEnv }) => {
++		const child = new FakeChild();
++		spawned.push(child);
++		spawnCalls.push({ args, env: options.env });
++		queueMicrotask(() => child.emit("spawn"));
++		return child;
++	},
++}));
++
++type ToolResult = { content: { type: string; text: string }[]; details?: { forkId: string }; isError?: boolean };
++type ForkTool = {
++	execute: (
++		id: string,
++		params: { task: string },
++		signal: undefined,
++		onUpdate: undefined,
++		ctx: ExtensionContext,
++	) => Promise<ToolResult>;
++};
++
++function assistant(calls: string[]): AssistantMessage {
++	return {
++		role: "assistant",
++		content: calls.map((id) => ({ type: "toolCall", id, name: "fork", arguments: { task: id } })),
++		stopReason: "toolUse",
++		timestamp: Date.now(),
++	} as unknown as AssistantMessage;
++}
++
++function setup(manager: SessionManager, start = true) {
++	const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => void>();
++	let tool: ForkTool | undefined;
++	const sendMessage = vi.fn();
++	const api = {
++		on: (event: string, handler: (event: unknown, ctx: ExtensionContext) => void) => handlers.set(event, handler),
++		registerTool: (definition: ForkTool) => {
++			tool = definition;
++		},
++		sendMessage,
++	} as unknown as ExtensionAPI;
++	forkExtension(api);
++	const ctx = {
++		cwd: manager.getCwd(),
++		model: { provider: "test", id: "offline" },
++		thinkingLevel: "high",
++		sessionManager: manager,
++	} as unknown as ExtensionContext;
++	const emit = (name: string, event: unknown = {}) => handlers.get(name)?.(event, ctx);
++	if (start) emit("session_start", { type: "session_start", reason: "startup" });
++	return {
++		tool: () => {
++			if (!tool) throw new Error("fork tool missing");
++			return tool;
++		},
++		emit,
++		sendMessage,
++		ctx,
++	};
++}
++
++function finish(child: FakeChild, text: string, stopReason: "stop" | "error" = "stop", errorMessage?: string) {
++	child.stdout.write(
++		`${JSON.stringify({
++			type: "message_end",
++			message: { role: "assistant", content: [{ type: "text", text }], stopReason, errorMessage },
++		})}\n`,
++	);
++	child.emit("close", 0, null);
++}
++
++describe("fork example extension", () => {
++	let tempDir: string;
++	let manager: SessionManager;
++
++	beforeEach(() => {
++		tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fork-test-"));
++		manager = SessionManager.create(tempDir, tempDir);
++		spawned.length = 0;
++		spawnCalls.length = 0;
++	});
++
++	afterEach(() => {
++		const active = (globalThis as typeof globalThis & { __piExampleForkState?: { closed: boolean } })
++			.__piExampleForkState;
++		if (active) active.closed = true;
++		fs.rmSync(tempDir, { recursive: true, force: true });
++	});
++
++	test("rejects a blank task without starting a process", async () => {
++		const extension = setup(manager);
++		const result = await extension.tool().execute("call-1", { task: "  " }, undefined, undefined, extension.ctx);
++		expect(result.isError).toBe(true);
++		expect(spawned).toHaveLength(0);
++	});
++
++	test("starts concurrent forks with a compacted request snapshot and linked sessions", async () => {
++		const extension = setup(manager);
++		const request = {
++			role: "user" as const,
++			content: [{ type: "text" as const, text: "compacted context" }],
++			timestamp: 1,
++		};
++		extension.emit("context", { type: "context", messages: [request] });
++		manager.appendMessage(request);
++		manager.appendMessage(assistant(["call-1", "call-2"]));
++
++		const [first, second] = await Promise.all([
++			extension.tool().execute("call-1", { task: "investigate one" }, undefined, undefined, extension.ctx),
++			extension.tool().execute("call-2", { task: "investigate two" }, undefined, undefined, extension.ctx),
++		]);
++		expect(first.details?.forkId).toBeTruthy();
++		expect(second.details?.forkId).not.toBe(first.details?.forkId);
++		expect(spawnCalls).toHaveLength(2);
++		expect(spawnCalls[0].args).toContain("test/offline");
++		expect(spawnCalls[0].args).toContain("high");
++		expect(spawnCalls[0].env.PI_FORK_PARENT_PID).toBe(String(process.pid));
++		for (const call of spawnCalls) {
++			const sessionFile = call.args[call.args.indexOf("--session") + 1];
++			const lines = fs
++				.readFileSync(sessionFile, "utf8")
++				.trim()
++				.split("\n")
++				.map((line) => JSON.parse(line) as Record<string, unknown>);
++			expect(lines[0].parentSession).toBe(manager.getSessionFile());
++			expect((lines[1].message as { content: { text: string }[] }).content[0].text).toBe("compacted context");
++			expect(
++				lines.filter((line) => (line.message as { role?: string } | undefined)?.role === "toolResult"),
++			).toHaveLength(2);
++		}
++
++		finish(spawned[1], "answer two");
++		finish(spawned[0], "answer one");
++		expect(extension.sendMessage).toHaveBeenCalledTimes(2);
++		const messages = extension.sendMessage.mock.calls.map(
++			([message]) =>
++				message as {
++					customType: string;
++					content: string;
++					details: { forkId: string; status: string; sessionFile: string };
++				},
++		);
++		expect(messages.map((message) => message.details.forkId)).toEqual([
++			second.details?.forkId,
++			first.details?.forkId,
++		]);
++		expect(messages.map((message) => message.content)).toEqual(["answer two", "answer one"]);
++		expect(
++			messages.every((message) => message.customType === "fork-result" && message.details.status === "completed"),
++		).toBe(true);
++		extension.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
++	});
++
++	test("reports provider errors and stops a fork when the session changes", async () => {
++		const extension = setup(manager);
++		extension.emit("context", { type: "context", messages: [] });
++		manager.appendMessage(assistant(["call-1", "call-2"]));
++		await extension.tool().execute("call-1", { task: "one" }, undefined, undefined, extension.ctx);
++		await extension.tool().execute("call-2", { task: "two" }, undefined, undefined, extension.ctx);
++		finish(spawned[0], "", "error", "provider rejected request");
++		expect(extension.sendMessage.mock.calls[0][0]).toMatchObject({
++			content: "provider rejected request",
++			details: { status: "failed", error: "provider rejected request" },
++		});
++		extension.emit("session_shutdown", { type: "session_shutdown", reason: "new" });
++		expect(spawned[1].kill).toHaveBeenCalledWith("SIGTERM");
++		finish(spawned[1], "late answer");
++		expect(extension.sendMessage).toHaveBeenCalledTimes(1);
++	});
++
++	test("redelivers a result discarded by Escape and rebinds delivery after reload", async () => {
++		const extension = setup(manager);
++		extension.emit("context", { type: "context", messages: [] });
++		manager.appendMessage(assistant(["call-1"]));
++		const started = await extension
++			.tool()
++			.execute("call-1", { task: "inspect" }, undefined, undefined, extension.ctx);
++		extension.emit("session_shutdown", { type: "session_shutdown", reason: "reload" });
++		const reloaded = setup(manager, false);
++		reloaded.emit("session_start", { type: "session_start", reason: "reload" });
++		finish(spawned[0], "investigation result");
++		expect(reloaded.sendMessage).toHaveBeenCalledTimes(1);
++		expect(extension.sendMessage).not.toHaveBeenCalled();
++
++		// The first steering message is discarded by Escape. Once the run settles,
++		// the result is sent again. A later context request acknowledges delivery.
++		reloaded.emit("agent_settled", { type: "agent_settled" });
++		expect(reloaded.sendMessage).toHaveBeenCalledTimes(2);
++		reloaded.emit("context", {
++			type: "context",
++			messages: [
++				{
++					role: "custom",
++					customType: "fork-result",
++					details: { forkId: started.details?.forkId },
++				},
++			],
++		});
++		reloaded.emit("before_provider_request", { type: "before_provider_request", payload: {} });
++		reloaded.emit("agent_settled", { type: "agent_settled" });
++		expect(reloaded.sendMessage).toHaveBeenCalledTimes(2);
++		reloaded.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
++	});
++
++	test("wakes the model without duplicating a recorded result after an interrupted run", async () => {
++		const extension = setup(manager);
++		extension.emit("context", { type: "context", messages: [] });
++		manager.appendMessage(assistant(["call-1"]));
++		const started = await extension
++			.tool()
++			.execute("call-1", { task: "inspect" }, undefined, undefined, extension.ctx);
++		finish(spawned[0], "answer");
++		manager.appendCustomMessageEntry("fork-result", "answer", true, { forkId: started.details?.forkId });
++		extension.emit("agent_settled", { type: "agent_settled" });
++		expect(extension.sendMessage).toHaveBeenCalledTimes(2);
++		expect(extension.sendMessage.mock.calls[1][0]).toMatchObject({ customType: "fork-resume", display: false });
++		extension.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
++	});
++});

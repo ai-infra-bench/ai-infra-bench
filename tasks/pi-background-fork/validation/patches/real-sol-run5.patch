@@ -1,0 +1,575 @@
+diff --git a/packages/coding-agent/examples/extensions/fork/README.md b/packages/coding-agent/examples/extensions/fork/README.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..95feb157d8957408141effe911decadef1f87015
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/fork/README.md
+@@ -0,0 +1,13 @@
++# Fork extension
++
++Add this extension to the agent directory's `settings.json`:
++
++```json
++{
++  "extensions": ["/absolute/path/to/packages/coding-agent/examples/extensions/fork/index.ts"]
++}
++```
++
++The `fork` tool takes `{ "task": "..." }` and returns a fork ID as soon as a separate pi process starts. The process inherits the current model, thinking level, environment, settings, extensions, and the conversation visible to the model when it called the tool. It saves its own session beside the parent session. Its final answer or failure arrives later as a visible `fork-result` message in the parent session.
++
++Forks stop when their parent session ends. `/reload` leaves them running. A fork cannot use the `fork` tool.
+diff --git a/packages/coding-agent/examples/extensions/fork/index.ts b/packages/coding-agent/examples/extensions/fork/index.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2a06440fbc31e95834d58c10b4e68a7e31a8dfa7
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/fork/index.ts
+@@ -0,0 +1,305 @@
++import { type ChildProcess, spawn } from "node:child_process";
++import { randomUUID } from "node:crypto";
++import { existsSync } from "node:fs";
++import type { AgentMessage } from "@earendil-works/pi-agent-core";
++import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
++import { type ExtensionAPI, type ExtensionContext, SessionManager } from "@earendil-works/pi-coding-agent";
++import { Type } from "typebox";
++
++const CHILD_PARENT_PID = "PI_CODING_AGENT_FORK_PARENT_PID";
++const STATE_KEY = Symbol.for("@earendil-works/pi-coding-agent/examples/fork/state");
++
++interface ForkResult {
++	forkId: string;
++	status: "completed" | "failed";
++	sessionFile?: string;
++	error?: string;
++}
++
++interface PendingResult {
++	details: ForkResult;
++	content: string;
++	sent: boolean;
++	persisted: boolean;
++	seen: boolean;
++	waking: boolean;
++}
++
++interface ForkState {
++	sessionId: string;
++	active: boolean;
++	pi: ExtensionAPI;
++	requestMessages: AgentMessage[];
++	assistant?: AssistantMessage;
++	children: Map<string, ChildProcess>;
++	results: Map<string, PendingResult>;
++}
++
++function getState(): ForkState | undefined {
++	return (globalThis as typeof globalThis & { [STATE_KEY]?: ForkState })[STATE_KEY];
++}
++
++function setState(state: ForkState): void {
++	(globalThis as typeof globalThis & { [STATE_KEY]?: ForkState })[STATE_KEY] = state;
++}
++
++function sendResult(state: ForkState, result: PendingResult, ctx: ExtensionContext): void {
++	if (!state.active || result.seen || result.sent) return;
++	try {
++		state.pi.sendMessage(
++			{ customType: "fork-result", content: result.content, display: true, details: result.details },
++			ctx.isIdle() ? { triggerTurn: true } : { deliverAs: "steer" },
++		);
++		result.sent = true;
++	} catch {
++		// The old extension API is invalid during /reload. session_start retries delivery.
++	}
++}
++
++function stopChildren(state: ForkState): void {
++	state.active = false;
++	for (const child of state.children.values()) {
++		child.kill("SIGTERM");
++		const timer = setTimeout(() => {
++			if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
++		}, 4_000);
++		timer.unref();
++	}
++	state.children.clear();
++	state.results.clear();
++}
++
++function readOutcome(
++	sessionFile: string,
++	seedAssistantEntryId: string,
++	exitCode: number | null,
++	signal: NodeJS.Signals | null,
++	stderr: string,
++): {
++	status: "completed" | "failed";
++	text: string;
++} {
++	let lastAssistant: AssistantMessage | undefined;
++	let afterSeed = false;
++	if (existsSync(sessionFile)) {
++		const entries = SessionManager.open(sessionFile).getEntries();
++		for (const entry of entries) {
++			if (entry.id === seedAssistantEntryId) {
++				afterSeed = true;
++			} else if (afterSeed && entry.type === "message" && entry.message.role === "assistant") {
++				lastAssistant = entry.message;
++			}
++		}
++	}
++	if (signal || exitCode !== 0) {
++		return {
++			status: "failed",
++			text: lastAssistant?.errorMessage || stderr.trim() || `Fork process exited ${signal ?? exitCode}`,
++		};
++	}
++	if (!lastAssistant) return { status: "failed", text: "Fork process ended without an assistant response" };
++	if (lastAssistant.stopReason === "error" || lastAssistant.stopReason === "aborted") {
++		return { status: "failed", text: lastAssistant.errorMessage || `Model response ${lastAssistant.stopReason}` };
++	}
++	return {
++		status: "completed",
++		text: lastAssistant.content
++			.filter((part) => part.type === "text")
++			.map((part) => part.text)
++			.join(""),
++	};
++}
++
++export default function (pi: ExtensionAPI) {
++	const parentPid = process.env[CHILD_PARENT_PID];
++	if (parentPid) {
++		// Every child loads the same settings, but it cannot create another fork.
++		const expectedPid = Number(parentPid);
++		const watchdog = setInterval(() => {
++			if (process.ppid !== expectedPid) process.exit(1);
++		}, 1_000);
++		watchdog.unref();
++		return;
++	}
++
++	let state = getState();
++	pi.on("session_start", (event, ctx) => {
++		const sessionId = ctx.sessionManager.getSessionId();
++		if (event.reason === "reload" && state?.active && state.sessionId === sessionId) {
++			state.pi = pi;
++		} else {
++			if (state?.active) stopChildren(state);
++			state = {
++				sessionId,
++				active: true,
++				pi,
++				requestMessages: [],
++				children: new Map(),
++				results: new Map(),
++			};
++			setState(state);
++		}
++		for (const result of state.results.values()) {
++			if (!result.persisted) {
++				result.sent = false;
++				sendResult(state, result, ctx);
++			}
++		}
++	});
++
++	pi.on("session_shutdown", (event) => {
++		if (event.reason !== "reload" && state?.active) stopChildren(state);
++	});
++
++	pi.on("context", (event) => {
++		if (!state?.active) return;
++		state.requestMessages = structuredClone(event.messages);
++		for (const message of event.messages) {
++			if (message.role !== "custom" || message.customType !== "fork-result") continue;
++			const forkId = (message.details as ForkResult | undefined)?.forkId;
++			const result = forkId && state.results.get(forkId);
++			if (result) result.seen = true;
++		}
++	});
++
++	pi.on("message_end", (event) => {
++		if (!state?.active) return;
++		if (event.message.role === "assistant") state.assistant = structuredClone(event.message);
++		if (event.message.role === "custom" && event.message.customType === "fork-result") {
++			const forkId = (event.message.details as ForkResult | undefined)?.forkId;
++			const result = forkId && state.results.get(forkId);
++			if (result) result.persisted = true;
++		}
++	});
++
++	pi.on("agent_settled", (_event, ctx) => {
++		if (!state?.active) return;
++		for (const result of state.results.values()) {
++			if (result.seen) continue;
++			if (!result.persisted) {
++				result.sent = false; // Escape discards undelivered steering messages.
++				sendResult(state, result, ctx);
++			} else if (!result.waking) {
++				// The message reached the session but Escape stopped the run before a request.
++				result.waking = true;
++				pi.sendMessage({ customType: "fork-wake", content: "", display: false }, { triggerTurn: true });
++			}
++		}
++	});
++
++	pi.registerTool({
++		name: "fork",
++		label: "Fork",
++		description: "Run a side task in a separate pi process with the current conversation. The result arrives later.",
++		parameters: Type.Object({ task: Type.String() }),
++		executionMode: "parallel",
++		async execute(toolCallId, { task }, _signal, _onUpdate, ctx) {
++			if (!task.trim()) throw new Error("Fork task must not be empty");
++			const current = state;
++			const parentSession = ctx.sessionManager.getSessionFile();
++			if (!current?.active || !parentSession || !current.assistant || !ctx.model) {
++				throw new Error("Fork requires a saved parent session and an active model request");
++			}
++
++			const forkId = randomUUID();
++			let sessionFile: string | undefined;
++			let child: ChildProcess | undefined;
++			try {
++				const childSession = SessionManager.create(ctx.cwd, ctx.sessionManager.getSessionDir(), { parentSession });
++				sessionFile = childSession.getSessionFile();
++				if (!sessionFile) throw new Error("Could not create fork session file");
++				// The context event can include compacted summary messages. The session
++				// writer accepts them at runtime, although its public type is narrower.
++				for (const message of current.requestMessages) {
++					childSession.appendMessage(message as Parameters<SessionManager["appendMessage"]>[0]);
++				}
++				const seedAssistantEntryId = childSession.appendMessage(current.assistant);
++				for (const call of current.assistant.content) {
++					if (call.type !== "toolCall") continue;
++					const ownCall = call.id === toolCallId;
++					const text = ownCall
++						? `Fork ${forkId} started.`
++						: "This tool continues in the parent session; its output is not part of this fork's snapshot.";
++					const result: ToolResultMessage = {
++						role: "toolResult",
++						toolCallId: call.id,
++						toolName: call.name,
++						content: [{ type: "text", text }],
++						isError: false,
++						timestamp: Date.now(),
++					};
++					childSession.appendMessage(result);
++				}
++
++				child = spawn(
++					process.execPath,
++					[
++						...process.execArgv,
++						process.argv[1],
++						"--session",
++						sessionFile,
++						"--session-dir",
++						ctx.sessionManager.getSessionDir(),
++						"--model",
++						`${ctx.model.provider}/${ctx.model.id}`,
++						"--thinking",
++						ctx.thinkingLevel ?? "off",
++						"--print",
++						"--",
++						task,
++					],
++					{
++						cwd: ctx.cwd,
++						env: { ...process.env, [CHILD_PARENT_PID]: String(process.pid) },
++						stdio: ["ignore", "ignore", "pipe"],
++					},
++				);
++				current.children.set(forkId, child);
++				let started = false;
++				let stderr = "";
++				child.stderr?.on("data", (chunk: Buffer) => {
++					stderr = (stderr + chunk.toString()).slice(-16_384);
++				});
++				child.once("error", (error) => {
++					stderr = error.message;
++				});
++				child.once("close", (code, signal) => {
++					current.children.delete(forkId);
++					if (!started || !current.active || current.sessionId !== ctx.sessionManager.getSessionId()) return;
++					let outcome: ReturnType<typeof readOutcome>;
++					try {
++						outcome = readOutcome(sessionFile!, seedAssistantEntryId, code, signal, stderr);
++					} catch (error) {
++						outcome = { status: "failed", text: error instanceof Error ? error.message : String(error) };
++					}
++					const details: ForkResult = {
++						forkId,
++						status: outcome.status,
++						...(existsSync(sessionFile!) ? { sessionFile } : {}),
++						...(outcome.status === "failed" ? { error: outcome.text } : {}),
++					};
++					const pending: PendingResult = {
++						details,
++						content: outcome.text,
++						sent: false,
++						persisted: false,
++						seen: false,
++						waking: false,
++					};
++					current.results.set(forkId, pending);
++					sendResult(current, pending, ctx);
++				});
++				await new Promise<void>((resolve, reject) => {
++					child!.once("spawn", resolve);
++					child!.once("error", reject);
++				});
++				started = true;
++				return { content: [{ type: "text", text: `Fork ${forkId} started.` }], details: { forkId } };
++			} catch (error) {
++				current.children.delete(forkId);
++				child?.kill("SIGTERM");
++				throw error;
++			}
++		},
++	});
++}
+diff --git a/packages/coding-agent/test/fork-extension.test.ts b/packages/coding-agent/test/fork-extension.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..64ae9ec9dfb455048e039df7258d5c4e2e278e53
+--- /dev/null
++++ b/packages/coding-agent/test/fork-extension.test.ts
+@@ -0,0 +1,239 @@
++import { type ChildProcess, spawn } from "node:child_process";
++import { EventEmitter } from "node:events";
++import { mkdtempSync, readFileSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import type { AssistantMessage } from "@earendil-works/pi-ai";
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import forkExtension from "../examples/extensions/fork/index.ts";
++import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
++import { SessionManager } from "../src/core/session-manager.ts";
++
++vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
++
++class FakeChild extends EventEmitter {
++	stderr = new EventEmitter();
++	exitCode: number | null = null;
++	signalCode: NodeJS.Signals | null = null;
++	kill = vi.fn((signal: NodeJS.Signals) => {
++		this.signalCode = signal;
++		return true;
++	});
++	finish(code: number, signal: NodeJS.Signals | null = null): void {
++		this.exitCode = code;
++		this.signalCode = signal;
++		this.emit("close", code, signal);
++	}
++}
++
++const assistant = (
++	content: AssistantMessage["content"],
++	stopReason: AssistantMessage["stopReason"] = "toolUse",
++	errorMessage?: string,
++): AssistantMessage => ({
++	role: "assistant",
++	content,
++	api: "openai-responses",
++	provider: "openai",
++	model: "test-model",
++	usage: {
++		input: 0,
++		output: 0,
++		cacheRead: 0,
++		cacheWrite: 0,
++		totalTokens: 0,
++		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
++	},
++	stopReason,
++	...(errorMessage ? { errorMessage } : {}),
++	timestamp: Date.now(),
++});
++
++describe("fork extension", () => {
++	let dir: string;
++	let parent: SessionManager;
++	let ctx: ExtensionContext;
++	let tool: ToolDefinition;
++	let handlers: Map<string, (event: unknown, context: ExtensionContext) => void>;
++	let sent: Array<{
++		message: {
++			customType: string;
++			content: string;
++			details?: { forkId: string; status: string; sessionFile?: string; error?: string };
++		};
++		options?: { triggerTurn?: boolean; deliverAs?: string };
++	}>;
++	let children: FakeChild[];
++	let idle: boolean;
++
++	const emit = (name: string, event: unknown): void => handlers.get(name)?.(event, ctx);
++	const start = (): void => emit("session_start", { type: "session_start", reason: "startup" });
++	const prepare = (calls: AssistantMessage["content"]): void => {
++		emit("context", {
++			type: "context",
++			messages: [{ role: "user", content: [{ type: "text", text: "Original question" }], timestamp: 1 }],
++		});
++		emit("message_end", { type: "message_end", message: assistant(calls) });
++	};
++	const run = async (id: string, task: string) => tool.execute(id, { task }, undefined, undefined, ctx);
++
++	beforeEach(() => {
++		dir = mkdtempSync(join(tmpdir(), "pi-fork-test-"));
++		parent = SessionManager.create(dir, dir);
++		parent.appendMessage(assistant([{ type: "text", text: "Earlier reply" }], "stop"));
++		idle = false;
++		ctx = {
++			cwd: dir,
++			sessionManager: parent,
++			model: { provider: "openai", id: "test-model" },
++			thinkingLevel: "high",
++			isIdle: () => idle,
++		} as unknown as ExtensionContext;
++		handlers = new Map();
++		sent = [];
++		children = [];
++		vi.mocked(spawn).mockImplementation(() => {
++			const child = new FakeChild();
++			children.push(child);
++			queueMicrotask(() => child.emit("spawn"));
++			return child as unknown as ChildProcess;
++		});
++		const api = {
++			on: (name: string, handler: (event: unknown, context: ExtensionContext) => void) =>
++				handlers.set(name, handler),
++			registerTool: (definition: ToolDefinition) => {
++				tool = definition;
++			},
++			sendMessage: (message: (typeof sent)[number]["message"], options?: (typeof sent)[number]["options"]) => {
++				sent.push({ message, options });
++			},
++		} as unknown as ExtensionAPI;
++		forkExtension(api);
++		start();
++	});
++
++	afterEach(() => {
++		emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
++		vi.mocked(spawn).mockReset();
++		rmSync(dir, { recursive: true, force: true });
++	});
++
++	it("rejects blank tasks without starting a process", async () => {
++		prepare([{ type: "toolCall", id: "call-a", name: "fork", arguments: { task: " " } }]);
++		await expect(run("call-a", " \n")).rejects.toThrow("Fork task must not be empty");
++		expect(children).toHaveLength(0);
++	});
++
++	it("seeds a child with the request, assistant, matching results, and task", async () => {
++		prepare([
++			{ type: "toolCall", id: "call-a", name: "fork", arguments: { task: "Inspect" } },
++			{ type: "toolCall", id: "call-b", name: "read", arguments: { path: "file" } },
++		]);
++		const result = await run("call-a", "Inspect");
++		const forkId = (result.details as { forkId: string }).forkId;
++		expect(forkId).toBeTruthy();
++		expect(children).toHaveLength(1);
++		const args = vi.mocked(spawn).mock.calls[0][1] as string[];
++		const sessionFile = args[args.indexOf("--session") + 1];
++		const entries = readFileSync(sessionFile, "utf8")
++			.trim()
++			.split("\n")
++			.map((line) => JSON.parse(line) as Record<string, unknown>);
++		expect(entries[0]).toMatchObject({ type: "session", parentSession: parent.getSessionFile() });
++		const messages = entries.slice(1).map((entry) => entry.message as { role: string; toolCallId?: string });
++		expect(messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult", "toolResult"]);
++		expect(messages.slice(-2).map((message) => message.toolCallId)).toEqual(["call-a", "call-b"]);
++		expect(args.slice(-3)).toEqual(["--print", "--", "Inspect"]);
++		expect(args).toContain("high");
++	});
++
++	it("delivers concurrent fork outcomes with their own IDs", async () => {
++		prepare([
++			{ type: "toolCall", id: "call-a", name: "fork", arguments: { task: "A" } },
++			{ type: "toolCall", id: "call-b", name: "fork", arguments: { task: "B" } },
++		]);
++		const first = await run("call-a", "A");
++		const second = await run("call-b", "B");
++		const files = vi.mocked(spawn).mock.calls.map((call) => {
++			const args = call[1] as string[];
++			return args[args.indexOf("--session") + 1];
++		});
++		SessionManager.open(files[0]).appendMessage(assistant([{ type: "text", text: "Answer A" }], "stop"));
++		SessionManager.open(files[1]).appendMessage(assistant([], "error", "provider said no"));
++		children[1].finish(0);
++		children[0].finish(0);
++		expect(sent).toHaveLength(2);
++		expect(sent[0].message).toMatchObject({
++			customType: "fork-result",
++			content: "provider said no",
++			details: {
++				forkId: (second.details as { forkId: string }).forkId,
++				status: "failed",
++				error: "provider said no",
++			},
++		});
++		expect(sent[1].message).toMatchObject({
++			customType: "fork-result",
++			content: "Answer A",
++			details: { forkId: (first.details as { forkId: string }).forkId, status: "completed" },
++		});
++		expect(sent[0].options).toEqual({ deliverAs: "steer" });
++	});
++
++	it("keeps a running fork and its result through extension reload", async () => {
++		prepare([{ type: "toolCall", id: "call-a", name: "fork", arguments: { task: "A" } }]);
++		const result = await run("call-a", "A");
++		emit("session_shutdown", { type: "session_shutdown", reason: "reload" });
++		expect(children[0].kill).not.toHaveBeenCalled();
++		const reloadedHandlers = new Map<string, (event: unknown, context: ExtensionContext) => void>();
++		const reloadedApi = {
++			on: (name: string, handler: (event: unknown, context: ExtensionContext) => void) =>
++				reloadedHandlers.set(name, handler),
++			registerTool: () => {},
++			sendMessage: (message: (typeof sent)[number]["message"], options?: (typeof sent)[number]["options"]) => {
++				sent.push({ message, options });
++			},
++		} as unknown as ExtensionAPI;
++		forkExtension(reloadedApi);
++		reloadedHandlers.get("session_start")?.({ type: "session_start", reason: "reload" }, ctx);
++		const args = vi.mocked(spawn).mock.calls[0][1] as string[];
++		const file = args[args.indexOf("--session") + 1];
++		SessionManager.open(file).appendMessage(assistant([{ type: "text", text: "After reload" }], "stop"));
++		children[0].finish(0);
++		expect(sent).toHaveLength(1);
++		expect(sent[0].message).toMatchObject({
++			content: "After reload",
++			details: { forkId: (result.details as { forkId: string }).forkId, status: "completed" },
++		});
++	});
++
++	it("reports a child that exits before producing a model response", async () => {
++		prepare([{ type: "toolCall", id: "call-a", name: "fork", arguments: { task: "A" } }]);
++		await run("call-a", "A");
++		children[0].finish(0);
++		expect(sent).toHaveLength(1);
++		expect(sent[0].message).toMatchObject({
++			content: "Fork process ended without an assistant response",
++			details: { status: "failed", error: "Fork process ended without an assistant response" },
++		});
++	});
++
++	it("resends an undelivered result after Escape and stops forks on session shutdown", async () => {
++		prepare([{ type: "toolCall", id: "call-a", name: "fork", arguments: { task: "A" } }]);
++		await run("call-a", "A");
++		const args = vi.mocked(spawn).mock.calls[0][1] as string[];
++		const file = args[args.indexOf("--session") + 1];
++		SessionManager.open(file).appendMessage(assistant([{ type: "text", text: "Done" }], "stop"));
++		children[0].finish(0);
++		idle = true;
++		emit("agent_settled", { type: "agent_settled" });
++		expect(sent).toHaveLength(2);
++		expect(sent[1].options).toEqual({ triggerTurn: true });
++
++		await run("call-a", "Another");
++		emit("session_shutdown", { type: "session_shutdown", reason: "new" });
++		expect(children[1].kill).toHaveBeenCalledWith("SIGTERM");
++		children[1].finish(1, "SIGTERM");
++		expect(sent).toHaveLength(2);
++	});
++});

@@ -1,0 +1,79 @@
+schema_version = "1.4"
+# Archive the complete agent checkout; keep this equal to environment.workdir.
+artifacts = ["/workspace/pi"]
+
+[task]
+name = "ai-infra-bench/pi-background-fork"
+version = "1.0.0"
+description = "Add a fork tool to pi: a background child pi process that inherits the conversation so far, works on a task while the parent continues, and reports its result back to the parent session exactly once."
+keywords = ["pi", "sub-agents", "session-lifecycle", "concurrency"]
+
+[metadata]
+task_type = "feature"
+base_commit = "d981de1229ef899957bbe968bc8dcda02a21f477"
+dependency_cutoff = "2026-09-05T11:54:46Z"
+
+[environment]
+workdir = "/workspace/pi"
+os = "linux"
+cpus = 8
+memory_mb = 16384
+storage_mb = 51200
+gpus = 0
+network_mode = "no-network"
+build_timeout_sec = 10800
+
+[agent]
+# The agent works as the image's unprivileged `node` user: it owns the checkout but not the
+# installed toolchain, so it cannot rewrite the test runner the verifier (root) executes.
+user = "node"
+network_mode = "no-network"
+timeout_sec = 36000
+
+[verifier]
+timeout_sec = 7200
+
+[[verifier.collect]]
+service = "main"
+user = "node"
+timeout_sec = 300
+command = '''
+repo=/workspace/pi
+base=d981de1229ef899957bbe968bc8dcda02a21f477
+output=/logs/artifacts
+set -eu
+mkdir -p "$output"
+printf 'incomplete\n' > "$output/collection-status.txt"
+collect_tmp=$(mktemp -d "$output/.collect.XXXXXX")
+cleanup() {
+  collect_rc=$?
+  if [ "$collect_rc" -ne 0 ]; then
+    printf 'failed exit=%s\n' "$collect_rc" > "$output/collection-status.txt"
+  fi
+  rm -rf "$collect_tmp"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+git_capture() {
+  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_EXTERNAL_DIFF \
+    -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_OPTIONAL_LOCKS=0 \
+    GIT_NO_REPLACE_OBJECTS=1 \
+    git -C "$repo" -c safe.directory="$repo" -c core.fileMode=true -c core.fsmonitor=false \
+      -c core.hooksPath=/dev/null --no-pager "$@"
+}
+git_capture rev-parse --verify "$base^{commit}" > "$collect_tmp/base-commit.txt"
+git_capture rev-parse --verify HEAD > "$collect_tmp/head-commit.txt"
+git_capture diff --binary --full-index --no-color --no-ext-diff --no-textconv --no-renames \
+  --src-prefix=a/ --dst-prefix=b/ "$base" -- > "$collect_tmp/solution.patch"
+git_capture status --short --untracked-files=all > "$collect_tmp/git-status.txt"
+git_capture ls-files --others --exclude-standard -z > "$collect_tmp/untracked-paths.bin"
+env -u TAR_OPTIONS -u GZIP tar -C "$repo" --null --verbatim-files-from \
+  -czf "$collect_tmp/untracked-files.tar.gz" -T "$collect_tmp/untracked-paths.bin"
+for collect_file in base-commit.txt head-commit.txt solution.patch git-status.txt \
+  untracked-paths.bin untracked-files.tar.gz; do
+  mv -f "$collect_tmp/$collect_file" "$output/$collect_file"
+done
+printf 'complete\n' > "$output/collection-status.txt"
+'''

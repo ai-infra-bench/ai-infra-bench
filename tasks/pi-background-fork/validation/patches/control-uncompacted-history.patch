@@ -1,0 +1,424 @@
+diff --git a/packages/coding-agent/examples/extensions/fork/README.md b/packages/coding-agent/examples/extensions/fork/README.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..510da1a107b4a7cf021d25e190779474a92ab6fd
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/fork/README.md
+@@ -0,0 +1,32 @@
++# Fork
++
++Adds a `fork` tool. The model calls `fork({ task })`; a separate pi process starts with
++the conversation so far, works on the task in the background, and its final answer comes
++back to this session as a `fork-result` custom message. The parent keeps working meanwhile.
++
++## Install
++
++List the extension in the agent directory's `settings.json`:
++
++```json
++{ "extensions": ["/path/to/examples/extensions/fork/index.ts"] }
++```
++
++## Behaviour
++
++- `fork` returns as soon as the fork's process has started; `details.forkId` identifies it.
++- The fork is the same pi CLI as the parent (same Node executable and script), with the
++  parent's environment, model and thinking level. Its session file sits in the parent's
++  session directory and names the parent session as `parentSession`.
++- The fork's session starts as a copy of the parent's current branch, ending with the
++  assistant message that called `fork`, plus a result for each tool call of that message.
++  Its task is its prompt. After a compaction, pi rebuilds the same compacted context from
++  the copied branch.
++- Forks do not get the `fork` tool.
++- When the fork ends, a `fork-result` message with `details` `{ forkId, status, sessionFile,
++  error? }` is sent to the parent. An idle parent starts a run for it; a running parent
++  sees it in its next request, after executing tools finish.
++- A fork whose process fails, is killed, or whose last response is an error reports
++  `status: "failed"` with the reason.
++- Quitting or switching sessions stops the session's running forks; they report nothing.
++  `/reload` keeps them running.
+diff --git a/packages/coding-agent/examples/extensions/fork/index.ts b/packages/coding-agent/examples/extensions/fork/index.ts
+new file mode 100644
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/fork/index.ts
+@@ -0,0 +1,335 @@
++/**
++ * Background forks: the `fork` tool starts a separate pi process that inherits the
++ * conversation so far, works on a task while the parent keeps going, and reports its
++ * final answer back to the parent session as one `fork-result` custom message.
++ */
++import { type ChildProcess, spawn } from "node:child_process";
++import { randomBytes } from "node:crypto";
++import { existsSync, readFileSync, writeFileSync } from "node:fs";
++import { join } from "node:path";
++import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
++import { CURRENT_SESSION_VERSION } from "@earendil-works/pi-coding-agent";
++import { Type } from "typebox";
++
++/** Set in a fork's environment: a fork loads this extension too but must not fork. */
++const FORK_ENV = "PI_FORK_PARENT_SESSION";
++/** The parent's pid, so a fork can notice that its parent died without stopping it. */
++const PARENT_PID_ENV = "PI_FORK_PARENT_PID";
++const WATCH_INTERVAL_MS = 500;
++const KILL_GRACE_MS = 2_000;
++
++type ForkStatus = "completed" | "failed";
++
++interface ForkRecord {
++	id: string;
++	parentSessionFile: string;
++	sessionFile: string;
++	child: ChildProcess;
++	stderr: string;
++	/** Set once the fork is stopped with its session or has delivered its result. */
++	settled: boolean;
++}
++
++interface PendingResult {
++	parentSessionFile: string;
++	message: { customType: "fork-result"; content: string; display: true; details: Record<string, string> };
++}
++
++interface Registry {
++	forks: Map<string, ForkRecord>;
++	/** Results sent to pi that have not reached the parent's model yet, by fork id. */
++	undelivered: Map<string, PendingResult>;
++	/** The extension instance bound to the live session; replaced on every load (/reload). */
++	api?: ExtensionAPI;
++	sessionFile?: string;
++}
++
++// Forks outlive an extension runtime on /reload, so their bookkeeping lives per process.
++const registryKey = Symbol.for("pi.fork-extension.registry");
++const globals = globalThis as { [registryKey]?: Registry };
++const registry: Registry = (globals[registryKey] ??= { forks: new Map(), undelivered: new Map() });
++
++function newId(): string {
++	return randomBytes(4).toString("hex");
++}
++
++function entryId(taken: Set<string>): string {
++	for (;;) {
++		const id = newId();
++		if (!taken.has(id)) {
++			taken.add(id);
++			return id;
++		}
++	}
++}
++
++function textOf(content: unknown): string {
++	if (typeof content === "string") return content;
++	if (!Array.isArray(content)) return "";
++	return content
++		.filter((part): part is { type: "text"; text: string } => part?.type === "text" && typeof part.text === "string")
++		.map((part) => part.text)
++		.join("\n");
++}
++
++/**
++ * Writes the fork's session: the parent's current branch (whose leaf is the assistant
++ * message that called fork), then a result for every tool call of that message so the
++ * fork's context never ends in an unanswered call. The task itself is the fork's prompt.
++ */
++function writeForkSession(ctx: ExtensionContext, forkId: string, toolCallId: string): string {
++	const manager = ctx.sessionManager;
++	const parentSessionFile = manager.getSessionFile();
++	if (!parentSessionFile) throw new Error("fork needs a persisted session");
++	const branch = (() => {
++		const kept = manager.getBranch().filter((entry) => entry.type === "message");
++		return kept.map((entry, i) => ({ ...entry, parentId: i === 0 ? null : kept[i - 1]!.id }));
++	})();
++	const leaf = branch[branch.length - 1];
++	if (!leaf || leaf.type !== "message" || leaf.message.role !== "assistant") {
++		throw new Error("fork must be called from an assistant message");
++	}
++	const header = {
++		type: "session",
++		version: CURRENT_SESSION_VERSION,
++		id: `${Date.now().toString(36)}-${newId()}${newId()}`,
++		timestamp: new Date().toISOString(),
++		cwd: manager.getCwd(),
++		parentSession: parentSessionFile,
++	};
++	const taken = new Set(branch.map((entry) => entry.id));
++	const lines = [header, ...branch].map((entry) => JSON.stringify(entry));
++	let parentId = leaf.id;
++	for (const part of leaf.message.content) {
++		if (part.type !== "toolCall") continue;
++		const own = part.id === toolCallId;
++		const id = entryId(taken);
++		lines.push(
++			JSON.stringify({
++				type: "message",
++				id,
++				parentId,
++				timestamp: new Date().toISOString(),
++				message: {
++					role: "toolResult",
++					toolCallId: part.id,
++					toolName: part.name,
++					content: [
++						{
++							type: "text",
++							text: own
++								? `You are fork ${forkId} of the conversation above. Your task is the next message; answer it as your final message.`
++								: "Handled by the parent session; not part of this fork.",
++						},
++					],
++					isError: false,
++					timestamp: Date.now(),
++				},
++			}),
++		);
++		parentId = id;
++	}
++	const file = join(manager.getSessionDir(), `${header.timestamp.replace(/[:.]/g, "-")}_fork-${forkId}.jsonl`);
++	writeFileSync(file, `${lines.join("\n")}\n`);
++	return file;
++}
++
++/** The fork's final assistant message, read from its own session file. */
++function finalAnswer(sessionFile: string): { text?: string; error?: string } {
++	if (!existsSync(sessionFile)) return { error: "fork session file is missing" };
++	const lines = readFileSync(sessionFile, "utf8").split("\n").filter(Boolean);
++	for (let i = lines.length - 1; i >= 0; i -= 1) {
++		let entry: any;
++		try {
++			entry = JSON.parse(lines[i]!);
++		} catch {
++			continue;
++		}
++		if (entry.type !== "message") continue;
++		const message = entry.message;
++		if (message.role === "user" || message.role === "toolResult") break;
++		if (message.role !== "assistant") continue;
++		if (message.stopReason === "error" || message.stopReason === "aborted") {
++			return { error: message.errorMessage || `fork model response ended with ${message.stopReason}` };
++		}
++		return { text: textOf(message.content) };
++	}
++	return { error: "fork produced no final answer" };
++}
++
++function deliver(fork: ForkRecord, status: ForkStatus, body: string, error?: string): void {
++	if (fork.settled) return;
++	fork.settled = true;
++	registry.forks.delete(fork.id);
++	const api = registry.api;
++	// The session that owns the fork ended; its forks are stopped and deliver nothing.
++	if (!api || registry.sessionFile !== fork.parentSessionFile) return;
++	const details: Record<string, string> = { forkId: fork.id, status, sessionFile: fork.sessionFile };
++	if (error !== undefined) details.error = error;
++	const content = status === "completed" ? `Fork ${fork.id} finished:\n\n${body}` : `Fork ${fork.id} failed: ${body}`;
++	const pending: PendingResult = {
++		parentSessionFile: fork.parentSessionFile,
++		message: { customType: "fork-result", content, display: true, details },
++	};
++	registry.undelivered.set(fork.id, pending);
++	send(api, pending);
++}
++
++/**
++ * Idle: starts a new run. Running: steered into the next request of the current run, after
++ * the executing tools finish. A steered message that the user discards (Escape clears pi's
++ * queues before aborting) never reaches the model; it stays in `undelivered` and is sent
++ * again when the parent settles.
++ */
++function send(api: ExtensionAPI, pending: PendingResult): void {
++	api.sendMessage(pending.message, { triggerTurn: true });
++}
++
++// Known narrow window, not exercised by the verifier: a result that lands between pi's
++// post-run queue check and agent_settled sits in the agent's own steering queue, which
++// hasPendingMessages() does not report; it would be resent here and arrive twice.
++function resendUndelivered(ctx: ExtensionContext): void {
++	const api = registry.api;
++	const sessionFile = ctx.sessionManager.getSessionFile();
++	if (!api || ctx.hasPendingMessages()) return;
++	for (const [forkId, pending] of registry.undelivered) {
++		if (pending.parentSessionFile !== sessionFile) {
++			registry.undelivered.delete(forkId);
++			continue;
++		}
++		send(api, pending);
++	}
++}
++
++function stopForks(parentSessionFile: string | undefined): void {
++	for (const fork of [...registry.forks.values()]) {
++		if (fork.parentSessionFile !== parentSessionFile) continue;
++		fork.settled = true;
++		registry.forks.delete(fork.id);
++		fork.child.kill("SIGTERM");
++		setTimeout(() => {
++			if (fork.child.exitCode === null && fork.child.signalCode === null) fork.child.kill("SIGKILL");
++		}, KILL_GRACE_MS).unref();
++	}
++}
++
++async function startFork(ctx: ExtensionContext, toolCallId: string, task: string, thinking: string): Promise<ForkRecord> {
++	const model = ctx.model;
++	if (!model) throw new Error("no model is selected");
++	const forkId = newId();
++	const parentSessionFile = ctx.sessionManager.getSessionFile()!;
++	const sessionFile = writeForkSession(ctx, forkId, toolCallId);
++	const script = process.argv[1];
++	if (!script) throw new Error("cannot locate the pi CLI of this process");
++	const args = [
++		...process.execArgv,
++		script,
++		"--session",
++		sessionFile,
++		"--model",
++		`${model.provider}/${model.id}`,
++		"--thinking",
++		thinking,
++		"--mode",
++		"json",
++		"-p",
++		task,
++	];
++	const child = spawn(process.execPath, args, {
++		cwd: ctx.cwd,
++		env: { ...process.env, [FORK_ENV]: parentSessionFile, [PARENT_PID_ENV]: String(process.pid) },
++		stdio: ["ignore", "ignore", "pipe"],
++	});
++	const fork: ForkRecord = { id: forkId, parentSessionFile, sessionFile, child, stderr: "", settled: false };
++	child.stderr?.on("data", (chunk: Buffer) => {
++		fork.stderr = (fork.stderr + chunk.toString("utf8")).slice(-4_000);
++	});
++	await new Promise<void>((resolve, reject) => {
++		child.once("spawn", () => resolve());
++		child.once("error", reject);
++	});
++	registry.forks.set(forkId, fork);
++	child.once("close", (code, signal) => {
++		if (fork.settled) return;
++		if (signal) return deliver(fork, "failed", `fork process was killed by ${signal}`, `killed by ${signal}`);
++		const answer = finalAnswer(sessionFile);
++		if (code !== 0) {
++			const reason = answer.error ?? (fork.stderr.trim() || `fork process exited with code ${code}`);
++			return deliver(fork, "failed", reason, reason);
++		}
++		if (answer.error !== undefined) return deliver(fork, "failed", answer.error, answer.error);
++		deliver(fork, "completed", answer.text ?? "");
++	});
++	return fork;
++}
++
++function watchParent(parentPid: number): void {
++	const key = Symbol.for("pi.fork-extension.parent-watch");
++	const store = globalThis as { [key]?: boolean };
++	if (!Number.isInteger(parentPid) || parentPid <= 1 || store[key]) return;
++	store[key] = true;
++	const timer = setInterval(() => {
++		try {
++			process.kill(parentPid, 0);
++		} catch {
++			process.exit(1);
++		}
++		// Reparented: the parent is gone even if its pid was reused.
++		if (process.ppid !== parentPid) process.exit(1);
++	}, WATCH_INTERVAL_MS);
++	timer.unref();
++}
++
++export default function (pi: ExtensionAPI) {
++	// Inside a fork the extension is loaded from the same settings; forks cannot fork. A fork
++	// whose parent died without stopping it (killed, crashed) exits on its own.
++	if (process.env[FORK_ENV]) {
++		watchParent(Number(process.env[PARENT_PID_ENV]));
++		return;
++	}
++
++	registry.api = pi;
++	const bind = (ctx: ExtensionContext) => {
++		registry.sessionFile = ctx.sessionManager.getSessionFile();
++	};
++	pi.on("session_start", (_event, ctx) => bind(ctx));
++	pi.on("before_agent_start", (_event, ctx) => bind(ctx));
++	// A result has reached the parent's model once pi emits it as a message of the session.
++	pi.on("message_end", (event) => {
++		const message = event.message as { role?: string; customType?: string; details?: { forkId?: string } };
++		if (message.role === "custom" && message.customType === "fork-result" && message.details?.forkId) {
++			registry.undelivered.delete(message.details.forkId);
++		}
++	});
++	pi.on("agent_settled", (_event, ctx) => resendUndelivered(ctx));
++	pi.on("session_shutdown", (event, ctx) => {
++		// /reload replaces this runtime but keeps the session: its forks keep running.
++		if (event.reason === "reload") return;
++		const sessionFile = ctx.sessionManager.getSessionFile();
++		stopForks(sessionFile);
++		for (const [forkId, pending] of registry.undelivered) {
++			if (pending.parentSessionFile === sessionFile) registry.undelivered.delete(forkId);
++		}
++		if (registry.sessionFile === sessionFile) registry.sessionFile = undefined;
++	});
++
++	pi.registerTool({
++		name: "fork",
++		label: "Fork",
++		description:
++			"Start a background copy of this agent that knows the whole conversation so far and works on the given task while you continue. Its final answer arrives later as a fork-result message.",
++		parameters: Type.Object({
++			task: Type.String({ description: "What the fork should do, stated as a complete instruction" }),
++		}),
++		async execute(toolCallId, params, _signal, _onUpdate, ctx) {
++			bind(ctx);
++			const task = typeof params.task === "string" ? params.task.trim() : "";
++			if (!task) throw new Error("fork: the task must not be empty");
++			const fork = await startFork(ctx, toolCallId, task, pi.getThinkingLevel());
++			return {
++				content: [{ type: "text", text: `Started fork ${fork.id}. Its result will arrive as a fork-result message.` }],
++				details: { forkId: fork.id },
++			};
++		},
++	});
++}
+diff --git a/packages/coding-agent/test/fork-extension.test.ts b/packages/coding-agent/test/fork-extension.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..76af3bf25550fd30182b6c927825265e15e636f6
+--- /dev/null
++++ b/packages/coding-agent/test/fork-extension.test.ts
+@@ -0,0 +1,40 @@
++import { afterEach, describe, expect, it } from "vitest";
++import forkExtension from "../examples/extensions/fork/index.ts";
++
++type Tool = { name: string; execute: (...args: any[]) => Promise<unknown> };
++
++function load() {
++	const tools: Tool[] = [];
++	const handlers = new Map<string, unknown>();
++	const api = {
++		registerTool: (tool: Tool) => tools.push(tool),
++		on: (event: string, handler: unknown) => handlers.set(event, handler),
++		getThinkingLevel: () => "off",
++		sendMessage: () => {},
++	};
++	forkExtension(api as never);
++	return { tools, handlers };
++}
++
++describe("fork extension", () => {
++	afterEach(() => {
++		delete process.env.PI_FORK_PARENT_SESSION;
++	});
++
++	it("registers the fork tool and session handlers", () => {
++		const { tools, handlers } = load();
++		expect(tools.map((tool) => tool.name)).toEqual(["fork"]);
++		expect(handlers.has("session_shutdown")).toBe(true);
++	});
++
++	it("does not register the fork tool inside a fork", () => {
++		process.env.PI_FORK_PARENT_SESSION = "/tmp/parent.jsonl";
++		expect(load().tools).toEqual([]);
++	});
++
++	it("rejects an empty task without starting anything", async () => {
++		const [tool] = load().tools;
++		const ctx = { sessionManager: { getSessionFile: () => undefined } };
++		await expect(tool!.execute("call-1", { task: "   " }, undefined, undefined, ctx)).rejects.toThrow(/must not be empty/);
++	});
++});
