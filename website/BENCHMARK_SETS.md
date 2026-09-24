@@ -8,6 +8,11 @@ The website JSON is regenerated from the configured archive; raw evaluations
 remain unchanged. See `leaderboard-source.json` and the README for data inputs
 and the observed-denominator treatment of missing repetition slots.
 
+The current snapshot combines the original Sep 08 and new Sep 24 evaluation
+batches. Their 17 task names match, but task checksums differ. The chart keeps
+each model/harness series intact, and Results rows show their source batch.
+Cross-batch scores are descriptive rather than byte-identical task comparisons.
+
 All resource axes decrease from left to right. The scale is applied to the
 ticks, measured points and connecting curves, not just to the printed labels.
 Pass Average remains an ordinary increasing percentage axis.

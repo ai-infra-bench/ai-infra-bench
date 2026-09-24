@@ -62,19 +62,25 @@ npm run generate:leaderboard
 npm run test:leaderboard
 ```
 
-The current source is configured in `leaderboard-source.json`. The archive was
-renamed to `archive/v0-17task`, while its complete manifests remain under
-`manifests/2026-09-08`. These directories are deliberately mapped independently;
-no NAS rename or raw-result modification is required. For another release,
-update that file, or pass `--source <file>`. Explicit `--root`, `--release`,
-`--archive-dir` and `--manifest-dir` options retain the legacy CLI workflow.
-When importing a new release, keep its archive and manifest mapping in sync.
+The current source is configured in `leaderboard-source.json`. It reads the
+original `v0-17task` archive with its `2026-09-08` manifests and the separate
+`v1-17task-20260924` archive with its own manifests. Both batches contain the
+same 17 task names, but their frozen task checksums differ. The chart and
+Results table retain both batches and identify each row's source. This is a
+descriptive cross-batch comparison, not a claim that the task bytes are identical.
+The old NAS archive remains unchanged. For another release, update the source
+mapping, or pass `--source <file>`. Explicit `--root`, `--release`,
+`--archive-dir` and `--manifest-dir` options retain the single-source CLI
+workflow. Keep each archive and manifest mapping in sync.
 
 Generation checks archive/manifest coverage, duplicate entries, trial identity,
 binary rewards, trajectory completion and recorded resource metrics before
 writing the snapshot. Unlisted or missing directories fail generation instead
 of silently dropping data. Excluded trials remain excluded, including API and
 environment failures and aborted trajectories.
+It also checks that the two batches have the same task names and that every
+Sep 24 attempt for a task has the same checksum. Historical Sep 08 checksum
+variants remain recorded rather than silently normalized.
 
 Review and commit `app/generated/leaderboard.json` together with any website
 changes. Raw trial directories and private trajectories stay outside the Git
@@ -98,6 +104,11 @@ complete rounds. No extra partial-state badge is shown on the website.
 The retained JSON Pass@4 field is the fraction of
 tasks solved at least once, and is only an exact pass@4 when all attempts are
 present; it is not displayed in the current website. Costs include valid runs only.
+When a valid budget-timeout trial has no recorded cost, the reported cost sum
+and average use observed costs and include a coverage count; cost efficiency
+is unavailable for that configuration. The DeepSeek Flash / Claude Code run
+uses effort `default` because no reasoning strength was selected in its
+recorded configuration.
 
 ## CI and deployment
 
