@@ -8,12 +8,13 @@ import {
 } from "../app/lib/leaderboard-chart.ts";
 import { sampleCurve, descendingLinear } from "../app/lib/print-geometry.ts";
 import { focusedDomain } from "../app/lib/hero-plot.ts";
-const data = JSON.parse(
+const published = JSON.parse(
   await readFile(
     new URL("../app/generated/leaderboard.json", import.meta.url),
     "utf8",
   ),
-).configurations.filter((configuration) => configuration.batchLabel === "Sep 08");
+).configurations;
+const data = published.filter((configuration) => configuration.batchLabel === "Sep 08");
 const distance = (p, b) =>
   Math.hypot(
     Math.max(b.x - p.x, 0, p.x - b.x - b.width),
@@ -79,6 +80,41 @@ test("mobile labels that cannot stay nearest to their owner receive explicit lea
         )
       )
         assert.ok(label.leader);
+    }
+  }
+});
+test("model-name leaders do not cross another model's curve", () => {
+  const width = 850, height = 500, left = 48, right = 38, top = 34;
+  const bottom = height - 54, plotWidth = width - left - right;
+  const domain = focusedDomain(published.map(c => c.metrics.averageOutputTokens));
+  const configurations = [...published].sort((a, b) =>
+    effortOrder.indexOf(a.effort) - effortOrder.indexOf(b.effort));
+  const points = configurations.map(configuration => ({
+    configuration,
+    group: configuration.model,
+    color: "#000",
+    value: configuration.metrics.averageOutputTokens,
+    score: configuration.metrics.passAverage,
+    x: descendingLinear(configuration.metrics.averageOutputTokens, domain.min, domain.max, left, plotWidth),
+    y: bottom - (configuration.metrics.passAverage / 80) * (bottom - top),
+  }));
+  const curves = [...new Set(points.map(point => point.group))].map(group => ({
+    group,
+    points: sampleCurve(points.filter(point => point.group === group)),
+  }));
+  const labels = placePlotLabels(points, {
+    x: left + 4, y: top + 4, width: plotWidth - 8, height: bottom - top - 8,
+  }, false, null, { curves });
+  for (const label of labels.filter(label => label.kind === "series" && label.leader)) {
+    const line = label.leader;
+    const dx = line.x2 - line.x1, dy = line.y2 - line.y1;
+    for (const curve of curves.filter(curve => curve.group !== label.point.group)) {
+      const closest = Math.min(...curve.points.map(point => {
+        const t = Math.max(0, Math.min(1,
+          ((point.x - line.x1) * dx + (point.y - line.y1) * dy) / (dx * dx + dy * dy)));
+        return Math.hypot(point.x - line.x1 - t * dx, point.y - line.y1 - t * dy);
+      }));
+      assert.ok(closest >= 4, `${label.title} leader crosses ${curve.group}`);
     }
   }
 });

@@ -237,6 +237,31 @@ export function placePlotLabels(
     }
     return false;
   };
+  const crossesOtherCurve = (
+    line: NonNullable<PlotLabel["leader"]>,
+    owner: string,
+  ) => {
+    const dx = line.x2 - line.x1,
+      dy = line.y2 - line.y1,
+      lengthSquared = dx * dx + dy * dy;
+    const minX = Math.min(line.x1, line.x2) - 4,
+      maxX = Math.max(line.x1, line.x2) + 4,
+      minY = Math.min(line.y1, line.y2) - 4,
+      maxY = Math.max(line.y1, line.y2) + 4;
+    for (const [group, curve] of paths) {
+      if (group === owner) continue;
+      for (const point of curve) {
+        if (point.x < minX || point.x > maxX || point.y < minY || point.y > maxY)
+          continue;
+        const t = Math.max(0, Math.min(1,
+          ((point.x - line.x1) * dx + (point.y - line.y1) * dy) / lengthSquared,
+        ));
+        if ((point.x - line.x1 - t * dx) ** 2 +
+          (point.y - line.y1 - t * dy) ** 2 < 16) return true;
+      }
+    }
+    return false;
+  };
   const seriesConnector = (box: Box, key: string) => {
     const path = paths.get(key) ?? [];
     const ownDistance = Math.min(...path.map((p) => distanceToBox(p, box)));
@@ -259,7 +284,8 @@ export function placePlotLabels(
     for (const anchor of anchors) {
       if (distanceToBox(anchor, box) > ownDistance + 60) break;
       const line = connector(anchor, box);
-      if (line && !labels.some((label) => crossesBox(line, label)))
+      if (line && !crossesOtherCurve(line, key)
+        && !labels.some((label) => crossesBox(line, label)))
         return { line, blocked: false };
     }
     return { line: undefined, blocked: true };
