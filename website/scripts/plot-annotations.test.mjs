@@ -13,7 +13,7 @@ const data = JSON.parse(
     new URL("../app/generated/leaderboard.json", import.meta.url),
     "utf8",
   ),
-).configurations;
+).configurations.filter((configuration) => configuration.batchLabel === "Sep 08");
 const distance = (p, b) =>
   Math.hypot(
     Math.max(b.x - p.x, 0, p.x - b.x - b.width),

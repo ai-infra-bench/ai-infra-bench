@@ -7,6 +7,7 @@ export type ChartConfiguration = {
   id: string;
   model: string;
   effort: string;
+  batchLabel?: string;
   agent: string;
   agentVersion: string;
   metrics: {
@@ -65,6 +66,7 @@ export type PlotLabel = Box & {
 
 export const effortOrder = [
   "none",
+  "default",
   "minimal",
   "low",
   "medium",
@@ -78,6 +80,9 @@ export const effortOrder = [
 export const MODEL_COLORS: Readonly<Record<string, string>> = Object.freeze({
   "gpt-6-astra": "#3d657c",
   "gpt-5.6-sol": "#a16454",
+  "gpt-6-sol": "#76519a",
+  "gpt-6-luna": "#2d7b72",
+  "deepseek-flash": "#ad7136",
 });
 
 export function modelColor(model: string) {

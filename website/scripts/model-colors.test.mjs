@@ -5,6 +5,9 @@ import { MODEL_COLORS, modelColor } from '../app/lib/leaderboard-chart.ts';
 test('published model colours are literal data encodings, not theme tokens', () => {
   assert.equal(modelColor('gpt-6-astra'), '#3d657c');
   assert.equal(modelColor('gpt-5.6-sol'), '#a16454');
+  assert.equal(modelColor('gpt-6-sol'), '#76519a');
+  assert.equal(modelColor('gpt-6-luna'), '#2d7b72');
+  assert.equal(modelColor('deepseek-flash'), '#ad7136');
   assert.equal(new Set(Object.values(MODEL_COLORS)).size, Object.keys(MODEL_COLORS).length);
   for (const colour of Object.values(MODEL_COLORS)) assert.match(colour, /^#[0-9a-f]{6}$/i);
 });

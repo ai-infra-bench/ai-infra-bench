@@ -24,6 +24,11 @@ test('archive identity and outcomes are validated before aggregation', () => {
   for (const reward of [undefined, null, '1', 0.5, NaN]) assert.throws(() => assertValidOutcome(manifest, { ...result, verifier_result: { rewards: { reward } } }, trajectory), /reward/);
   assert.throws(() => assertValidOutcome(manifest, result, { ...trajectory, steps: [{ message: '<turn_aborted>' }] }), /invalid/);
   assert.throws(() => assertValidOutcome(manifest, { ...result, exception_info: { exception_type: 'ApiRateLimitError' } }, trajectory), /invalid/);
+  const timeoutManifest = { ...manifest, budget_timeout: true };
+  const timeoutResult = { ...result, exception_info: { exception_type: 'AgentTimeoutError' } };
+  assertValidOutcome(timeoutManifest, timeoutResult, trajectory);
+  assert.throws(() => assertValidOutcome(manifest, timeoutResult, trajectory), /budget-timeout/);
+  assert.throws(() => assertValidOutcome({ ...manifest, budget_timeout: false }, timeoutResult, trajectory), /budget-timeout/);
 });
 
 test('safe metadata paths and zero versus missing measurements', () => {
@@ -33,7 +38,41 @@ test('safe metadata paths and zero versus missing measurements', () => {
   assert.throws(() => manifestPathParts({ ...manifest, status: 'pending' }), /status/);
   assert.equal(recordedMetric(0, 10, 'cost'), 0);
   assert.equal(recordedMetric(null, 10, 'cost'), 10);
+  assert.equal(recordedMetric(null, null, 'cost', true), null);
   for (const value of [null, undefined, NaN, Infinity, -1, '0']) assert.throws(() => recordedMetric(value, null, 'cost'), /invalid/);
+});
+
+test('two archive batches remain visible as separate configurations', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'leaderboard-batches-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sources = [];
+  for (const [release, model, batchLabel] of [
+    ['old-release', 'old-model', 'Earlier batch'],
+    ['new-release', 'new-model', 'Later batch'],
+  ]) {
+    const archive = path.join(root, 'archive', release);
+    const manifests = path.join(root, 'manifests', release);
+    const m = { ...manifest, release, model, trial_name: `${model}-trial`, source_job: `${model}-job` };
+    const trial = path.join(archive, ...manifestPathParts(m));
+    const { result, config, trajectory } = fixture(m);
+    await mkdir(trial, { recursive: true });
+    await writeFile(path.join(trial, 'result.json'), JSON.stringify(result));
+    await writeFile(path.join(trial, 'config.json'), JSON.stringify(config));
+    await mkdir(path.join(trial, 'agent'));
+    await writeFile(path.join(trial, 'agent/trajectory.json'), JSON.stringify(trajectory));
+    const manifestFile = path.join(manifests, ...manifestPathParts(m).slice(0, -1), `${m.trial_name}.json`);
+    await mkdir(path.dirname(manifestFile), { recursive: true });
+    await writeFile(manifestFile, JSON.stringify(m));
+    sources.push({ release, archiveDirectory: archive, manifestDirectory: manifests, batchLabel });
+  }
+  const sourceFile = path.join(root, 'source.json'), output = path.join(root, 'data.json');
+  await writeFile(sourceFile, JSON.stringify({ release: 'combined', expectedAttempts: 1, sources }));
+  const run = spawnSync(process.execPath, [new URL('./generate-leaderboard-data.mjs', import.meta.url).pathname, '--source', sourceFile, '--output', output], { encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+  const data = JSON.parse(await readFile(output, 'utf8'));
+  assert.equal(data.release.configurationCount, 2);
+  assert.equal(data.release.validTrials, 2);
+  assert.deepEqual(data.configurations.map(c => c.batchLabel).sort(), ['Earlier batch', 'Later batch']);
 });
 
 test('moved archive, independent manifest location and partial statistics work end to end', async t => {

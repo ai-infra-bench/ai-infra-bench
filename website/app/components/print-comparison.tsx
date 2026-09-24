@@ -32,6 +32,8 @@ type PrintConfiguration = ChartConfiguration & {
     averageCostUsd: number;
     averageOutputTokens: number;
     averageToolCalls: number;
+    costObservedTrials: number;
+    validTrials: number;
   };
 };
 const axisKeys = {
@@ -45,7 +47,7 @@ const axisLabels = {
   tools: "Tool calls",
 };
 const axisTitles = {
-  cost: "Average cost per run (USD)",
+  cost: "Average recorded cost per run (USD)",
   tokens: "Average output tokens per run",
   tools: "Average tool calls per run",
 };
@@ -214,11 +216,20 @@ export function PrintComparison() {
             <>
               <span>
                 {chosen.model} <em>{chosen.effort}</em>
+                {chosen.batchLabel && <> · {chosen.batchLabel}</>}
               </span>
               <span>{chosen.metrics.passAverage.toFixed(1)}% Pass Average</span>
               <span>
                 {format(chosen.metrics[axisKeys[axis]], axis, true)} / run
               </span>
+              {axis === "cost" &&
+                chosen.metrics.costObservedTrials <
+                  chosen.metrics.validTrials && (
+                  <span>
+                    Cost recorded for {chosen.metrics.costObservedTrials}/
+                    {chosen.metrics.validTrials} runs
+                  </span>
+                )}
             </>
           ) : chosenSeries ? (
             <span>{chosenSeries.model}</span>
@@ -226,9 +237,15 @@ export function PrintComparison() {
             <>
               <span>{leaderboard.release.taskCount} tasks</span>
               <span>{leaderboard.release.expectedAttempts} runs per task</span>
+              <span>{leaderboard.release.label}</span>
             </>
           )}
         </div>
+        {(leaderboard.release.batches?.length ?? 0) > 1 && (
+          <span className="print-batch-note">
+            Two evaluation batches · task checksums may differ
+          </span>
+        )}
         {pinned && (
           <button type="button" className="print-clear" onClick={clear}>
             Clear
