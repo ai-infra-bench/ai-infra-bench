@@ -18,7 +18,7 @@ results come from the committed `app/generated/leaderboard.json` snapshot.
 The selected layout is documented in [SELECTED_DESIGN.md](SELECTED_DESIGN.md).
 The homepage shows the comparison chart, Results and six tasks per page.
 The standalone task catalogue shows eight tasks per page with search, Work type
-and Domain filters. Only recorded results appear in the chart and table.
+and Domain filters. Only archived, audited results appear in the chart and table.
 
 Run the full website test suite with `npm run test:website` (chart geometry,
 label density and focus, task filtering/pagination, and archive statistics).
@@ -104,9 +104,19 @@ complete rounds. No extra partial-state badge is shown on the website.
 The retained JSON Pass@4 field is the fraction of
 tasks solved at least once, and is only an exact pass@4 when all attempts are
 present; it is not displayed in the current website. Costs include valid runs only.
-When a valid budget-timeout trial has no recorded cost, the reported cost sum
-and average use observed costs and include a coverage count; cost efficiency
-is unavailable for that configuration. The DeepSeek Flash / Claude Code run
+DeepSeek Flash uses a token-derived **official list-price estimate** because
+Claude Code reported its gateway run at Claude Opus rates ($5/$0.50/$25 per
+million uncached input/cache-read/output tokens), which are inapplicable to
+DeepSeek. The configured [DeepSeek official peak rates](https://api-docs.deepseek.com/quick_start/pricing/)
+are $0.30/$0.006/$1.20 per million uncached input/cache-hit/output tokens,
+without the off-peak discount. Per valid trial, the estimate is
+`((inputTokens - cachedTokens) * 0.30 + cachedTokens * 0.006 + outputTokens * 1.20) / 1_000_000` USD.
+This is not a verified `api.apikey.fan` bill; its tariff may differ. All 68
+valid DeepSeek trials have token counts, including the budget-timeout trial
+without a CLI cost. Other configurations use recorded agent costs. If a valid
+trial has no recorded cost or token-derived estimate, cost averages use only
+observed costs and include a coverage count; cost efficiency is unavailable
+for that configuration. The DeepSeek Flash / Claude Code run
 uses effort `default` because no reasoning strength was selected in its
 recorded configuration.
 
