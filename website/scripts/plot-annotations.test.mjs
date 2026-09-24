@@ -6,8 +6,8 @@ import {
   labelSizeKey,
   effortOrder,
 } from "../app/lib/leaderboard-chart.ts";
-import { sampleCurve, descendingLinear } from "../app/lib/print-geometry.ts";
-import { focusedDomain } from "../app/lib/hero-plot.ts";
+import { sampleCurve, descendingLinear, descendingLogarithmic } from "../app/lib/print-geometry.ts";
+import { focusedDomain, logarithmicDomain } from "../app/lib/hero-plot.ts";
 const published = JSON.parse(
   await readFile(
     new URL("../app/generated/leaderboard.json", import.meta.url),
@@ -43,7 +43,8 @@ test("mobile labels that cannot stay nearest to their owner receive explicit lea
     "averageOutputTokens",
     "averageToolCalls",
   ]) {
-    const xd = focusedDomain(data.map((c) => c.metrics[metric]));
+    const logAxis = metric === "averageOutputTokens";
+    const xd = (logAxis ? logarithmicDomain : focusedDomain)(data.map((c) => c.metrics[metric]));
     const points = [...data]
       .sort(
         (a, b) => effortOrder.indexOf(a.effort) - effortOrder.indexOf(b.effort),
@@ -54,7 +55,7 @@ test("mobile labels that cannot stay nearest to their owner receive explicit lea
         color: "#000",
         value: c.metrics[metric],
         score: c.metrics.passAverage,
-        x: descendingLinear(c.metrics[metric], xd.min, xd.max, 40, 212),
+        x: (logAxis ? descendingLogarithmic : descendingLinear)(c.metrics[metric], xd.min, xd.max, 40, 212),
         y: 346 - ((c.metrics.passAverage - 30) / 40) * 312,
       }));
     const curves = [...new Set(points.map((p) => p.group))].map((group) => ({
@@ -86,7 +87,7 @@ test("mobile labels that cannot stay nearest to their owner receive explicit lea
 test("model-name leaders do not cross another model's curve", () => {
   const width = 850, height = 500, left = 48, right = 38, top = 34;
   const bottom = height - 54, plotWidth = width - left - right;
-  const domain = focusedDomain(published.map(c => c.metrics.averageOutputTokens));
+  const domain = logarithmicDomain(published.map(c => c.metrics.averageOutputTokens));
   const configurations = [...published].sort((a, b) =>
     effortOrder.indexOf(a.effort) - effortOrder.indexOf(b.effort));
   const points = configurations.map(configuration => ({
@@ -95,7 +96,7 @@ test("model-name leaders do not cross another model's curve", () => {
     color: "#000",
     value: configuration.metrics.averageOutputTokens,
     score: configuration.metrics.passAverage,
-    x: descendingLinear(configuration.metrics.averageOutputTokens, domain.min, domain.max, left, plotWidth),
+    x: descendingLogarithmic(configuration.metrics.averageOutputTokens, domain.min, domain.max, left, plotWidth),
     y: bottom - (configuration.metrics.passAverage / 80) * (bottom - top),
   }));
   const curves = [...new Set(points.map(point => point.group))].map(group => ({

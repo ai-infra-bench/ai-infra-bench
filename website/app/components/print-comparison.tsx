@@ -16,10 +16,11 @@ import {
   resolvePlotFocus,
   type PlotTarget,
 } from "@/app/lib/plot-focus";
-import { focusedDomain } from "@/app/lib/hero-plot";
+import { focusedDomain, logarithmicDomain } from "@/app/lib/hero-plot";
 import {
   curvePath,
   descendingLinear,
+  descendingLogarithmic,
   sampleCurve,
 } from "@/app/lib/print-geometry";
 import { nearestPlotPoint } from "@/app/lib/plot-hit";
@@ -48,7 +49,7 @@ const axisLabels = {
 };
 const axisTitles = {
   cost: "Average cost per run (USD)",
-  tokens: "Average output tokens per run",
+  tokens: "Average output tokens per run (log scale)",
   tools: "Average tool calls per run",
 };
 function format(n: number, axis: Axis, exact = false) {
@@ -57,7 +58,9 @@ function format(n: number, axis: Axis, exact = false) {
     : axis === "tokens"
       ? exact
         ? Math.round(n).toLocaleString("en-US")
-        : (n / 1000).toFixed(n % 1000 ? 1 : 0) + "k"
+        : n >= 1_000_000
+          ? (n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0) + "M"
+          : (n / 1000).toFixed(n % 1000 ? 1 : 0) + "k"
       : n.toFixed(exact ? 1 : 0);
 }
 
@@ -311,7 +314,10 @@ function Chart({
     };
   }, [configs, size.width]);
   const compact = size.width < 600,
-    xd = focusedDomain(configs.map((c) => c.metrics[axisKeys[axis]]));
+    xd = (axis === "tokens" ? logarithmicDomain : focusedDomain)(
+      configs.map((c) => c.metrics[axisKeys[axis]]),
+    ),
+    projectX = axis === "tokens" ? descendingLogarithmic : descendingLinear;
   const scores = configs.map((c) => c.metrics.passAverage);
   const yMin = Math.max(
     0,
@@ -327,7 +333,7 @@ function Chart({
     bottom = size.height - 54;
   const width = Math.max(1, size.width - left - right),
     height = Math.max(1, bottom - top);
-  const x = (n: number) => descendingLinear(n, xd.min, xd.max, left, width),
+  const x = (n: number) => projectX(n, xd.min, xd.max, left, width),
     y = (n: number) => bottom - ((n - yMin) / (yMax - yMin)) * height;
   const points: PlotPoint[] = useMemo(
     () =>
@@ -337,7 +343,7 @@ function Chart({
         score: c.metrics.passAverage,
         color: modelColor(c.model),
         group: plotGroupKey(c),
-        x: descendingLinear(
+        x: projectX(
           c.metrics[axisKeys[axis]],
           xd.min,
           xd.max,
@@ -346,7 +352,7 @@ function Chart({
         ),
         y: bottom - ((c.metrics.passAverage - yMin) / (yMax - yMin)) * height,
       })),
-    [configs, axis, xd.min, xd.max, left, width, bottom, yMin, yMax, height],
+    [configs, axis, projectX, xd.min, xd.max, left, width, bottom, yMin, yMax, height],
   );
   const groups = useMemo(
     () =>
@@ -429,6 +435,7 @@ function Chart({
         data-score="passAverage"
         data-polar="false"
         data-x-direction="descending"
+        data-x-scale={axis === "tokens" ? "logarithmic" : "linear"}
         data-x-min={xd.min}
         data-x-max={xd.max}
         data-y-min={yMin}
@@ -441,8 +448,9 @@ function Chart({
           {"Pass Average (%) by " + axisLabels[axis]}
         </title>
         <desc id={id + "-desc"}>
-          Both axes are linear with explicitly labeled ranges. Resource use
-          decreases from left to right. {configs.length} plotted configurations.
+          Pass average is linear; the Output tokens axis is logarithmic and the
+          other resource axes are linear. Resource use decreases from left to
+          right. {configs.length} plotted configurations.
           Hover or focus a curve to highlight its model; a point also projects
           to both axes. Curves guide reading, not prediction.
         </desc>

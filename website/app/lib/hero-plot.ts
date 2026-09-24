@@ -23,6 +23,22 @@ export function focusedDomain(values: number[]): NumericDomain {
   );
   return { min, max, ticks };
 }
+export function logarithmicDomain(values: number[]): NumericDomain {
+  const positive = values.filter(value => Number.isFinite(value) && value > 0);
+  if (!positive.length) return { min: 1, max: 10, ticks: [1, 3, 10] };
+  const minPower = Math.floor(Math.log10(Math.min(...positive)));
+  const maxPower = Math.max(Math.ceil(Math.log10(Math.max(...positive))), minPower + 1);
+  const min = 10 ** minPower, max = 10 ** maxPower;
+  const ticks: number[] = [];
+  for (let power = minPower; power <= maxPower; power++) {
+    for (const multiplier of [1, 3]) {
+      const value = multiplier * 10 ** power;
+      if (value >= min && value <= max) ticks.push(value);
+    }
+  }
+  if (ticks.at(-1) !== max) ticks.push(max);
+  return { min, max, ticks };
+}
 export function percentDomain(
   values: number[],
   deviations: number[] = [],
