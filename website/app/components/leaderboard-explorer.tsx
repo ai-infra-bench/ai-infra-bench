@@ -197,8 +197,6 @@ export function LeaderboardExplorer({
             <Heading id="ledger-title">Results</Heading>
             <p>
               Each configuration is evaluated four times per task.
-              {(data.release.batches?.length ?? 0) > 1 &&
-                " Batch labels identify the frozen evaluation source."}
             </p>
           </div>
         </div>

@@ -244,11 +244,6 @@ export function PrintComparison() {
             </>
           )}
         </div>
-        {(leaderboard.release.batches?.length ?? 0) > 1 && (
-          <span className="print-batch-note">
-            Two evaluation batches · task checksums may differ
-          </span>
-        )}
         {pinned && (
           <button type="button" className="print-clear" onClick={clear}>
             Clear
