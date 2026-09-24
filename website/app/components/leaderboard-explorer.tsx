@@ -186,7 +186,7 @@ export function LeaderboardExplorer({
     { key: "passAverage", label: "Pass avg" },
     { key: "averageTurns", label: "Avg turns" },
     { key: "averageToolCalls", label: "Avg tools" },
-    { key: "totalCostUsd", label: "Recorded cost" },
+    { key: "totalCostUsd", label: "Cost" },
   ];
 
   return (
@@ -358,7 +358,7 @@ export function LeaderboardExplorer({
                           {decimal(metrics.averageToolCalls)}
                         </span>
                       </td>
-                      <td title={`Recorded cost for ${metrics.costObservedTrials}/${metrics.validTrials} valid runs`}>
+                      <td title={`Cost for ${metrics.costObservedTrials}/${metrics.validTrials} valid runs`}>
                         <span className="ledger-amount">
                           {money(metrics.totalCostUsd)}
                         </span>
@@ -407,7 +407,7 @@ export function LeaderboardExplorer({
                                     )}
                                   </span>
                                   <strong
-                                    title={`${money(task.costUsd)} recorded cost for ${task.costObservedAttempts}/${task.attempts} attempts`}
+                                    title={`${money(task.costUsd)} cost for ${task.costObservedAttempts}/${task.attempts} attempts`}
                                   >
                                     <span aria-hidden="true">
                                       {task.passes}/{task.attempts}

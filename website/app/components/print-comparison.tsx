@@ -47,7 +47,7 @@ const axisLabels = {
   tools: "Tool calls",
 };
 const axisTitles = {
-  cost: "Average recorded cost per run (USD)",
+  cost: "Average cost per run (USD)",
   tokens: "Average output tokens per run",
   tools: "Average tool calls per run",
 };

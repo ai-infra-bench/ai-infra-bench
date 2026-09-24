@@ -55,6 +55,11 @@ test('two archive batches remain visible as separate configurations', async t =>
     const m = { ...manifest, release, model, trial_name: `${model}-trial`, source_job: `${model}-job` };
     const trial = path.join(archive, ...manifestPathParts(m));
     const { result, config, trajectory } = fixture(m);
+    if (model === 'new-model') {
+      result.agent_result.n_input_tokens = 1_000_000;
+      result.agent_result.n_cache_tokens = 500_000;
+      result.agent_result.n_output_tokens = 100_000;
+    }
     await mkdir(trial, { recursive: true });
     await writeFile(path.join(trial, 'result.json'), JSON.stringify(result));
     await writeFile(path.join(trial, 'config.json'), JSON.stringify(config));
@@ -63,7 +68,12 @@ test('two archive batches remain visible as separate configurations', async t =>
     const manifestFile = path.join(manifests, ...manifestPathParts(m).slice(0, -1), `${m.trial_name}.json`);
     await mkdir(path.dirname(manifestFile), { recursive: true });
     await writeFile(manifestFile, JSON.stringify(m));
-    sources.push({ release, archiveDirectory: archive, manifestDirectory: manifests, batchLabel });
+    sources.push({ release, archiveDirectory: archive, manifestDirectory: manifests, batchLabel,
+      ...(model === 'new-model' ? { tokenPricing: { 'new-model': {
+        uncachedInputUsdPerMillion: 0.3,
+        cachedInputUsdPerMillion: 0.006,
+        outputUsdPerMillion: 1.2,
+      } } } : {}) });
   }
   const sourceFile = path.join(root, 'source.json'), output = path.join(root, 'data.json');
   await writeFile(sourceFile, JSON.stringify({ release: 'combined', expectedAttempts: 1, sources }));
@@ -73,6 +83,9 @@ test('two archive batches remain visible as separate configurations', async t =>
   assert.equal(data.release.configurationCount, 2);
   assert.equal(data.release.validTrials, 2);
   assert.deepEqual(data.configurations.map(c => c.batchLabel).sort(), ['Earlier batch', 'Later batch']);
+  const repriced = data.configurations.find(c => c.model === 'new-model');
+  assert.equal(repriced.costBasis, 'official-list-estimate');
+  assert.equal(repriced.metrics.averageCostUsd, 0.273);
 });
 
 test('moved archive, independent manifest location and partial statistics work end to end', async t => {
