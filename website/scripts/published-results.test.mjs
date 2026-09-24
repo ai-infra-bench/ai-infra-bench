@@ -53,7 +53,14 @@ test('the nine certified Sep 24 configurations appear alongside the retained old
     assert.equal(configuration.metrics.passedTrials, expected.get(configuration.id));
   }
   const deepseek = current.find(configuration => configuration.model === 'deepseek-flash');
-  assert.equal(deepseek.metrics.costObservedTrials, 67);
-  assert.equal(deepseek.metrics.passesPer100Usd, null);
+  assert.equal(deepseek.costBasis, 'official-list-estimate');
+  assert.equal(deepseek.metrics.costObservedTrials, 68);
+  assert.equal(deepseek.metrics.totalCostUsd, 60.7293);
+  assert.equal(deepseek.metrics.averageCostUsd, 0.8931);
+  assert.equal(deepseek.metrics.totalCostUsd, Number((
+    ((deepseek.metrics.inputTokens - deepseek.metrics.cachedTokens) * 0.3
+    + deepseek.metrics.cachedTokens * 0.006
+    + deepseek.metrics.outputTokens * 1.2) / 1_000_000
+  ).toFixed(4)));
   assert.equal(snapshot.exclusions.trials.filter(trial => trial.model === 'deepseek-flash').length, 5);
 });
