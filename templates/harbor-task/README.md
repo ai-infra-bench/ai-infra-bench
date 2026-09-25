@@ -6,7 +6,7 @@ Set `[task].version` to `"1.0.0"` for the initial release and omit `authors`.
 Use a concise, single-sentence `description` of the observable problem or
 requested outcome; avoid revealing the diagnosis or reference implementation.
 Set `[agent].timeout_sec = 36000` (10 hours) for the benchmark agent budget.
-Start `keywords` with the project (`"vllm"`, or `"pi"` for the agent-harness tasks on earendil-works/pi) and add at most three topic keywords
+Start `keywords` with the project (`"vllm"`, `"pi"`, or `"nemo-gym"`) and add at most three topic keywords
 based on the instruction and reference solution, when available. Do not use
 CPU/GPU tags, including compound tags such as `gpu-worker`. Use keywords for
 subsystem and topic labels instead of a separate `subsystems` field.
@@ -69,6 +69,12 @@ Task tests are supplied after the agent phase; they must not be baked into the
 agent image. Shared verification is not a clean environment or automatic
 protection against candidate code executed by the verifier.
 
+The reviewed NeMo Gym bridge retains a separate verifier container. It declares
+`environment_mode = "separate"`, a task-local `tests/Dockerfile`, and matching
+offline resource settings under `[verifier.environment]`. Its complete workspace
+archive is a verifier input and must survive CI preparation. The trusted verifier
+does not import candidate Python; candidate execution uses an unprivileged child.
+
 Every task sets top-level `artifacts` to its complete `environment.workdir`,
 including the checkout's Python, Rust, CUDA, build files, and new files. Harbor
 collects this snapshot after the agent finishes and before verification, and
@@ -77,7 +83,7 @@ inside it. This preserves the agent's final submission even when the container
 is deleted. It does not enable a separate verifier or capture later changes
 made by the verification scripts.
 
-CI sets `artifacts = []` only in its temporary task copies to avoid accumulating
+For shared verification, CI sets `artifacts = []` only in its temporary task copies to avoid accumulating
 full checkout snapshots. Task validation, image publication, and GPU smoke CI
 do not upload artifacts. Formal evaluation configs retain complete snapshots
 and the standard collector; GitHub Actions execution logs remain available.

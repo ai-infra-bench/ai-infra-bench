@@ -31,7 +31,7 @@ SHA256 = re.compile(r"^[0-9a-f]{64}$")
 # targets (vLLM), the repository's package-lock.json for Node targets (pi).
 DEPENDENCY_LOCKS = ("environment/lock/requirements.txt", "environment/lock/package-lock.json")
 # The leading keyword names the project; the website derives the repository from it.
-PROJECT_KEYWORDS = ("vllm", "pi")
+PROJECT_KEYWORDS = ("vllm", "pi", "nemo-gym")
 REQUIRED_FILES = (
     "instruction.md",
     "environment/Dockerfile",
@@ -231,10 +231,19 @@ def check_benchmark_config(config: dict[str, Any], audit: Audit) -> None:
             audit.require(environment.get("gpu_types") == ["A100"], "GPU tasks must declare gpu_types = ['A100']")
         else:
             audit.require("gpu_types" not in environment, "CPU tasks must omit gpu_types")
-    audit.require(
-        "environment_mode" not in verifier and "environment" not in verifier,
-        "omit verifier environment settings to use default shared verification",
-    )
+    if isinstance(keywords, list) and keywords[:1] == ["nemo-gym"]:
+        # Preserve the bridge's reviewed clean-verifier isolation. Its complete
+        # checkout transfer is required input, including in CI.
+        audit.require(verifier.get("environment_mode") == "separate", "NeMo Gym requires its reviewed separate verifier")
+        isolated = mapping(verifier.get("environment"))
+        for field in ("workdir", "cpus", "memory_mb", "storage_mb", "build_timeout_sec", "network_mode"):
+            audit.require(isolated.get(field) == environment.get(field), f"verifier.environment.{field} must match environment")
+        audit.require("docker_image" not in isolated, "omit verifier.environment.docker_image from the committed task")
+    else:
+        audit.require(
+            "environment_mode" not in verifier and "environment" not in verifier,
+            "omit verifier environment settings to use default shared verification",
+        )
     for section in ("agent", "verifier"):
         audit.require(
             mapping(config.get(section)).get("network_mode", "no-network") == "no-network",

@@ -14,7 +14,14 @@ const tasksDir = path.resolve(projectDir, '..', 'tasks');
 
 // The leading keyword of a task names its project. Task manifests carry no repository
 // field, so it is derived from it; the site maps a project to its domain (app/lib/task-filters.ts).
-const PROJECT_REPOSITORIES = { vllm: 'vllm-project/vllm', pi: 'earendil-works/pi' };
+const PROJECT_REPOSITORIES = { vllm: 'vllm-project/vllm', pi: 'earendil-works/pi', 'nemo-gym': 'NVIDIA-NeMo/Gym' };
+// Solver-visible documents are installed at container paths. Publish the same
+// bytes with the statement so those links work outside the task container too.
+const INSTRUCTION_DOCUMENTS = {
+  'nemo-gym-anthropic-responses-bridge': {
+    '/opt/nemo-gym/docs/bridge-contract.md': 'bridge-contract.md',
+  },
+};
 const outputDir = path.join(projectDir, 'app', 'generated');
 const legacyOutputFile = path.join(outputDir, 'tasks.json');
 const indexOutputFile = path.join(outputDir, 'task-index.json');
@@ -291,6 +298,16 @@ for (const entry of entries) {
     await readTextFiles(path.join(taskDir, 'environment')),
     ['Dockerfile'],
   );
+  const instructionDocuments = [];
+  for (const [installedPath, name] of Object.entries(INSTRUCTION_DOCUMENTS[entry.name] ?? {})) {
+    const file = environmentFiles.find((candidate) => candidate.name === name);
+    if (!file || !instruction.includes(`](${installedPath})`)) {
+      throw new Error(`${entry.name}: missing declared instruction document ${name}`);
+    }
+    const anchor = `task-document-${instructionDocuments.length}`;
+    instruction = instruction.replaceAll(`](${installedPath})`, `](#${anchor})`);
+    instructionDocuments.push(`<section id="${anchor}">${await renderInstruction(file.content)}</section>`);
+  }
 
   tasks.push({
     slug: entry.name,
@@ -318,7 +335,7 @@ for (const entry of entries) {
       environment: getSectionObject(manifest, 'environment'),
       verifier: getSectionObject(manifest, 'verifier'),
     },
-    instructionHtml: await renderInstruction(instruction.trim()),
+    instructionHtml: await renderInstruction(instruction.trim()) + instructionDocuments.join(''),
     verifierFiles: await emitSourceFiles(entry.name, 'tests', verifierFiles),
     solutionFiles: await emitSourceFiles(entry.name, 'solution', solutionFiles),
     environmentFiles: await emitSourceFiles(entry.name, 'environment', environmentFiles),
