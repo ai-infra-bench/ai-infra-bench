@@ -50,6 +50,7 @@ CASES = [
     "deliver_during_compaction",
     "finish_during_reload",
     "interrupted_delivery",
+    "interrupted_before_result",
 ]
 
 
@@ -1136,8 +1137,11 @@ def case_interrupted_delivery(case, run):
     parent.prompt("ID-USER ID-FORK fork, stay busy, get interrupted")
     run.require_fork_tool()
     case.wait_until(lambda: case.parent_events("hold_start"), "the parent's hold tool")
-    # The fork finishes and reports while the parent is inside `hold`.
-    settle(case, grace=1.0)
+    # The fork finishes and reports while the parent is inside `hold`: wait until the fork
+    # process exists (a slow start must not let the interrupt overtake it), then until it has
+    # exited, then a grace period for the parent to queue its result.
+    case.wait_until(lambda: case.requesting_children(), "the fork's model request")
+    settle(case, grace=1.5)
     check(not any("ID-CHILD-ANSWER" in all_text(r["body"]) for r in case.parent_requests()),
           "scenario: the result reached the model before the interrupt")
     # Escape in pi's interactive mode: discard the queued messages, then abort the run.
@@ -1149,6 +1153,55 @@ def case_interrupted_delivery(case, run):
     parent_file = run.session_file(parent)
     case.wait_until(lambda: [r for r in case.parent_requests() if "ID-CHILD-ANSWER survives the interrupt" in all_text(r["body"])],
                     "the parent's model to see the result after the interrupt", 20)
+    parent.wait_idle_runs(len(parent.events("agent_start")))
+    time.sleep(1.5)
+    results = fork_results(parent_file)
+    check(len(results) == 1, f"expected exactly one fork-result, found {len(results)}")
+    check_result_entry(results[0], check_fork_tool_result(parent)[0], "completed", parent_file)
+    check_no_children(case)
+
+
+def case_interrupted_before_result(case, run):
+    task = "IB-TASK: finish after the user interrupted the busy parent"
+
+    def child(case, body, pid):
+        case.gate("child-release").wait(WAIT)
+        return ("text", "IB-CHILD-ANSWER after the interrupt")
+
+    state = {"held": False}
+
+    def script(case, body, pid):
+        if pid != case.parent_pid:
+            return child(case, body, pid)
+        msgs = convo(body)
+        last = msgs[-1]
+        if "IB-CHILD-ANSWER after the interrupt" in all_text(body):
+            return ("text", "IB-ACK")
+        if last.get("role") == "user":
+            return ("tools", [("fork", {"task": task})])
+        if last.get("role") == "tool" and not state["held"]:
+            state["held"] = True
+            return ("tools", [("hold", {"key": "busy"})])
+        return ("text", "IB-PARENT-AFTER")
+
+    case.script = script
+    parent = run.start("fork-test/scripted-a")
+    parent.prompt("IB-USER IB-FORK fork, stay busy, get interrupted before the result")
+    run.require_fork_tool()
+    case.wait_until(lambda: case.parent_events("hold_start"), "the parent's hold tool")
+    case.wait_until(lambda: case.requesting_children(), "the fork's model request")
+    # Escape while a long tool is still finishing: discard the queued messages, then abort.
+    # pi waits for the tool; the fork finishes and reports during that wait.
+    parent.send({"type": "clear_queue"})
+    abort_id = parent.send_nowait({"type": "abort"})
+    time.sleep(0.5)
+    case.gate("child-release").set()
+    settle(case, grace=1.5)
+    case.gate("hold:busy").set()
+    parent.wait_response(abort_id, "abort")
+    parent_file = run.session_file(parent)
+    case.wait_until(lambda: [r for r in case.parent_requests() if "IB-CHILD-ANSWER after the interrupt" in all_text(r["body"])],
+                    "the parent's model to see the result after the interrupted run", 20)
     parent.wait_idle_runs(len(parent.events("agent_start")))
     time.sleep(1.5)
     results = fork_results(parent_file)

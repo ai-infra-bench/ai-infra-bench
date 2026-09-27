@@ -40,7 +40,7 @@ diff --git a/packages/coding-agent/examples/extensions/fork/index.ts b/packages/
 new file mode 100644
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/fork/index.ts
-@@ -0,0 +1,331 @@
+@@ -0,0 +1,362 @@
 +/**
 + * Background forks: the `fork` tool starts a separate pi process that inherits the
 + * conversation so far, works on a task while the parent keeps going, and reports its
@@ -82,6 +82,8 @@ new file mode 100644
 +	forks: Map<string, ForkRecord>;
 +	/** Results sent to pi that have not reached the parent's model yet, by fork id. */
 +	undelivered: Map<string, PendingResult>;
++	/** Undelivered results included in the model request currently in flight. */
++	inRequest: Set<string>;
 +	/** The extension instance bound to the live session; replaced on every load (/reload). */
 +	api?: ExtensionAPI;
 +	sessionFile?: string;
@@ -90,7 +92,7 @@ new file mode 100644
 +// Forks outlive an extension runtime on /reload, so their bookkeeping lives per process.
 +const registryKey = Symbol.for("pi.fork-extension.registry");
 +const globals = globalThis as { [registryKey]?: Registry };
-+const registry: Registry = (globals[registryKey] ??= { forks: new Map(), undelivered: new Map() });
++const registry: Registry = (globals[registryKey] ??= { forks: new Map(), undelivered: new Map(), inRequest: new Set() });
 +
 +function newId(): string {
 +	return randomBytes(4).toString("hex");
@@ -215,12 +217,20 @@ new file mode 100644
 +
 +/**
 + * Idle: starts a new run. Running: steered into the next request of the current run, after
-+ * the executing tools finish. A steered message that the user discards (Escape clears pi's
-+ * queues before aborting) never reaches the model; it stays in `undelivered` and is sent
-+ * again when the parent settles.
++ * the executing tools finish. A result counts as delivered only once a model response to a
++ * request that contained it completes. Escape can discard a queued result (pi clears its
++ * queues before aborting), or let pi append it to the session inside a turn whose request is
++ * then aborted; either way it stays in `undelivered` and is handled when the parent settles.
 + */
 +function send(api: ExtensionAPI, pending: PendingResult): void {
 +	api.sendMessage(pending.message, { triggerTurn: true });
++}
++
++function resultOnBranch(ctx: ExtensionContext, forkId: string): boolean {
++	return ctx.sessionManager.getBranch().some((entry) => {
++		const e = entry as { type: string; customType?: string; details?: { forkId?: string } };
++		return e.type === "custom_message" && e.customType === "fork-result" && e.details?.forkId === forkId;
++	});
 +}
 +
 +// Known narrow window, not exercised by the verifier: a result that lands between pi's
@@ -230,12 +240,22 @@ new file mode 100644
 +	const api = registry.api;
 +	const sessionFile = ctx.sessionManager.getSessionFile();
 +	if (!api || ctx.hasPendingMessages()) return;
++	let wake = false;
 +	for (const [forkId, pending] of registry.undelivered) {
 +		if (pending.parentSessionFile !== sessionFile) {
 +			registry.undelivered.delete(forkId);
 +			continue;
 +		}
-+		send(api, pending);
++		// Already in the session (appended by an aborted turn): do not add it twice, only
++		// give the model a turn in which it sees the conversation, result included.
++		if (resultOnBranch(ctx, forkId)) wake = true;
++		else send(api, pending);
++	}
++	if (wake) {
++		api.sendMessage(
++			{ customType: "fork-wake", content: "Fork results arrived while the previous run was interrupted.", display: false },
++			{ triggerTurn: true },
++		);
 +	}
 +}
 +
@@ -333,12 +353,23 @@ new file mode 100644
 +	};
 +	pi.on("session_start", (_event, ctx) => bind(ctx));
 +	pi.on("before_agent_start", (_event, ctx) => bind(ctx));
-+	// A result has reached the parent's model once pi emits it as a message of the session.
-+	pi.on("message_end", (event) => {
-+		const message = event.message as { role?: string; customType?: string; details?: { forkId?: string } };
-+		if (message.role === "custom" && message.customType === "fork-result" && message.details?.forkId) {
-+			registry.undelivered.delete(message.details.forkId);
++	// A result has reached the parent's model once a response to a request containing it
++	// completes; an aborted or failed response does not count.
++	pi.on("context", (event) => {
++		registry.inRequest.clear();
++		for (const message of event.messages) {
++			const m = message as { role?: string; customType?: string; details?: { forkId?: string } };
++			if (m.role === "custom" && m.customType === "fork-result" && m.details?.forkId && registry.undelivered.has(m.details.forkId)) {
++				registry.inRequest.add(m.details.forkId);
++			}
 +		}
++	});
++	pi.on("turn_end", (event) => {
++		const reply = event.message as { role?: string; stopReason?: string };
++		if (reply.role === "assistant" && reply.stopReason !== "aborted" && reply.stopReason !== "error") {
++			for (const forkId of registry.inRequest) registry.undelivered.delete(forkId);
++		}
++		registry.inRequest.clear();
 +	});
 +	pi.on("agent_settled", (_event, ctx) => resendUndelivered(ctx));
 +	pi.on("session_shutdown", (event, ctx) => {

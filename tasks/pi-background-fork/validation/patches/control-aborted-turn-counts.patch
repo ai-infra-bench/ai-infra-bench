@@ -40,7 +40,7 @@ diff --git a/packages/coding-agent/examples/extensions/fork/index.ts b/packages/
 new file mode 100644
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/fork/index.ts
-@@ -0,0 +1,364 @@
+@@ -0,0 +1,363 @@
 +/**
 + * Background forks: the `fork` tool starts a separate pi process that inherits the
 + * conversation so far, works on a task while the parent keeps going, and reports its
@@ -92,8 +92,7 @@ new file mode 100644
 +// Forks outlive an extension runtime on /reload, so their bookkeeping lives per process.
 +const registryKey = Symbol.for("pi.fork-extension.registry");
 +const globals = globalThis as { [registryKey]?: Registry };
-+const registry: Registry = { forks: new Map(), undelivered: new Map(), inRequest: new Set() };
-+void globals;
++const registry: Registry = (globals[registryKey] ??= { forks: new Map(), undelivered: new Map(), inRequest: new Set() });
 +
 +function newId(): string {
 +	return randomBytes(4).toString("hex");
@@ -368,7 +367,7 @@ new file mode 100644
 +	});
 +	pi.on("turn_end", (event) => {
 +		const reply = event.message as { role?: string; stopReason?: string };
-+		if (reply.role === "assistant" && reply.stopReason !== "aborted" && reply.stopReason !== "error") {
++		if (reply.role === "assistant") {
 +			for (const forkId of registry.inRequest) registry.undelivered.delete(forkId);
 +		}
 +		registry.inRequest.clear();

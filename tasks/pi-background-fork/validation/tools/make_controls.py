@@ -113,8 +113,8 @@ CONTROLS = {
     )],
     # Bookkeeping lives in the module: a reloaded runtime has lost its forks.
     "control-module-state": [(
-        "const registry: Registry = (globals[registryKey] ??= { forks: new Map(), undelivered: new Map() });",
-        "const registry: Registry = { forks: new Map(), undelivered: new Map() };\nvoid globals;",
+        "const registry: Registry = (globals[registryKey] ??= { forks: new Map(), undelivered: new Map(), inRequest: new Set() });",
+        "const registry: Registry = { forks: new Map(), undelivered: new Map(), inRequest: new Set() };\nvoid globals;",
     )],
     # A result can be delivered more than once.
     "control-deliver-twice": [(
@@ -150,6 +150,11 @@ CONTROLS = {
     "control-no-redelivery": [(
         "\tpi.on(\"agent_settled\", (_event, ctx) => resendUndelivered(ctx));\n",
         "\tvoid resendUndelivered;\n",
+    )],
+    # A result appended inside a turn whose request the user aborted counts as delivered.
+    "control-aborted-turn-counts": [(
+        "\t\tif (reply.role === \"assistant\" && reply.stopReason !== \"aborted\" && reply.stopReason !== \"error\") {",
+        "\t\tif (reply.role === \"assistant\") {",
     )],
 }
 
