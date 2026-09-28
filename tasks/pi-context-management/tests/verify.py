@@ -53,6 +53,16 @@ def result(body):
     return json.loads(text(body["messages"][-1]))
 
 
+def notes_present(notes, value):
+    """Notes are in the model input verbatim or losslessly JSON-encoded in a string.
+
+    The instruction does not fix how the extension presents the notes; a JSON string
+    (as JSON.stringify or json.dumps produces it) carries the same text.
+    """
+    variants = {notes, json.dumps(notes, ensure_ascii=False)[1:-1], json.dumps(notes)[1:-1]}
+    return any(v in value for v in variants)
+
+
 def history_contains(value, expected):
     """Match intact original text, including inside losslessly encoded JSON.
 
@@ -133,7 +143,7 @@ class Scenario:
     def check_fresh(self, body, *, notes=True):
         value = all_text(body)
         assert self.goal in value and self.system in value, "Goal/system instructions lost"
-        if notes: assert self.summary in value, "Latest working notes not carried into fresh context"
+        if notes: assert notes_present(self.summary, value), "Latest working notes not carried into fresh context"
         assert self.secret not in value and self.anchor not in value, "Old evidence still in active context"
         assert self.evidence["noise"].splitlines()[0] not in value, "Unrelated old record reloaded"
         assert self.hypothesis not in value, "Old assistant text still in active context"
@@ -153,7 +163,7 @@ class Scenario:
         self.check_fresh(body)
         return body
 
-    def recover(self, query, expected):
+    def recover(self, query, expected, also=None):
         body = yield calls(call("history_search",query=query))
         items = result(body)["items"]
         assert items, "Search did not locate original record"
@@ -162,7 +172,10 @@ class Scenario:
             identity = {key:item[key] for key in ["window_id","item_id"]}
             assert all(isinstance(v,str) and v for v in identity.values()), "History IDs must be usable opaque strings"
             body = yield calls(call("history_read",**identity))
-            if history_contains(result(body)["text"], expected):
+            text = result(body)["text"]
+            # The search may also match newer records (for example the search call
+            # itself); keep looking until the record that carries the evidence.
+            if history_contains(text, expected) and (also is None or history_contains(text, also)):
                 self.checked("original_record_recovered")
                 return body, identity
         raise AssertionError("No matching item exposes the complete original record")
@@ -239,7 +252,7 @@ class Scenario:
                     body = yield calls(call("notes_write",text=self.summary))
                     body = yield calls(call("new_context"))
                     self.check_fresh(body)
-                    assert previous not in all_text(body), "Stale working note resurrected"
+                    assert not notes_present(previous, all_text(body)), "Stale working note resurrected"
             # Continue with a normal tool call, proving pairing and new-window accumulation.
             body = yield dict(calls(call("evidence",key="side")),content=self.current_marker)
             assert self.current_marker in all_text(body) and self.evidence["side"] in all_text(body)
@@ -288,7 +301,7 @@ class Scenario:
             assert result(body)["text"] == self.summary, "Write did not replace notes"
             body = yield calls(call("new_context"))
             self.check_fresh(body)
-            assert previous not in all_text(body)
+            assert not notes_present(previous, all_text(body))
         elif self.name == "history":
             body = yield from self.setup_window()
             # A receipt near the end of a long record must lead back to that record.
@@ -296,8 +309,9 @@ class Scenario:
             assert self.evidence["noise"].splitlines()[0] not in all_text(body)
             body,_=yield from self.recover(self.hypothesis,self.hypothesis)
             # Verify original assistant tool arguments, not only prose.
-            body,identity=yield from self.recover('"old"','"old"')
-            assert history_contains(result(body)["text"], "evidence"), "Assistant tool-call name was not archived"
+            # Plain query text: matching semantics are the implementation's (raw JSON or
+            # field values); the record read back must still carry the original call.
+            body,identity=yield from self.recover('old','"old"', also="evidence")
         elif self.name == "batch":
             body = yield from self.setup_window()
             previous=self.summary
@@ -305,7 +319,7 @@ class Scenario:
             batch=[call("new_context"),call("evidence",key="side"),call("notes_write",text=self.summary),call("new_context")]
             body = yield calls(*batch)
             self.check_fresh(body)
-            assert previous not in all_text(body)
+            assert not notes_present(previous, all_text(body))
             assert self.evidence["side"] not in all_text(body), "Switching batch output retained in the new window"
             assert self.served.count("side")==1, "Requested side-effect tool skipped or repeated"
             for requested in batch:
