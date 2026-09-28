@@ -111,16 +111,16 @@ index 000000000..e64f15a750f59266449b7f411599b28c30ae4274
 +
 +```ts
 +let env: NodeJS.ProcessEnv | undefined;
-+pi.events.emit("agent-trace:request-child-context", {
-+  callId: toolCallId,
-+  baseEnv: process.env,
-+  accept: (value: NodeJS.ProcessEnv | undefined) => { env = value; },
++pi.events.emit("agent-trace:child-env", {
++  toolCallId,
++  env: process.env,
++  reply: (value: NodeJS.ProcessEnv | undefined) => { env = value; },
 +});
 +if (!env) throw new Error("No active trace context for this tool call");
 +const child = spawn(process.execPath, childArgs, { env });
 +```
 +
-+The handler invokes `accept` synchronously and supplies a fresh copy containing
++The handler invokes `reply` synchronously and supplies a fresh copy containing
 +`PI_AGENT_TRACE_ID` and `PI_AGENT_TRACE_PARENT_SPAN_ID`. Unknown or ended calls
 +return `undefined`; without the tracer loaded there is no callback. Load this
 +extension in the child: every span joins the inherited trace, and every child
@@ -952,15 +952,15 @@ index 000000000..de3fa4c6378eaf37167572b7031c726d876733b3
 +
 +	// Documented inter-extension protocol; neither the caller nor the verifier
 +	// imports this class or accesses its state.
-+	pi.events.on("agent-trace:request-child-context", (data: unknown) => {
++	pi.events.on("agent-trace:child-env", (data: unknown) => {
 +		const request = data as {
-+			callId?: unknown;
-+			baseEnv?: NodeJS.ProcessEnv;
-+			accept?: (env: NodeJS.ProcessEnv | undefined) => void;
++			toolCallId?: unknown;
++			env?: NodeJS.ProcessEnv;
++			reply?: (env: NodeJS.ProcessEnv | undefined) => void;
 +		} | undefined;
-+		if (typeof request?.accept !== "function") return;
-+		request.accept(typeof request.callId === "string"
-+			? tracer?.childEnvironment(request.callId, request.baseEnv ?? process.env)
++		if (typeof request?.reply !== "function") return;
++		request.reply(typeof request.toolCallId === "string"
++			? tracer?.childEnvironment(request.toolCallId, request.env ?? process.env)
 +			: undefined);
 +	});
 +
@@ -1278,7 +1278,7 @@ index 000000000..0338cac7ce956a929bdabbaf5fd56bad35ad2e74
 +		emit,
 +		childEnvironment(callId: string, baseEnv: NodeJS.ProcessEnv = process.env) {
 +			let result: NodeJS.ProcessEnv | undefined;
-+			pi.events.emit("agent-trace:request-child-context", { callId, baseEnv, accept: (env: NodeJS.ProcessEnv | undefined) => { result = env; } });
++			pi.events.emit("agent-trace:child-env", { toolCallId: callId, env: baseEnv, reply: (env: NodeJS.ProcessEnv | undefined) => { result = env; } });
 +			return result;
 +		},
 +		async beforeAgentStart() {
