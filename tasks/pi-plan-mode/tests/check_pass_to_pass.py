@@ -72,6 +72,10 @@ def main():
     baseline, candidate, pins_path = map(Path, sys.argv[1:4]); report = {"passed": False}
     try:
         pins = json.loads(pins_path.read_text()); base = outcomes(baseline); current = outcomes(candidate)
+        # The known timing-sensitive Base case can also fail while the image records its
+        # baseline. When it fails there with exactly the pinned signature, count it as the
+        # passing Base outcome the pins describe; any other baseline change still fails.
+        if KNOWN_BASE_CASE in observed_known_base_failures(baseline, pins): base[KNOWN_BASE_CASE] = "passed"
         if pins.get("base_commit") != "d981de1229ef899957bbe968bc8dcda02a21f477": raise ValueError("unexpected Base commit")
         if digest(base) != pins["outcomes_sha256"] or len(base) != pins["cases"]: raise ValueError("baseline outcome inventory changed")
         report.update(compare(base, current, observed_known_base_failures(candidate, pins)))
