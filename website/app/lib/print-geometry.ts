@@ -18,6 +18,18 @@ export function descendingLinear(
 ) {
   return start + ((max - value) / (max - min)) * length;
 }
+export function descendingLogarithmic(
+  value: number,
+  min: number,
+  max: number,
+  start: number,
+  length: number,
+) {
+  if (value <= 0 || min <= 0 || max <= min)
+    throw new RangeError("Logarithmic projection requires positive values and an increasing domain");
+  return start + ((Math.log10(max) - Math.log10(value)) /
+    (Math.log10(max) - Math.log10(min))) * length;
+}
 // Shape-preserving Hermite interpolation. Knots are measurements; connecting
 // segments guide the eye and are not estimates of unmeasured configurations.
 export function curveSegments(points: XY[]) {

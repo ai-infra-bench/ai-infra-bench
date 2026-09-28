@@ -38,7 +38,11 @@ def safe_segment(value: str) -> str:
 
 
 def model_effort(config: dict) -> str:
-    config_path = config.get("agent", {}).get("kwargs", {}).get("config")
+    agent = config.get("agent", {})
+    config_path = agent.get("kwargs", {}).get("config")
+    if agent.get("name") == "claude-code" and agent.get("model_name") == "deepseek-flash" and config_path is None:
+        # This campaign did not expose a user-selectable reasoning effort.
+        return "default"
     if not isinstance(config_path, str):
         raise RuntimeError("trial config does not identify the Codex config")
     try:
@@ -159,7 +163,9 @@ def archive_trial(
 
     trajectory_ok, trajectory_reasons = trajectory_integrity(trial)
     exception = result.get("exception_info")
-    status_value = "valid" if exception is None and trajectory_ok else "excluded"
+    budget_timeout = isinstance(exception, dict) and exception.get("exception_type") == "AgentTimeoutError"
+    reward = (result.get("verifier_result") or {}).get("rewards", {}).get("reward")
+    status_value = "valid" if (exception is None or budget_timeout) and trajectory_ok and reward in (0, 1) else "excluded"
     manifest = {
         "schema_version": "ai_infra_bench_harbor_archive.v1",
         "release": release,
@@ -171,11 +177,12 @@ def archive_trial(
         "trial_name": trial.name,
         "task_checksum": result.get("task_checksum"),
         "status": status_value,
+        "budget_timeout": budget_timeout,
         "exclusion_reasons": [
             *(trajectory_reasons if not trajectory_ok else []),
-            *([str(exception.get("exception_type", "exception"))] if isinstance(exception, dict) else []),
+            *([str(exception.get("exception_type", "exception"))] if isinstance(exception, dict) and not budget_timeout else []),
         ],
-        "reward": (result.get("verifier_result") or {}).get("rewards", {}).get("reward"),
+        "reward": reward,
         "started_at": result.get("started_at"),
         "finished_at": result.get("finished_at"),
         "source_job": str(job.resolve()),

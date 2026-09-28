@@ -76,8 +76,10 @@ It must not disclose:
 - hidden test inputs or expected source structure.
 
 Hidden tests may vary values, ordering, shape, lifecycle repetitions, topology,
-and error cases. They may not introduce a behavior category that the
-instruction did not disclose.
+and error cases. Every scored behavior must follow an explicit task requirement
+or a necessary implication of normal product semantics discoverable in the
+solver's environment. Do not add requirements or depend on Oracle-specific
+internals.
 
 Task-specific reproduction artifacts are optional. Authors may create and
 retain them when useful for construction checks or independent review. Even a
@@ -199,7 +201,10 @@ because a model, pytest, compiler, or package is missing.
 
 Build from an empty context or an allow-listed context that cannot contain
 tests, solution, validation patches, trajectories, credentials, or future
-source. Pin all images and downloads by digest.
+source. Pin images by digest, source and model assets by immutable commits,
+and dependencies with lock files. Ordinary build and test tools may be pinned
+by explicit version or digest; a floating tool version is not a pin. Follow
+the [cutoff and version-pinning rules](../../ai-infra-bench-task-review/references/review-rubric.md#53-cutoff-and-image-audit).
 
 When borrowing native artifacts from a donor image or package, inspect retained
 Python source, secondary installations, Git objects, caches, and inherited

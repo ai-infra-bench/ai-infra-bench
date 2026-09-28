@@ -86,11 +86,15 @@ Start the final image under the agent's actual user, workdir, permissions, netwo
 
 ### 5.1 Repository metadata and resources
 
-Check every relevant `task.toml` field and run the repository validator:
+Check every relevant `task.toml` field and run
+`python3 .github/scripts/task_ci.py validate <task-id>`. CLI, Skill audit and CI
+share this source-task validator, including order, allowed keys, required text,
+placeholders and image/lock consistency. Validation is read-only; formatting
+commands perform explicit write-back. Semantic review remains necessary:
 
 - The task directory uses meaningful lowercase kebab-case without PR, issue, candidate, or instance identifiers; `[task].name` is `ai-infra-bench/<task-directory>`.
 - Follow the current [task conventions](../../../../templates/harbor-task/README.md). The description is a concise statement of the observable problem or requested outcome, without the hidden diagnosis. Initial-release version is `1.0.0`; omit authors. Keywords start with `vllm` and have at most three additional topic tags, with no CPU/GPU tags.
-- Metadata contains only `task_type`, `base_commit`, and `dependency_cutoff`. The type is `feature`, `bugfix`, or `performance`; Base is a full immutable SHA consistent with the environment and hashed lock manifest. Optional runtime assets and cutoff exceptions belong in `environment/build-config.json`.
+- Metadata contains only `domain`, `task_type`, `base_commit`, and `dependency_cutoff`, in that order. Domain is explicitly `inference`, `training`, or `agent_harness`; the current vLLM corpus uses `inference`. The task type is `feature`, `bugfix`, or `performance`; Base is a full immutable SHA consistent with the environment and hashed lock manifest. Optional runtime assets and cutoff exceptions belong in `environment/build-config.json`.
 - Require the agreed budgets: `[agent].timeout_sec = 36000`, `[verifier].timeout_sec = 7200`, `[environment].build_timeout_sec = 10800`, and the standard collection hook's `timeout_sec = 300`.
 - Task resources are `cpus = 8`, `memory_mb = 16384`, and `storage_mb = 51200`. CPU tasks set `gpus = 0` and omit `gpu_types`; GPU tasks use `gpu_types = ["A100"]` and an appropriate count. Use Harbor's resource fields, without custom profile/accelerator/topology fields. Check actual device visibility, shared memory, process startup, and communication where relevant.
 - Runtime networking is `no-network`. Keep the Dockerfile and omit a committed `docker_image`. Use default shared grading by omitting `verifier.environment_mode` and `verifier.environment`. Keep `artifacts = [environment.workdir]` and the standard self-contained collector.
@@ -126,7 +130,26 @@ those artifacts rather than assuming the post-verifier worktree is unchanged.
 
 Apply cutoff to the target repository Base, retained history and source objects; models, tokenizers, templates, data and supplied runtime resources; required external services or protocols; and runtime dependencies whose behavior affects the target boundary.
 
-General benchmark infrastructure is exempt unless its behavior is part of the task. Base images, operating-system plumbing, Python, Rust, uv, nextest, Harbor, compilers, and test tools still need reproducible versions or digests. Do not reject an exempt tool merely for a later release date. Reclassify it when a GC, compiler, driver, or runtime defect is itself part of the target behavior.
+Use `metadata.dependency_cutoff` by default. Recorded
+`dependency_cutoff_overrides` in `environment/build-config.json` replace that
+deadline only for the named packages and must match the overrides in
+`environment/lock/manifest.json`. Review each exception's reason, affected
+packages, and effective deadline in the construction or run records. The ASR
+and Ray tasks' torch-family exceptions are scoped examples; they do not extend
+the cutoff for other packages, source, models, or protocols. A recorded override
+alone does not establish semantic compatibility or justify its scope.
+
+General benchmark infrastructure is exempt from the date cutoff unless its
+behavior is part of the task. This includes base images, operating-system
+plumbing, Python, Rust, uv, nextest, Harbor, compilers, and test tools. Pin images
+by digest, source and model assets by immutable commits, and dependencies with
+lock files. Standalone data downloads need content hashes. Ordinary build and
+test tools may use an explicit version or digest; a floating tool version is
+not a pin. Record the effective versions, including when a network-fetched
+installer provisions a fixed toolchain. Cutoff exemption does not waive version
+pinning. Do not reject an exempt tool merely for a later release date;
+reclassify it when a GC, compiler, driver, or runtime defect is itself part of
+the target behavior.
 
 Inspect the Dockerfile, build context, final filesystem, and image history, including:
 
@@ -137,13 +160,13 @@ docker history --no-trunc "$image_tag"
 
 Verify HEAD, clean status, installed semantic dependency versions and import paths. The checkout must be at the exact Base and stripped of remotes, remote refs, tags, reflogs, fetch metadata, future reachable or unreachable objects, packs, bundles, alternates, caches, and secondary checkouts that could recover future source. Task tests, solutions, validation evidence, reward logic, and task-specific diagnosis aids must never enter agent-visible image layers. Deleting a final file alone does not establish this.
 
-**Gate 2 decision:** block if the semantic path cannot execute, a required component is missing or unusable, material answer information is agent-visible, future source is recoverable, a cutoff-sensitive dependency is too new, or the environment selects incompatible hardware semantics. An exempt tool's release date or a valid non-semantic substitution outside the agent image is not a blocker.
+**Gate 2 decision:** block if the semantic path cannot execute, a required component is missing or unusable, material answer information is agent-visible, future source is recoverable, a cutoff-sensitive dependency violates its applicable default or named-package cutoff, or the environment selects incompatible hardware semantics. An exempt tool's release date or a valid non-semantic substitution outside the agent image is not a blocker.
 
 Checkpoint: demonstrate solvability using the agent's normal development materials and actual resource conditions. Record infrastructure failures separately from candidate failures.
 
 ## 6. Build the bidirectional behavior-to-test map
 
-For each requirement, record its preconditions, triggering scenario, real execution path, observed result, and relevant case group. For directly constructed internal fixtures, link the reachability evidence checked in step 8. Then trace every reward-affecting assertion back to a statement requirement or justified implication.
+For each requirement, record its preconditions, triggering scenario, real execution path, observed result, and relevant case group. For directly constructed internal fixtures, link the reachability evidence checked in step 8. Then trace every reward-affecting assertion back to an explicit task requirement or necessary implication of normal product semantics discoverable in the solver's environment. Do not add requirements or depend on Oracle-specific internals.
 
 Check conditions such as available generation budget and KV capacity before requiring progress. Cover representative interacting dimensions: independently passing prefill, completion, and batch-movement cases do not establish that their interleaving works. Choose combinations from the contract rather than requiring an exhaustive Cartesian product.
 
@@ -197,6 +220,14 @@ Checkpoint: evidence demonstrates the required causal relationship at the releva
 ## 10. Trace scoring trust and completion integrity
 
 Identify which processes load candidate code, produce expected results, write reports, and decide reward, together with their read/write access. A candidate-written success flag, digest, nonce, or zero exit status cannot independently establish that required behavior occurred.
+
+Prevent reuse of earlier rewards with fresh run logs or explicit cleanup. A
+verifier may initialize `reward.txt` to `0` or leave it absent until it writes
+the final result. In both cases, write `1` only after all required behavioral
+and completion checks succeed. Preserve missing-result, timeout, and
+infrastructure-failure evidence; an initial `0` alone does not establish a
+candidate behavior failure. Judge these paths by completion and actual failure
+cause rather than requiring one reward initialization pattern.
 
 Check verifier permissions under the actual host and container identities. Candidate code must not modify trusted grading scripts or final rewards, but Harbor must be able to traverse/read the collected output paths. A non-root owner on a trusted read-only harness mount is not by itself a trust failure; root ownership alone is not proof of effective isolation. If files are staged, verify their trusted origin and protection before candidate execution. Record relevant owners, modes, and mount restrictions for failures. Separate permission/setup/collection failures from behavioral reward 0, and require collection evidence with the intended non-root host when applicable. Root-only local success does not establish non-root CI compatibility. Do not remove completion safeguards to make collection pass.
 
@@ -257,11 +288,26 @@ Checkpoint: coverage is unchanged, state does not leak across reused scenarios, 
 Use this final-validation order within the authorized scope:
 
 1. Finish instruction, task configuration, environment, solution, tests, verifier, and control changes.
-2. Run the repository validator and applicable static audit layers. Check syntax, test collection, patch applicability, artifact hashes, image identity, Git isolation, and agent visibility. JUnit checks are optional until a run record exists.
+2. Run the repository validator and applicable static audit layers. Check syntax, test collection, patch applicability, artifact hashes, image identity, Git isolation, and agent visibility. Check JUnit completion when the corresponding run record exists, using the task-specific invocation below.
 3. Run Base, Oracle, correct alternatives, incorrect controls, and appropriate stability or stress trials. Confirm the expected behavior and actual failure reason for each.
 4. Freeze executable artifacts. Any later executable change invalidates the affected behavioral and Harbor results.
 5. Run the final Harbor Oracle trial when the mode includes one. Require reward 1, zero errored trials, and completion of the expected test layers. For approved `verifier_only` tasks, run Base and declared controls through Harbor with their expected rewards and record the unavailable full-solution validation.
 6. Retain CI or Harbor run records outside the task directory and report only runs that actually occurred. Run the final artifact audit and `git diff --check`.
+
+For saved JUnit reports, invoke the checker used by that task's `tests/test.sh`
+with its complete arguments and matching report. Some checkers require a test
+count; others select a named suite. For example, from the repository root with
+`TASK_RUN_RECORDS` pointing to the respective run's verifier output directory:
+
+```bash
+python3 tasks/vllm-implement-anthropic-rust-serving/tests/check_junit.py "$TASK_RUN_RECORDS/sdk_fixture.xml" 21
+python3 tasks/vllm-asr-chunk-spacing/tests/check_junit.py "$TASK_RUN_RECORDS/pipeline-junit.xml" pipeline
+```
+
+These check only the named reports; follow the task's full verification command
+for all required layers. Use its required interpreter/dependencies and keep any
+generated summaries with the review records. The static audit script does not
+wrap task-specific result checkers.
 
 Verify artifact transfer, actual device assignment, isolation, required test completion, reward collection, and errored trials. Manual execution in a development container does not cover all these stages. Base must receive 0 because of the target behavior, not an import, fixture, dependency, or hardware error. Oracle and correct alternatives must receive 1 at the required semantic boundary with no skipped or errored checks; incorrect controls must receive 0 for the intended violation. The verifier must distinguish implementations through behavior alone.
 
@@ -318,7 +364,7 @@ A known failure can receive 0 even when other checks remain pending. A confirmed
 | 1 | Is the task realistic and clear? | A plausible developer request with valid interfaces, clear scope, preconditions and boundaries. Use concise, natural language and familiar terms such as PP, KV and NCCL without unnecessary expansion; retain concrete behavior and edge conditions. Support historical or quoted observations when claimed. |
 | 2 | Is correctness independent of the source PR? | The statement defines correctness; upstream material provides context without prescribing the historical implementation. Later fixes are included only when within the agreed scope and already possible at the frozen Base. |
 | 3 | Can the agent solve the task in the environment? | The agent's actual user, permissions, network and resources support reconstructing the semantic path from normal source and components. No reviewer-only dependency, material answer leak or recoverable future source; apply the cutoff rules above. |
-| 4 | Are the statement and tests aligned in both directions? | Every promised behavior has coverage and every reward-affecting requirement has a contractual basis or justified implication. Scored cases follow from supported inputs and lifecycle transitions, with reachability evidence for constructed internal states; they impose no unstated defensive requirements. Cover representative interactions without an exhaustive product of cases or publishing Oracle internals. |
+| 4 | Are the statement and tests aligned in both directions? | Every promised behavior has coverage and every reward-affecting requirement follows an explicit task requirement or necessary implication of normal product semantics discoverable in the solver's environment. Scored cases follow from supported inputs and lifecycle transitions, with reachability evidence for constructed internal states; they impose no unstated defensive requirements. Cover representative interactions without an exhaustive product of cases or publishing Oracle internals. |
 | 5 | Do tests exercise the actual behavior-determining path? | Semantic components and lifecycle transitions run for real; substitutions preserve relevant semantics, including input preparation and relationships between fields. Simplified fixtures retain the constraints of the evidenced product path. Observe actual inputs, outputs and state transitions, with causal checks for progress or waiting when required. Instrumentation must not perform missing candidate work. |
 | 6 | Can different correct implementations pass? | No unjustified dependence on private helpers, sentinels, containers, storage order or unspecified protocols. A materially different correct alternative passes, and its correctness is justified independently of its reward. |
 | 7 | Are incorrect implementations rejected for the right reasons? | Base and applicable incomplete or adversarial controls fail for the intended contract violation after reaching the target path, rather than malformed reports, invalid fixtures or infrastructure failures. |

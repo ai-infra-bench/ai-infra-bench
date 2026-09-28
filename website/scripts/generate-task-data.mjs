@@ -298,6 +298,7 @@ for (const entry of entries) {
     version: getValue(task, 'version'),
     description: getValue(task, 'description') ?? '',
     keywords,
+    ...(getValue(metadata, 'domain') ? { domain: getValue(metadata, 'domain') } : {}),
     taskType: getValue(metadata, 'task_type'),
     // The leading keyword identifies the project; task manifests omit repository.
     repository: PROJECT_REPOSITORIES[keywords[0]] ?? null,

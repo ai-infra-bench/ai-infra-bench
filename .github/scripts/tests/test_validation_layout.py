@@ -75,6 +75,50 @@ class ValidationLayoutTests(unittest.TestCase):
         self.assertEqual((output / "solution/ci-case.patch").read_text(), "control patch\n")
         self.assertIn("git apply", (output / "solution/solve.sh").read_text())
 
+    def test_control_names_cannot_shadow_builtin_cases(self):
+        for name in ("base", "oracle"):
+            with self.subTest(name=name):
+                self.manifest["cases"][0]["name"] = name
+                self.save_manifest()
+                with self.assertRaisesRegex(task_ci.ContractError, "reserved"):
+                    task_ci.validation_manifest(self.task)
+        for name in ("base-control", "oracle-control"):
+            with self.subTest(name=name):
+                self.manifest["cases"][0]["name"] = name
+                self.save_manifest()
+                self.assertEqual(task_ci.validation_manifest(self.task), self.manifest)
+
+    def test_expected_rewards_are_integer_zero_or_one(self):
+        for reward in (True, False, 0.0, 1.0, "0", "1", None, -1, 2):
+            with self.subTest(reward=reward, type=type(reward).__name__):
+                self.manifest["cases"][0]["expected_reward"] = reward
+                self.save_manifest()
+                with self.assertRaisesRegex(task_ci.ContractError, "expected_reward"):
+                    task_ci.validation_manifest(self.task)
+        for reward in (0, 1):
+            with self.subTest(reward=reward):
+                self.manifest["cases"][0]["expected_reward"] = reward
+                self.save_manifest()
+                self.assertEqual(task_ci.validation_manifest(self.task), self.manifest)
+
+    def test_verifier_only_controls_cannot_depend_on_oracle(self):
+        self.manifest["validation_mode"] = "verifier_only"
+        self.manifest["cases"][0]["apply_after"] = "oracle"
+        self.save_manifest()
+        for oracle_present in (True, False):
+            with self.subTest(oracle_present=oracle_present):
+                if not oracle_present:
+                    (self.task / "solution/solve.sh").unlink()
+                    (self.task / "solution/oracle.patch").unlink()
+                with self.assertRaisesRegex(task_ci.ContractError, "verifier_only.*oracle"):
+                    task_ci.validation_manifest(self.task)
+        self.manifest["cases"][0]["apply_after"] = "base"
+        self.save_manifest()
+        self.assertEqual(task_ci.validation_manifest(self.task), self.manifest)
+        output = self.root / "prepared"
+        task_ci.prepare_case(self.task, "example-image", "control", output)
+        self.assertEqual((output / "solution/ci-case.patch").read_text(), "control patch\n")
+
     def test_noncanonical_paths_symlinks_missing_and_unlisted_controls_fail(self):
         for path in ("control.patch", "../control.patch", "/tmp/control.patch", "patches/../control.patch", "patches//control.patch", "patches\\control.patch"):
             with self.subTest(path=path):

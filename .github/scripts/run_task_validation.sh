@@ -147,7 +147,7 @@ case_selection_args=()
 if [[ -n "${AI_INFRA_CASE_FILTER:-}" ]]; then
   case_selection_args+=(--filter "$AI_INFRA_CASE_FILTER")
 fi
-cases_json="$(python3 .github/scripts/task_ci.py cases --task "$TASK_NAME" "${case_selection_args[@]}")"
+cases_json="$(python3 .github/scripts/task_ci.py cases --task "$TASK_NAME" ${case_selection_args[@]+"${case_selection_args[@]}"})"
 
 while IFS= read -r case_json; do
   case_name="$(jq -er '.name' <<<"$case_json")"

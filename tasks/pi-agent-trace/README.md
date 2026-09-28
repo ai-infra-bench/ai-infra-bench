@@ -6,8 +6,8 @@ The instruction fixes how a cooperating tool obtains a child environment: it emi
 `agent-trace:child-env` on `pi.events` with `{ toolCallId, env, reply }`, and the extension
 replies synchronously. `tests/child-binding.mjs` is the verifier's cooperating tool side of
 that contract; it constructs no trace ids and reads no candidate state, so every
-submission is scored automatically (1.0.1 required a curator-written binding per
-submission; 1.0.2 pins the event instead).
+submission is scored automatically; an earlier draft needed a curator-written binding
+per submission, which pinning the event removes.
 
 The child fixture supplies its actual toolCallId, obtains its environment while a
 second tool is running, and spawns a real Pi child. It observes trace/session files;

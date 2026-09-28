@@ -55,7 +55,11 @@ export function assertValidOutcome(manifest, result, trajectory) {
   const reward = result.verifier_result?.rewards?.reward;
   if (reward !== 0 && reward !== 1) throw new Error(`${manifest.trial_name}: missing or non-binary reward`);
   if (manifest.reward !== reward) throw new Error(`${manifest.trial_name}: reward differs from manifest`);
-  if (result.exception_info || !trajectory?.final_metrics || !Array.isArray(trajectory.steps)
+  const budgetTimeout = result.exception_info?.exception_type === 'AgentTimeoutError';
+  if ((manifest.budget_timeout !== undefined || budgetTimeout) && manifest.budget_timeout !== budgetTimeout) {
+    throw new Error(`${manifest.trial_name}: budget-timeout evidence differs from manifest`);
+  }
+  if ((result.exception_info && !budgetTimeout) || !trajectory?.final_metrics || !Array.isArray(trajectory.steps)
     || trajectory.steps.some(step => String(step.message ?? '').includes('<turn_aborted>'))) {
     throw new Error(`Manifest marked valid but trajectory is invalid: ${manifest.trial_name}`);
   }
@@ -63,8 +67,9 @@ export function assertValidOutcome(manifest, result, trajectory) {
   if (!Number.isFinite(started) || !Number.isFinite(finished) || finished < started) throw new Error(`${manifest.trial_name}: invalid execution times`);
 }
 
-export function recordedMetric(resultValue, trajectoryValue, label) {
+export function recordedMetric(resultValue, trajectoryValue, label, allowMissing = false) {
   const value = resultValue ?? trajectoryValue;
+  if (value == null && allowMissing) return null;
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error(`Missing or invalid ${label}`);
   return value;
 }

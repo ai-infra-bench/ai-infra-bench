@@ -16,11 +16,13 @@ type TaskResult = {
   attempts: number;
   passes: number;
   costUsd: number;
+  costObservedAttempts: number;
 };
 type Configuration = {
   id: string;
   model: string;
   effort: string;
+  batchLabel: string;
   agent: string;
   agentVersion: string;
   status: string;
@@ -36,6 +38,7 @@ type Configuration = {
     taskCount: number;
     completeTasks: number;
     totalCostUsd: number | null;
+    costObservedTrials: number;
     averageCostUsd: number | null;
     averageTurns: number | null;
     averageToolCalls: number | null;
@@ -51,6 +54,7 @@ type LeaderboardData = {
     validTrials: number;
     expectedTrials: number;
     status: string;
+    batches?: { release: string; label: string }[];
   };
   configurations: Configuration[];
 };
@@ -182,7 +186,7 @@ export function LeaderboardExplorer({
     { key: "passAverage", label: "Pass avg" },
     { key: "averageTurns", label: "Avg turns" },
     { key: "averageToolCalls", label: "Avg tools" },
-    { key: "totalCostUsd", label: "Total cost" },
+    { key: "totalCostUsd", label: "Cost" },
   ];
 
   return (
@@ -191,7 +195,9 @@ export function LeaderboardExplorer({
         <div className="ledger-heading">
           <div className="ledger-title-block">
             <Heading id="ledger-title">Results</Heading>
-            <p>Each configuration is evaluated four times per task.</p>
+            <p>
+              Each configuration is evaluated four times per task.
+            </p>
           </div>
         </div>
         <div
@@ -314,6 +320,9 @@ export function LeaderboardExplorer({
                           />
                           <span>{configuration.model}</span>
                         </div>
+                        <span className="ledger-source-batch">
+                          {configuration.batchLabel}
+                        </span>
                         <span
                           className="mobile-model-effort"
                           aria-hidden="true"
@@ -347,7 +356,7 @@ export function LeaderboardExplorer({
                           {decimal(metrics.averageToolCalls)}
                         </span>
                       </td>
-                      <td>
+                      <td title={`Cost for ${metrics.costObservedTrials}/${metrics.validTrials} valid runs`}>
                         <span className="ledger-amount">
                           {money(metrics.totalCostUsd)}
                         </span>
@@ -362,6 +371,7 @@ export function LeaderboardExplorer({
                               <p className="breakdown-identity">
                                 {configuration.model}{" "}
                                 <span>{configuration.effort}</span>
+                                <span>{configuration.batchLabel}</span>
                               </p>
                             </div>
                             <div className="task-breakdown">
@@ -395,7 +405,7 @@ export function LeaderboardExplorer({
                                     )}
                                   </span>
                                   <strong
-                                    title={money(task.costUsd) + " total cost"}
+                                    title={`${money(task.costUsd)} cost for ${task.costObservedAttempts}/${task.attempts} attempts`}
                                   >
                                     <span aria-hidden="true">
                                       {task.passes}/{task.attempts}

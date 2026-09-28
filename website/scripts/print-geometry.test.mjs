@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {curveSegments,curvePath,closedBand,linear,descendingLinear,polarPoint,polarConnection} from '../app/lib/print-geometry.ts';
+import {curveSegments,curvePath,closedBand,linear,descendingLinear,descendingLogarithmic,polarPoint,polarConnection} from '../app/lib/print-geometry.ts';
 import {readFileSync} from 'node:fs';
 import {focusedDomain} from '../app/lib/hero-plot.ts';
 test('linear projection preserves endpoints and midpoint',()=>{assert.equal(linear(1,1,5,40,800),40);assert.equal(linear(3,1,5,40,800),440);assert.equal(linear(5,1,5,40,800),840);});
@@ -9,10 +9,10 @@ test('descending scale puts the largest resource value on the left',()=>{
  assert.equal(descendingLinear(3,1,5,40,800),440);
  assert.equal(descendingLinear(1,1,5,40,800),840);
 });
-test('all three measured axes mirror both knots and curve control points',()=>{
+test('linear resource axes mirror both knots and curve control points',()=>{
  const data=JSON.parse(readFileSync(new URL('../app/generated/leaderboard.json',import.meta.url),'utf8'));
  const configurations=data.configurations.filter(c=>c.model==='gpt-6-astra').sort((a,b)=>['low','medium','high','xhigh'].indexOf(a.effort)-['low','medium','high','xhigh'].indexOf(b.effort));
- for(const key of ['averageCostUsd','averageOutputTokens','averageToolCalls']){
+ for(const key of ['averageCostUsd','averageToolCalls']){
   const domain=focusedDomain(data.configurations.map(c=>c.metrics[key]));
   for(const width of [212,1000]){
    const before=configurations.map(c=>({x:linear(c.metrics[key],domain.min,domain.max,40,width),y:c.metrics.passAverage}));
@@ -25,6 +25,19 @@ test('all three measured axes mirror both knots and curve control points',()=>{
    assert.ok(!/NaN|Infinity/.test(curvePath(after)));
   }
  }
+});
+test('log output-token axis keeps the outlier while separating nearby model knots',()=>{
+ const data=JSON.parse(readFileSync(new URL('../app/generated/leaderboard.json',import.meta.url),'utf8'));
+ const values=data.configurations.map(c=>c.metrics.averageOutputTokens);
+ const min=1000,max=1000000;
+ assert.ok(values.every(value=>value>=min&&value<=max));
+ assert.equal(descendingLogarithmic(max,min,max,40,1000),40);
+ assert.equal(descendingLogarithmic(min,min,max,40,1000),1040);
+ assert.ok(Math.abs(descendingLogarithmic(10000,min,max,40,1000)-706.6666666667)<1e-8);
+ const astra=data.configurations.filter(c=>c.model==='gpt-6-astra');
+ const high=astra.find(c=>c.effort==='high').metrics.averageOutputTokens;
+ const medium=astra.find(c=>c.effort==='medium').metrics.averageOutputTokens;
+ assert.ok(Math.abs(descendingLogarithmic(high,min,max,40,1000)-descendingLogarithmic(medium,min,max,40,1000))>60);
 });
 test('curves hit every knot without overshooting segment ranges',()=>{
  const points=[{x:1.3584,y:50},{x:1.9016,y:55.88},{x:2.8142,y:54.41},{x:4.7796,y:64.71}];

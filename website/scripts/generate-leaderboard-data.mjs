@@ -21,6 +21,24 @@ const release = readOption('--release', source.release ?? '2026-09-08');
 const expectedAttempts = Number(readOption('--attempts', source.expectedAttempts ?? '4'));
 const archiveDirectory = path.resolve(readOption('--archive-dir', source.archiveDirectory ?? path.join(archiveRoot, 'archive', release)));
 const manifestDirectory = path.resolve(readOption('--manifest-dir', source.manifestDirectory ?? path.join(archiveRoot, 'manifests', release)));
+if (source.sources?.length && ['--root', '--archive-dir', '--manifest-dir'].some(option => process.argv.includes(option))) {
+  throw new Error('Location overrides cannot be combined with multiple leaderboard sources');
+}
+const locations = source.sources?.length
+  ? source.sources.map((entry) => {
+    if (!entry.release || !entry.archiveDirectory || !entry.manifestDirectory || !entry.batchLabel) {
+      throw new Error('Each leaderboard source needs release, archiveDirectory, manifestDirectory and batchLabel');
+    }
+    return {
+      release: entry.release,
+      archiveDirectory: path.resolve(entry.archiveDirectory),
+      manifestDirectory: path.resolve(entry.manifestDirectory),
+      batchLabel: entry.batchLabel,
+      tokenPricing: entry.tokenPricing ?? {},
+      requireUniformTaskChecksum: entry.requireUniformTaskChecksum === true,
+    };
+  })
+  : [{ release: source.manifestRelease ?? null, archiveDirectory, manifestDirectory, batchLabel: source.batchLabel ?? release, tokenPricing: source.tokenPricing ?? {}, requireUniformTaskChecksum: false }];
 const outputPath = path.resolve(
   readOption('--output', path.join(projectDir, 'app/generated/leaderboard.json')),
 );
@@ -79,14 +97,50 @@ function effortRank(effort) {
   return ({ low: 0, medium: 1, high: 2, xhigh: 3 })[effort] ?? 99;
 }
 
-const manifests = await Promise.all(
-  (await walkJsonFiles(manifestDirectory)).map(readJson),
-);
-
-if (!manifests.length) {
-  throw new Error(`No manifests found in ${manifestDirectory}`);
+const manifestBatches = await Promise.all(locations.map(async (location) => {
+  const entries = await Promise.all(
+    (await walkJsonFiles(location.manifestDirectory)).map(readJson),
+  );
+  if (!entries.length) throw new Error(`No manifests found in ${location.manifestDirectory}`);
+  for (const manifest of entries) {
+    if (location.release && manifest.release !== location.release) {
+      throw new Error(`${manifest.trial_name}: manifest release differs from ${location.release}`);
+    }
+  }
+  if (typeof location.tokenPricing !== 'object' || location.tokenPricing === null || Array.isArray(location.tokenPricing)
+    || Object.entries(location.tokenPricing).some(([model, rates]) => !model || !rates
+      || ['uncachedInputUsdPerMillion', 'cachedInputUsdPerMillion', 'outputUsdPerMillion']
+        .some(key => typeof rates[key] !== 'number' || !Number.isFinite(rates[key]) || rates[key] < 0))) {
+    throw new Error(`Invalid tokenPricing in ${location.batchLabel}`);
+  }
+  if (location.requireUniformTaskChecksum) {
+    const checksums = new Map();
+    for (const manifest of entries) {
+      if (typeof manifest.task_checksum !== 'string' || !manifest.task_checksum) {
+        throw new Error(`Missing task checksum in ${location.batchLabel}: ${manifest.trial_name}`);
+      }
+      const previous = checksums.get(manifest.task);
+      if (previous && previous !== manifest.task_checksum) {
+        throw new Error(`Task checksum differs within ${location.batchLabel}: ${manifest.task}`);
+      }
+      checksums.set(manifest.task, manifest.task_checksum);
+    }
+  }
+  await assertArchiveCoverage(location.archiveDirectory, entries);
+  return entries.map((manifest) => ({
+    ...manifest,
+    archiveDirectory: location.archiveDirectory,
+    batchLabel: location.batchLabel,
+    tokenPricing: location.tokenPricing[manifest.model] ?? null,
+  }));
+}));
+if (manifestBatches.length > 1) {
+  const firstTasks = [...new Set(manifestBatches[0].map(manifest => manifest.task))].sort().join('\u0000');
+  if (manifestBatches.some(batch => [...new Set(batch.map(manifest => manifest.task))].sort().join('\u0000') !== firstTasks)) {
+    throw new Error('Evaluation batches have different task names');
+  }
 }
-await assertArchiveCoverage(archiveDirectory, manifests);
+const manifests = manifestBatches.flat();
 
 const tasks = [...new Set(manifests.map((manifest) => manifest.task))].sort();
 const configurationKeys = [...new Set(manifests.map((manifest) => [
@@ -107,6 +161,7 @@ for (const manifest of manifests) {
     agent: manifest.agent,
     agentVersion: manifest.agent_version,
     trial: manifest.trial_name,
+    batchLabel: manifest.batchLabel,
     reasons: manifest.exclusion_reasons ?? [],
   };
 
@@ -115,7 +170,7 @@ for (const manifest of manifests) {
     continue;
   }
 
-  const trialDirectory = path.join(archiveDirectory, ...manifestPathParts(manifest));
+  const trialDirectory = path.join(manifest.archiveDirectory, ...manifestPathParts(manifest));
   const [result, trajectory, config] = await Promise.all([
     readJson(path.join(trialDirectory, 'result.json')),
     readJson(path.join(trialDirectory, 'agent/trajectory.json')),
@@ -124,6 +179,11 @@ for (const manifest of manifests) {
   assertTrialIdentity(manifest, result, config, trajectory);
   assertValidOutcome(manifest, result, trajectory);
   const agentSteps = (trajectory.steps ?? []).filter((step) => step.source === 'agent');
+  const inputTokens = recordedMetric(result.agent_result?.n_input_tokens, trajectory.final_metrics.total_prompt_tokens, 'input tokens');
+  const cachedTokens = recordedMetric(result.agent_result?.n_cache_tokens, trajectory.final_metrics.total_cached_tokens, 'cached tokens');
+  const outputTokens = recordedMetric(result.agent_result?.n_output_tokens, trajectory.final_metrics.total_completion_tokens, 'output tokens');
+  if (cachedTokens > inputTokens) throw new Error(`${manifest.trial_name}: cached tokens exceed input tokens`);
+  const rates = manifest.tokenPricing;
 
   const startedAt = parseDate(result.started_at);
   const finishedAt = parseDate(result.finished_at);
@@ -131,10 +191,16 @@ for (const manifest of manifests) {
     ...publicManifest,
     sourceJob: manifest.source_job,
     reward: result.verifier_result.rewards.reward,
-    costUsd: recordedMetric(result.agent_result?.cost_usd, trajectory.final_metrics.total_cost_usd, 'cost'),
-    inputTokens: recordedMetric(result.agent_result?.n_input_tokens, trajectory.final_metrics.total_prompt_tokens, 'input tokens'),
-    cachedTokens: recordedMetric(result.agent_result?.n_cache_tokens, trajectory.final_metrics.total_cached_tokens, 'cached tokens'),
-    outputTokens: recordedMetric(result.agent_result?.n_output_tokens, trajectory.final_metrics.total_completion_tokens, 'output tokens'),
+    // Gateway models can inherit Claude Code's unrelated model tariff.
+    // Reprice from recorded tokens when an explicit official list rate is supplied.
+    costUsd: rates
+      ? ((inputTokens - cachedTokens) * rates.uncachedInputUsdPerMillion
+        + cachedTokens * rates.cachedInputUsdPerMillion
+        + outputTokens * rates.outputUsdPerMillion) / 1_000_000
+      : recordedMetric(result.agent_result?.cost_usd, trajectory.final_metrics.total_cost_usd, 'cost', true),
+    inputTokens,
+    cachedTokens,
+    outputTokens,
     turns: agentSteps.length,
     toolCalls: agentSteps.reduce((sum, step) => sum + (step.tool_calls?.length ?? 0), 0),
     durationSeconds: startedAt !== null && finishedAt !== null ? (finishedAt - startedAt) / 1000 : null,
@@ -147,6 +213,11 @@ const configurations = configurationKeys.map((key) => {
   const [model, effort, agent, agentVersion] = key.split('\u0000');
   const configurationManifests = manifests.filter((manifest) => manifest.model === model
     && manifest.reasoning_effort === effort && manifest.agent === agent && manifest.agent_version === agentVersion);
+  const batches = [...new Set(configurationManifests.map((manifest) => manifest.batchLabel))];
+  if (batches.length !== 1) throw new Error(`Configuration crosses evaluation batches: ${model}/${effort}`);
+  const pricingPolicies = [...new Set(configurationManifests.map((manifest) => JSON.stringify(manifest.tokenPricing)))];
+  if (pricingPolicies.length !== 1) throw new Error(`Configuration crosses pricing policies: ${model}/${effort}`);
+  const tokenPricing = configurationManifests[0].tokenPricing;
   const trials = validTrials.filter((trial) => (
     trial.model === model
     && trial.effort === effort
@@ -160,15 +231,19 @@ const configurations = configurationKeys.map((key) => {
       task,
       attempts: attempts.length,
       passes: attempts.filter((trial) => trial.reward === 1).length,
-      costUsd: round(attempts.reduce((sum, trial) => sum + trial.costUsd, 0)),
+      costUsd: attempts.some((trial) => trial.costUsd !== null)
+        ? round(attempts.reduce((sum, trial) => sum + (trial.costUsd ?? 0), 0)) : null,
+      costObservedAttempts: attempts.filter((trial) => trial.costUsd !== null).length,
     };
   });
   const passes = trials.filter((trial) => trial.reward === 1).length;
   const tasksPassed = taskResults.filter((task) => task.passes > 0).length;
-  const totalCostUsd = trials.reduce((sum, trial) => sum + trial.costUsd, 0);
+  const configurationId = [model, effort, agent, agentVersion].join('--');
+  const costedTrials = trials.filter((trial) => trial.costUsd !== null);
+  if (trials.length && !costedTrials.length) throw new Error(`No recorded cost for ${configurationId}`);
+  const totalCostUsd = costedTrials.reduce((sum, trial) => sum + trial.costUsd, 0);
   const passAverage = trials.length ? passes / trials.length * 100 : null;
   const passAtK = tasks.length ? tasksPassed / tasks.length * 100 : null;
-  const configurationId = [model, effort, agent, agentVersion].join('--');
   const repetitions = repetitionStatistics(tasks.map((task) => orderTaskRepetitions(
     trials.filter((trial) => trial.task === task),
     configurationManifests.filter((manifest) => manifest.task === task),
@@ -181,6 +256,9 @@ const configurations = configurationKeys.map((key) => {
     id: configurationId,
     model,
     modelLabel: model,
+    batchLabel: batches[0],
+    costBasis: tokenPricing ? 'official-list-estimate' : 'agent-reported',
+    ...(tokenPricing ? { tokenPricing } : {}),
     effort,
     agent,
     agentVersion,
@@ -200,9 +278,11 @@ const configurations = configurationKeys.map((key) => {
       tasksPassed,
       taskCount: tasks.length,
       completeTasks: taskResults.filter((task) => task.attempts === expectedAttempts).length,
-      totalCostUsd: round(totalCostUsd),
-      averageCostUsd: round(mean(trials.map((trial) => trial.costUsd))),
-      passesPer100Usd: totalCostUsd ? round(passes / totalCostUsd * 100, 2) : null,
+      totalCostUsd: costedTrials.length ? round(totalCostUsd) : null,
+      averageCostUsd: round(mean(costedTrials.map((trial) => trial.costUsd))),
+      costObservedTrials: costedTrials.length,
+      passesPer100Usd: costedTrials.length === trials.length && totalCostUsd
+        ? round(passes / totalCostUsd * 100, 2) : null,
       averageTurns: round(mean(trials.map((trial) => trial.turns)), 2),
       averageToolCalls: round(mean(trials.map((trial) => trial.toolCalls)), 2),
       averageOutputTokens: round(mean(trials.map((trial) => trial.outputTokens)), 0),
@@ -237,6 +317,7 @@ const data = {
     id: release,
     label: source.label ?? 'September 2026',
     expectedAttempts,
+    batches: locations.map(({ release: sourceRelease, batchLabel }) => ({ release: sourceRelease ?? release, label: batchLabel })),
     taskCount: tasks.length,
     configurationCount: configurations.length,
     validTrials: validTrials.length,
@@ -254,6 +335,8 @@ const data = {
     passAtK: `Tasks with at least one success across ${expectedAttempts} valid attempts, divided by all tasks.`,
     confidenceInterval: 'Wilson score interval at 95% confidence.',
     costEfficiency: 'Successful trials per $100 of recorded model cost.',
+    costCoverage: 'Cost sums and averages use only trials with a recorded or repriced cost. costObservedTrials records coverage; cost efficiency is unavailable when any valid trial lacks cost. DeepSeek Flash is repriced from recorded input/cache/output tokens at DeepSeek official peak list rates without off-peak discounts; this is an estimate, not the third-party gateway bill.',
+    evaluationBatches: 'Rows retain their evaluation batch. Task names match across batches, while frozen task checksums may differ; cross-batch curves are descriptive comparisons.',
   },
   tasks,
   configurations,

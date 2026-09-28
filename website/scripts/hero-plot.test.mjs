@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { focusedDomain, percentDomain, project } from '../app/lib/hero-plot.ts';
+import { focusedDomain, logarithmicDomain, percentDomain, project } from '../app/lib/hero-plot.ts';
 import data from '../app/generated/leaderboard.json' with {type:'json'};
 
 test('resource domains contain every recorded value with increasing ticks',()=>{
-  for(const key of ['averageCostUsd','averageOutputTokens','averageToolCalls']){
+  for(const key of ['averageCostUsd','averageToolCalls']){
     const values=data.configurations.map(c=>c.metrics[key]);const d=focusedDomain(values);
     assert.ok(d.min<=Math.min(...values)&&d.max>=Math.max(...values));
     assert.ok(d.ticks.every((v,i)=>i===0||v>d.ticks[i-1]));assert.equal(d.ticks[0],d.min);assert.equal(d.ticks.at(-1),d.max);
@@ -19,4 +19,9 @@ test('linear projection reproduces endpoints and midpoint exactly',()=>{
 });
 test('finite fallback and singleton domains never divide by zero',()=>{
   for(const values of [[],[0],[5],[NaN,Infinity]]){const d=focusedDomain(values);assert.ok(Number.isFinite(d.min)&&Number.isFinite(d.max)&&d.max>d.min);}
+});
+test('output-token log domain spans the measured range with readable ticks',()=>{
+ const d=logarithmicDomain(data.configurations.map(c=>c.metrics.averageOutputTokens));
+ assert.equal(d.min,1000);assert.equal(d.max,1000000);
+ assert.deepEqual(d.ticks,[1000,3000,10000,30000,100000,300000,1000000]);
 });

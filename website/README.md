@@ -18,7 +18,7 @@ results come from the committed `app/generated/leaderboard.json` snapshot.
 The selected layout is documented in [SELECTED_DESIGN.md](SELECTED_DESIGN.md).
 The homepage shows the comparison chart, Results and six tasks per page.
 The standalone task catalogue shows eight tasks per page with search, Work type
-and Domain filters. Only recorded results appear in the chart and table.
+and Domain filters. Only archived, audited results appear in the chart and table.
 
 Run the full website test suite with `npm run test:website` (chart geometry,
 label density and focus, task filtering/pagination, and archive statistics).
@@ -62,19 +62,25 @@ npm run generate:leaderboard
 npm run test:leaderboard
 ```
 
-The current source is configured in `leaderboard-source.json`. The archive was
-renamed to `archive/v0-17task`, while its complete manifests remain under
-`manifests/2026-09-08`. These directories are deliberately mapped independently;
-no NAS rename or raw-result modification is required. For another release,
-update that file, or pass `--source <file>`. Explicit `--root`, `--release`,
-`--archive-dir` and `--manifest-dir` options retain the legacy CLI workflow.
-When importing a new release, keep its archive and manifest mapping in sync.
+The current source is configured in `leaderboard-source.json`. It reads the
+original `v0-17task` archive with its `2026-09-08` manifests and the separate
+`v1-17task-20260924` archive with its own manifests. Both batches contain the
+same 17 task names, but their frozen task checksums differ. The chart and
+Results table retain both batches and identify each row's source. This is a
+descriptive cross-batch comparison, not a claim that the task bytes are identical.
+The old NAS archive remains unchanged. For another release, update the source
+mapping, or pass `--source <file>`. Explicit `--root`, `--release`,
+`--archive-dir` and `--manifest-dir` options retain the single-source CLI
+workflow. Keep each archive and manifest mapping in sync.
 
 Generation checks archive/manifest coverage, duplicate entries, trial identity,
 binary rewards, trajectory completion and recorded resource metrics before
 writing the snapshot. Unlisted or missing directories fail generation instead
 of silently dropping data. Excluded trials remain excluded, including API and
 environment failures and aborted trajectories.
+It also checks that the two batches have the same task names and that every
+Sep 24 attempt for a task has the same checksum. Historical Sep 08 checksum
+variants remain recorded rather than silently normalized.
 
 Review and commit `app/generated/leaderboard.json` together with any website
 changes. Raw trial directories and private trajectories stay outside the Git
@@ -98,6 +104,21 @@ complete rounds. No extra partial-state badge is shown on the website.
 The retained JSON Pass@4 field is the fraction of
 tasks solved at least once, and is only an exact pass@4 when all attempts are
 present; it is not displayed in the current website. Costs include valid runs only.
+DeepSeek Flash uses a token-derived **official list-price estimate** because
+Claude Code reported its gateway run at Claude Opus rates ($5/$0.50/$25 per
+million uncached input/cache-read/output tokens), which are inapplicable to
+DeepSeek. The configured [DeepSeek official peak rates](https://api-docs.deepseek.com/quick_start/pricing/)
+are $0.30/$0.006/$1.20 per million uncached input/cache-hit/output tokens,
+without the off-peak discount. Per valid trial, the estimate is
+`((inputTokens - cachedTokens) * 0.30 + cachedTokens * 0.006 + outputTokens * 1.20) / 1_000_000` USD.
+This is not a verified `api.apikey.fan` bill; its tariff may differ. All 68
+valid DeepSeek trials have token counts, including the budget-timeout trial
+without a CLI cost. Other configurations use recorded agent costs. If a valid
+trial has no recorded cost or token-derived estimate, cost averages use only
+observed costs and include a coverage count; cost efficiency is unavailable
+for that configuration. The DeepSeek Flash / Claude Code run
+uses effort `default` because no reasoning strength was selected in its
+recorded configuration.
 
 ## CI and deployment
 

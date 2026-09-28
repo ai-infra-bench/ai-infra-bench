@@ -111,9 +111,13 @@ input or event -> behavior-determining subsystem or state transition
 ```
 
 Map each required behavior to existing coverage, missing coverage, or an
-explicit validation limitation. Every reward-zeroing assertion needs a
-defensible contract. Recording gaps does not authorize expanding the repair
-scope. Separate:
+explicit validation limitation.
+
+Scored tests must follow explicit task requirements or necessary implications
+of normal product semantics discoverable in the solver's environment. They must
+not add requirements or depend on Oracle-specific internals.
+
+Recording gaps does not authorize expanding the repair scope. Separate:
 
 - explicit task requirements;
 - unavoidable implications of the stated workflow and documented/stable

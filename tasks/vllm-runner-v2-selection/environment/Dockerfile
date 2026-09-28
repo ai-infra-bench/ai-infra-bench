@@ -16,6 +16,10 @@ WORKDIR /workspace
 # Docker's predefined proxy args are deliberately not redeclared, so proxy
 # values are not persisted in image configuration or history.
 RUN set -eux; \
+    sed -i \
+        -e 's|http://archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' \
+        -e 's|http://security.ubuntu.com/ubuntu|https://security.ubuntu.com/ubuntu|g' \
+        /etc/apt/sources.list; \
     apt-get update; \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         git=1:2.34.1-1ubuntu1.17 \
