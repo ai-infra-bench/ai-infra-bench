@@ -160,10 +160,27 @@ fi
 as_node 'mkdir -p test/__verifier__' || true
 cp /tests/bg_support.ts /tests/bg.contract.test.ts /tests/bg.lifecycle.test.ts test/__verifier__/
 
-as_node "NODE_OPTIONS=--expose-gc exec timeout 900 node ../../node_modules/vitest/vitest.mjs run --reporter=junit --outputFile=$VOUT/contract-junit.xml test/__verifier__/bg.contract.test.ts" \
-  > /logs/verifier/contract.log 2>&1 || contract_rc=$?
-reap_node
-cp "$VOUT/contract-junit.xml" /logs/verifier/contract-junit.xml 2>/dev/null || true
+# One contract case per process: a pi process lives through one runtime, and a quit shutdown
+# ends it, so no case may inherit process-wide state (a supervisor, a global registry) from an
+# earlier case's shutdown. Root collects each report before the next case starts.
+CASEDIR=/logs/verifier/contract-cases
+rm -rf "$CASEDIR"; mkdir -p "$CASEDIR"
+: > /logs/verifier/contract.log
+mapfile -t contract_cases < <(python3 -c 'import sys; sys.path.insert(0, "/tests"); import case_contract as c; print("\n".join(sorted(c.CONTRACT_CASES)))')
+case_reports=()
+for i in "${!contract_cases[@]}"; do
+  name=${contract_cases[$i]}
+  pattern=$(python3 -c 'import re,sys; print("^" + re.escape(sys.argv[1]) + "$")' "$name")
+  printf -v quoted_pattern '%q' "$pattern"
+  rm -f "$VOUT/case.xml"
+  as_node "NODE_OPTIONS=--expose-gc exec timeout 300 node ../../node_modules/vitest/vitest.mjs run --reporter=junit --outputFile=$VOUT/case.xml -t $quoted_pattern test/__verifier__/bg.contract.test.ts" \
+    >> /logs/verifier/contract.log 2>&1 || contract_rc=1
+  reap_node
+  cp "$VOUT/case.xml" "$CASEDIR/$i.xml" 2>/dev/null || : > "$CASEDIR/$i.xml"
+  printf '%s' "$name" > "$CASEDIR/$i.xml.name"
+  case_reports+=("$CASEDIR/$i.xml")
+done
+python3 /tests/merge_junit.py /logs/verifier/contract-junit.xml contract "${case_reports[@]}"
 cat /logs/verifier/contract.log
 python3 /tests/check_junit.py /logs/verifier/contract-junit.xml contract || contract_integrity_rc=$?
 
