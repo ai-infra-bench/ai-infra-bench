@@ -48,7 +48,11 @@ def require(value, message):
 
 
 def git(root, *args):
-    return subprocess.check_output(['git', '-c', 'safe.directory=' + str(root), '-C', str(root), *args], stderr=subprocess.STDOUT).decode()
+    # Fixture repositories belong to the candidate's uid while this verifier runs as root:
+    # never let their config run programs (fsmonitor hooks, replace refs) as root.
+    return subprocess.check_output(['/usr/bin/git', '--no-replace-objects', '-c', 'safe.directory=' + str(root),
+                                    '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-C', str(root), *args],
+                                   stderr=subprocess.STDOUT).decode()
 
 
 def file_state(path):
