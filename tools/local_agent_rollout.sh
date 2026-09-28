@@ -105,7 +105,9 @@ else
 fi
 
 # Task copy whose Dockerfile is just FROM <image>; validation/ and lock files are not needed.
-ROLL="$SCRATCH/rollout-task/$TASK"
+# One copy per run (the basename stays the task name): concurrent rollouts of the same task
+# must not delete each other's copy while Harbor still reads it.
+ROLL="$SCRATCH/rollout-task/$$/$TASK"
 rm -rf "$ROLL"; mkdir -p "$(dirname "$ROLL")"
 cp -R "$REPO/tasks/$TASK" "$ROLL"
 printf 'FROM %s\n' "$IMAGE" > "$ROLL/environment/Dockerfile"
