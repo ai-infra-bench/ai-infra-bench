@@ -1,109 +1,98 @@
-"""Curator-owned scenario adaptation, separate from public tool adaptation.
+"""Transport-agnostic scenario helpers. No candidate module is imported here.
 
-Default profile: reference file transport. Other transports require a reviewed
-profile; missing adaptation is an integration error, never evidence of a feature
-failure. No candidate module is imported here. Faults affect real OS resources.
+The size limit is the one pinned by instruction.md. Cleanup is checked by
+scanning every location the untrusted worker UID can write for retained
+message bytes, without knowing where or how the candidate stores messages.
 """
-import hashlib
-import importlib.util
 import os
 from pathlib import Path
 import stat
-from profile import IntegrationNeeded
+
+WORKER_UID = 60000
+# World-writable locations outside the per-case scratch tree (which holds the
+# workers' HOME, TMPDIR, agent directory and working directory).
+SHARED_WRITABLE = [Path('/tmp'), Path('/var/tmp'), Path('/dev/shm'), Path('/run/lock')]
 
 
 class Scenario:
     message_max_utf8_bytes = 1024 * 1024
 
     def size_payload(self, name, prefix, suffix):
-        """Reference's documented UTF-8 limit, not a task-wide requirement.
-
-        A reviewed profile overrides this method for other size units/policies.
-        The actual candidate still accepts/rejects and transports the payload.
-        """
         size = self.message_max_utf8_bytes + {'size_below': -1, 'size_at': 0, 'size_over': 1}[name]
         payload = prefix + '中' * ((size - len((prefix + suffix).encode())) // 3)
         payload += 'x' * (size - len((payload + suffix).encode())) + suffix
         assert len(payload.encode()) == size
         return payload
 
-    def directory(self, case, group, role):
-        hints = next((e["resourceHints"] for e in reversed(case.events)
-                      if e["group"] == group and e["role"] == role and "resourceHints" in e), {})
-        if "PI_TEAM_DIRECTORY" not in hints:
-            raise IntegrationNeeded('Scenario integration required: this transport is not the reviewed file transport')
-        path = Path(hints["PI_TEAM_DIRECTORY"])
-        path.relative_to(case.scratch)  # no arbitrary privileged filesystem access
-        if '..' in path.parts: raise RuntimeError('Unsafe resource path')
-        return path
-
-    def open_directory(self, case, path):
-        parts = path.relative_to(case.scratch).parts
-        fd = os.open(case.scratch, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    @staticmethod
+    def _file_contains(dir_fd, name, needles):
         try:
-            for part in parts:
-                next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
-                os.close(fd)
-                fd = next_fd
-            return fd
-        except BaseException:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
+        except OSError:
+            return False
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                return False
+            overlap = max(len(n) for n in needles) - 1
+            tail = b''
+            while True:
+                chunk = os.read(fd, 1024 * 1024)
+                if not chunk:
+                    return False
+                window = tail + chunk
+                if any(n in window for n in needles):
+                    return True
+                tail = window[-overlap:] if overlap else b''
+        finally:
             os.close(fd)
-            raise
 
-    def observe_team(self, case, group, role):
-        path = self.directory(case, group, role)
-        fd = self.open_directory(case, path)
-        os.close(fd)
-        if path not in case.resources: case.resources.append(path)
-        return path
+    def _scan(self, root, needles, only_worker_owned, hits, skip):
+        # fd-relative walk that never follows symlinks, so a planted link cannot
+        # redirect this root-owned scan outside the worker-writable tree.
+        try:
+            fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except OSError:
+            return
+        self._scan_fd(fd, root, needles, only_worker_owned, hits, skip, 0)
 
-    def block_recipient(self, case, group, role):
-        directory = self.observe_team(case, group, role)
-        mailbox = directory / hashlib.sha256(role.encode()).hexdigest()
-        fd = self.open_directory(case, mailbox)
-        mode = stat.S_IMODE(os.fstat(fd).st_mode)
-        os.fchmod(fd, 0o500)  # recipient can read; sender's real write gets EACCES
-        return fd, {'recipient': role, 'resource': str(mailbox), 'fault': 'write permission removed', 'original_mode': mode}
+    def _scan_fd(self, fd, path, needles, only_worker_owned, hits, skip, depth):
+        try:
+            if depth > 64:
+                hits.append(str(path) + ' (directory nesting too deep to inspect)')
+                return
+            for name in os.listdir(fd):
+                child = path / name
+                if child in skip:
+                    continue
+                try:
+                    info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                except OSError:
+                    continue
+                if stat.S_ISDIR(info.st_mode):
+                    try:
+                        child_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                    except OSError:
+                        continue
+                    self._scan_fd(child_fd, child, needles, only_worker_owned, hits, skip, depth + 1)
+                elif stat.S_ISREG(info.st_mode):
+                    if only_worker_owned and info.st_uid != WORKER_UID:
+                        continue
+                    if self._file_contains(fd, name, needles):
+                        hits.append(str(child))
+        finally:
+            os.close(fd)
 
-    def restore_fault(self, fault):
-        fd, evidence = fault
-        os.fchmod(fd, evidence['original_mode'])
-        os.close(fd)
+    def retained_message_files(self, case, needles):
+        """Files anywhere the worker UID can write that still contain a needle."""
+        hits = []
+        self._scan(case.scratch, needles, False, hits, set())
+        for root in SHARED_WRITABLE:
+            self._scan(root, needles, True, hits, {case.scratch})
+        return hits
 
     def assert_cancelled_resources(self, case):
-        assert case.resources, 'communication resources were not observed while active'
-        # Ordinary logs and empty directories are allowed. Inspect only mailboxes
-        # actually used by this dispatch for retained undelivered message content.
-        for directory in case.resources:
-            for role in case.roles:
-                mailbox = directory / hashlib.sha256(role.encode()).hexdigest()
-                try: fd = self.open_directory(case, mailbox)
-                except FileNotFoundError: continue
-                try:
-                    for name in os.listdir(fd):
-                        child = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
-                        try:
-                            info = os.fstat(child)
-                            if stat.S_ISREG(info.st_mode):
-                                raw = os.read(child, min(info.st_size, 4 * 1024 * 1024))
-                                for payloads in case.payloads.values():
-                                    for payload in payloads:
-                                        assert payload.encode() not in raw, 'cancelled dispatch retained an undelivered finding in its communication mailbox'
-                        finally: os.close(child)
-                finally: os.close(fd)
-
-
-def load_scenario(path):
-    if path is None:
-        raise IntegrationNeeded('An explicit reviewed scenario profile is required')
-    try:
-        spec = importlib.util.spec_from_file_location('reviewed_scenario', path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module.Scenario()
-    except IntegrationNeeded:
-        raise
-    except Exception as exc:
-        # A broken curator adapter is an integration failure. Scenario methods
-        # that inspect candidate behavior execute outside this loading guard.
-        raise IntegrationNeeded(f'Cannot load reviewed scenario {path}: {type(exc).__name__}: {exc}') from exc
+        # The unique hex tail of each finding is ASCII, so it survives UTF-8,
+        # JSON (including \\u escapes of the CJK prefix) and similar encodings.
+        needles = [p[-32:].encode() for payloads in case.payloads.values() for p in payloads]
+        hits = self.retained_message_files(case, needles)
+        assert not hits, f'cancelled dispatch retained undelivered message content in {hits}'

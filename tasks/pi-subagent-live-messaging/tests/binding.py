@@ -1,10 +1,8 @@
-"""Curator-owned call adapter. Never accesses or injects recipient context.
+"""The public tool interface pinned by instruction.md. Never accesses or injects recipient context.
 
-An adapter describes one implementation's documented public interface. It is
-selected explicitly by the reviewer, never imported from candidate source.
+Tool names, arguments and result shapes are identical to the instruction, so
+encode/decode are identities. No candidate code is imported here.
 """
-import json
-from profile import IntegrationNeeded
 
 
 class Binding:
@@ -26,20 +24,3 @@ class Binding:
     def malformed_sends(self):
         return [{'message':'no recipient'}, {'to':'B','broadcast':True,'message':'ambiguous'},
                 {'to':'B','message':{'unexpected':True}}]
-
-
-def load_binding(path):
-    if path is None:
-        raise IntegrationNeeded('An explicit reviewed public-interface binding is required')
-    import importlib.util
-    try:
-        spec = importlib.util.spec_from_file_location('reviewed_binding', path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module.Binding()
-    except IntegrationNeeded:
-        raise
-    except Exception as exc:
-        # This is curator code selected by the sealed profile, not a candidate
-        # behavior check. Runtime encode/decode calls remain outside this guard.
-        raise IntegrationNeeded(f'Cannot load reviewed interface binding {path}: {type(exc).__name__}: {exc}') from exc

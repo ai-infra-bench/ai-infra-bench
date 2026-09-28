@@ -18,9 +18,8 @@ import subprocess
 import threading
 import time
 import uuid
-from binding import load_binding
-from scenario import load_scenario
-from profile import IntegrationNeeded
+from binding import Binding
+from scenario import Scenario
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CASES = ["plain_parallel", "plain_single", "plain_chain", "direct", "use_finding", "broadcast", "ordered",
@@ -75,15 +74,11 @@ def contains_finding(messages, finding):
 class Case:
     def __init__(self, name, binding=None, scenario=None):
         self.name = name
-        self.scenario = scenario
-        self.resources = []
-        self.fault = None
-        self.fault_plan = None
-        self.binding = binding or load_binding(None)
+        self.scenario = scenario or Scenario()
+        self.binding = binding or Binding()
         self.request_context = threading.local()
         self.condition = threading.Condition()
         self.events, self.requests, self.errors = [], [], []
-        self.integration_errors = []
         self.call_operations = {}
         self.steps, self.pids = {}, {}
         self.payloads = {g: ["接口使用 cursor；" + uuid.uuid4().hex] for g in ["one", "two", "three", "four"]}
@@ -131,20 +126,33 @@ class Case:
 
     def wait(self, predicate, description):
         with self.condition:
-            assert self.condition.wait_for(lambda: self.closed or predicate(), 60 if self.name == "broadcast_partial" else 12), "Timed out: " + description
+            assert self.condition.wait_for(lambda: self.closed or predicate(), 12), "Timed out: " + description
             assert not self.closed, "case closed"
+
+    def wait_exited(self, group, role):
+        pid = self.pids[(group, role)]
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline and not self.closed:
+            try:
+                state = Path(f"/proc/{pid}/stat").read_text().split(") ", 1)[1].split()[0]
+            except (FileNotFoundError, ProcessLookupError):
+                return
+            if state == "Z":
+                return
+            time.sleep(0.05)
+        raise AssertionError(f"Timed out: {group}/{role} process exit after its final response")
 
     def work(self, group, role, stage):
         self.event(group, role, "work:" + stage)
         if stage == "ready":
             boundary = "model_stream_held" if self.name == "completion_boundary" else "work:slow_work"
-            self.wait(lambda: all(self.has(group, r, boundary) for r in (["B"] if self.name in ["direct_private", "five_workers_private", "finished_recipient"] else self.roles[1:])), "recipients working")
-            if self.name == "finished_recipient":
+            self.wait(lambda: all(self.has(group, r, boundary) for r in (["B"] if self.name in ["direct_private", "five_workers_private", "finished_recipient", "broadcast_partial"] else self.roles[1:])), "recipients working")
+            if self.name in ["finished_recipient", "broadcast_partial"]:
+                # C is finished beyond doubt: its session ended and its process
+                # exited (and was reaped), so no implementation can deliver to it.
                 self.wait(lambda: self.has(group, "C", "session_shutdown"), "C finished before send")
-            if self.name == "broadcast_partial":
-                self.fault = self.scenario.block_recipient(self, group, "C")
-                self.event(group, "C", "delivery_fault_installed", evidence=self.fault[1])
-            if self.name == "cancel_queued": self.scenario.observe_team(self, group, "A")
+                self.wait_exited(group, "C")
+                self.event(group, "C", "process_exited")
             return self.payloads[group][0]
         if stage == "slow_work":
             if self.name == "cancellation":
@@ -234,14 +242,17 @@ class Case:
         if role == "ROOT":
             # Global handle/listener snapshots are diagnostic, not dispatch-owned
             # resources. Repeated dispatches are checked through real exchange,
-            # isolation and child termination; cancel_queued checks actual
-            # communication resources via the reviewed transport profile.
+            # isolation and child termination; cancel_queued scans every
+            # worker-writable location for retained message content.
             if n == 0 or (self.name == "reuse" and n == 1) or (self.name == "cleanup_repeated" and n < len(self.groups)):
                 assert "subagent" in names, "subagent tool failed to load"
                 calls = []
                 for g in ([self.groups[n]] if self.name in ["reuse", "cleanup_repeated"] else self.groups):
                     tasks = [{"agent": "worker", "id": r, "task": f"ROLE:{r} GROUP:{g} Investigate independently."} for r in self.roles]
-                    args = {"tasks": tasks, "communication": not self.name.startswith("plain_")}
+                    args = {"tasks": tasks, "communication": True}
+                    if self.name == "plain_parallel":
+                        # Existing behavior: the pre-feature call shape, communication off.
+                        args = {"tasks": [{"agent": t["agent"], "task": t["task"]} for t in tasks], "communication": False}
                     if self.name == "plain_single":
                         args = {"agent": "worker", "task": tasks[0]["task"]}
                     if self.name == "plain_chain":
@@ -257,8 +268,8 @@ class Case:
             self.completed.add(actor)
             return {"content": "Independent work completed."}
         assert {self.binding.tool_name("team_send"), self.binding.tool_name("team_members")} <= names, f"{group}/{role}: communication tools absent"
-        if role not in ["A", "B"] and self.name in ["direct_private", "five_workers_private", "finished_recipient"]:
-            if n == 0 and not (role == "C" and self.name == "finished_recipient"):
+        if role not in ["A", "B"] and self.name in ["direct_private", "five_workers_private", "finished_recipient", "broadcast_partial"]:
+            if n == 0 and not (role == "C" and self.name in ["finished_recipient", "broadcast_partial"]):
                 return self.call("test_work", {"stage": "observer"})
             assert not any(contains_finding(messages, p) for p in self.payloads[group]), "direct message leaked to a nonrecipient"
             self.completed.add(actor)
@@ -267,7 +278,7 @@ class Case:
             assert not any(contains_finding(messages, p) for p in self.payloads[group]), "recipient knew private finding before delivery"
         # Discover peers after the actors we need are genuinely running. A live-only
         # roster need not include queued, finished, or unrelated observer workers.
-        discovery_roles = self.roles if self.name in ["broadcast", "broadcast_partial"] else ["A", "B"]
+        discovery_roles = self.roles if self.name == "broadcast" else ["A", "B"]
         if n == 0:
             self.wait(lambda: all(self.has(group, r, "model_request") for r in discovery_roles), "discovery peers running")
             return self.call("team_members", {})
@@ -291,16 +302,6 @@ class Case:
             invalid = {"invalid_recipient": "missing", "self_recipient": "A", "finished_recipient": "C"}
             malformed = self.binding.malformed_sends() if self.name == "malformed" else []
             if self.name == "size_over": malformed = [{"to": "B", "message": self.oversize}]
-            preparation = self.scenario.preparation_sends(self) if self.name == "broadcast_partial" and hasattr(self.scenario, "preparation_sends") else []
-            if preparation and 2 <= n <= 2 + len(preparation):
-                if n > 2:
-                    result = self.last_result(messages)
-                    assert result["accepted"] == ["C"] and not result["failed"], "queue preparation message was not accepted"
-                    self.event(group, "A", "preparation_send_accepted", index=n-3)
-                if n < 2 + len(preparation):
-                    return self.call("team_send", {"to": "C", "message": preparation[n-2]})
-                self.event(group, "C", "queue_capacity_reached", count=len(preparation))
-            n -= len(preparation)
             offset = len(malformed) or int(self.name in invalid)
             if 2 <= n < 2 + offset:
                 if n > 2:
@@ -324,10 +325,8 @@ class Case:
                 result = self.last_result(messages)
                 targets = self.roles[1:] if self.name == "broadcast" else ["B"]
                 if self.name == "broadcast_partial":
-                    assert result["accepted"] == ["B"], "partial broadcast must accept the available recipient only"
-                    assert len(result["failed"]) == 1 and result["failed"][0]["id"] == "C" and result["failed"][0]["reason"], "partial broadcast failure was hidden or misattributed"
-                    self.scenario.restore_fault(self.fault)
-                    self.fault = None
+                    assert result["accepted"] == ["B"], "partial broadcast must accept the running teammate only"
+                    assert len(result["failed"]) == 1 and result["failed"][0]["id"] == "C" and result["failed"][0]["reason"], "partial broadcast failure for the finished teammate was hidden or misattributed"
                 else:
                     assert set(result["accepted"]) == set(targets) and not result["failed"], "send was not accepted for every live target"
                 if self.name == "cancel_queued":
@@ -343,10 +342,6 @@ class Case:
                 return {"content": "Sender finished after live exchange."}
         else:
             if n == 2:
-                if role == "C" and self.name == "broadcast_partial":
-                    assert not contains_finding(messages, self.payloads[group][0]), "failed broadcast recipient received the finding"
-                    self.completed.add(actor)
-                    return {"content": "Unavailable recipient finished normally."}
                 self.check_input(group, role, messages, self.payloads[group], "A")
                 if self.name == "broadcast":
                     self.completed.add(actor)
@@ -396,8 +391,6 @@ def make_handler(case):
                     case.pids[actor] = pid
                     case.event(*actor, body["event"], **{k: v for k, v in body.items() if k not in ["group", "role", "event"]})
                     payload = b"ok"
-                elif self.path == "/fault-plan":
-                    payload = json.dumps(case.fault_plan).encode()
                 elif self.path == "/probe":
                     actor = (body["group"], body["role"])
                     expected = re.search(r"/api/items-[0-9a-f]{32}", case.payloads[body["group"]][0])
@@ -425,21 +418,7 @@ def make_handler(case):
                 self.end_headers()
                 self.wfile.write(payload)
             except Exception as exc:
-                if isinstance(exc, IntegrationNeeded):
-                    case.integration_errors.append(str(exc))
-                # A receiver whose transport was deliberately broken may exit.
-                # Its closed HTTP connection is not a messaging failure. Keep
-                # every assertion, healthy-worker error and parent crash visible.
-                expected_disconnect = (
-                    isinstance(exc, (BrokenPipeError, ConnectionResetError))
-                    and self.path == "/work" and body.get("role") == "C"
-                    and case.name == "broadcast_partial"
-                    and getattr(case.scenario, "endpoint_fault", False)
-                    and case.has("one", "ROOT", "endpoint_fault_triggered")
-                )
-                if expected_disconnect:
-                    case.event("one", "C", "faulted_receiver_http_disconnected")
-                if not case.closed and not expected_disconnect:
+                if not case.closed:
                     case.errors.append(str(exc))
                 payload = json.dumps({"error": {"message": str(exc), "type": "invalid_request_error"}}).encode()
                 try:
@@ -474,6 +453,14 @@ def _run_case(name, repo, output, case):
     for path in [scratch, *scratch.rglob("*")]:
         os.chown(path, 60000, 60000)
         path.chmod(0o700 if path.is_dir() else 0o600)
+    # Install the extension the way its README documents: in the agent directory, so every
+    # pi process with this agent directory (the parent and the workers) discovers it. Created
+    # after the ownership pass so no chown/chmod ever follows it into the candidate checkout.
+    (agent_dir / "extensions").mkdir()
+    os.chown(agent_dir / "extensions", 60000, 60000)
+    (agent_dir / "extensions").chmod(0o700)
+    (agent_dir / "extensions" / "subagent").symlink_to(repo / "packages/coding-agent/examples/extensions/subagent", target_is_directory=True)
+    os.lchown(agent_dir / "extensions" / "subagent", 60000, 60000)
     env = {
         "PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8", "TZ": "UTC", "HOME": str(scratch / "home"),
         "TMPDIR": str(scratch / "tmp"), "PI_CODING_AGENT_DIR": str(agent_dir),
@@ -483,10 +470,8 @@ def _run_case(name, repo, output, case):
         "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null",
     }
     command = ["/usr/bin/python3", "-I", str(Path(__file__).with_name("worker_exec.py")), "/usr/local/bin/node", str(repo / "packages/coding-agent/src/cli.ts"), "--mode", "json", "-p", "--no-session",
-               "--model", "text-test/scripted", "-e", str(repo / "packages/coding-agent/examples/extensions/subagent/index.ts"),
+               "--model", "text-test/scripted",
                "Coordinate the investigation."]
-    if name == "broadcast_partial" and getattr(case.scenario, "endpoint_fault", False):
-        env["PI_TEXT_ENDPOINT_FAULT"] = "1"
     started = time.monotonic()
     proc = subprocess.Popen(command, cwd=scratch / "workspace", env=env, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True, start_new_session=True)
@@ -500,7 +485,7 @@ def _run_case(name, repo, output, case):
         else:
             case.errors.append("children never reached cancellation boundary")
     try:
-        stdout, stderr = proc.communicate(timeout=100 if name == "broadcast_partial" else 45)
+        stdout, stderr = proc.communicate(timeout=45)
     except subprocess.TimeoutExpired:
         case.errors.append("parent timeout")
         os.killpg(proc.pid, signal.SIGKILL)
@@ -542,32 +527,19 @@ def _run_case(name, repo, output, case):
     server.server_close()
     expected_actors = {("one", "ROOT")} | {(g, r) for g in case.groups for r in case.roles}
     processes_ok = expected_actors == case.pids.keys() and len(set(case.pids.values())) == len(expected_actors)
-    required_actors = expected_actors.copy()
-    if name == "broadcast_partial" and getattr(case.scenario, "endpoint_fault", False):
-        # A broken transport need not recover: crash recovery is explicitly out of scope.
-        # The healthy recipient must still receive the finding and reply; failed C must
-        # be named by the real send result, and every process must terminate.
-        required_actors.discard(("one", "C"))
-        if not case.has("one", "ROOT", "endpoint_fault_triggered"):
-            case.errors.append("selected endpoint fault did not execute")
-    completion_ok = required_actors <= case.completed
+    completion_ok = expected_actors <= case.completed
     if name in ["cancellation", "cancel_queued"]:
         completion_ok = cancelled and not child_alive
-    if case.fault is not None:
-        case.scenario.restore_fault(case.fault)
     if name == "cancel_queued":
+        # Transport-agnostic: after the parent and every child have stopped, no
+        # worker-writable file may still hold the accepted-but-undelivered finding.
         try: case.scenario.assert_cancelled_resources(case)
         except AssertionError as exc: case.errors.append(str(exc))
-    leftovers = list((scratch / "tmp").glob("pi-team-*"))
-    # Temporary implementation resources are diagnostic only; no grading on
-    # a particular storage name or on harmless retained logs.
     passed = processes_ok and completion_ok and not case.errors and (cancelled or proc.returncode == 0)
     result = {"name": name, "passed": passed, "exit_code": proc.returncode, "errors": case.errors,
-              "integration_errors": case.integration_errors,
               "actors": {f"{g}/{r}": pid for (g, r), pid in case.pids.items()},
               "observed": sorted(f"{g}/{r}" for g, r in case.observed),
               "completed": sorted(f"{g}/{r}" for g, r in case.completed),
-              "diagnostic_retained_paths": [str(p) for p in leftovers],
               "cleanup_wait_seconds": round(cleanup_wait, 3),
               "elapsed_seconds": round(time.monotonic() - started, 2)}
     (directory / "result.json").write_text(json.dumps(result, ensure_ascii=True, indent=2))
@@ -580,16 +552,11 @@ def _run_case(name, repo, output, case):
     return result
 
 
-def run_case(name, repo, output, binding_path=None, scenario_path=None):
-    case = Case(name, load_binding(binding_path), load_scenario(scenario_path))
+def run_case(name, repo, output):
+    case = Case(name, Binding(), Scenario())
     try:
         return _run_case(name, repo, output, case)
     except Exception as exc:
-        # Cleanup/report errors must never erase a known adaptation failure.
-        # Keep that classification even when a later operation also failed.
-        integration = list(case.integration_errors)
-        if isinstance(exc, IntegrationNeeded):
-            integration.append(str(exc))
         with case.condition:
             case.closed = True
             case.condition.notify_all()
@@ -607,8 +574,7 @@ def run_case(name, repo, output, binding_path=None, scenario_path=None):
             except Exception as cleanup_exc:
                 cleanup_errors.append(repr(cleanup_exc))
         result = {'name': name, 'passed': False,
-                  'errors': [*case.errors, repr(exc), *cleanup_errors],
-                  'integration_errors': integration}
+                  'errors': [*case.errors, repr(exc), *cleanup_errors]}
         directory = output / name
         directory.mkdir(parents=True, exist_ok=True)
         (directory / 'result.json').write_text(json.dumps(result, indent=2))
@@ -619,8 +585,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", type=Path, default=Path("/workspace/pi"))
     parser.add_argument("--output", type=Path, default=Path("/logs/verifier/text-behavior"))
-    parser.add_argument("--binding", type=Path, required=True, help="Explicit trusted reviewer-owned interface adapter")
-    parser.add_argument("--scenario", type=Path, required=True, help="Explicit trusted transport fault and size-boundary profile")
     parser.add_argument("--cases", nargs="+", choices=CASES, default=CASES)
     args = parser.parse_args()
     args.output = args.output.resolve()
@@ -628,18 +592,14 @@ def main():
     results = []
     for name in args.cases:
         try:
-            result = run_case(name, args.repo.resolve(), args.output, args.binding, args.scenario)
-        except IntegrationNeeded as exc:
-            result = {"name": name, "passed": False, "integration_errors": [str(exc)], "errors": []}
+            result = run_case(name, args.repo.resolve(), args.output)
         except Exception as exc:
             result = {"name": name, "passed": False, "errors": [repr(exc)]}
         results.append(result)
         print(json.dumps(result, ensure_ascii=True), flush=True)
     summary = {"case_count": len(results), "passed": sum(r["passed"] for r in results),
-               "status": "integration_needed" if any(r.get('integration_errors') for r in results) else "scored",
                "external_model_calls": 0, "results": results}
     (args.output / "summary.json").write_text(json.dumps(summary, ensure_ascii=True, indent=2))
-    if summary['status'] == 'integration_needed': return 2
     return 0 if len(results) == len(args.cases) and all(r["passed"] for r in results) else 1
 
 

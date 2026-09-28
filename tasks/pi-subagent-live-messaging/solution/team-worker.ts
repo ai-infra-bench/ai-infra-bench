@@ -23,7 +23,7 @@ export default function teamWorker(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "team_send",
 		label: "Share a finding",
-		description: "Send a finding to an instance ID or broadcast to current live teammates.",
+		description: "Send a finding to an instance ID, or broadcast it to every teammate; teammates that are not running are reported as failed.",
 		parameters: Type.Object({
 			to: Type.Optional(Type.String()),
 			broadcast: Type.Optional(Type.Boolean()),
@@ -39,7 +39,7 @@ export default function teamWorker(pi: ExtensionAPI) {
 			const result = await locked(directory, () => {
 				const members = readMembers(directory);
 				const targets = args.broadcast
-					? members.filter((member) => member.state === "running" && member.id !== self).map((member) => member.id)
+					? members.filter((member) => member.id !== self).map((member) => member.id)
 					: [args.to!];
 				const accepted: string[] = [];
 				const failed: { id: string; reason: string }[] = [];

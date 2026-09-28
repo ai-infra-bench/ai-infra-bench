@@ -1,8 +1,8 @@
 diff --git a/packages/coding-agent/examples/extensions/subagent/README.md b/packages/coding-agent/examples/extensions/subagent/README.md
-index da74f3266..95d29c99f 100644
+index da74f3266..8071b1487 100644
 --- a/packages/coding-agent/examples/extensions/subagent/README.md
 +++ b/packages/coding-agent/examples/extensions/subagent/README.md
-@@ -175,3 +175,17 @@ Project agents override user agents with the same name when `agentScope: "both"`
+@@ -175,3 +175,19 @@ Project agents override user agents with the same name when `agentScope: "both"`
  - Parallel model-visible output is capped at 50 KB per task; full results remain in tool details
  - Agents discovered fresh on each invocation (allows editing mid-session)
  - Parallel mode limited to 8 tasks, 4 concurrent
@@ -20,6 +20,8 @@ index da74f3266..95d29c99f 100644
 +IDs are scoped to one dispatch. Pending and finished workers cannot receive new
 +messages. Cancellation cleans up the team's temporary mailboxes after children stop.
 +This implementation uses local temporary storage and does not recover from host crashes.
++
++`team_members` lists only the other teammates: `{self, members: [{id}]}`.
 diff --git a/packages/coding-agent/examples/extensions/subagent/index.ts b/packages/coding-agent/examples/extensions/subagent/index.ts
 index 71b1a33dc..d301f7b01 100644
 --- a/packages/coding-agent/examples/extensions/subagent/index.ts
@@ -167,7 +169,7 @@ index 71b1a33dc..d301f7b01 100644
  				const summaries = results.map((r) => {
 diff --git a/packages/coding-agent/examples/extensions/subagent/team-worker.ts b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
 new file mode 100644
-index 000000000..f058b61bb
+index 000000000..ddf245902
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
 @@ -0,0 +1,93 @@
@@ -189,7 +191,7 @@ index 000000000..f058b61bb
 +		description: "Discover the instances in this parallel dispatch.",
 +		parameters: Type.Object({}),
 +		async execute() {
-+			const result = await locked(directory, () => ({ self, members: readMembers(directory) }));
++			const result = await locked(directory, () => ({ self, members: readMembers(directory).filter((m) => m.id !== self).map((m) => ({ id: m.id })) }));
 +			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
 +		},
 +	});
@@ -255,7 +257,7 @@ index 000000000..f058b61bb
 +			pi.sendMessage(
 +				{
 +					customType: "team_findings",
-+					content: messages.flatMap((message) => [`Message from ${message.from}:\n${message.text}`, `Message from ${message.from}:\n${message.text}`]).join("\n\n"),
++					content: messages.map((message) => `Message from ${message.from}:\n${message.text}`).join("\n\n"),
 +					display: true,
 +					details: { messages },
 +				},

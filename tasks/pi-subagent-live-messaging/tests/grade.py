@@ -71,12 +71,10 @@ def main():
     os.umask(0o077)
     protect_directory(Path('/logs'))
     protect_directory(LOGS)
-    # A missing reviewed interface is unscored, not a failed implementation.
-    # Remove any stale/candidate-supplied entry before selecting an adapter.
+    # Remove any stale/candidate-supplied entry before scoring.
     for name in ['reward.txt', 'reward.json']:
         (LOGS / name).unlink(missing_ok=True)
     success = False
-    integration_needed = False
     status = {'status': 'scoring_error', 'feature_score': None}
     try:
         # The mounted harness is trusted; candidate workspace never enters the
@@ -88,39 +86,22 @@ def main():
                 raise RuntimeError(f'Unexpected harness entry: {path.name}')
             os.chown(path, 0, 0)
             path.chmod(0o644 if path.name in ['fixture.ts', 'worker_exec.py'] else 0o600)
-        sys.path.insert(0, str(TESTS))
-        from profile import IntegrationNeeded, validate_profile
-        try:
-            binding, scenario, selected = validate_profile(Path('/workspace/pi'), TESTS)
-        except IntegrationNeeded as exc:
-            integration_needed = True
-            status = {'status': 'integration_needed', 'feature_score': None,
-                      'reason': str(exc)}
-            return 2
-        status['profile_id'] = selected['profile_id']
-        status['workspace'] = selected['workspace']
         reward(0)
         output = LOGS / ('text-behavior')
         # Do not reuse a tree supplied by the solver or a previous invocation.
         if output.exists() or output.is_symlink():
             raise RuntimeError('Refusing existing behavior output')
         # -I excludes cwd, PYTHONPATH, and user site packages. This explicitly
-        # adds only the sealed harness directory for its trusted binding import.
+        # adds only the sealed harness directory for its trusted imports.
         command = ['/usr/bin/python3', '-I', '-c',
                    "import sys; sys.dont_write_bytecode=True; sys.path.insert(0, '/tests'); import verify; raise SystemExit(verify.main())",
-                   '--repo', '/workspace/pi', '--output', str(output),
-                   '--binding', str(binding), '--scenario', str(scenario)]
+                   '--repo', '/workspace/pi', '--output', str(output)]
         completed = subprocess.run(command, cwd='/', env={'PATH': '/usr/local/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8'})
         spec = importlib.util.spec_from_file_location('trusted_verify', TESTS / 'verify.py')
         module = importlib.util.module_from_spec(spec)
         sys.path.insert(0, str(TESTS))
         spec.loader.exec_module(module)
         summary = json.loads((output / 'summary.json').read_text())
-        if summary.get('status') == 'integration_needed':
-            integration_needed = True
-            status.update(status='integration_needed', feature_score=None,
-                          reason='Reviewed scenario could not execute; see case evidence')
-            return 2
         results = summary['results']
         success = (completed.returncode == 0
                    and [r['name'] for r in results] == module.CASES
@@ -128,7 +109,7 @@ def main():
                    and summary['case_count'] == summary['passed'] == len(module.CASES))
         status.update(status='scored', feature_score=int(success))
     finally:
-        # Infrastructure failure is unscored too. Only a completed scoring
+        # Infrastructure failure is unscored. Only a completed scoring
         # decision may leave a reward for Harbor; remove the provisional zero
         # when the verifier failed before producing a usable summary.
         if status['status'] != 'scored':

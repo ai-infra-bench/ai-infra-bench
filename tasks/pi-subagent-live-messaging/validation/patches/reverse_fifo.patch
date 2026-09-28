@@ -1,5 +1,5 @@
 diff --git a/packages/coding-agent/examples/extensions/subagent/README.md b/packages/coding-agent/examples/extensions/subagent/README.md
-index da74f32..95d29c9 100644
+index da74f3266..95d29c99f 100644
 --- a/packages/coding-agent/examples/extensions/subagent/README.md
 +++ b/packages/coding-agent/examples/extensions/subagent/README.md
 @@ -175,3 +175,17 @@ Project agents override user agents with the same name when `agentScope: "both"`
@@ -21,7 +21,7 @@ index da74f32..95d29c9 100644
 +messages. Cancellation cleans up the team's temporary mailboxes after children stop.
 +This implementation uses local temporary storage and does not recover from host crashes.
 diff --git a/packages/coding-agent/examples/extensions/subagent/index.ts b/packages/coding-agent/examples/extensions/subagent/index.ts
-index 71b1a33..d301f7b 100644
+index 71b1a33dc..d301f7b01 100644
 --- a/packages/coding-agent/examples/extensions/subagent/index.ts
 +++ b/packages/coding-agent/examples/extensions/subagent/index.ts
 @@ -29,6 +29,7 @@ import {
@@ -167,7 +167,7 @@ index 71b1a33..d301f7b 100644
  				const summaries = results.map((r) => {
 diff --git a/packages/coding-agent/examples/extensions/subagent/team-worker.ts b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
 new file mode 100644
-index 0000000..678a8a4
+index 000000000..da65d4721
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
 @@ -0,0 +1,93 @@
@@ -196,7 +196,7 @@ index 0000000..678a8a4
 +	pi.registerTool({
 +		name: "team_send",
 +		label: "Share a finding",
-+		description: "Send a finding to an instance ID or broadcast to current live teammates.",
++		description: "Send a finding to an instance ID, or broadcast it to every teammate; teammates that are not running are reported as failed.",
 +		parameters: Type.Object({
 +			to: Type.Optional(Type.String()),
 +			broadcast: Type.Optional(Type.Boolean()),
@@ -212,7 +212,7 @@ index 0000000..678a8a4
 +			const result = await locked(directory, () => {
 +				const members = readMembers(directory);
 +				const targets = args.broadcast
-+					? members.filter((member) => member.state === "running" && member.id !== self).map((member) => member.id)
++					? members.filter((member) => member.id !== self).map((member) => member.id)
 +					: [args.to!];
 +				const accepted: string[] = [];
 +				const failed: { id: string; reason: string }[] = [];
@@ -266,7 +266,7 @@ index 0000000..678a8a4
 +}
 diff --git a/packages/coding-agent/examples/extensions/subagent/team.ts b/packages/coding-agent/examples/extensions/subagent/team.ts
 new file mode 100644
-index 0000000..ff9c8fe
+index 000000000..ff9c8fe2b
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/subagent/team.ts
 @@ -0,0 +1,97 @@
