@@ -1,0 +1,92 @@
+diff --git a/vllm/v1/attention/backends/utils.py b/vllm/v1/attention/backends/utils.py
+--- a/vllm/v1/attention/backends/utils.py
++++ b/vllm/v1/attention/backends/utils.py
+@@ -563,7 +563,28 @@
+
+     if not treat_short_extends_as_decodes:
+         assert common_attn_metadata.is_prefilling is not None
+-        is_prefill |= common_attn_metadata.is_prefilling
++        is_prefilling = common_attn_metadata.is_prefilling
++
++        # By default, a still-prefilling request is routed to the prefill path.
++        #
++        # Exception: a request that only advances *existing* recurrent state
++        # with a single-token continuation is decode-compatible and must stay
++        # on the decode path. This covers NIXL-style disaggregated decode,
++        # where the decode instance imports recurrent state and continues it
++        # one token at a time. Such a request still reports is_prefilling=True
++        # (num_computed_tokens < num_prompt_tokens), but it already has context
++        # (num_computed_tokens > 0). That distinguishes it from a true
++        # first-token prompt (num_computed_tokens == 0), which has no state to
++        # continue and must initialize its state via the prefill path.
++        #
++        # The exemption is deliberately restricted to single-token steps so
++        # that multi-token (chunked) extends still take the prefill path, which
++        # preserves ordinary chunked-prefill and speculative configurations.
++        seq_lens_upper = common_attn_metadata.seq_lens_cpu_upper_bound
++        assert seq_lens_upper is not None
++        num_computed_tokens = seq_lens_upper - query_lens
++        is_state_continuation = (num_computed_tokens > 0) & (query_lens <= 1)
++        is_prefill |= is_prefilling & ~is_state_continuation
+
+     if not torch.any(is_prefill):
+         return num_reqs, 0, num_tokens, 0
+diff --git a/vllm/v1/worker/gpu/model_states/mamba_hybrid.py b/vllm/v1/worker/gpu/model_states/mamba_hybrid.py
+--- a/vllm/v1/worker/gpu/model_states/mamba_hybrid.py
++++ b/vllm/v1/worker/gpu/model_states/mamba_hybrid.py
+@@ -133,6 +133,7 @@
+             block_tables=block_tables,
+             slot_mappings=slot_mappings,
+             kv_cache_config=kv_cache_config,
++            seq_lens_cpu_upper_bound=input_batch.seq_lens_cpu_upper_bound,
+             dcp_local_seq_lens=input_batch.dcp_local_seq_lens,
+             model_specific_attn_metadata=mamba_attn_metadata,
+             for_cudagraph_capture=for_capture,
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -2258,6 +2258,8 @@
+         # Used by mamba backends to distinguish actual decodes from
+         # short extends.
+         is_prefilling = num_computed_tokens_cpu < num_prompt_tokens_cpu
++        # Padding rows contain no prompt work, even if their old counters remain.
++        is_prefilling[num_reqs:] = False
+
+         if self.use_async_spec_decode:
+             # GPU tensors are authoritative in async mode.
+@@ -2332,7 +2334,12 @@
+             )
+
+             extra_attn_metadata_args = {}
+-            if use_spec_decode and isinstance(
++            # A Mamba2 request can accept drafts and then schedule none. Its
++            # accepted-state offset remains required across that transition.
++            mamba_spec_state = self.num_spec_tokens > 0 and isinstance(
++                builder, Mamba2AttentionMetadataBuilder
++            )
++            if (use_spec_decode or mamba_spec_state) and isinstance(
+                 builder, (Mamba2AttentionMetadataBuilder, GDNAttentionMetadataBuilder)
+             ):
+                 assert ubid is None, "UBatching not supported with GDN yet"
+@@ -3761,8 +3768,20 @@
+                 invalid_modes={CUDAGraphMode.FULL} if disable_full else None,
+             )
+
++        # Stateful single-token extends can use the decode/update path.
++        # Fresh prompts and multi-token prompt chunks need prefill kernels,
++        # even when their token counts happen to match a captured decode shape.
++        has_unsafe_mamba_prefill = False
++        if force_uniform_decode is None and self.model_config.has_inner_state:
++            computed = self.input_batch.num_computed_tokens_cpu[:num_reqs]
++            prompt_lengths = self.input_batch.num_prompt_tokens[:num_reqs]
++            has_unsafe_mamba_prefill = bool(
++                ((computed < prompt_lengths)
++                 & ((computed == 0) | (num_scheduled_tokens_np != 1))).any()
++            )
+         cudagraph_mode, batch_descriptor = dispatch_cudagraph(
+-            num_tokens_padded, disable_full=use_cascade_attn or has_encoder_output
++            num_tokens_padded,
++            disable_full=(use_cascade_attn or has_encoder_output or has_unsafe_mamba_prefill),
+         )
+         num_tokens_padded = batch_descriptor.num_tokens
+         if self.compilation_config.pass_config.enable_sp:

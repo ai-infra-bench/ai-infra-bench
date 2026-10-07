@@ -1,0 +1,240 @@
+{
+  "status": "recorded-r2-matrix-passed-https-apt-checked-ci-rebuild-pending",
+  "recorded_at": "2026-09-18T19:16:01.604440+00:00",
+  "source_pr": {
+    "url": "https://github.com/ai-infra-bench/ai-infra-bench/pull/64",
+    "reviewed_head": "dd91f8bebc19752307707bd8c388cca3df11522d"
+  },
+  "task_version": "1.2.0",
+  "base_commit": "737bfa3a43ce386bd1894792f3302d9f3f9d73fa",
+  "base_tree": "f1ee5dc01c843ebb52d20e1714a93f96ec07cb96",
+  "dependency_cutoff": "2026-05-18T11:54:00Z",
+  "image_id": "sha256:6f1c2df7f633dc7dce80cb8e858726fa29fe28b51162ebd2a4b3b7ff33cd550c",
+  "image_tag": "ai-infra-bench/vllm-mamba-full-cg-decoding:base-737bfa3a43ce-r2",
+  "image_publication": "local only; not published by this work",
+  "skill_provenance": {
+    "workspace_head": "d3b0557d8c22902f6c045cb86f1403de8cd52fd6",
+    "sha256": {
+      "SKILL.md": "8fe577cbbf18cabee73dd49f510a9f2aa102bd07b5b4bb99e0c4327da666410b",
+      "references/review-rubric.md": "db7cfadedac4df9b796fc2fa390080a68587cfc4ab6d1b237a2dd308602a8721",
+      "references/validation-playbook.md": "f43a6c1055bfe70a6ad9a8c79ab1ce166e90a1ba56101f498be50e06ea4615f8",
+      "scripts/audit_task_artifacts.py": "8c942753482607dd9ab7eadbaebfb00c35461e136b873504c07224c068e84a8f"
+    }
+  },
+  "hardware": {
+    "gpu": "NVIDIA A100-SXM4-40GB",
+    "gpu_count_per_trial": 1,
+    "driver": "580.126.20",
+    "cpus": 4,
+    "memory_mib": 24576,
+    "network": "none"
+  },
+  "tools": {
+    "harbor": "0.22.0",
+    "docker_compose": "5.5.1",
+    "torch": "2.11.0+cu130"
+  },
+  "semantic_boundary": "LLM.generate -> production scheduler/runner/backend -> Mamba recurrent state consumption/update and CUDA graph replay -> multi-step tokens and full distributions.",
+  "substitution": "Local chunked prefill creates prior-state still-prefilling continuations; NIXL transport, tokenizer and model downloads are omitted. Reference Base eager uses unsplit prefill to avoid the target graph-transition defect.",
+  "reward": "Independent root scorer compares all actual outputs against private immutable-Base eager results. Stdout and exit status alone cannot grant reward.",
+  "matrix": {
+    "trials": 21,
+    "matched_expected": 21,
+    "errored_trials": 0,
+    "passing_trials": 6,
+    "failing_trials": 15,
+    "correct_alternatives": 4,
+    "oracle_trials": 2,
+    "records": "results/matrix-results.json",
+    "raw_bundle": "results/harbor-matrix-r4.zip"
+  },
+  "final_harbor_oracle": {
+    "case": "oracle-repeat",
+    "expected_reward": 1,
+    "rewards": [
+      1
+    ],
+    "errors": 0,
+    "completed": 1,
+    "seconds": 407.21,
+    "process_exit": 0,
+    "job_result": "/data/pr64-review-20260919/matrix-r4-jobs/oracle-repeat/result.json",
+    "gpu": "GPU-3815a178-ad22-4b81-5669-0533760a7e6b",
+    "passed": true,
+    "job_id": "390b4e2d-b03f-475b-ac1f-5a03d3cbedf3",
+    "trial_id": "d6f8db14-23ea-433a-a99b-29ac8339d148",
+    "trial_name": "oracle-repeat__gX7kyKc",
+    "task_checksum_before_evidence_update": "ac0ee1f99050a83780927f307c623e232a84305d0dfd105158eddbb48c06db35",
+    "started_at": "2026-09-18T19:06:51.800129Z",
+    "finished_at": "2026-09-18T19:13:32.568642Z",
+    "verifier": {
+      "started_at": "2026-09-18T19:07:09.855910Z",
+      "finished_at": "2026-09-18T19:13:32.568619Z"
+    },
+    "verifier_environment_mode": "separate",
+    "artifact_transfer": [
+      {
+        "source": "/logs/artifacts",
+        "destination": "artifacts/logs/artifacts",
+        "type": "directory",
+        "status": "empty",
+        "service": null
+      },
+      {
+        "source": "/workspace/repo/vllm",
+        "destination": "artifacts/workspace/repo/vllm",
+        "type": "directory",
+        "status": "ok",
+        "service": null
+      }
+    ],
+    "diagnostics": {
+      "reward": 1,
+      "cases": [
+        {
+          "case": "mamba1-full",
+          "vectors": 56,
+          "max_error": 9.5367431640625e-07,
+          "seconds": 78.04,
+          "exit_code": 0,
+          "graph_launches": 29,
+          "accepted_tokens": null
+        },
+        {
+          "case": "mamba1-eager",
+          "vectors": 56,
+          "max_error": 9.5367431640625e-07,
+          "seconds": 40.29,
+          "exit_code": 0,
+          "graph_launches": 0,
+          "accepted_tokens": null
+        },
+        {
+          "case": "mamba2-full",
+          "vectors": 56,
+          "max_error": 0.004772186279296875,
+          "seconds": 186.35,
+          "exit_code": 0,
+          "graph_launches": 29,
+          "accepted_tokens": null
+        },
+        {
+          "case": "mamba2-speculative",
+          "vectors": 56,
+          "max_error": 8.678436279296875e-05,
+          "seconds": 50.85,
+          "exit_code": 0,
+          "graph_launches": 10,
+          "accepted_tokens": 36
+        }
+      ],
+      "reference": "frozen Base eager GPU serving in a root-only reference process"
+    },
+    "patch_sha256": "6a586866a9b38028f13000036b40c6619b27d203014dcd2db4fb5af98a1c5cde"
+  },
+  "checksum_note": "The recorded Harbor task checksums and 21-case matrix belong to the r2 image before the HTTPS-only build-source change. Scoring code, instruction, runtime configuration, Oracle and control patches remain identical to those trials. Current artifact hashes include the updated recipe and this targeted APT validation; a complete updated-image build is pending CI.",
+  "history": {
+    "incoming_evidence": "archive/",
+    "earlier_smoke": "diagnostic only; exposed reward JSON schema mismatch, then fixed",
+    "matrix_r3": "diagnostic matrix exposed missing state reuse in the workload; incomplete control received 1 before the workload was extended",
+    "matrix_r2": "infrastructure failure due missing read-only tests mount, restored before r3",
+    "host_load_interruption": "diagnostic run stalled before Python import; host recovered without terminating unrelated work",
+    "prior_model_agent_pass_rates": "not recertified; no claims about clean-environment solve rates"
+  },
+  "static_audit": {
+    "status": "passed",
+    "final_evidence": {
+      "checks": 4,
+      "errors": 0,
+      "warnings": 0
+    },
+    "image_and_19_patches": {
+      "checks": 5,
+      "errors": 0,
+      "warnings": 0
+    },
+    "repository_validator": "passed",
+    "git_diff_check": "passed",
+    "command": "python3 .agents/skills/ai-infra-bench-task-review/scripts/audit_task_artifacts.py tasks/vllm-mamba-full-cg-decoding --strict-evidence",
+    "log_path": "/data/pr64-review-20260919/audit-final-evidence.log",
+    "log_sha256": "1e74edb080635e1e98231a9b965565062432386bfc44cfadaf7f944680f6208a",
+    "image_audit_log": "results/harbor-matrix-r4.zip:provenance/audit-r4-image.log"
+  },
+  "limitations": [
+    "No actual NIXL network transfer or multi-GPU hybrid-model benchmark was run.",
+    "Behavioral numerical checks do not prove resistance to arbitrary hostile rewrites of the Python runtime.",
+    "No new model-agent difficulty calibration was run.",
+    "Candidate Mamba2 ordinary eager execution was not separately tested; the trusted eager reference does not establish candidate eager regression coverage.",
+    "Speculative coverage is Mamba2 with ngram proposals, not every supported speculative configuration."
+  ],
+  "open_behavior_items": [
+    "The follow-up review of 87cecf4 reproduced a graph-observation bypass: forcing eager and fabricating profiler graph counts received reward 1. This HTTPS-only change does not address that verifier issue."
+  ],
+  "worktree": "/tmp/ai-infra-pr64-review-20260919",
+  "branch": "codex/pr64-behavior-hardening",
+  "artifacts": {
+    "files": {
+      ".dockerignore": "cf9143fdfce145f9234e589317912e7c9fad341276064294f22da3946d23758e",
+      "README.md": "163cd5f500d05598094c528064dc3de4ca9c4363f315bd39daa5f6626572ace8",
+      "environment/Dockerfile": "edfaf8bd9200dc2947df7e9514b4731c7f92cb0ec6c4b3e89e9e7168dc035cae",
+      "environment/docker-compose.yaml": "2a8ebdb1c56b1d74ce13762d408a6efac3cd46c9b4277c669dbac6580db3b523",
+      "environment/image-manifest.json": "d787341079c742df3e0fd0af6c5460085ffdd42cc2f8080d3db3dcf0306cab2c",
+      "environment/lock/README.md": "9cb8fd97893b181f790367d725b98a24218dbfb44d4e3d4fe5d15dcece4a4cf3",
+      "environment/lock/manifest.json": "a04538a377bf6c54707fbcaf0c99804eccd2608cf66ac843452046e468a44715",
+      "environment/lock/native-donor.json": "c46029adf79f6910908ca129a70084ea6c934e4bc6930606aeff554920b6ebc5",
+      "environment/lock/requirements.txt": "cb3b63dd4ccb3861651fb63081183ffaf801162ccf99830a8e71179c1fdb88cb",
+      "instruction.md": "f36f3a7a89d7a8a6aad78922f9b7ffcf11f5dbd978261e458cc367fc4faa3284",
+      "solution/oracle.patch": "6a586866a9b38028f13000036b40c6619b27d203014dcd2db4fb5af98a1c5cde",
+      "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+      "task.toml": "3f9f8d8ddefbaf5eddbb4cc746e835e671a944fa9061e6e1178cbde52be93602",
+      "tests/docker-compose.yaml": "a9d9fcaba73ad5f197f132eecc30dd3d2783b69bb5799652fce2d8cb2635d1ee",
+      "tests/supervise_verifier.py": "542190dd885c5be2f1b90c1109922cea937f2485c8ae8c89c624779263796118",
+      "tests/test.sh": "c4a5db80b4ce0f8cbb14e044b7ac66f4106312d698081898895e64a817b7d0fd",
+      "tests/verify_mamba_full_cg.py": "3579338588cbe5a6e84caa73a5922a4d73f12bff5af4b977102754b20b8b26bb",
+      "validation/LOCAL-VALIDATION.md": "bf24fe677fc8f424233b856601adc8391da85234a516a5629f0fcc1866b031ac",
+      "validation/alternative-agent-implementation.patch": "d3c4f3022a4fd748e35139acdcdf3f7412765afbb34b55c3c9592cbb274f1cc0",
+      "validation/alternative-host-preparation.patch": "075e91dd27ddf36ab3693fffa9136453b1003c4492c5711b74bafec4d2c83013",
+      "validation/alternative-production-builders.patch": "25759475f0f1a2fac8851cd90969dad0407ef702908430771478ac77b55cba00",
+      "validation/alternative-runner-inputs.patch": "9cebd0aadfafb31307eaa6bbcfbf0d173c66ed1445ddfea6d7515f5397907e47",
+      "validation/broken-eager.patch": "fa6ebf82db51ada47aaf82080a8c953571ab5dd62bce678dbaecac6e82710e84",
+      "validation/broken-spec-decode.patch": "a5d8e97beb5b34e538f5ecb7541705087f2cf5435b2a6910ca9c98a58b238e02",
+      "validation/ci-cases.json": "2e761772050739525fa920a46081f8ebb473831b383f0384b67b054a976d5c9b",
+      "validation/copy-private-reference.patch": "3a0a00685c58361d1610fadce2c891582c56070ee5d00485ef254a9b3b788a97",
+      "validation/disable-cuda-graphs.patch": "3e38cbf58bc90da75059bd961b8e59ba674cb8412f8df6b3cd8a00ab4ee26add",
+      "validation/docker-build.md": "890147dd19130da4ad8dd25f053e06ccd886a622e6497ff0f65428eae293a51e",
+      "validation/early-exit-os-exit.patch": "7e8264005f8d1cbc83bbe2fe6d9195e6ff06c117600fa08b5d41c620294c4d46",
+      "validation/early-exit-systemexit.patch": "80f7fd0dce410eb62373fa96daeb380acaf16d0de85b03872956c1a0e142a2fe",
+      "validation/forged-complete-results.patch": "5bb8632f3a9a5595b541d4735051e3b0b37bfbba1bd9ccd235517c72e75cfbb9",
+      "validation/forged-success-report.patch": "3cc325256381721eef79b211fe22c988f0c9a0602d75204812485d1b28766379",
+      "validation/historical-oracle.patch": "f35c8ffec10d22dfb416cc0bd1084d1cdd8ecd44f93146d4c4e699a32f3ed0e9",
+      "validation/incomplete-agent-implementation.patch": "780d3cb9b51f9e7120a677ace77dd9f4d86a931c3137c2a32a0a4cf5d1b7e456",
+      "validation/local_harbor.py": "030f70d2639b78bcd2751d1a73d1db79fe409c7f0e85e7a90fa54c61ae122915",
+      "validation/mamba1-only-fix.patch": "4c8c50999f74f9b262b1fd2acad1b7ecdff4f110e675c39c491a22071a1c2a87",
+      "validation/metadata-counts-only.patch": "26217e71da2dbc10b63a66e67e108f4056fb4c73ad4130b60b614b5cdf1c8afb",
+      "validation/remediation-matrix.md": "34bd9042909d2958e8d9238e1356b949d26fd831cbd35970aa0130c5393dda30",
+      "validation/results/harbor-matrix-r4.zip": "e310d2b73517ca6eb97c9eae8a399833805ee1c95a6ed55d1b1994d5c9208512",
+      "validation/results/matrix-results.json": "e3d3196e50f83489c6f7569183f8a84979e63e359e5b5068185dec425e7f4a01",
+      "validation/zero-mamba2-state-addresses.patch": "23d8df26c82bac644cbdd3e6cea48d012e2a529b0a534819e90934a2f39c9b0d",
+      "validation/zero-state-addresses.patch": "cd3e697cd8e93c01a725b70b05586e39a4ae9124ef8fe14e7e8ccb516d2e269b",
+      "validation/results/https-apt-check.txt": "72b81169c4e46ba55e59756b00e5b27639752c158f13381a67e9a799511c3941"
+    }
+  },
+  "git_state_at_validation": "uncommitted; no push or GitHub writes",
+  "delivery_target": {
+    "pr": "https://github.com/ai-infra-bench/ai-infra-bench/pull/64",
+    "repository": "xuanzhengdu-eng/ai-infra-bench",
+    "branch": "task/add-vllm-mamba-full-cg-decoding",
+    "note": "Commit and push are tracked by Git and PR history; the recorded validation preceded delivery."
+  },
+  "https_build_fix": {
+    "recorded_at": "2026-09-19T02:36:52.388127+00:00",
+    "change": "Ubuntu package source scheme only: HTTP to HTTPS; no added retry logic or changes to pinned package versions/signature checks.",
+    "donor_image": "vllm/vllm-openai:v0.21.0@sha256:4ac9b7c6dabc3ec762c0edef4e9245abe98373844da91cc53ee42e5c58280c5b",
+    "test": "Exact updated Dockerfile APT phase in a fresh donor container, network host and CI proxy http://127.0.0.1:7892.",
+    "result": "apt-get update and all three pinned package installations passed; process exit 0",
+    "log": "validation/results/https-apt-check.txt",
+    "full_rebuild": "pending CI; no replacement local image or repeated GPU matrix is claimed",
+    "previous_dockerfile_sha256": "fa5a80b68f8b61e9b7845ef6fcb5dd774bc8b50791e1e6d6eea2533755c52008",
+    "current_dockerfile_sha256": "edfaf8bd9200dc2947df7e9514b4731c7f92cb0ec6c4b3e89e9e7168dc035cae"
+  }
+}
