@@ -1,6 +1,6 @@
 diff --git a/nemo_gym/anthropic_converter.py b/nemo_gym/anthropic_converter.py
 new file mode 100644
-index 0000000..137a073
+index 0000000..8ad2032
 --- /dev/null
 +++ b/nemo_gym/anthropic_converter.py
 @@ -0,0 +1,886 @@
@@ -102,7 +102,7 @@ index 0000000..137a073
 +        )
 +
 +        system_parts = []
-+        if body.instructions:
++        if body.instructions is not None:
 +            system_parts.append(body.instructions)
 +
 +        response_input = body_dict.pop("input")
@@ -566,7 +566,7 @@ index 0000000..137a073
 +                },
 +            }
 +        )
-+        return message.model_dump(mode="json", exclude_none=True)
++        return {**response.model_dump(mode="json", exclude_none=True), **message.model_dump(mode="json", exclude_none=True)}
 +
 +    def _iter_output_dicts(self, response: NeMoGymResponse) -> List[Dict[str, Any]]:
 +        items = []

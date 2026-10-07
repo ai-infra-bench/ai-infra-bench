@@ -1,6 +1,6 @@
 diff --git a/nemo_gym/anthropic_converter.py b/nemo_gym/anthropic_converter.py
 new file mode 100644
-index 0000000..137a073
+index 0000000..d25df38
 --- /dev/null
 +++ b/nemo_gym/anthropic_converter.py
 @@ -0,0 +1,886 @@
@@ -102,7 +102,7 @@ index 0000000..137a073
 +        )
 +
 +        system_parts = []
-+        if body.instructions:
++        if body.instructions is not None:
 +            system_parts.append(body.instructions)
 +
 +        response_input = body_dict.pop("input")
@@ -261,7 +261,7 @@ index 0000000..137a073
 +        for block in content:
 +            block_type = block.get("type")
 +            if block_type == "text":
-+                pending_text.append(block["text"])
++                pending_text.append(block.get("text", ""))
 +            elif block_type == "thinking":
 +                self._flush_text_output(pending_text, output)
 +                output.append(
@@ -269,7 +269,7 @@ index 0000000..137a073
 +                        id=f"rs_{uuid4().hex}",
 +                        summary=[
 +                            NeMoGymSummary(
-+                                text=block["thinking"],
++                                text=block.get("thinking", ""),
 +                                type="summary_text",
 +                            )
 +                        ],
@@ -277,12 +277,12 @@ index 0000000..137a073
 +                    )
 +                )
 +            elif block_type == "tool_use":
-+                if not isinstance(block["input"], dict):
++                if not isinstance(block.get("input", {}), dict):
 +                    raise ValueError("Function arguments must be a JSON object.")
 +                self._flush_text_output(pending_text, output)
 +                output.append(
 +                    NeMoGymResponseFunctionToolCall(
-+                        arguments=json.dumps(block["input"], allow_nan=False),
++                        arguments=json.dumps(block.get("input", {}), allow_nan=False),
 +                        call_id=block["id"],
 +                        name=block["name"],
 +                        id=block["id"],
@@ -362,7 +362,7 @@ index 0000000..137a073
 +        for block in system:
 +            if block.get("type") != "text":
 +                raise NotImplementedError(f"Unsupported Anthropic system block: {block.get('type')}")
-+            texts.append(block["text"])
++            texts.append(block.get("text", ""))
 +        return "\n".join(texts)
 +
 +    def _anthropic_messages_to_input_items(self, anthropic_body: Dict[str, Any]) -> List[Any]:
@@ -371,7 +371,7 @@ index 0000000..137a073
 +            role = message["role"]
 +            if role not in ("user", "assistant"):
 +                raise ValueError(f"Unsupported Messages role: {role}")
-+            content = message["content"]
++            content = message.get("content", "")
 +            if isinstance(content, str):
 +                items.append(NeMoGymEasyInputMessage(role=role, content=content, type="message"))
 +                continue
@@ -398,16 +398,16 @@ index 0000000..137a073
 +        for block in blocks:
 +            block_type = block.get("type")
 +            if block_type == "text":
-+                pending_parts.append({"type": "input_text", "text": block["text"]})
++                pending_parts.append({"type": "input_text", "text": block.get("text", "")})
 +            elif block_type == "image":
 +                pending_parts.append(self._anthropic_image_to_input_part(block))
 +            elif block_type == "tool_use":
-+                if not isinstance(block["input"], dict):
++                if not isinstance(block.get("input", {}), dict):
 +                    raise ValueError("Function arguments must be a JSON object.")
 +                flush_message()
 +                items.append(
 +                    NeMoGymResponseFunctionToolCall(
-+                        arguments=json.dumps(block["input"], allow_nan=False),
++                        arguments=json.dumps(block.get("input", {}), allow_nan=False),
 +                        call_id=block["id"],
 +                        name=block["name"],
 +                        id=block["id"],
@@ -431,7 +431,7 @@ index 0000000..137a073
 +                items.append(
 +                    NeMoGymResponseReasoningItem(
 +                        id=f"rs_{uuid4().hex}",
-+                        summary=[NeMoGymSummary(text=block["thinking"], type="summary_text")],
++                        summary=[NeMoGymSummary(text=block.get("thinking", ""), type="summary_text")],
 +                        encrypted_content=block.get("signature"),
 +                        type="reasoning",
 +                    )
@@ -466,7 +466,7 @@ index 0000000..137a073
 +        texts = []
 +        for block in content:
 +            if block.get("type") == "text":
-+                texts.append(block["text"])
++                texts.append(block.get("text", ""))
 +            else:
 +                raise NotImplementedError(
 +                    f"Unsupported Anthropic tool_result content block for ingress: {block.get('type')}"
@@ -656,11 +656,11 @@ index 0000000..137a073
 +    def _block_deltas(self, block: Dict[str, Any]) -> List[Dict[str, Any]]:
 +        block_type = block.get("type")
 +        if block_type == "text":
-+            return [{"type": "text_delta", "text": block["text"]}]
++            return [{"type": "text_delta", "text": block.get("text", "")}]
 +        if block_type == "thinking":
-+            return [{"type": "thinking_delta", "thinking": block["thinking"]}]
++            return [{"type": "thinking_delta", "thinking": block.get("thinking", "")}]
 +        if block_type == "tool_use":
-+            return [{"type": "input_json_delta", "partial_json": json.dumps(block["input"], allow_nan=False)}]
++            return [{"type": "input_json_delta", "partial_json": json.dumps(block.get("input", {}), allow_nan=False)}]
 +        raise NotImplementedError(f"Unsupported Anthropic block for SSE synthesis: {block_type}")
 +
 +    def _sse_event(self, event_type: str, data: Dict[str, Any]) -> str:

@@ -383,6 +383,14 @@ def main():
     def ok(url, data):
         status, _, result = call(url, data)
         assert status == 200, (status, result)
+        if url.endswith("/egress-response"):
+            assert isinstance(result.get("id"), str) and result["id"], result
+            for item in result["output"]:
+                # These output types require IDs in the pinned Gym schemas.
+                # Function-call item IDs remain optional; correlation call_id
+                # is checked separately by the conversation assertions.
+                if item["type"] in ("message", "reasoning"):
+                    assert isinstance(item.get("id"), str) and item["id"], item
         return result
 
     def bad(url, data):
@@ -712,6 +720,10 @@ def main():
         def results_list():
             data = a_request | {
                 "messages": [
+                    {"role": "user", "content": text},
+                    {"role": "assistant", "content": [
+                        {"type": "tool_use", "id": cid1, "name": name, "input": arguments}
+                    ]},
                     {
                         "role": "user",
                         "content": [
@@ -728,7 +740,7 @@ def main():
                     }
                 ]
             }
-            assert ok(api + "ingress-request", data)["input"][0]["output"] == "a\nb"
+            assert ok(api + "ingress-request", data)["input"][-1]["output"] == "a\nb"
 
         check("text_block_tool_result", results_list)
 
@@ -901,6 +913,25 @@ def main():
                     back["usage"]["input_tokens"] == 17
                     and back["usage"]["cache_read_input_tokens"] == 5
                 )
+
+            # Invalid counts must not become usable replies in either direction.
+            for field in ("input_tokens", "output_tokens", "cache_read_input_tokens"):
+                usage = {"input_tokens": 1, "output_tokens": 1, field: -1}
+                bad(api + "egress-response", {"response": {
+                    "id": "msg_bad_usage", "type": "message", "role": "assistant", "model": "x",
+                    "content": [{"type": "text", "text": text}], "stop_reason": "end_turn", "usage": usage,
+                }})
+            for input_tokens, output_tokens, cached in ((-1, 1, 0), (1, -1, 0), (1, 1, -1), (1, 1, 2)):
+                invalid = response([message(text)], usage={
+                    "input_tokens": input_tokens, "output_tokens": output_tokens,
+                    "total_tokens": input_tokens + output_tokens,
+                    "input_tokens_details": {"cached_tokens": cached},
+                    "output_tokens_details": {"reasoning_tokens": 0},
+                })
+                bad(api + "ingress-response", {"response": invalid})
+                for streaming in (False, True):
+                    set_output(invalid)
+                    bad(native + "/v1/messages", a_request | {"stream": streaming})
 
         check("termination_and_cache_accounting", stops_and_cache)
 
@@ -1252,6 +1283,19 @@ def main():
                         set_output(invalid_response)
                         status, _, reply = call(url + "/v1/messages", a_request | {"stream": stream})
                         assert 400 <= status < 600, (url, value, stream, status, reply)
+            # Valid exponent syntax may overflow Python's float parser. A
+            # converter may preserve a JSON-serializable value or explicitly
+            # reject unsupported magnitude, but must not return infinity.
+            for value in ('{"nested": [1e309]}', '{"nested": [-1e309]}'):
+                overflow_call = tool(cid1, name, {}) | {"arguments": value}
+                for operation, payload in (
+                    ("egress-request", {"body": {"input": [overflow_call]}}),
+                    ("ingress-response", {"response": response([overflow_call])}),
+                ):
+                    status, _, witness = call(api + operation, payload | {"observe_json": True})
+                    assert 400 <= status < 600 or (
+                        status == 200 and witness == {"returned": True, "json_finite": True}
+                    ), (operation, value, status, witness)
             # Rejecting token spellings must not reject ordinary JSON strings,
             # object keys, finite numbers, booleans, null, or an empty object.
             for arguments in (
@@ -1320,6 +1364,122 @@ def main():
                 Backend.status = 200
         check("native_backend_http_status", native_backend_status)
 
+        def anthropic_error_envelopes():
+            for error_type in ("overloaded_error", "api_error", "invalid_request_error"):
+                bad(api + "egress-response", {"response": {
+                    "type": "error", "error": {"type": error_type, "message": "backend unavailable"}
+                }})
+        check("anthropic_error_envelopes", anthropic_error_envelopes)
+
+        def required_messages_fields():
+            for field in ("messages", "model", "max_tokens"):
+                data = {key: value for key, value in a_request.items() if key != field}
+                bad(api + "ingress-request", data)
+                for url in (native, request_url):
+                    for streaming in (False, True):
+                        set_output(response([message(text)]))
+                        bad(url + "/v1/messages", data | {"stream": streaming})
+                        assert Backend.records.empty(), (field, streaming, "invalid request reached backend")
+        check("required_messages_fields", required_messages_fields)
+
+        def nested_messages_fields():
+            for malformed in (
+                {"role": "user"},
+                {"role": "user", "content": [{"type": "text"}]},
+                {"role": "assistant", "content": [{"type": "thinking"}]},
+                {"role": "assistant", "content": [{"type": "tool_use", "id": cid1, "name": name}]},
+            ):
+                data = a_request | {"messages": [malformed]}
+                bad(api + "ingress-request", data)
+                for url in (native, request_url):
+                    for streaming in (False, True):
+                        set_output(response([message(text)]))
+                        bad(url + "/v1/messages", data | {"stream": streaming})
+                        assert Backend.records.empty(), "malformed content reached backend"
+        check("nested_messages_required_fields", nested_messages_fields)
+
+        def invalid_anthropic_replies():
+            valid = {
+                "id": "msg_probe", "type": "message", "role": "assistant", "model": "local-policy",
+                "content": [{"type": "text", "text": text}], "stop_reason": "end_turn",
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            }
+            for field in ("id", "type", "role", "model", "content", "usage"):
+                bad(api + "egress-response", {"response": {k: v for k, v in valid.items() if k != field}})
+            bad(api + "egress-response", {"response": {}})
+            for block in ({"type": "text"}, {"type": "thinking"}, {"type": "tool_use", "id": cid1, "name": name}):
+                bad(api + "egress-response", {"response": valid | {"content": [block]}})
+        check("invalid_anthropic_response_envelopes", invalid_anthropic_replies)
+
+        def nonfinite_anthropic_arguments():
+            for number in (float("nan"), float("inf"), -float("inf")):
+                block = {"type": "tool_use", "id": cid1, "name": name, "input": {"nested": [number]}}
+                data = a_request | {"messages": [{"role": "assistant", "content": [block]}]}
+                bad(api + "ingress-request", data)
+                bad(api + "egress-response", {"response": {
+                    "id": "msg_nonfinite", "type": "message", "role": "assistant", "model": "local-policy",
+                    "content": [block], "stop_reason": "tool_use", "usage": {"input_tokens": 1, "output_tokens": 1},
+                }})
+                for streaming in (False, True):
+                    set_output(response([message(text)]))
+                    bad(native + "/v1/messages", data | {"stream": streaming})
+                    assert Backend.records.empty(), "nonstandard JSON reached backend"
+        check("nonfinite_anthropic_tool_arguments", nonfinite_anthropic_arguments)
+
+        def iterable_messages():
+            data = a_request | {"messages": [
+                {"role": "user", "content": text},
+                {"role": "assistant", "content": [{"type": "thinking", "thinking": "reason"},
+                    {"type": "tool_use", "id": cid1, "name": name, "input": arguments}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": cid1, "content": "done"}]},
+            ]}
+            for representation in ("tuple", "iterator"):
+                value = ok(api + "ingress-request?messages_format=" + representation, data)
+                assert input_semantics(value["input"]) == anthropic_semantics(data["messages"])
+        check("sdk_iterable_messages", iterable_messages)
+
+        def training_fields_do_not_leak():
+            training = {
+                "prompt_token_ids": [101, 202, 303],
+                "generation_token_ids": [404, 505],
+                "generation_log_probs": [-0.125, -0.375],
+            }
+            # The same names are valid user keys inside tool arguments; this
+            # data must survive while the Gym-owned fields are removed.
+            user_arguments = {**arguments, **training}
+            source = response([message(text) | training, tool(cid1, name, user_arguments) | training])
+            source["usage"].update(input_tokens=3, output_tokens=4, total_tokens=7)
+
+            def no_training(value):
+                if isinstance(value, list):
+                    for item in value:
+                        no_training(item)
+                elif isinstance(value, dict):
+                    assert not (set(training) & value.keys()), value
+                    for key, item in value.items():
+                        if value.get("type") == "tool_use" and key == "input":
+                            continue
+                        no_training(item)
+
+            direct = ok(api + "ingress-response", {"response": source})
+            no_training(direct)
+            assert next(block for block in direct["content"] if block["type"] == "tool_use")["input"] == user_arguments
+            for url in (native, request_url):
+                for streaming in (False, True):
+                    set_output(source)
+                    status, _, reply = call(url + "/v1/messages", a_request | {"stream": streaming})
+                    assert status == 200, (status, reply)
+                    if streaming:
+                        # Check raw event envelopes too: SDK reconstruction
+                        # can silently discard unknown provider fields.
+                        for line in reply.splitlines():
+                            if line.startswith("data: "):
+                                no_training(json.loads(line[6:]))
+                        reply = parse_sse(reply)
+                    no_training(reply)
+                    assert next(block for block in reply["content"] if block["type"] == "tool_use")["input"] == user_arguments
+        check("training_fields_do_not_leak", training_fields_do_not_leak)
+
     except Exception as exc:
         records.append(
             {"name": "environment_or_startup", "passed": False, "error": str(exc)}
@@ -1337,7 +1497,7 @@ def main():
         for log in logs:
             log.close()
     # Fail closed: zero checks or an early child exit can never earn reward.
-    expected_count = 27
+    expected_count = 34
     passed = sum(x["passed"] for x in records)
     success = len(records) == expected_count and passed == expected_count
     summary = {

@@ -1,9 +1,11 @@
 """Verifier-side adapter: real Gym HTTP server and public converter operations.
 
-Contains no expected answers or grading decisions. Runs as the candidate user.
+Checks public return types but contains no expected content or reward logic.
+Runs as the candidate user.
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -120,7 +122,7 @@ def ready():
 
 
 @app.post("/public-converter/{operation}")
-def convert(operation: str, payload: dict = Body()):
+def convert(operation: str, payload: dict = Body(), messages_format: str = "list"):
     # Imported lazily so unchanged Base starts; missing functionality is an
     # observable 501 at this adapter boundary, not an environment import failure.
     try:
@@ -132,6 +134,12 @@ def convert(operation: str, payload: dict = Body()):
     converter = AnthropicConverter()
     try:
         if operation == "ingress-request":
+            # The installed SDK accepts Iterable[MessageParam]. Exercise Python
+            # callers as well as the ordinary JSON-array HTTP representation.
+            if messages_format == "tuple":
+                payload = {**payload, "messages": tuple(payload["messages"])}
+            elif messages_format == "iterator":
+                payload = {**payload, "messages": iter(payload["messages"])}
             value = converter.anthropic_request_to_responses(payload)
         elif operation == "egress-request":
             value = converter.responses_to_anthropic(
@@ -166,9 +174,26 @@ def convert(operation: str, payload: dict = Body()):
             )
         else:
             raise HTTPException(404, "unknown operation")
+        # Preserve the documented Python API boundary before HTTP serialization
+        # erases the difference between a Gym model and a plain dictionary.
+        expected_type = {
+            "ingress-request": NeMoGymResponseCreateParamsNonStreaming,
+            "egress-response": NeMoGymResponse,
+            "egress-request": dict,
+            "ingress-response": dict,
+        }[operation]
+        if not isinstance(value, expected_type):
+            raise TypeError(f"{operation} must return {expected_type.__name__}, got {type(value).__name__}")
         # A return witness avoids letting FastAPI/Pydantic serialization mask a
         # converter that returned invalid non-finite arguments instead of raising.
         # The flag is private to this adapter and is never passed to the candidate.
+        if operation in ("egress-request", "ingress-response") and payload.get("observe_json") is True:
+            try:
+                json.dumps(value, allow_nan=False)
+                finite = True
+            except (ValueError, TypeError):
+                finite = False
+            return {"returned": True, "json_finite": finite}
         if operation in ("egress-request", "ingress-response") and payload.get("observe_return") is True:
             return {"returned": True}
         return (

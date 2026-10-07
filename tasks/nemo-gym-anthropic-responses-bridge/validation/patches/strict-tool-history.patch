@@ -1,9 +1,9 @@
 diff --git a/nemo_gym/anthropic_converter.py b/nemo_gym/anthropic_converter.py
 new file mode 100644
-index 0000000..137a073
+index 0000000..016779a
 --- /dev/null
 +++ b/nemo_gym/anthropic_converter.py
-@@ -0,0 +1,886 @@
+@@ -0,0 +1,893 @@
 +# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 +# SPDX-License-Identifier: Apache-2.0
 +#
@@ -102,7 +102,7 @@ index 0000000..137a073
 +        )
 +
 +        system_parts = []
-+        if body.instructions:
++        if body.instructions is not None:
 +            system_parts.append(body.instructions)
 +
 +        response_input = body_dict.pop("input")
@@ -329,6 +329,13 @@ index 0000000..137a073
 +        max_tokens = anthropic_body["max_tokens"]
 +        if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens < 1:
 +            raise ValueError("Messages max_tokens must be a positive integer")
++        prior_calls = set()
++        for message in anthropic_body.get("messages", []):
++            for block in message.get("content", []) if isinstance(message.get("content"), list) else []:
++                if block.get("type") == "tool_use":
++                    prior_calls.add(block["id"])
++                elif block.get("type") == "tool_result" and block.get("tool_use_id") not in prior_calls:
++                    raise ValueError("tool_result has no preceding tool_use in the conversation")
 +        params: Dict[str, Any] = {"input": self._anthropic_messages_to_input_items(anthropic_body)}
 +
 +        instructions = self._anthropic_system_to_instructions(anthropic_body.get("system"))

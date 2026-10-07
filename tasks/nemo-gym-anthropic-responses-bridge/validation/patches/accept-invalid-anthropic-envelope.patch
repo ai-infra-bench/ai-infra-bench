@@ -1,9 +1,9 @@
 diff --git a/nemo_gym/anthropic_converter.py b/nemo_gym/anthropic_converter.py
 new file mode 100644
-index 0000000..137a073
+index 0000000..f36566f
 --- /dev/null
 +++ b/nemo_gym/anthropic_converter.py
-@@ -0,0 +1,886 @@
+@@ -0,0 +1,878 @@
 +# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 +# SPDX-License-Identifier: Apache-2.0
 +#
@@ -102,7 +102,7 @@ index 0000000..137a073
 +        )
 +
 +        system_parts = []
-+        if body.instructions:
++        if body.instructions is not None:
 +            system_parts.append(body.instructions)
 +
 +        response_input = body_dict.pop("input")
@@ -206,15 +206,7 @@ index 0000000..137a073
 +    ) -> NeMoGymResponse:
 +        if anthropic_response.get("type") == "error" or anthropic_response.get("error") is not None:
 +            raise ValueError(f"Anthropic backend error: {anthropic_response.get('error')!r}")
-+        # Validate the installed response schema, with the task's explicit
-+        # exception for unsigned local/open-model thinking histories.
-+        checked_reply = dict(anthropic_response)
-+        checked_reply["content"] = [
-+            ({"signature": "", **block} if block.get("type") == "thinking" else block)
-+            for block in anthropic_response["content"]
-+        ]
-+        NeMoGymAnthropicMessage.model_validate(checked_reply)
-+        output = self._anthropic_content_to_output_items(anthropic_response["content"])
++        output = self._anthropic_content_to_output_items(anthropic_response.get("content", []))
 +        if not output:
 +            self._flush_text_output([""], output)
 +

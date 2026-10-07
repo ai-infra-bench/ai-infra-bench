@@ -1,9 +1,9 @@
 diff --git a/nemo_gym/anthropic_converter.py b/nemo_gym/anthropic_converter.py
 new file mode 100644
-index 0000000..137a073
+index 0000000..7c5c90a
 --- /dev/null
 +++ b/nemo_gym/anthropic_converter.py
-@@ -0,0 +1,886 @@
+@@ -0,0 +1,888 @@
 +# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 +# SPDX-License-Identifier: Apache-2.0
 +#
@@ -102,7 +102,7 @@ index 0000000..137a073
 +        )
 +
 +        system_parts = []
-+        if body.instructions:
++        if body.instructions is not None:
 +            system_parts.append(body.instructions)
 +
 +        response_input = body_dict.pop("input")
@@ -222,7 +222,7 @@ index 0000000..137a073
 +        stop_reason = anthropic_response.get("stop_reason")
 +        incomplete_details = self._incomplete_details_from_stop_reason(stop_reason)
 +
-+        return NeMoGymResponse(
++        result = NeMoGymResponse(
 +            id=f"resp_{uuid4().hex}",
 +            created_at=int(time()),
 +            model=model,
@@ -249,6 +249,8 @@ index 0000000..137a073
 +            incomplete_details=incomplete_details,
 +            usage=usage,
 +        )
++
++        return result.model_dump()
 +
 +    def _anthropic_content_to_output_items(self, content: List[Dict[str, Any]]) -> List[Any]:
 +        """Anthropic assistant content blocks -> ordered Responses output items.

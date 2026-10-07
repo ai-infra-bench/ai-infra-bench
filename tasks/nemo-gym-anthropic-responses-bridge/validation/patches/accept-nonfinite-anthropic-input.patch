@@ -1,6 +1,6 @@
 diff --git a/nemo_gym/anthropic_converter.py b/nemo_gym/anthropic_converter.py
 new file mode 100644
-index 0000000..137a073
+index 0000000..1eee13c
 --- /dev/null
 +++ b/nemo_gym/anthropic_converter.py
 @@ -0,0 +1,886 @@
@@ -102,7 +102,7 @@ index 0000000..137a073
 +        )
 +
 +        system_parts = []
-+        if body.instructions:
++        if body.instructions is not None:
 +            system_parts.append(body.instructions)
 +
 +        response_input = body_dict.pop("input")
@@ -282,7 +282,7 @@ index 0000000..137a073
 +                self._flush_text_output(pending_text, output)
 +                output.append(
 +                    NeMoGymResponseFunctionToolCall(
-+                        arguments=json.dumps(block["input"], allow_nan=False),
++                        arguments=json.dumps(block["input"]),
 +                        call_id=block["id"],
 +                        name=block["name"],
 +                        id=block["id"],
@@ -407,7 +407,7 @@ index 0000000..137a073
 +                flush_message()
 +                items.append(
 +                    NeMoGymResponseFunctionToolCall(
-+                        arguments=json.dumps(block["input"], allow_nan=False),
++                        arguments=json.dumps(block["input"]),
 +                        call_id=block["id"],
 +                        name=block["name"],
 +                        id=block["id"],
@@ -660,7 +660,7 @@ index 0000000..137a073
 +        if block_type == "thinking":
 +            return [{"type": "thinking_delta", "thinking": block["thinking"]}]
 +        if block_type == "tool_use":
-+            return [{"type": "input_json_delta", "partial_json": json.dumps(block["input"], allow_nan=False)}]
++            return [{"type": "input_json_delta", "partial_json": json.dumps(block["input"])}]
 +        raise NotImplementedError(f"Unsupported Anthropic block for SSE synthesis: {block_type}")
 +
 +    def _sse_event(self, event_type: str, data: Dict[str, Any]) -> str:

@@ -21,12 +21,12 @@ The source is [NVIDIA NeMo Gym](https://github.com/NVIDIA-NeMo/Gym), pinned to
 The trusted scorer runs as root in an isolated Python interpreter; candidate
 servers run as the unprivileged agent user and cannot write the tests or rewards. Collection failures must remain execution failures.
 
-`tests/test.sh` evaluates 27 behavior groups. Reward 1 requires every group to
+`tests/test.sh` evaluates 34 behavior groups. Reward 1 requires every group to
 pass; this is not a claim of complete support for either provider's entire API.
 `validation/ci-cases.json` declares Base, Oracle and controls through the common
 CI runner. Control patches apply directly to the pinned Base, as their manifest explicitly
 records. Raw trajectories and run records belong outside this task directory.
 
 The v0.0.10 cross-review and three GPT-6 attempts were evaluated before public
-packaging. The statement, contract and behavior scorer are retained; shared-verifier
-integration is validated independently of those historical results.
+packaging. The statement and contract are retained; the behavior scorer and shared-verifier
+integration have since been hardened and must be validated independently of those historical results.

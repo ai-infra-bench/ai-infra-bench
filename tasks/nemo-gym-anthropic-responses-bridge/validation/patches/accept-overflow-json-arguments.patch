@@ -1,9 +1,9 @@
 diff --git a/nemo_gym/anthropic_converter.py b/nemo_gym/anthropic_converter.py
 new file mode 100644
-index 0000000..137a073
+index 0000000..6e199da
 --- /dev/null
 +++ b/nemo_gym/anthropic_converter.py
-@@ -0,0 +1,886 @@
+@@ -0,0 +1,885 @@
 +# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 +# SPDX-License-Identifier: Apache-2.0
 +#
@@ -102,7 +102,7 @@ index 0000000..137a073
 +        )
 +
 +        system_parts = []
-+        if body.instructions:
++        if body.instructions is not None:
 +            system_parts.append(body.instructions)
 +
 +        response_input = body_dict.pop("input")
@@ -805,7 +805,6 @@ index 0000000..137a073
 +        parsed = json.loads(arguments, parse_constant=reject_constant)
 +        if not isinstance(parsed, dict):
 +            raise ValueError(f"Anthropic tool_use input must be a JSON object, got {type(parsed).__name__}")
-+        json.dumps(parsed, allow_nan=False)  # Reject float overflow before returning a request.
 +        return parsed
 +
 +    def _copy_sampling_params(self, body_dict: Dict[str, Any], anthropic_body: Dict[str, Any]) -> None:

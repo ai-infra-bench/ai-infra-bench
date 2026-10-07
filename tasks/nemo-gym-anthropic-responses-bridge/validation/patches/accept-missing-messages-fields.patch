@@ -1,9 +1,9 @@
 diff --git a/nemo_gym/anthropic_converter.py b/nemo_gym/anthropic_converter.py
 new file mode 100644
-index 0000000..137a073
+index 0000000..7299787
 --- /dev/null
 +++ b/nemo_gym/anthropic_converter.py
-@@ -0,0 +1,886 @@
+@@ -0,0 +1,875 @@
 +# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 +# SPDX-License-Identifier: Apache-2.0
 +#
@@ -102,7 +102,7 @@ index 0000000..137a073
 +        )
 +
 +        system_parts = []
-+        if body.instructions:
++        if body.instructions is not None:
 +            system_parts.append(body.instructions)
 +
 +        response_input = body_dict.pop("input")
@@ -318,17 +318,6 @@ index 0000000..137a073
 +        the value is the raw request dict; we read fields defensively so the proxy stays
 +        permissive toward unknown / future-beta fields the Claude Code CLI may send.
 +        """
-+        for field in ("messages", "model", "max_tokens"):
-+            if field not in anthropic_body:
-+                raise ValueError(f"Missing required Messages field: {field}")
-+        if isinstance(anthropic_body["messages"], (str, bytes, dict)):
-+            raise ValueError("Messages messages must be an iterable of messages")
-+        anthropic_body = {**anthropic_body, "messages": list(anthropic_body["messages"])}
-+        if not isinstance(anthropic_body["model"], str) or not anthropic_body["model"]:
-+            raise ValueError("Messages model must be a nonempty string")
-+        max_tokens = anthropic_body["max_tokens"]
-+        if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens < 1:
-+            raise ValueError("Messages max_tokens must be a positive integer")
 +        params: Dict[str, Any] = {"input": self._anthropic_messages_to_input_items(anthropic_body)}
 +
 +        instructions = self._anthropic_system_to_instructions(anthropic_body.get("system"))
