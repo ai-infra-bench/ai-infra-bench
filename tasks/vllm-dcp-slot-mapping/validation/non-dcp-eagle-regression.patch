@@ -1,0 +1,660 @@
+diff --git a/tests/distributed/test_context_parallel.py b/tests/distributed/test_context_parallel.py
+index a286309217..62b865b77a 100644
+--- a/tests/distributed/test_context_parallel.py
++++ b/tests/distributed/test_context_parallel.py
+@@ -212,7 +212,7 @@ def _test_cp_gsm8k(
+             str(pp_size),
+             "--decode-context-parallel-size",
+             str(dcp_size),
+-            "--dcp-kv-cache-interleave-size",
++            "--cp-kv-cache-interleave-size",
+             str(cp_kv_cache_interleave_size),
+             "--distributed-executor-backend",
+             distributed_backend,
+diff --git a/vllm/v1/attention/backends/flash_attn.py b/vllm/v1/attention/backends/flash_attn.py
+index ecd1b274c8..b16cc449a6 100755
+--- a/vllm/v1/attention/backends/flash_attn.py
++++ b/vllm/v1/attention/backends/flash_attn.py
+@@ -304,6 +304,17 @@ class FlashAttentionMetadataBuilder(AttentionMetadataBuilder[FlashAttentionMetad
+             self.parallel_config.cp_kv_cache_interleave_size
+         )
+ 
++        # Persistent DCP context K/V lengths. Metadata is built before graph
++        # capture/replay, so this buffer must be written in-place to remain
++        # visible to the captured graph.
++        self.dcp_context_kv_lens: torch.Tensor | None = None
++        if self.dcp_world_size > 1:
++            self.dcp_context_kv_lens = torch.zeros(
++                vllm_config.scheduler_config.max_num_seqs,
++                dtype=torch.int32,
++                device=self.device,
++            )
++
+         self.use_full_cuda_graph = (
+             self.compilation_config.cudagraph_mode.has_full_cudagraphs()
+         )
+@@ -436,6 +447,11 @@ class FlashAttentionMetadataBuilder(AttentionMetadataBuilder[FlashAttentionMetad
+                 self.dcp_rank,
+                 self.cp_kv_cache_interleave_size,
+             )
++            assert self.dcp_context_kv_lens is not None
++            assert num_reqs <= self.dcp_context_kv_lens.numel()
++            self.dcp_context_kv_lens[:num_reqs].copy_(dcp_context_kv_lens)
++            self.dcp_context_kv_lens[num_reqs:].zero_()
++            dcp_context_kv_lens = self.dcp_context_kv_lens[:num_reqs]
+             # After DCP distribution, the maximum number of tokens for any rank is
+             # ceil(L / (N * I)) * I, where L is max_seq_len, N is dcp_world_size,
+             # and I is cp_kv_cache_interleave_size.
+diff --git a/vllm/v1/attention/backends/flashinfer.py b/vllm/v1/attention/backends/flashinfer.py
+index 26d372c113..76230b9374 100755
+--- a/vllm/v1/attention/backends/flashinfer.py
++++ b/vllm/v1/attention/backends/flashinfer.py
+@@ -542,7 +542,7 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+             self.dcp_world_size = get_dcp_group().world_size
+             self.dcp_rank = get_dcp_group().rank_in_group
+             self.dcp_kv_cache_interleave_size = (
+-                vllm_config.parallel_config.dcp_kv_cache_interleave_size
++                vllm_config.parallel_config.cp_kv_cache_interleave_size
+             )
+         except AssertionError:
+             # DCP might not be initialized in testing
+@@ -550,6 +550,11 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+             self.dcp_rank = 0
+             self.dcp_kv_cache_interleave_size = 1
+         self.use_dcp = self.dcp_world_size > 1
++        if self.enable_cuda_graph and self.use_dcp:
++            raise NotImplementedError(
++                'FlashInfer does not support DCP with full CUDA graph '
++                'execution yet.'
++            )
+ 
+         self.num_qo_heads = self.model_config.get_num_attention_heads(
+             self.vllm_config.parallel_config
+@@ -860,8 +865,11 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+             has_sinks=self.has_sinks,
+             has_spec=uses_spec_reorder,
+         )
+-        # KV transfer requires non-contiguous KV cache views, incompatible with TRTLLM
+-        if self._kv_transfer_enabled:
++        # KV transfer requires non-contiguous KV cache views, incompatible with TRTLLM.
++        # DCP also requires the native paged prefill path because the TRTLLM
++        # prefill path consumes global KV sequence lengths while DCP uses
++        # locally sharded paged KV metadata.
++        if self._kv_transfer_enabled or self.use_dcp:
+             prefill_use_trtllm = False
+         decode_use_trtllm = (
+             self.use_trtllm_decode_attention and self.dcp_world_size <= 1
+@@ -920,16 +928,14 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+         # and can be expensive to retrieve in async mode.
+         needs_seq_lens_cpu = self.use_dcp or use_cascade or not is_only_trtllm_decode
+         seq_lens_cpu = common_attn_metadata.seq_lens_cpu if needs_seq_lens_cpu else None
+-        seq_lens_np = seq_lens_cpu.numpy() if seq_lens_cpu is not None else None
+-        num_blocks_np = (
+-            (seq_lens_np + (page_size - 1)) // page_size
+-            if seq_lens_np is not None
+-            else None
+-        )
+ 
+-        # Adjust seq_lens_cpu for DCP
++        # Adjust seq_lens_cpu for DCP before deriving paged-KV metadata. For
++        # prefills/chunked prefills, the paged metadata describes only the
++        # already-computed local context, so subtract the query length first.
++        # Clone to avoid mutating the deprecated cached CPU seq-lens tensor.
+         if self.use_dcp:
+             assert seq_lens_cpu is not None
++            seq_lens_cpu = seq_lens_cpu.clone()
+             if num_prefills > 0:
+                 qo_indptr_prefill_cpu = (
+                     qo_indptr_cpu[num_decodes:] - qo_indptr_cpu[num_decodes]
+@@ -948,6 +954,13 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+                 self.dcp_kv_cache_interleave_size,
+             )
+ 
++        seq_lens_np = seq_lens_cpu.numpy() if seq_lens_cpu is not None else None
++        num_blocks_np = (
++            (seq_lens_np + (page_size - 1)) // page_size
++            if seq_lens_np is not None
++            else None
++        )
++
+         # Adjust num_block_np for cascade attention
+         if use_cascade:
+             assert num_blocks_np is not None
+diff --git a/vllm/v1/worker/gpu/attn_utils.py b/vllm/v1/worker/gpu/attn_utils.py
+index 8a08fba1e4..5da48105e2 100644
+--- a/vllm/v1/worker/gpu/attn_utils.py
++++ b/vllm/v1/worker/gpu/attn_utils.py
+@@ -155,8 +155,17 @@ def build_attn_metadata(
+     block_tables: Sequence[torch.Tensor],
+     slot_mappings: torch.Tensor,
+     kv_cache_config: KVCacheConfig,
++    seq_lens_cpu: torch.Tensor | None = None,
++    dcp_local_seq_lens: torch.Tensor | None = None,
++    dcp_local_seq_lens_cpu: torch.Tensor | None = None,
+ ) -> dict[str, Any]:
+     seq_lens = seq_lens[:num_reqs]
++    if seq_lens_cpu is not None:
++        seq_lens_cpu = seq_lens_cpu[:num_reqs]
++    if dcp_local_seq_lens is not None:
++        dcp_local_seq_lens = dcp_local_seq_lens[:num_reqs]
++    if dcp_local_seq_lens_cpu is not None:
++        dcp_local_seq_lens_cpu = dcp_local_seq_lens_cpu[:num_reqs]
+ 
+     attn_metadata: dict[str, Any] = {}
+     kv_cache_groups = kv_cache_config.kv_cache_groups
+@@ -175,6 +184,9 @@ def build_attn_metadata(
+             block_table_tensor=block_table,
+             slot_mapping=slot_mapping,
+             causal=True,
++            _seq_lens_cpu=seq_lens_cpu,
++            dcp_local_seq_lens=dcp_local_seq_lens,
++            dcp_local_seq_lens_cpu=dcp_local_seq_lens_cpu,
+         )
+ 
+         attn_metadata_builder = attn_metadata_builders[i]
+diff --git a/vllm/v1/worker/gpu/block_table.py b/vllm/v1/worker/gpu/block_table.py
+index 3f54fa56e7..6c8ab8533f 100644
+--- a/vllm/v1/worker/gpu/block_table.py
++++ b/vllm/v1/worker/gpu/block_table.py
+@@ -18,19 +18,50 @@ class BlockTables:
+         max_num_batched_tokens: int,
+         max_model_len: int,
+         device: torch.device,
++        cp_kv_cache_interleave_size: int = 1,
++        dcp_world_size: int = 1,
++        dcp_rank: int = 0,
++        pcp_world_size: int = 1,
+     ):
+         self.block_sizes = block_sizes
+         self.max_num_reqs = max_num_reqs
+         self.max_num_batched_tokens = max_num_batched_tokens
+         self.max_model_len = max_model_len
+         self.device = device
++        self.cp_kv_cache_interleave_size = cp_kv_cache_interleave_size
++        self.total_cp_world_size = dcp_world_size
++        self.total_cp_rank = dcp_rank
++
++        if cp_kv_cache_interleave_size <= 0:
++            raise ValueError(
++                "cp_kv_cache_interleave_size must be positive, got "
++                f"{cp_kv_cache_interleave_size}"
++            )
++        if pcp_world_size > 1:
++            raise NotImplementedError(
++                "V2 does not support prefill context parallelism (PCP) yet."
++            )
++        if dcp_world_size > 1:
++            for group_idx, block_size in enumerate(self.block_sizes):
++                if (
++                    block_size < cp_kv_cache_interleave_size
++                    or block_size % cp_kv_cache_interleave_size != 0
++                ):
++                    raise ValueError(
++                        f"cp_kv_cache_interleave_size "
++                        f"({cp_kv_cache_interleave_size}) must be <= "
++                        f"block_size ({block_size}) and divide it evenly "
++                        f"for KV-cache group {group_idx}"
++                    )
+ 
+         self.num_kv_cache_groups = len(self.block_sizes)
+         # num_kv_cache_groups x [max_num_reqs, max_num_blocks]
+         self.block_tables: list[StagedWriteTensor] = []
+         for i in range(self.num_kv_cache_groups):
+             block_size = self.block_sizes[i]
+-            max_num_blocks = cdiv(self.max_model_len, block_size)
++            max_num_blocks = cdiv(
++                self.max_model_len, block_size * self.total_cp_world_size
++            )
+             block_table = StagedWriteTensor(
+                 (self.max_num_reqs, max_num_blocks),
+                 dtype=torch.int32,
+@@ -68,6 +99,16 @@ class BlockTables:
+             device=self.device,
+         )
+ 
++        self.dcp_local_seq_lens: torch.Tensor | None = None
++        self.dcp_local_seq_lens_cpu: torch.Tensor | None = None
++        if self.total_cp_world_size > 1:
++            self.dcp_local_seq_lens = torch.zeros(
++                self.max_num_reqs, dtype=torch.int32, device=self.device
++            )
++            self.dcp_local_seq_lens_cpu = torch.zeros(
++                self.max_num_reqs, dtype=torch.int32, device="cpu"
++            )
++
+     def _make_ptr_tensor(self, x: Iterable[torch.Tensor]) -> torch.Tensor:
+         # NOTE(woosuk): Use uint64 instead of int64 to cover all possible addresses.
+         return torch.tensor(
+@@ -94,9 +135,14 @@ class BlockTables:
+         self.num_blocks.copy_to_uva()
+ 
+     def gather_block_tables(
+-        self, idx_mapping: torch.Tensor
++        self,
++        idx_mapping: torch.Tensor,
++        num_reqs_padded: int | None = None,
+     ) -> tuple[torch.Tensor, ...]:
+         num_reqs = idx_mapping.shape[0]
++        if num_reqs_padded is None:
++            num_reqs_padded = num_reqs
++        assert num_reqs_padded >= num_reqs
+         _gather_block_tables_kernel[(self.num_kv_cache_groups, num_reqs)](
+             idx_mapping,
+             self.block_table_ptrs,
+@@ -106,7 +152,16 @@ class BlockTables:
+             self.num_blocks.gpu.stride(0),
+             BLOCK_SIZE=1024,  # type: ignore
+         )
+-        return tuple(block_table[:num_reqs] for block_table in self.input_block_tables)
++        # Padded request rows must not reference real KV cache blocks. Full
++        # CUDA graph metadata may be built at a padded request width, and
++        # kernels may still read the padded rows even when their query/seq
++        # lengths are zero. Use -1 to match V1's padded block-table handling.
++        if num_reqs_padded > num_reqs:
++            for block_table in self.input_block_tables:
++                block_table[num_reqs:num_reqs_padded].fill_(-1)
++        return tuple(
++            block_table[:num_reqs_padded] for block_table in self.input_block_tables
++        )
+ 
+     def get_dummy_block_tables(self, num_reqs: int) -> tuple[torch.Tensor, ...]:
+         return tuple(block_table[:num_reqs] for block_table in self.input_block_tables)
+@@ -132,6 +187,9 @@ class BlockTables:
+             self.slot_mappings,
+             self.slot_mappings.stride(0),
+             PAD_ID=PAD_SLOT_ID,
++            TOTAL_CP_WORLD_SIZE=self.total_cp_world_size,
++            TOTAL_CP_RANK=self.total_cp_rank,
++            CP_KV_CACHE_INTERLEAVE_SIZE=self.cp_kv_cache_interleave_size,
+             TRITON_BLOCK_SIZE=1024,  # type: ignore
+         )
+         return self.slot_mappings[:, :num_tokens]
+@@ -140,6 +198,40 @@ class BlockTables:
+         self.slot_mappings.fill_(PAD_SLOT_ID)
+         return self.slot_mappings[:, :num_tokens]
+ 
++    def update_dcp_local_seq_lens(
++        self,
++        seq_lens_cpu: torch.Tensor,
++        num_reqs: int,
++        num_reqs_padded: int | None = None,
++    ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
++        if self.total_cp_world_size <= 1:
++            return None, None
++        from vllm.v1.attention.backends.utils import get_dcp_local_seq_lens
++
++        if num_reqs_padded is None:
++            num_reqs_padded = num_reqs
++        assert num_reqs_padded >= num_reqs
++        assert seq_lens_cpu.numel() >= num_reqs_padded
++
++        local_seq_lens_cpu = get_dcp_local_seq_lens(
++            seq_lens_cpu[:num_reqs],
++            self.total_cp_world_size,
++            self.total_cp_rank,
++            self.cp_kv_cache_interleave_size,
++        )
++        assert self.dcp_local_seq_lens is not None
++        assert self.dcp_local_seq_lens_cpu is not None
++        self.dcp_local_seq_lens_cpu[:num_reqs].copy_(local_seq_lens_cpu)
++        # Padded request rows must have zero local sequence length.
++        self.dcp_local_seq_lens_cpu[num_reqs:].zero_()
++        self.dcp_local_seq_lens[:num_reqs_padded].copy_(
++            self.dcp_local_seq_lens_cpu[:num_reqs_padded], non_blocking=True
++        )
++        return (
++            self.dcp_local_seq_lens[:num_reqs_padded],
++            self.dcp_local_seq_lens_cpu[:num_reqs_padded],
++        )
++
+ 
+ @triton.jit
+ def _gather_block_tables_kernel(
+@@ -184,6 +276,9 @@ def _compute_slot_mappings_kernel(
+     slot_mappings_ptr,  # [num_kv_cache_groups, max_num_tokens]
+     slot_mappings_stride,
+     PAD_ID: tl.constexpr,
++    TOTAL_CP_WORLD_SIZE: tl.constexpr,
++    TOTAL_CP_RANK: tl.constexpr,
++    CP_KV_CACHE_INTERLEAVE_SIZE: tl.constexpr,
+     TRITON_BLOCK_SIZE: tl.constexpr,
+ ):
+     # kv cache group id
+@@ -208,11 +303,34 @@ def _compute_slot_mappings_kernel(
+     for i in range(start_idx, end_idx, TRITON_BLOCK_SIZE):
+         offset = i + tl.arange(0, TRITON_BLOCK_SIZE)
+         positions = tl.load(pos + offset, mask=offset < end_idx, other=0)
+-        block_indices = positions // block_size
+-        block_numbers = tl.load(
+-            block_table_ptr + req_state_idx * block_table_stride + block_indices
+-        )
+-        slot_ids = block_numbers * block_size + positions % block_size
++        if TOTAL_CP_WORLD_SIZE > 1:
++            virtual_block_size = block_size * TOTAL_CP_WORLD_SIZE
++            block_indices = positions // virtual_block_size
++            block_numbers = tl.load(
++                block_table_ptr
++                + req_state_idx * block_table_stride
++                + block_indices
++            )
++            virtual_block_offsets = positions % virtual_block_size
++            is_local = (
++                virtual_block_offsets // CP_KV_CACHE_INTERLEAVE_SIZE
++            ) % TOTAL_CP_WORLD_SIZE == TOTAL_CP_RANK
++            block_offsets = (
++                virtual_block_offsets
++                // (TOTAL_CP_WORLD_SIZE * CP_KV_CACHE_INTERLEAVE_SIZE)
++                * CP_KV_CACHE_INTERLEAVE_SIZE
++                + virtual_block_offsets % CP_KV_CACHE_INTERLEAVE_SIZE
++            )
++            slot_ids = block_numbers * block_size + block_offsets
++            slot_ids = tl.where(is_local, slot_ids, PAD_ID)
++        else:
++            block_indices = positions // block_size
++            block_numbers = tl.load(
++                block_table_ptr
++                + req_state_idx * block_table_stride
++                + block_indices
++            )
++            slot_ids = block_numbers * block_size + positions % block_size
+         tl.store(slot_mapping_ptr + offset, slot_ids, mask=offset < end_idx)
+ 
+ 
+diff --git a/vllm/v1/worker/gpu/cudagraph_utils.py b/vllm/v1/worker/gpu/cudagraph_utils.py
+index d5a22d6a0d..4b56942158 100644
+--- a/vllm/v1/worker/gpu/cudagraph_utils.py
++++ b/vllm/v1/worker/gpu/cudagraph_utils.py
+@@ -256,6 +256,8 @@ def prepare_inputs_to_capture(
+     # rather than max_model_len.
+     input_buffers.seq_lens[:num_reqs] = num_tokens
+     input_buffers.seq_lens[num_reqs:] = 0
++    input_buffers.seq_lens_cpu[:num_reqs] = num_tokens
++    input_buffers.seq_lens_cpu[num_reqs:] = 0
+ 
+     input_block_tables = [x[:num_reqs] for x in block_tables.input_block_tables]
+     slot_mappings = block_tables.slot_mappings[:, :num_tokens]
+@@ -263,6 +265,12 @@ def prepare_inputs_to_capture(
+         slot_mappings, kv_cache_config
+     )
+ 
++    dcp_local_seq_lens, dcp_local_seq_lens_cpu = (
++        block_tables.update_dcp_local_seq_lens(
++            input_buffers.seq_lens_cpu,
++            num_reqs,
++        )
++    )
+     attn_metadata = build_attn_metadata(
+         attn_metadata_builders=attn_metadata_builders,
+         num_reqs=num_reqs,
+@@ -275,5 +283,8 @@ def prepare_inputs_to_capture(
+         block_tables=input_block_tables,
+         slot_mappings=slot_mappings,
+         kv_cache_config=kv_cache_config,
++        seq_lens_cpu=input_buffers.seq_lens_cpu,
++        dcp_local_seq_lens=dcp_local_seq_lens,
++        dcp_local_seq_lens_cpu=dcp_local_seq_lens_cpu,
+     )
+     return attn_metadata, slot_mappings_by_layer
+diff --git a/vllm/v1/worker/gpu/input_batch.py b/vllm/v1/worker/gpu/input_batch.py
+index bdb67be114..d8cc9bdbd1 100644
+--- a/vllm/v1/worker/gpu/input_batch.py
++++ b/vllm/v1/worker/gpu/input_batch.py
+@@ -27,6 +27,9 @@ class InputBuffers:
+             max_num_reqs + 1, dtype=torch.int32, device=device
+         )
+         self.seq_lens = torch.zeros(max_num_reqs, dtype=torch.int32, device=device)
++        # CPU mirror of seq_lens, populated from scheduler metadata so that
++        # attention metadata preparation never requires a device-to-host sync.
++        self.seq_lens_cpu = torch.zeros(max_num_reqs, dtype=torch.int32, device="cpu")
+ 
+ 
+ @dataclass
+@@ -103,6 +106,10 @@ class InputBatch:
+         input_buffers.seq_lens[num_reqs - 1] += num_tokens % num_reqs
+         # Pad for full CUDA graph mode.
+         input_buffers.seq_lens[num_reqs:] = 0
++        input_buffers.seq_lens_cpu[:num_reqs].copy_(
++            torch.from_numpy(num_scheduled_tokens)
++        )
++        input_buffers.seq_lens_cpu[num_reqs:] = 0
+         seq_lens = input_buffers.seq_lens[:num_reqs]
+ 
+         query_start_loc_np = np.empty(num_reqs + 1, dtype=np.int32)
+diff --git a/vllm/v1/worker/gpu/model_runner.py b/vllm/v1/worker/gpu/model_runner.py
+index 8cca3cb461..0b7dde4ec4 100644
+--- a/vllm/v1/worker/gpu/model_runner.py
++++ b/vllm/v1/worker/gpu/model_runner.py
+@@ -11,6 +11,7 @@ import torch.nn as nn
+ from vllm.config import VllmConfig
+ from vllm.config.compilation import CUDAGraphMode
+ from vllm.distributed.parallel_state import (
++    get_dcp_group,
+     get_pp_group,
+     prepare_communication_buffer_for_model,
+ )
+@@ -180,6 +181,21 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+         # KV Connector if configured.
+         self.kv_connector: KVConnector = NO_OP_KV_CONNECTOR
+ 
++        # Decode context parallelism (DCP).
++        self.dcp_world_size = self.parallel_config.decode_context_parallel_size
++        self.dcp_rank = 0
++        if self.dcp_world_size > 1:
++            self.dcp_rank = get_dcp_group().rank_in_group
++            if self.do_spec_decode:
++                raise NotImplementedError(
++                    "V2 does not support DCP with speculative decoding yet."
++                )
++
++        if self.parallel_config.prefill_context_parallel_size > 1:
++            raise NotImplementedError(
++                "V2 does not support prefill context parallelism (PCP) yet."
++            )
++
+         # Pipeline parallelism.
+         self.use_pp = self.parallel_config.pipeline_parallel_size > 1
+         if self.use_pp:
+@@ -248,6 +264,12 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+             max_num_batched_tokens=self.max_num_tokens,
+             max_model_len=self.max_model_len,
+             device=self.device,
++            cp_kv_cache_interleave_size=(
++                self.parallel_config.cp_kv_cache_interleave_size
++            ),
++            dcp_world_size=self.dcp_world_size,
++            dcp_rank=self.dcp_rank,
++            pcp_world_size=self.parallel_config.prefill_context_parallel_size,
+         )
+ 
+         self.attn_backends, self.attn_metadata_builders = init_attn_backend(
+@@ -282,6 +304,11 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+         slot_mappings_by_layer = build_slot_mappings_by_layer(
+             slot_mappings, self.kv_cache_config
+         )
++        dcp_local_seq_lens, dcp_local_seq_lens_cpu = (
++            self.block_tables.update_dcp_local_seq_lens(
++                self.input_buffers.seq_lens_cpu, input_batch.num_reqs
++            )
++        )
+         attn_metadata = build_attn_metadata(
+             attn_metadata_builders=self.attn_metadata_builders,
+             num_reqs=input_batch.num_reqs,
+@@ -294,6 +321,9 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+             block_tables=block_tables,
+             slot_mappings=slot_mappings,
+             kv_cache_config=self.kv_cache_config,
++            seq_lens_cpu=self.input_buffers.seq_lens_cpu,
++            dcp_local_seq_lens=dcp_local_seq_lens,
++            dcp_local_seq_lens_cpu=dcp_local_seq_lens_cpu,
+         )
+         input_batch.attn_metadata = attn_metadata
+         input_batch.slot_mappings = slot_mappings_by_layer
+@@ -539,12 +569,19 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+                 )
+ 
+     def prepare_inputs(
+-        self, scheduler_output: SchedulerOutput, num_tokens_after_padding: int
++        self,
++        scheduler_output: SchedulerOutput,
++        num_tokens_after_padding: int,
++        num_reqs_padded: int | None = None,
+     ) -> InputBatch:
+         num_tokens = scheduler_output.total_num_scheduled_tokens
+         assert num_tokens > 0
+         num_tokens_per_req = scheduler_output.num_scheduled_tokens
+         num_reqs = len(num_tokens_per_req)
++        if num_reqs_padded is None:
++            num_reqs_padded = num_reqs
++        assert num_reqs <= num_reqs_padded <= self.max_num_reqs
++        assert num_reqs_padded <= num_tokens_after_padding
+ 
+         # Decode first, then prefill.
+         # batch_idx -> req_id
+@@ -556,6 +593,32 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+         idx_mapping_np = np.fromiter(idx_mapping_iter, dtype=np.int32, count=num_reqs)
+         idx_mapping = async_copy_to_gpu(idx_mapping_np, device=self.device)
+ 
++        # Build a CPU seq-lens mirror from scheduler metadata. This avoids a
++        # device-to-host copy and must match what prepare_pos_seq_lens writes
++        # to the GPU seq_lens buffer.
++        num_computed_tokens_cpu = {
++            req_data.req_id: req_data.num_computed_tokens
++            for req_data in scheduler_output.scheduled_new_reqs
++        }
++        num_computed_tokens_cpu.update(
++            zip(
++                scheduler_output.scheduled_cached_reqs.req_ids,
++                scheduler_output.scheduled_cached_reqs.num_computed_tokens,
++            )
++        )
++        seq_lens_cpu_np = np.fromiter(
++            (
++                num_computed_tokens_cpu[req_id] + int(num_scheduled)
++                for req_id, num_scheduled in zip(req_ids, num_scheduled_tokens)
++            ),
++            dtype=np.int32,
++            count=num_reqs,
++        )
++        self.input_buffers.seq_lens_cpu[:num_reqs].copy_(
++            torch.from_numpy(seq_lens_cpu_np)
++        )
++        self.input_buffers.seq_lens_cpu[num_reqs:] = 0
++
+         # Get the number of draft tokens for each request.
+         draft_tokens = scheduler_output.scheduled_spec_decode_tokens
+         if not draft_tokens:
+@@ -589,21 +652,31 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+                 idx_mapping, total_num_logits, cu_num_logits, max_expand_len
+             )
+ 
+-        # Block tables: num_kv_cache_groups x [num_reqs, max_num_blocks]
+-        block_tables = self.block_tables.gather_block_tables(idx_mapping)
++        # Block tables: num_kv_cache_groups x [num_reqs_padded, max_num_blocks]
++        block_tables = self.block_tables.gather_block_tables(
++            idx_mapping, num_reqs_padded
++        )
+ 
+         # Get query_start_loc.
+-        query_start_loc_np = np.empty(self.max_num_reqs + 1, dtype=np.int32)
+-        query_start_loc_np[0] = 0
+-        np.cumsum(num_scheduled_tokens, out=query_start_loc_np[1 : num_reqs + 1])
++        query_start_loc_np_full = np.empty(self.max_num_reqs + 1, dtype=np.int32)
++        query_start_loc_np_full[0] = 0
++        np.cumsum(
++            num_scheduled_tokens,
++            out=query_start_loc_np_full[1 : num_reqs + 1],
++        )
+         # Pad for full CUDA graph mode.
+         # Some attention backends like FA3 require query_start_loc to be non-decreasing.
+-        query_start_loc_np[num_reqs + 1 :] = num_tokens
+-        async_copy_to_gpu(query_start_loc_np, out=self.input_buffers.query_start_loc)
++        query_start_loc_np_full[num_reqs + 1 :] = num_tokens
++        async_copy_to_gpu(
++            query_start_loc_np_full, out=self.input_buffers.query_start_loc
++        )
+ 
+-        query_start_loc_np = query_start_loc_np[: num_reqs + 1]
++        query_start_loc_np = query_start_loc_np_full[: num_reqs + 1]
+         query_start_loc_cpu = torch.from_numpy(query_start_loc_np)
+         query_start_loc = self.input_buffers.query_start_loc[: num_reqs + 1]
++        query_start_loc_np_cm = query_start_loc_np_full[: num_reqs_padded + 1]
++        query_start_loc_cpu_cm = torch.from_numpy(query_start_loc_np_cm)
++        query_start_loc_cm = self.input_buffers.query_start_loc[: num_reqs_padded + 1]
+         max_query_len = num_scheduled_tokens.max().item()
+ 
+         # Get prefill tokens.
+@@ -662,18 +735,28 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+         )
+ 
+         # Layer name -> attention metadata.
++        dcp_local_seq_lens, dcp_local_seq_lens_cpu = (
++            self.block_tables.update_dcp_local_seq_lens(
++                self.input_buffers.seq_lens_cpu,
++                num_reqs,
++                num_reqs_padded,
++            )
++        )
+         attn_metadata = build_attn_metadata(
+             attn_metadata_builders=self.attn_metadata_builders,
+-            num_reqs=num_reqs,
++            num_reqs=num_reqs_padded,
+             num_tokens=num_tokens,
+-            query_start_loc_gpu=query_start_loc,
+-            query_start_loc_cpu=query_start_loc_cpu,
++            query_start_loc_gpu=query_start_loc_cm,
++            query_start_loc_cpu=query_start_loc_cpu_cm,
+             max_query_len=max_query_len,
+             seq_lens=self.input_buffers.seq_lens,
+             max_seq_len=self.max_model_len,
+             block_tables=block_tables,
+             slot_mappings=slot_mappings,
+             kv_cache_config=self.kv_cache_config,
++            seq_lens_cpu=self.input_buffers.seq_lens_cpu,
++            dcp_local_seq_lens=dcp_local_seq_lens,
++            dcp_local_seq_lens_cpu=dcp_local_seq_lens_cpu,
+         )
+ 
+         input_ids = self.input_buffers.input_ids[:num_tokens_after_padding]
+@@ -877,8 +960,15 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+         if not dummy_run:
+             # Common case.
+             # Prepare all the inputs and copy to the input buffers.
++            num_reqs_padded = (
++                min(num_tokens_after_padding, self.max_num_reqs)
++                if use_cudagraph
++                else None
++            )
+             input_batch = self.prepare_inputs(
+-                scheduler_output, num_tokens_after_padding
++                scheduler_output,
++                num_tokens_after_padding,
++                num_reqs_padded=num_reqs_padded,
+             )
+             if self.lora_config:
+                 # Activate LoRA adapters.
+diff --git a/vllm/v1/worker/gpu/spec_decode/eagle.py b/vllm/v1/worker/gpu/spec_decode/eagle.py
+index af56c23bf5..6cde8532ce 100644
+--- a/vllm/v1/worker/gpu/spec_decode/eagle.py
++++ b/vllm/v1/worker/gpu/spec_decode/eagle.py
+@@ -295,6 +295,11 @@ class EagleSpeculator:
+         block_tables = [x[:num_reqs] for x in self.block_tables.input_block_tables]
+ 
+         # FIXME(woosuk): This is UNSAFE!!
++        dcp_local_seq_lens, dcp_local_seq_lens_cpu = (
++            self.block_tables.update_dcp_local_seq_lens(
++                self.input_buffers.seq_lens_cpu, num_reqs
++            )
++        )
+         attn_metadata = build_attn_metadata(
+             attn_metadata_builders=self.attn_metadata_builders,
+             num_reqs=num_reqs,
+@@ -307,6 +312,9 @@ class EagleSpeculator:
+             block_tables=block_tables,
+             slot_mappings=slot_mappings,
+             kv_cache_config=self.kv_cache_config,
++            seq_lens_cpu=self.input_buffers.seq_lens_cpu,
++            dcp_local_seq_lens=dcp_local_seq_lens,
++            dcp_local_seq_lens_cpu=dcp_local_seq_lens_cpu,
+         )
+         slot_mappings_by_layer = build_slot_mappings_by_layer(
+             slot_mappings, self.kv_cache_config

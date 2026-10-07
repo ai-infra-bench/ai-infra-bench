@@ -1,0 +1,419 @@
+{
+  "schema_version": "vllm_harbor_task_validation.v1",
+  "source": {
+    "repository": "vllm-project/vllm",
+    "base_commit": "be3af2d29e2507f32b2190fe015cd6609b348caa"
+  },
+  "image": {
+    "id": "sha256:462fc769cac14468d0c1a7128eb17116c728e12e31efaee14b9ea7fd6c3e9868"
+  },
+  "e2e_boundary": {
+    "path": "LLMEngine admission -> real TP2/DCP2 workers, model, KV writes, FA/FI attention, collectives and graph replay -> per-request tokens and all-vocabulary log probabilities",
+    "reference": "Independent CPU Transformers FP32 forward using the same immutable random weights; atol0.02, rtol0",
+    "substitution": "None in new full-engine cases; prior component checks retain documented local fixtures"
+  },
+  "review_skill": {
+    "repository_head": "3a83c84128cae23be8ab56ebb4aa3094226f4c7f",
+    "files": {
+      "SKILL.md": "767fe719670c4a10753d7643cddbbab9c73f111c025f2d09fe03a6cf72a22f1f",
+      "references/differential-cases.md": "982a418e7ef9add3011ef8754e7a2ef31e0ad6ba9a8e370875194966263662d6",
+      "references/reporting.md": "2b895c1509d9b9f64f004d21e0b5c34c79360f6d45b0dd0ee19a32fed63077a6"
+    }
+  },
+  "explicit_generation_matrix": {
+    "combinations": 14,
+    "cases": [
+      {
+        "backend": "FLASHINFER",
+        "layout": "HND",
+        "graph": false,
+        "profile": "batched"
+      },
+      {
+        "backend": "FLASHINFER",
+        "layout": "HND",
+        "graph": false,
+        "profile": "chunked"
+      },
+      {
+        "backend": "FLASHINFER",
+        "layout": "HND",
+        "graph": true,
+        "profile": "batched"
+      },
+      {
+        "backend": "FLASHINFER",
+        "layout": "HND",
+        "graph": true,
+        "profile": "chunked"
+      },
+      {
+        "backend": "FLASHINFER",
+        "layout": "NHD",
+        "graph": false,
+        "profile": "batched"
+      },
+      {
+        "backend": "FLASHINFER",
+        "layout": "NHD",
+        "graph": false,
+        "profile": "chunked"
+      },
+      {
+        "backend": "FLASHINFER",
+        "layout": "NHD",
+        "graph": true,
+        "profile": "batched"
+      },
+      {
+        "backend": "FLASHINFER",
+        "layout": "NHD",
+        "graph": true,
+        "profile": "chunked"
+      },
+      {
+        "backend": "FLASH_ATTN",
+        "layout": "HND",
+        "graph": false,
+        "profile": "batched"
+      },
+      {
+        "backend": "FLASH_ATTN",
+        "layout": "HND",
+        "graph": true,
+        "profile": "batched"
+      },
+      {
+        "backend": "FLASH_ATTN",
+        "layout": "HND",
+        "graph": true,
+        "profile": "interleave1"
+      },
+      {
+        "backend": "FLASH_ATTN",
+        "layout": "NHD",
+        "graph": false,
+        "profile": "batched"
+      },
+      {
+        "backend": "FLASH_ATTN",
+        "layout": "NHD",
+        "graph": true,
+        "profile": "batched"
+      },
+      {
+        "backend": "FLASH_ATTN",
+        "layout": "NHD",
+        "graph": true,
+        "profile": "interleave1"
+      }
+    ],
+    "vocab_size": 256,
+    "atol": 0.02,
+    "rtol": 0,
+    "reference": "CPU FP32 Transformers, same immutable weights"
+  },
+  "limitations": [
+    "Shared H20 x2, not A100 certification.",
+    "Existing native dependency donor/cutoff limitation remains; environment bytes unchanged.",
+    "Grading-trust certification remains open; restricted security probes not rerun.",
+    "Saved answer replay is development evidence, not an additional fresh model trial.",
+    "Four relevant full Harbor controls replayed; other historical cases pending. Curated positive contains a reviewer edit and is not an unchanged model answer. Eagle remains a substituted-model runner integration test."
+  ],
+  "task_version": "1.8.4",
+  "record_scope": "Historical v1.8.4 functional calibration. current_controls, artifacts.files, saved_answers and recorded_at retain their original version/time scope; they are not the current publication manifest.",
+  "published_revision": {
+    "task_version": "1.8.5",
+    "review_date": "2026-09-18",
+    "review_summary": "latest-rollout-review.md",
+    "instruction_sha256": "2884d6c2f1e6cb53c8d0e6be7765017df43e51d89d013ee479ed716d7d81a25a",
+    "distributed_verifier_sha256": "c32b446a9ab2f9dd51ce0f874b1487b617c575d49a5739d568f4b8f554872a0a",
+    "task_toml_sha256": "2e5a5f13f7a4c70711eb6888728216a8dff0ff0255489c881ed00091b819fa6c",
+    "full_harbor_model_attempts": 4,
+    "model_rewards": [
+      1,
+      0,
+      0,
+      0
+    ],
+    "isolated_diagnostic_cases": 10,
+    "new_verifier_false_rejection_confirmed": false,
+    "full_control_matrix_repeated_on_v185": false,
+    "final_acceptance": false
+  },
+  "recorded_at": "2026-09-17T20:39:12.215782+00:00",
+  "status": "v186-oracle-a100-functional-validation-passed; full-control-and-security-certification-open",
+  "final_acceptance": false,
+  "functional_calibration_passed": true,
+  "current_controls": [
+    {
+      "case": "oracle",
+      "expected_reward": 1,
+      "observed_rewards": [
+        1.0
+      ],
+      "completed": 1,
+      "harness_errors": 0,
+      "exit_code": 0,
+      "verdict": {
+        "completed": 24,
+        "failure_count": 0,
+        "required": 24,
+        "reward": 1,
+        "worker_exit_status": 0
+      },
+      "trial": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/gpt6-serial-review-20260918/v184-calibration/harbor/v184-oracle/oracle__YCJj2px",
+      "inputs_unchanged": true,
+      "valid": true,
+      "finished_at": "2026-09-17T20:38:10.017050+00:00"
+    },
+    {
+      "case": "curated-gpt6-dummy-refresh-alternative",
+      "expected_reward": 1,
+      "observed_rewards": [
+        1.0
+      ],
+      "completed": 1,
+      "harness_errors": 0,
+      "exit_code": 0,
+      "verdict": {
+        "completed": 24,
+        "failure_count": 0,
+        "required": 24,
+        "reward": 1,
+        "worker_exit_status": 0
+      },
+      "trial": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/gpt6-serial-review-20260918/v184-calibration/harbor/v184-curated-gpt6-dummy-refresh-alternative/curated-gpt6-dummy-refresh-alter__D5Rvtvq",
+      "inputs_unchanged": true,
+      "valid": true,
+      "finished_at": "2026-09-17T20:38:07.043725+00:00"
+    },
+    {
+      "case": "base",
+      "expected_reward": 0,
+      "observed_rewards": [
+        0.0
+      ],
+      "completed": 1,
+      "harness_errors": 0,
+      "exit_code": 0,
+      "verdict": {
+        "completed": 2,
+        "failure_count": 2,
+        "required": 24,
+        "reward": 0,
+        "worker_exit_status": 256
+      },
+      "trial": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/gpt6-serial-review-20260918/v184-calibration/harbor/v184-base/base__Nm4KZF6",
+      "inputs_unchanged": true,
+      "valid": true,
+      "finished_at": "2026-09-17T20:25:34.745843+00:00"
+    },
+    {
+      "case": "historical-oracle-v183",
+      "expected_reward": 0,
+      "observed_rewards": [
+        0.0
+      ],
+      "completed": 1,
+      "harness_errors": 0,
+      "exit_code": 0,
+      "verdict": {
+        "completed": 20,
+        "failure_count": 2,
+        "required": 24,
+        "reward": 0,
+        "worker_exit_status": 256
+      },
+      "trial": "/root/workspace/dxz-workspace/ai-infra-bench-workspace/runs/gpt6-serial-review-20260918/v184-calibration/harbor/v184-historical-oracle-v183/historical-oracle-v183__PPefNBq",
+      "inputs_unchanged": true,
+      "valid": true,
+      "finished_at": "2026-09-17T20:35:39.349184+00:00"
+    }
+  ],
+  "publication": {
+    "state": "v1.8.5 published to the existing PR branch; this archive remains historical v1.8.4 calibration",
+    "historical_opus_artifact": {
+      "url": "https://github.com/xuanzhengdu-eng/ai-infra-bench/blob/9515aae923e68eb11c7537a6eff2444687f69fae/tasks/vllm-dcp-slot-mapping/validation/opus-5-run-artifacts.zip",
+      "sha256": "2d4855cc6d417898ce72bd27d7435dc9c4f9096fbc89e37bf5eb38ad234d6458",
+      "bytes": 3221625,
+      "scope": "Historical version only; not current acceptance"
+    },
+    "current_raw_evidence": "evidence.zip",
+    "run_snapshot": "evidence.zip:v184-calibration/frozen-hashes.json",
+    "previous_v182": "evidence.zip:historical-v182/",
+    "previous_v183": "evidence.zip:historical-v183/"
+  },
+  "observed_behavior": "evidence.zip:v184-calibration/observed-behavior.json",
+  "artifacts": {
+    "files": {
+      ".dockerignore": "914c87fd58ee5c87f0f8e48b891a5dc3d24f662b7e083e1d6c99b3ac0e477514",
+      ".gitattributes": "af25ef820bba1398a8b084a68fe8c6d5f68d7948e1b6dddf1580e105bdc5cdd4",
+      "README.md": "15eeeed70586a74493cc84a15850bd9504996225834b13c0f057063deca18fee",
+      "environment/Dockerfile": "b6ae9ca88c4982b222566e7729b4c3ae68a60fc3d94b879878d8ab440ac96b05",
+      "environment/docker-compose.yaml": "a0855b5c83d61a7c0efc84c10b8b65e616ce4e0b239d1857db9e58930efef986",
+      "environment/image-manifest.json": "8a70d7668f4e15166fcebf118ac6931718e885fac0b05ec16a4699c07846ebc5",
+      "environment/lock/README.md": "651dbdc72b33a0215609dbd96c824df7ca17edba9a3080618228d4efcd0f9d39",
+      "environment/lock/build-development-model.py": "4a2c583bb3ee116fe78adc6b70833eaa501029b6d32b2ec7f922015129181e07",
+      "environment/lock/manifest.json": "0fcca8d0fa8bd72aba9c5dc8e2b9e1893f6702d8a914ecc6306fe3303b77f672",
+      "environment/lock/native-donor.json": "6bb55f559541246bcbd7c078369dcbaaa8cf25b83b19a524d6a76a1c4f36f311",
+      "environment/lock/requirements.txt": "d66b1c0ec910a2220a1a5cd871df5864031c51e6df814f4be58c0caeda873eaf",
+      "environment/lock/tiny-qwen3-config.json": "e447870fa3f17a3eb13bdff1f210e99954077d16596d8b1fc09db1f0249eea90",
+      "instruction.md": "a1dcc1fa7f75dacb4387a2f9d8aec438023c47636613045db83c9b19f8933f0b",
+      "solution/oracle.patch": "4355044bab1372233355519606d0d5fc44d98bf67c357e8fcc002bd3a165ddae",
+      "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+      "task.toml": "d397f783b87e31fdb895167781e62fbd99a61f75b519760826db5f3f8c52bba8",
+      "tests/checkpoint.c": "ebc9028bb2e4d0d0d347b5b2e60524708b37e41136edf9459da4db8fff422f9b",
+      "tests/docker-compose.yaml": "99d8aad82b6b15bac4a42697b68287c8fea6b7276366fce06e764b7a0acac5b1",
+      "tests/supervise_verifier.py": "65523f24fc12b84c0a1114079bca93c380872fd147714d2d0743399c6323eb28",
+      "tests/test.sh": "fa44f1e36ffc10843c69a4fc1926b313210642eec6f44b12eee57fc8b21fcc92",
+      "tests/verify_dcp_slot_mapping.py": "61e955648996ca1eff9659e4f12e4c83b984acf94eff8a3937a2164857f4535c",
+      "tests/verify_distributed_generation.py": "b0aeb4f1efbc3184ab1003ef2aa7cc0e0c9e98aa924038bdc9a85e06fb0383da",
+      "tests/verify_eagle_nondcp.py": "3bf933c26baea1f5a7f0ea39859753b10063cd75ca7dd716384fd4bf74394343",
+      "tests/verify_flashinfer_dcp.py": "eab5e98cca18f1e974936fa3865bed3837cb637cf24b0663f824ccdb3389363a",
+      "validation/alternative-agent-implementation.patch": "73c959f3cbaa63664824c2c1f872318dd0b05edf80d108f34771d56a91f0ec77",
+      "validation/backend-context-buffer-r03.patch": "a3c9d756f123a9eccc76d6df364dbfd4bfad982ccc7d807c9f7d13dcf5a8c363",
+      "validation/ci-cases.json": "f3ce4b07185ccb8f13509816e4740eca0125f82909fc52f1ed9a073ecf6e6ad2",
+      "validation/curated-gpt6-dummy-refresh-alternative.patch": "a09e6096e551c5f900edd4f0666013202748118f9f45aaa852af444f42a2ec13",
+      "validation/deepseek-explicit-capture-implementation.patch": "04a823593866a88f04c14bc96fd930b609b017d322f880cd54ffdea1df553f8c",
+      "validation/early-exit-os-exit.patch": "7e8264005f8d1cbc83bbe2fe6d9195e6ff06c117600fa08b5d41c620294c4d46",
+      "validation/early-exit-systemexit.patch": "80f7fd0dce410eb62373fa96daeb380acaf16d0de85b03872956c1a0e142a2fe",
+      "validation/evidence.zip": "d1b8ee7bc1d6de15ddf55d693a351a0a6e20d27e4e4b78e7a058286f700018d0",
+      "validation/flashinfer-global-pages.patch": "fa79b79f50d5691132caf78912153125bdaf92e59fc921ae2432f46b3fb150dc",
+      "validation/flashinfer-wrong-interleave.patch": "2faf3465fdf727cbd8275ec42f86769056cab049f5b7b8c473bad7fc96dae25f",
+      "validation/forged-callback.patch": "27f04aacfe875ecfe1ba9126f2a3d484886cddbe7cd934bfe2e39fc851d4de63",
+      "validation/forged-checkpoint.patch": "362f0182ff3632399d3a616f0f1a00a4c1eb8c11852f749ae18208e1452d1d44",
+      "validation/forged-success-output.patch": "e1907a5c2890bb35e95cabcb18bb390a418f4ca65241875d5627bebea120e448",
+      "validation/gpt-hnd-complete-alternative.patch": "6bc225b65dc215849fa9a145fc0a7ca75f51f3a1ca233b8c567f767dede9c716",
+      "validation/gpt56-eight-saved-r01.patch": "cd9acafd14a04d720ed5672da657e52c559aa101ca205ae692392437bee6fd08",
+      "validation/gpt56-eight-saved-r02.patch": "99b21901eb8c8966285bddbbfb7ce6b49b028b50a03d91eeecaff21da228f604",
+      "validation/gpt6-serial-saved-r01.patch": "53a606fdaacf65a1798d9aa7a3d6e1193cedc61ef3485836fd0c3672fe6ffb14",
+      "validation/historical-oracle-hnd-prefill.patch": "7ea34328939615d0c2dd0fc062131b9d9e55330712cc70be89f2fbf2e869a6c3",
+      "validation/historical-oracle-no-flashinfer.patch": "c3002c1cdc0454b7cb7804146e4d230c3789389b7b59e110b2d9d8a09ef5bf27",
+      "validation/historical-oracle-stale-backend.patch": "10fccf7b1cffcdbb62b57984e164a11de7199108e60ee5ee4729ea7b61f0dcce",
+      "validation/historical-oracle-v183.patch": "f06709f5ea760db420703e89e672ca11ffdbde7c228700b0bb47b71dd5e3354f",
+      "validation/history/curation-history.zip": "fb7b2b6745bb6544f15c926d4a29c05b5afa53ffab9690415b87c1acb22c9bed",
+      "validation/history/v181-positive-controls/backend-local-lengths-alternative.patch": "e5828df03b2cbc84d11f49515230e846e62cbf5a06dfa1cc255f83220358fd2d",
+      "validation/history/v181-positive-controls/deepseek-input-buffers-implementation.patch": "49ed6e577db494a156a704fd1151d8cd6578efeb957a40f179c5253559c2cd5a",
+      "validation/history/v181-positive-controls/historical-cases.json": "cf8e3f23cb4b354b945750078a42b8f311dab415e5eea52792b78e16664ddbfc",
+      "validation/history/v181-positive-controls/persistent-backend-buffer-r01.patch": "33de745f3d8653a894d48e11fd4b56d20eb07743b05c613e2311df706182094d",
+      "validation/incomplete-agent-implementation.patch": "a55bb0124c30c608b920ead0bc2a903efa247361a239de65a9997d34bb3db44b",
+      "validation/non-dcp-eagle-regression.patch": "eddfbc59328044df67c0f6413058243ec1039ba19db2162ed86be34d87311ebb",
+      "validation/remediation-matrix.md": "2c5ac82193058c9ca2077b1fcac10ebbff3190db182547116e8eee9687a44e34",
+      "validation/review-report.md": "1ae78aa1604be0836f8e5a9555d2b405272bcd4ccd3f19ed9dc0392b45db70ae"
+    }
+  },
+  "historical_saved_answers_v183": {
+    "original_scores_unchanged": true,
+    "new_model_attempts": 0,
+    "r01": {
+      "original_reward": 1,
+      "original_completed": 21,
+      "replayed_reward": 1,
+      "replayed_completed": 21
+    },
+    "r02": {
+      "original_reward": 0,
+      "original_completed": 13,
+      "replayed_reward": 0,
+      "replayed_completed": 19,
+      "old_first_failure": "Verifier called internal prepare_inputs with obsolete arguments.",
+      "current_failure": "Real FlashInfer HND output corruption; all three Eagle cases pass."
+    }
+  },
+  "saved_answers": {
+    "original_scores_unchanged": true,
+    "new_model_attempts_in_calibration": 0,
+    "gpt6_r01_original": {
+      "task_version": "1.8.3",
+      "reward": 1,
+      "completed": 21,
+      "current_full_regrade": "not executed; independent FA interleave1 challenge fails"
+    },
+    "curated_alternative": "Complete original GPT6 r01 plus reviewer metadata-refresh fix; not a fresh model attempt"
+  },
+  "current_revision": {
+    "task_version": "1.8.6",
+    "review_date": "2026-09-19",
+    "review_summary": "a100-fa2-validation.md",
+    "hardware": [
+      "NVIDIA A100-SXM4-40GB",
+      "NVIDIA A100-SXM4-40GB"
+    ],
+    "validation_method": "direct official verifier entrypoint in pinned task image",
+    "instruction_sha256": "2884d6c2f1e6cb53c8d0e6be7765017df43e51d89d013ee479ed716d7d81a25a",
+    "main_verifier_sha256": "4caf84170c53adab508b3654cae3966f6769b6ad357016f428bb19cdbc8be1b2",
+    "distributed_verifier_sha256": "c32b446a9ab2f9dd51ce0f874b1487b617c575d49a5739d568f4b8f554872a0a",
+    "task_toml_sha256": "4968625c4c4f84ede15bca74ea6a681acd2016068165dba6e9472663ed5a2d75",
+    "oracle_patch_sha256": "f18207a7d105c3199dbe2683a99e80541d3408add8aa9ac7dfc76bf4d93567fd",
+    "verdict": {
+      "completed": 24,
+      "failure_count": 0,
+      "required": 24,
+      "reward": 1,
+      "worker_exit_status": 0
+    },
+    "full_engine_combinations": 14,
+    "full_control_matrix_repeated_on_v186": false,
+    "final_acceptance": false,
+    "base_verdict": {
+      "completed": 2,
+      "failure_count": 2,
+      "required": 24,
+      "reward": 0,
+      "worker_exit_status": 256,
+      "failure": "DCP slot mapping mismatch for size=2 rank=0 interleave=1"
+    },
+    "additional_challenges": [
+      {
+        "backend": "FLASH_ATTN",
+        "layout": "NHD",
+        "profile": "chunked",
+        "graph": false,
+        "requests": 3,
+        "tokens": 32,
+        "max_logprob_error": 0.0023326873779296875
+      },
+      {
+        "backend": "FLASH_ATTN",
+        "layout": "NHD",
+        "profile": "chunked",
+        "graph": true,
+        "requests": 3,
+        "tokens": 32,
+        "max_logprob_error": 0.0023326873779296875
+      }
+    ],
+    "alternative_positive": {
+      "name": "curated-a100-fa2-alternative",
+      "patch_sha256": "44abbc08715c8ed729f6514bb317d6ddadcab9e7c10b540f90548cf55558996c",
+      "verdict": {
+        "completed": 24,
+        "failure_count": 0,
+        "required": 24,
+        "reward": 1,
+        "worker_exit_status": 0
+      },
+      "log_sha256": "c656b7b5d66fae33dba2f940252a52ee311dbbad10c03309837af0f44565a283",
+      "new_model_attempt": false
+    },
+    "historical_positive_reclassification": [
+      {
+        "name": "gpt-hnd-complete-alternative",
+        "current_reward": 0,
+        "completed": 16,
+        "evidence_sha256": "d0cc810bdd961074e564b35cc2fe02df278ddc825030aeba00fd9107798760ff"
+      },
+      {
+        "name": "gpt56-eight-saved-r01",
+        "current_reward": 0,
+        "probe_log_sha256": "b04f210e7ca32f3d7615e35c0f671d04680a2dbc897135e16b1e33f512a31de6"
+      },
+      {
+        "name": "curated-gpt6-dummy-refresh-alternative",
+        "current_reward": 0,
+        "probe_log_sha256": "1dc19e3f4a34ee81ca21ee77e67fd354c933d6b968c2cfaef3fc7b1b36ce91c8"
+      }
+    ]
+  }
+}
