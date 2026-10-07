@@ -165,7 +165,9 @@ def anthropic_semantics(messages):
             elif t == "tool_use":
                 result.append(("call", b["id"], b["name"], b["input"]))
             elif t == "tool_result":
-                result.append(("result", b["tool_use_id"], plain(b["content"])))
+                content = b.get("content", "")
+                value = content if isinstance(content, str) else "\n".join(part["text"] for part in content)
+                result.append(("result", b["tool_use_id"], value))
             elif t == "thinking":
                 result.append(("reasoning", b["thinking"]))
             elif t == "image":
@@ -1064,6 +1066,73 @@ def main():
 
         check("three_tool_rounds_and_final_answer", multiround)
 
+        def parallel_http_conversation():
+            from anthropic import Anthropic
+
+            images = json.loads((Path(__file__).parent / "fixtures/images.json").read_text())
+            system = ["retain the complete conversation " + text, ""]
+            for mode, url in (("native", native), ("request", request_url)):
+                with Anthropic(api_key="local", base_url=url, max_retries=0) as client:
+                    for streaming in (False, True):
+                        for fanout in (2, 3):
+                            history = [{"role": "user", "content": [
+                                {"type": "text", "text": "inspect " + text},
+                                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": images["image/png"]}},
+                                {"type": "text", "text": "then compare"},
+                                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": images["alternate_png"]}},
+                            ]}]
+
+                            def exchange(outputs):
+                                set_output(response(outputs))
+                                request_body = a_request | {
+                                    "messages": history,
+                                    "system": [{"type": "text", "text": fragment} for fragment in system],
+                                    "tools": tools, "temperature": 0, "top_p": 0,
+                                }
+                                if streaming:
+                                    with client.messages.stream(**request_body) as stream:
+                                        reply = stream.get_final_message()
+                                else:
+                                    reply = client.messages.create(**request_body)
+                                forwarded = seen()
+                                actual = request_semantics(forwarded)
+                                expected = ("\n".join(system), anthropic_semantics(history))
+                                assert actual == expected, (mode, streaming, fanout, "backend conversation", expected, actual)
+                                assert forwarded["temperature"] == forwarded["top_p"] == 0, forwarded
+                                assert forwarded["max_output_tokens"] == a_request["max_tokens"], forwarded
+                                assert forwarded.get("stream") in (None, False), forwarded
+                                blocks = [block.model_dump(mode="json", exclude_none=True) for block in reply.content]
+                                assert anthropic_semantics([{"role": "assistant", "content": blocks}]) == input_semantics(outputs)
+                                return reply, blocks
+
+                            # Multiple calls in one turn, then another tool turn,
+                            # exercise both parallel batches and accumulated history.
+                            for batch, count in enumerate((fanout, 1)):
+                                calls = [tool("call_" + secrets.token_hex(8), name, {
+                                    **arguments, "batch": batch, "index": index,
+                                }) for index in range(count)]
+                                outputs = [message("before " + text), calls[0], {
+                                    "type": "reasoning", "id": "rs_" + secrets.token_hex(8),
+                                    "summary": [{"type": "summary_text", "text": "compare " + text}],
+                                }, *calls[1:], message("")]
+                                reply, blocks = exchange(outputs)
+                                assert reply.stop_reason == "tool_use", reply
+                                history.append({"role": "assistant", "content": blocks})
+                                results = []
+                                for index, call_item in enumerate(reversed(calls)):
+                                    content = (
+                                        [{"type": "text", "text": "result " + text},
+                                         {"type": "text", "text": ""},
+                                         {"type": "text", "text": str(index)}]
+                                        if index % 2 == 0 else ""
+                                    )
+                                    results.append({"type": "tool_result", "tool_use_id": call_item["call_id"], "content": content, "is_error": False})
+                                history.append({"role": "user", "content": [*results, {"type": "text", "text": "continue"}]})
+                            reply, _ = exchange([message("final " + text)])
+                            assert reply.stop_reason == "end_turn", reply
+
+        check("parallel_tools_full_http_conversation", parallel_http_conversation)
+
         def sessions():
             set_output(response([message(text)]))
             trace = secrets.token_hex(12)
@@ -1497,7 +1566,7 @@ def main():
         for log in logs:
             log.close()
     # Fail closed: zero checks or an early child exit can never earn reward.
-    expected_count = 34
+    expected_count = 35
     passed = sum(x["passed"] for x in records)
     success = len(records) == expected_count and passed == expected_count
     summary = {

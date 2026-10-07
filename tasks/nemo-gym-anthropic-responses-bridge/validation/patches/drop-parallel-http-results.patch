@@ -1,0 +1,17 @@
+--- a/nemo_gym/base_responses_api_model.py
++++ b/nemo_gym/base_responses_api_model.py
+@@ -79,6 +79,14 @@
+         Anthropic SSE event stream. Servers may override this for native Messages handling.
+         """
+         params = _ANTHROPIC_CONVERTER.anthropic_request_to_responses(body)
++        if isinstance(params.input, list):
++            kept, previous_type = [], None
++            for item in params.input:
++                kind = getattr(item, "type", None)
++                if kind != "function_call_output" or previous_type != kind:
++                    kept.append(item)
++                previous_type = kind
++            params.input = kept
+         try:
+             response = await self._invoke_responses(request, params)
+         except ClientResponseError as exc:
