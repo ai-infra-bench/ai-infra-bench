@@ -6,7 +6,7 @@ Set `[task].version` to `"1.0.0"` for the initial release and omit `authors`.
 Use a concise, single-sentence `description` of the observable problem or
 requested outcome; avoid revealing the diagnosis or reference implementation.
 Set `[agent].timeout_sec = 36000` (10 hours) for the benchmark agent budget.
-Start `keywords` with the project (`"vllm"`, or `"pi"` for the agent-harness tasks on earendil-works/pi) and add at most three topic keywords
+Start `keywords` with the project (`"vllm"`, `"pi"` for earendil-works/pi, or `"nemo-gym"` for NVIDIA-NeMo/Gym) and add at most three topic keywords
 based on the instruction and reference solution, when available. Do not use
 CPU/GPU tags, including compound tags such as `gpu-worker`. Use keywords for
 subsystem and topic labels instead of a separate `subsystems` field.

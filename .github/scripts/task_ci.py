@@ -42,7 +42,7 @@ REQUIRED_FILES = (
 # targets (vLLM), the repository's package-lock.json for Node targets (pi).
 DEPENDENCY_LOCKS = ("environment/lock/requirements.txt", "environment/lock/package-lock.json")
 # The leading keyword names the project; the website derives the repository from it.
-PROJECT_KEYWORDS = ("vllm", "pi")
+PROJECT_KEYWORDS = ("vllm", "pi", "nemo-gym")
 FIXED_CONFIG = {
     "task": {"version": "1.0.0"},
     "environment": {
