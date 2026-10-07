@@ -1,0 +1,26 @@
+diff --git a/packages/coding-agent/src/cli.ts b/packages/coding-agent/src/cli.ts
+--- a/packages/coding-agent/src/cli.ts
++++ b/packages/coding-agent/src/cli.ts
+@@ -3,4 +3,7 @@
+ import { main } from "./main.ts";
+ 
+ setupCli();
+-main(process.argv.slice(2));
++class RuntimeEntry {
++  static run(args: string[]) { return main(args); }
++}
++await RuntimeEntry.run(process.argv.slice(2));
+diff --git a/packages/coding-agent/src/core/agent-session.ts b/packages/coding-agent/src/core/agent-session.ts
+--- a/packages/coding-agent/src/core/agent-session.ts
++++ b/packages/coding-agent/src/core/agent-session.ts
+@@ -1173,6 +1173,10 @@
+ 	 * @throws Error if no model selected or no API key available (when not streaming)
+ 	 */
+ 	async prompt(text: string, options?: PromptOptions): Promise<void> {
++        return this.runPromptThroughDelegate(text, options);
++    }
++
++    private async runPromptThroughDelegate(text: string, options?: PromptOptions): Promise<void> {
+ 		const expandPromptTemplates = options?.expandPromptTemplates ?? true;
+ 		const preflightResult = options?.preflightResult;
+ 		let messages: AgentMessage[] | undefined;

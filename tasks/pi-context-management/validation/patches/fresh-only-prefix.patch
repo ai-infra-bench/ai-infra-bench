@@ -1,0 +1,19 @@
+diff --git a/packages/coding-agent/examples/extensions/context-management/index.ts b/packages/coding-agent/examples/extensions/context-management/index.ts
+--- a/packages/coding-agent/examples/extensions/context-management/index.ts
++++ b/packages/coding-agent/examples/extensions/context-management/index.ts
+@@ -127,12 +127,14 @@
+ 			let state = snapshot(ctx);
+ 			function messages() {
+ 				const hint = `Current context window: ${state.windowId}. Read working notes with notes_read and original evidence with history_search/history_read. Choose working notes containing the task goal, relevant user instructions and corrections, progress, evidence references, and next steps. Use notes_write to replace them and new_context to reset. Saving notes is recommended, not required. Earlier user/assistant messages and tool results leave active context; use an empty history_search query to browse originals when needed.`;
++				const freshNotice = state.transitioned && state.current.length === 0
++					? "New window: no conversation has accumulated yet\n" : "";
+ 				const guide: AgentMessage = {
+ 					role: "user",
+ 					content: [
+ 						{
+ 							type: "text",
+-							text: `${hint}${state.note !== undefined ? `\n\nWorking notes:\n${state.note}` : ""}`,
++							text: `${freshNotice}${hint}${state.note !== undefined ? `\n\nWorking notes:\n${state.note}` : ""}`,
+ 						},
+ 					],
+ 					timestamp: 0,

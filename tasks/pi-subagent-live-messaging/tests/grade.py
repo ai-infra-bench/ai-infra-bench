@@ -8,6 +8,35 @@ import subprocess
 import sys
 import tempfile
 
+
+class ScoringError(RuntimeError):
+    pass
+
+
+def score_completed_results(summary, expected_cases, returncode):
+    """Only a complete, observed behavioral decision can produce a reward."""
+    if not isinstance(summary, dict) or not isinstance(summary.get('results'), list):
+        raise ScoringError('Verifier did not produce a result list')
+    results = summary['results']
+    if ([result.get('name') for result in results] != list(expected_cases)
+            or summary.get('case_count') != len(expected_cases)
+            or any(type(result.get('passed')) is not bool for result in results)):
+        raise ScoringError('Verifier result set is incomplete or malformed')
+    infrastructure = [str(error) for result in results
+                      for error in result.get('infrastructure_errors', [])]
+    if infrastructure:
+        raise ScoringError('; '.join(infrastructure))
+    passed = sum(result['passed'] for result in results)
+    if summary.get('passed') != passed or returncode not in (0, 1):
+        raise ScoringError('Verifier completion disagrees with its result summary')
+    if passed == len(expected_cases):
+        if returncode != 0:
+            raise ScoringError('Verifier failed after reporting all cases passed')
+        if any(result.get('runtime_observation', {}).get('passed') is not True for result in results):
+            raise ScoringError('Successful cases lack completed native execution observations')
+        return 1
+    return 0
+
 sys.dont_write_bytecode = True
 
 TESTS = Path('/tests')
@@ -71,7 +100,7 @@ def main():
     os.umask(0o077)
     protect_directory(Path('/logs'))
     protect_directory(LOGS)
-    # Remove any stale/candidate-supplied entry before scoring.
+    # Remove any stale/candidate-supplied reward before scoring.
     for name in ['reward.txt', 'reward.json']:
         (LOGS / name).unlink(missing_ok=True)
     success = False
@@ -85,7 +114,10 @@ def main():
             if path.is_symlink() or not path.is_file():
                 raise RuntimeError(f'Unexpected harness entry: {path.name}')
             os.chown(path, 0, 0)
-            path.chmod(0o644 if path.name in ['fixture.ts', 'worker_exec.py'] else 0o600)
+            path.chmod(0o644 if path.name in ['fixture.ts', 'worker_exec.py', 'trusted_faux.mjs'] else 0o600)
+        sys.path.insert(0, str(TESTS))
+        from runtime_observer import preflight_harness
+        preflight_harness(TESTS)
         reward(0)
         output = LOGS / ('text-behavior')
         # Do not reuse a tree supplied by the solver or a previous invocation.
@@ -102,14 +134,15 @@ def main():
         sys.path.insert(0, str(TESTS))
         spec.loader.exec_module(module)
         summary = json.loads((output / 'summary.json').read_text())
-        results = summary['results']
-        success = (completed.returncode == 0
-                   and [r['name'] for r in results] == module.CASES
-                   and all(r['passed'] is True for r in results)
-                   and summary['case_count'] == summary['passed'] == len(module.CASES))
+        success = bool(score_completed_results(summary, module.CASES, completed.returncode))
         status.update(status='scored', feature_score=int(success))
+    except ScoringError as exc:
+        status.update(status='scoring_error', feature_score=None, reason=str(exc))
+    except Exception as exc:
+        status.update(status='scoring_error', feature_score=None,
+                      reason=f'{type(exc).__name__}: {exc}')
     finally:
-        # Infrastructure failure is unscored. Only a completed scoring
+        # Infrastructure failure is unscored too. Only a completed scoring
         # decision may leave a reward for Harbor; remove the provisional zero
         # when the verifier failed before producing a usable summary.
         if status['status'] != 'scored':

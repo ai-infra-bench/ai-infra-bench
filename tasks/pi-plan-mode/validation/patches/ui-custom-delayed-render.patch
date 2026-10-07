@@ -1,0 +1,45 @@
+diff --git a/packages/coding-agent/examples/extensions/plan-mode/index.ts b/packages/coding-agent/examples/extensions/plan-mode/index.ts
+--- a/packages/coding-agent/examples/extensions/plan-mode/index.ts
++++ b/packages/coding-agent/examples/extensions/plan-mode/index.ts
+@@ -2,7 +2,7 @@
+ 
+ import { randomUUID } from "node:crypto";
+ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+-import { Key } from "@earendil-works/pi-tui";
++import { Key, matchesKey } from "@earendil-works/pi-tui";
+ import { Type } from "typebox";
+ import { markCompletedSteps, type TodoItem } from "./utils.ts";
+ 
+@@ -172,10 +172,28 @@
+ 		reviewOpen = true;
+ 		const displayed = snapshot();
+ 		try {
+-			const choice = await ctx.ui.select(
+-				`Plan ${displayed.planId}, revision ${displayed.revision}\n${displayed.steps.map((step, i) => `${i + 1}. ${step}`).join("\n")}\nWhat next?`,
+-				["Execute the plan (track progress)", "Stay in plan mode", "Refine the plan"],
+-			);
++            const choice = await ctx.ui.custom<string | undefined>((tui, _theme, _keys, done) => {
++                const options = ["Execute the plan (track progress)", "Stay in plan mode", "Refine the plan"];
++                let selected = 2;
++                let title = `Plan ${displayed.planId}, revision ${displayed.revision}\n${displayed.steps.map((step, i) => `${i + 1}. ${step}`).join("\n")}\nWhat next?`;
++                
++                return {
++                    render(_width: number) {
++                        
++                        return [...title.split("\n"), ...options.map((label, i) => `${i === selected ? "→ " : "  "}${label}`)];
++                    },
++                    invalidate() {},
++                    handleInput(data: string) {
++                        if (matchesKey(data, "up") || matchesKey(data, "down")) {
++                            const delta = matchesKey(data, "up") ? -1 : 1;
++                            setTimeout(() => { selected = Math.max(0, Math.min(options.length - 1, selected + delta)); tui.requestRender(); }, 20);
++                            
++
++                        } else if (matchesKey(data, "enter")) done(options[selected]);
++                        else if (matchesKey(data, "escape")) done(undefined);
++                    },
++                };
++            });
+ 			if (choice === "Execute the plan (track progress)" && displayed.planId) {
+ 				const error = approve(ctx, displayed.sessionId, displayed.planId, displayed.revision);
+ 				result("approve", error);

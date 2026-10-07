@@ -1,5 +1,7 @@
 """Exercise task configuration at the generated Dockerfile boundary."""
 import importlib.util
+import base64
+import shlex
 import hashlib
 import contextlib
 import io
@@ -41,12 +43,39 @@ class GenerateTest(unittest.TestCase):
         return generate.render(self.task, generate.TEMPLATE_PATH.read_text())[1]
 
     def test_existing_tasks_still_render_byte_for_byte(self):
-        # Catches default substitutions that silently invalidate unchanged tasks.
-        for name in ("pi-background-processes", "pi-agent-trace"):
+        # Catches default substitutions that silently invalidate template-managed tasks.
+        # plan-mode and safe-file-rollback use task-local Dockerfiles.
+        for name in ("pi-agent-trace", "pi-context-management", "pi-subagent-live-messaging"):
             with self.subTest(task=name):
                 task = ROOT / "tasks" / name
                 output, actual = generate.render(task, generate.TEMPLATE_PATH.read_text())
                 self.assertEqual(output.read_bytes(), actual.encode())
+
+    def test_strace_version_installs_only_the_pinned_tool(self):
+        config = {"node_image": NODE_22_23, "agent_user": "agent"}
+        self.config.write_text(json.dumps(config))
+        default = self.render()
+        self.assertNotIn("strace", default)
+        self.config.write_text(json.dumps({**config, "strace_version": "6.1-0.1"}))
+        actual = self.render()
+        self.assertIn("apt-get install -y --no-install-recommends strace=6.1-0.1", actual)
+        self.assertIn("dpkg-query -W -f='${Version}' strace", actual)
+        self.assertIn('= "6.1-0.1"', actual)
+        # Optional observer tooling must preserve the expensive baseline layers.
+        self.assertLess(actual.index("python3 /opt/pi-baseline/baseline_check.py"), actual.index("strace=6.1-0.1"))
+        self.assertLess(actual.index("strace=6.1-0.1"), actual.index("ENTRYPOINT []"))
+        self.assertNotIn("__PI_", actual)
+        self.assertNotRegex(actual, r"(?m)^COPY (?!--from=|<<)")
+
+    def test_unreviewed_strace_versions_never_overwrite_dockerfile(self):
+        for version in (None, False, True, 6.1, [], {}, "", "latest", "6.2-0.1", "6.1-0.1; id", "6.1-0.1\nRUN id"):
+            with self.subTest(version=version):
+                self.config.write_text(json.dumps({"node_image": NODE_22_23, "agent_user": "agent", "strace_version": version}))
+                self.output.write_text("do not replace\n")
+                proc = subprocess.run([sys.executable, str(TEMPLATE_DIR / "generate.py"), str(self.task)], capture_output=True, text=True)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIn("strace_version must be 6.1-0.1", proc.stderr)
+                self.assertEqual(self.output.read_text(), "do not replace\n")
 
     def test_config_preserves_node_runtime_and_agent_ownership(self):
         # Catches ignored runtime configuration and incomplete user substitution.
@@ -98,8 +127,9 @@ class GenerateTest(unittest.TestCase):
         source=ROOT/'tasks/pi-background-processes'
         shutil.copyfile(source/'task.toml',self.task/'task.toml')
         shutil.copytree(source/'environment/lock',self.task/'environment/lock',dirs_exist_ok=True)
+        expected = self.render()
         self.config.write_text(json.dumps({'source_cli':False}))
-        self.assertEqual(self.render().encode(),(source/'environment/Dockerfile').read_bytes())
+        self.assertEqual(self.render(), expected)
 
     def test_npm_ignore_scripts_renders_the_frozen_install_policy(self):
         self.config.write_text(json.dumps({'node_image':NODE_22_23,'agent_user':'agent','npm_ignore_scripts':True}))
@@ -227,7 +257,7 @@ class GenerateTest(unittest.TestCase):
                     self.assertEqual(manifest["files"].get("pi-template.json"), hashlib.sha256(self.config.read_bytes()).hexdigest())
                 self.assertEqual(set(manifest["files"]), expected)
 
-    def build_with_docker_boundary(self, configured, during_build=None):
+    def build_with_docker_boundary(self, configured, during_build=None, commands=None):
         metadata, _ = build.load_task(self.task)
         source_mode=self.config.is_file() and json.loads(self.config.read_text()).get("workspace_mode")=="source"
 
@@ -236,6 +266,8 @@ class GenerateTest(unittest.TestCase):
             if args[0] != "docker":
                 return subprocess.run(args, check=True, capture_output=True, text=True)
             if args[1:3] == ("buildx", "build"):
+                if commands is not None:
+                    commands.append(args)
                 self.assertEqual(list(Path(args[-1]).iterdir()), [])
                 if during_build is not None:
                     during_build()
@@ -262,6 +294,57 @@ class GenerateTest(unittest.TestCase):
         with patch.object(build, "run", side_effect=docker_boundary), contextlib.redirect_stdout(output):
             build.build(self.task, "linux/amd64")
         return output.getvalue()
+
+    def test_github_secret_is_explicit_and_never_a_build_argument(self):
+        self.config.write_text(json.dumps({"node_image": NODE_22_23, "agent_user": "agent"}))
+        self.output.write_text(self.render())
+        for value in (None, "", "synthetic-unit-token"):
+            with self.subTest(present=bool(value)):
+                env = {"PATH": os.defpath, "GH_TOKEN": "ignored-gh-token", "GITHUB_TOKEN": "ignored-github-token"}
+                if value is not None:
+                    env["PI_GITHUB_TOKEN"] = value
+                commands = []
+                with patch.dict(os.environ, env, clear=True):
+                    output = self.build_with_docker_boundary(True, commands=commands)
+                args = commands[0]
+                self.assertEqual("--secret" in args, bool(value))
+                if value:
+                    self.assertEqual(args[args.index("--secret") + 1], "id=github_token,env=PI_GITHUB_TOKEN")
+                self.assertFalse(any("TOKEN=" in arg for arg in args))
+                for token in ("synthetic-unit-token", "ignored-gh-token", "ignored-github-token"):
+                    self.assertNotIn(token, " ".join(args))
+                    self.assertNotIn(token, output)
+                    self.assertNotIn(token, (self.task / "environment/image-manifest.json").read_text())
+
+    def test_source_fetch_auth_is_scoped_ephemeral_and_anonymous_by_default(self):
+        dockerfile = generate.TEMPLATE_PATH.read_text()
+        self.assertIn("--mount=type=secret,id=github_token,required=false", dockerfile)
+        body = dockerfile.split(" && ( " + chr(92) + "\n", 1)[1].split("    ) " + chr(92), 1)[0].replace(chr(92) + "\n", "")
+        source = Path(self.tmp.name) / "source"
+        source.mkdir()
+        clean = {"PATH": os.defpath, "HOME": self.tmp.name,
+                 "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
+        subprocess.run(["git", "init", "-q", str(source)], env=clean, check=True)
+        config_before = (source / ".git/config").read_bytes()
+        secret = Path(self.tmp.name) / "synthetic-secret"
+        for value in (None, "", "synthetic-unit-token"):
+            for url in ("https://github.com/earendil-works/pi.git", "https://github.com.example.invalid/pi.git", "https://example.invalid/pi.git"):
+                with self.subTest(secret=bool(value), github=url.startswith("https://github.com/")):
+                    if value is None:
+                        secret.unlink(missing_ok=True)
+                    else:
+                        secret.write_text(value)
+                    script = body.replace("/run/secrets/github_token", str(secret)).replace("/src/pi", shlex.quote(str(source)))
+                    script = script.replace('fetch --no-tags origin "$PI_BASE_SHA"', 'config --get-urlmatch http.extraheader ' + shlex.quote(url))
+                    # Execute the actual auth subshell with real git config lookup,
+                    # not a network fetch; assert it cannot alter the outer scope.
+                    script = "( " + script + "); auth_status=$?; test -z \"${GIT_CONFIG_COUNT+x}\" || exit 99; exit \"$auth_status\""
+                    result = subprocess.run(["sh", "-c", script], env=clean, capture_output=True, text=True)
+                    authenticated = bool(value) and url.startswith("https://github.com/")
+                    self.assertEqual(result.returncode, 0 if authenticated else 1, result.stderr)
+                    expected = ("Authorization: Basic " + base64.b64encode(("x-access-token:" + value).encode()).decode() + "\n") if authenticated else ""
+                    self.assertEqual(result.stdout, expected)
+                    self.assertEqual((source / ".git/config").read_bytes(), config_before)
 
     def test_config_modified_during_build_does_not_replace_retained_manifest(self):
         # Catches a completed image being attributed to inputs changed mid-build.

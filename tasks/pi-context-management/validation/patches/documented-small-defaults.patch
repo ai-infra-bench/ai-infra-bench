@@ -1,0 +1,28 @@
+diff --git a/packages/coding-agent/examples/extensions/context-management/README.md b/packages/coding-agent/examples/extensions/context-management/README.md
+--- a/packages/coding-agent/examples/extensions/context-management/README.md
++++ b/packages/coding-agent/examples/extensions/context-management/README.md
+@@ -38,8 +38,8 @@
+ 
+ | Flag | Default |
+ | --- | --- |
+-| `--context-rollover-tokens` | 90% of model capacity after response headroom |
+-| `--context-reminder-tokens` | 75% of the rollover threshold |
++| `--context-rollover-tokens` | 4096 |
++| `--context-reminder-tokens` | 2048 |
+ | `--context-response-headroom` | 4096, or the model's maximum output tokens if larger |
+ 
+ For example: `pi -e packages/coding-agent/examples/extensions/context-management/index.ts --context-reminder-tokens 40000 --context-rollover-tokens 150000`.
+diff --git a/packages/coding-agent/examples/extensions/context-management/index.ts b/packages/coding-agent/examples/extensions/context-management/index.ts
+--- a/packages/coding-agent/examples/extensions/context-management/index.ts
++++ b/packages/coding-agent/examples/extensions/context-management/index.ts
+@@ -92,8 +92,8 @@
+ 		const capacity = ctx.model?.contextWindow ?? 128_000;
+ 		const headroom = positive("context-response-headroom", Math.max(ctx.model?.maxTokens ?? 4096, 4096));
+ 		if (headroom >= capacity) throw new Error("Response headroom leaves no input capacity");
+-		const rollover = positive("context-rollover-tokens", Math.floor((capacity - headroom) * 0.9));
+-		const reminder = positive("context-reminder-tokens", Math.floor(rollover * 0.75));
++		const rollover = positive("context-rollover-tokens", 4096);
++		const reminder = positive("context-reminder-tokens", 2048);
+ 		if (reminder >= rollover) throw new Error("Reminder must be below rollover");
+ 		return { reminder, rollover: Math.min(rollover, capacity - headroom), inputLimit: capacity - headroom };
+ 	}

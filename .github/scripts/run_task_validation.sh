@@ -42,6 +42,7 @@ PY
 )"
 harbor_command=(harbor)
 harbor_environment=docker
+harbor_network_args=()
 harbor_resource_args=(--cpus limit --memory limit)
 if (( gpu_count > 0 )); then
   : "${AI_INFRA_GPU_POOL_CONFIG:?GPU runners require a host-managed pool configuration}"
@@ -52,6 +53,16 @@ else
   # Standard GitHub-hosted public Linux runners have four CPUs. Keep the task's
   # eight-CPU benchmark declaration; this override is only for CPU task CI.
   harbor_resource_args+=(--override-cpus 4)
+  if [[ "$TASK_NAME" == pi-context-management ]]; then
+    # The reviewed Context verifier requires a real offline namespace. Harbor's
+    # default deny-all proxy is not equivalent to Docker network_mode=none.
+    context_network="$repo_root/tools/pi-context-validation-network.yaml"
+    if [[ ! -r "$context_network" ]]; then
+      printf 'Context offline validation profile is missing: %s\n' "$context_network" >&2
+      exit 2
+    fi
+    harbor_network_args=(--extra-docker-compose "$context_network")
+  fi
 fi
 
 environment_key="$(
@@ -154,6 +165,10 @@ while IFS= read -r case_json; do
   expected_reward="$(jq -er '.expected_reward' <<<"$case_json")"
   job_name="${TASK_NAME}--${case_name}"
   if [[ "$(jq -r '.reviewed_replay // false' <<<"$case_json")" == true ]]; then
+    if [[ "$TASK_NAME" == pi-context-management ]]; then
+      printf 'Context offline validation does not support reviewed_replay cases\n' >&2
+      exit 2
+    fi
     reviewed_image="$(docker image inspect --format '{{.Id}}' "$runtime_image")"
     reviewed_resource_args=()
     if (( gpu_count == 0 )); then
@@ -179,6 +194,8 @@ while IFS= read -r case_json; do
   printf 'Running %s with agent=%s expected_reward=%s\n' \
     "$job_name" "$agent" "$expected_reward"
 
+  job_dir="$HARBOR_JOBS_DIR/$TASK_NAME/$job_name"
+  harbor_status=0
   "${harbor_command[@]}" run \
     --path "$case_dir" \
     --agent "$agent" \
@@ -187,10 +204,17 @@ while IFS= read -r case_json; do
     --job-name "$job_name" \
     --n-concurrent 1 \
     "${harbor_resource_args[@]}" \
+    ${harbor_network_args[@]+"${harbor_network_args[@]}"} \
     --delete \
-    --yes
+    --yes || harbor_status=$?
 
-  job_dir="$HARBOR_JOBS_DIR/$TASK_NAME/$job_name"
+  if (( harbor_status != 0 )); then
+    printf 'Harbor failed with exit code %s\n' "$harbor_status" >&2
+    if ! python3 .github/scripts/task_ci.py print-failure-logs --job-dir "$job_dir"; then
+      printf 'Unable to print verifier diagnostics\n' >&2
+    fi
+    exit "$harbor_status"
+  fi
   cp "$case_dir/task.toml" "$job_dir/prepared-task.toml"
 
   python3 .github/scripts/task_ci.py check-result \
