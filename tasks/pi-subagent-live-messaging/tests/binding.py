@@ -23,4 +23,5 @@ class Binding:
 
     def malformed_sends(self):
         return [{'message':'no recipient'}, {'to':'B','broadcast':True,'message':'ambiguous'},
+                {'to':'B','broadcast':False,'message':'ambiguous false'},
                 {'to':'B','message':{'unexpected':True}}]

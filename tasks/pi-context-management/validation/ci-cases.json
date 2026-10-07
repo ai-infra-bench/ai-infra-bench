@@ -4,15 +4,15 @@
     {
       "name": "alternative",
       "patch": "patches/v2-alternative.patch",
-      "expected_reward": 1,
-      "reason": "Working notes use atomic session-specific JSON storage; acknowledgement metadata and search ordering also differ.",
+      "expected_reward": 0,
+      "reason": "Historical alternative implementation retained byte-for-byte: its text-only archive loses original assistant reasoning and must be rejected.",
       "patch_sha256": "22a1e8c95074590c4cd9c6fb78fd10bcb831740e2572c5f581957295c7292b5e"
     },
     {
       "name": "json-history",
       "patch": "patches/v2-json-history.patch",
-      "expected_reward": 1,
-      "reason": "History reads serialize the complete original text inside a JSON record; newlines and Unicode must remain losslessly recoverable.",
+      "expected_reward": 0,
+      "reason": "Historical json-history implementation retained byte-for-byte: its text-only archive loses original assistant reasoning and must be rejected.",
       "patch_sha256": "d5662f3792c91ce4de4663d3958bebf295e27ca4e31551cb353a2cdc0a4cad79"
     },
     {
@@ -63,6 +63,28 @@
       "expected_reward": 0,
       "reason": "Drops earlier history after more than three context transitions, while ordinary rollover still works.",
       "patch_sha256": "d83a78f0bba14d35cdf9f0bd8eaa43bff593b699212f185fb93ed2d375841705"
+    },
+    {
+      "name": "disabled-bash-broken",
+      "patch": "patches/disabled-bash-broken.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Builtin Bash throws with the optional extension disabled; ordinary tool output and filesystem effects must remain intact.",
+      "patch_sha256": "dd349c16c70a1b1a008db4739ff9b21bee901dfb5fee16cb449ac29978412529"
+    },
+    {
+      "name": "lossy-original-oracle",
+      "patch": "patches/lossy-original-oracle.patch",
+      "expected_reward": 0,
+      "reason": "Original Oracle retained byte-for-byte; drops original assistant thinking from search and reads.",
+      "patch_sha256": "981f48f68db1b246a334c72eae9877aeb928dad7266a87855023793085494393"
+    },
+    {
+      "name": "complete-json-sidecar",
+      "patch": "patches/complete-json-sidecar.patch",
+      "expected_reward": 1,
+      "reason": "Atomic session-specific sidecar notes and full JSON message archive; reverse search order and different acknowledgement metadata.",
+      "patch_sha256": "7630f57a86b98b927e599b6c21f62c5fb2f775b5c9793bfa592eb64baf2ea05a"
     }
   ]
 }

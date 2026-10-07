@@ -25,8 +25,11 @@
   },
   "notes": [
     "The repository lock file at the base commit is used verbatim; npm ci resolves every package from it.",
-    "Dependencies are npm registry artifacts published before the cutoff as pinned by the lock; no toolchain overrides needed.",
+    "Registry dependencies remain pinned by the Base lock. Apply the task's default cutoff except for explicitly recorded named-package overrides.",
     "fd-find and ripgrep are installed from Debian bookworm so pi's tools-manager finds them on PATH and never downloads at runtime.",
-    "Model catalog: pi's normal build regenerates packages/ai/src/providers/data from live APIs, which made the image depend on its build date and broke every fresh build on 2026-09-19. The catalog is taken from the published pi-ai 0.85.1 package instead and pi is built with network disabled. That package was published 11 minutes after dependency_cutoff, but it is the build of the base commit itself (base_commit is the 'Release v0.85.1' commit; the package's 177 dist .js files are byte-identical to this image's build), so it carries nothing later than the base commit. The 0.85.0 package predates the cutoff but lacks gpt-6-astra, which the base commit's sources and ai tests reference. See templates/pi-harbor-node/README.md, 'Model catalog'."
+    "Named exception only for the sha256-pinned @earendil-works/pi-ai 0.85.1 tarball and its dist/providers/data catalog. The catalog was generated at 11:58:56.761Z and the package published at 12:05:47.996Z, after the default cutoff. This same-release catalog is required by the frozen 0.85.1 sources; the preceding 0.85.0 catalog lacks the gpt-6-astra model referenced at Base. Only catalog data is extracted; repository source and every other dependency retain the default cutoff. Byte identity of compiled source does not establish that generated data predates the commit; the explicit package exception covers that data."
+  ],
+  "dependency_cutoff_overrides": [
+    "@earendil-works/pi-ai=2026-09-05T12:05:48Z"
   ]
 }

@@ -49,10 +49,11 @@ const loader = new DefaultResourceLoader({
 					name: "echo",
 					label: "Echo",
 					description: "Returns its text argument.",
+					executionMode: mode === "sequential-tools" ? "sequential" : undefined,
 					parameters: Type.Object({ text: Type.String() }),
 					async execute(_id, params) {
 						if (marker && params.text === "slow") {
-							writeFileSync(marker, JSON.stringify({ pid: process.pid, sessionFile: sessionManager.getSessionFile() }));
+							writeFileSync(marker, JSON.stringify({ pid: process.pid, sessionFile: sessionManager.getSessionFile(), sessionId: sessionManager.getSessionId(), sessionDir: sessionManager.getSessionDir() }));
 							await delay(20_000);
 						}
 						return { content: [{ type: "text", text: params.text }], details: {} };
@@ -70,7 +71,7 @@ const loader = new DefaultResourceLoader({
 });
 await loader.reload();
 
-const sessionManager = mode === "build" || mode === "child-run" || mode === "child-compact" ? SessionManager.create(cwd, target) : SessionManager.open(target, dirname(target));
+const sessionManager = mode === "build" || mode === "child-run" || mode === "child-compact" || mode === "sequential-tools" ? SessionManager.create(cwd, target) : SessionManager.open(target, dirname(target));
 const { session } = await createAgentSession({
 	cwd,
 	agentDir,
@@ -107,6 +108,11 @@ if (mode === "build") {
 	await prompt([say("after compaction")], "continue");
 } else if (mode === "resume") {
 	await prompt([toolCall("echo", { text: "resumed" }), say("done again")], "resume");
+} else if (mode === "sequential-tools") {
+	await prompt([fauxAssistantMessage([
+		fauxToolCall("echo", { text: "first" }, { id: "sequential-first" }),
+		fauxToolCall("echo", { text: "slow" }, { id: "sequential-second" }),
+	], { stopReason: "toolUse" }), say("never reached")], "run both tools sequentially");
 } else if (mode === "slow-tool") {
 	await prompt([toolCall("echo", { text: "slow" }), say("never reached")], "slow");
 } else if (mode === "child-run" || mode === "child-compact") {

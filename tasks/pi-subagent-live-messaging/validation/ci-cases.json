@@ -5,35 +5,35 @@
       "name": "drop_accepted",
       "patch": "patches/drop_accepted.patch",
       "expected_reward": 0,
-      "patch_sha256": "ea058f2e7545ac37b1d535e26350e8e165eeef0b81851d14169fe421955cb973",
+      "patch_sha256": "678cc0cad0b243024419bde2a94b7d6d5eaf9edc349ca161d1f9ec1e1e13e59f",
       "reason": "Acknowledges sends without placing messages in recipient context."
     },
     {
       "name": "reverse_fifo",
       "patch": "patches/reverse_fifo.patch",
       "expected_reward": 0,
-      "patch_sha256": "5b7a5fc0b57e035154e506fe30fccccccbc9ffe7bb60d159b11cc561b50b40c5",
+      "patch_sha256": "0b577294aae5ee9ccdf60e077805f197aee39c7712e9ae42ba51cc416c208ad0",
       "reason": "Reverses findings accepted from the same sender."
     },
     {
       "name": "duplicate_delivery",
       "patch": "patches/duplicate_delivery.patch",
       "expected_reward": 0,
-      "patch_sha256": "d51b0b5727c75c34d2e7a1a9e8f4318d1f891e244d512c94dc75bfa3be67240e",
+      "patch_sha256": "cf4de8acd22755e499b58700f7845d087da2ef093919ea715eeb9adddaa94854",
       "reason": "Injects each incoming finding twice."
     },
     {
       "name": "alternative-spool",
       "patch": "patches/alternative-spool.patch",
       "expected_reward": 1,
-      "patch_sha256": "b74075d0acf3e54557b469dc33d0b23a7d23791db20fe5a4956fe6bf850f54d9",
+      "patch_sha256": "72880bd5b5847b1895a1ead638b6dbd337504c99fbf465d8af188402c8b10f73",
       "reason": "Uses a per-recipient append-only JSONL spool, drained under the team lock; no per-message files or receive-side sorting."
     },
     {
       "name": "peer-only-roster",
       "patch": "patches/peer-only-roster.patch",
       "expected_reward": 1,
-      "patch_sha256": "963c755209f41c1f5d7e3f2f80b79a368e6a2effca3ccce81c3a9c569b5b7871",
+      "patch_sha256": "859e2795a55684c2000ca1ff76e1b6bab7aa3119dfe905de4d8a8a5a43b2e944",
       "reason": "Curator adaptation of the former free-interface-64k alternative to the pinned tool names, fields and 1 MiB limit; keeps its peer-only roster (team_members omits the caller and returns only {id}), which the instruction permits."
     },
     {
@@ -41,7 +41,7 @@
       "patch": "patches/limit-64k.patch",
       "apply_after": "oracle",
       "expected_reward": 0,
-      "patch_sha256": "a2e5ce26d8d99258c7ee8a786aecb0212dec9d8041ce30c9975cca8658b9ec95",
+      "patch_sha256": "3d20c9d73e734388d70424666ce2e1b66c3f3fb1619328bfda06870658a92b10",
       "reason": "Rejects messages above 64 KiB instead of the pinned 1 MiB (1048576 UTF-8 byte) limit; size_below/size_at must fail."
     },
     {
@@ -59,6 +59,38 @@
       "expected_reward": 0,
       "patch_sha256": "278d2ee9bd32b5315412c9932cf01a127e6fc5a727287c089f8b032eec0bdd67",
       "reason": "Keeps the team directory on cancellation, so an accepted undelivered finding stays on disk; cancel_queued's transport-agnostic scan must fail."
+    },
+    {
+      "name": "premature-retry-finish",
+      "patch": "patches/premature-retry-finish.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Previous Oracle turn_end lifecycle closes the mailbox on a retryable provider error while the same Pi worker resumes.",
+      "patch_sha256": "34fa96e4850eeac8cb47bd25f48d4a24816b8b41a16d24f29d7a4342ec2a43b5"
+    },
+    {
+      "name": "truthy-recipient-validation",
+      "patch": "patches/truthy-recipient-validation.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Repaired lifecycle but previous Oracle truthiness validation: to plus broadcast:false is accepted and delivered.",
+      "patch_sha256": "9330a5dea98ec46b836c6c1864e0ebf85ef0f2f0441f3ef63936b4de82be5920"
+    },
+    {
+      "name": "rejected-but-delivered",
+      "patch": "patches/rejected-but-delivered.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Reports a rejection for both recipient fields after actually enqueueing the malformed finding; recipient model-input checks must reject it.",
+      "patch_sha256": "f24fdc28593a0eab43b557c9d7488e1a1823aca0e5bd4f90bf5d4726567751e9"
+    },
+    {
+      "name": "early-exit",
+      "patch": "patches/early-exit.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "The actual candidate extension import exits its Pi process successfully before required behavioral checks; independent scorer must reject incomplete execution.",
+      "patch_sha256": "7f45516d3752d691809873a8e20f50670641498db83a57bba4d1b7f9de8ed863"
     }
   ]
 }

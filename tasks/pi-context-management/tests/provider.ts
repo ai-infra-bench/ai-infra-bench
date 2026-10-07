@@ -10,7 +10,7 @@ export default function provider(pi: ExtensionAPI) {
 	};
 	pi.registerProvider("context-test", {
 		baseUrl: `${endpoint}/v1`, apiKey: "local-only", api: (process.env.PI_CONTEXT_TEST_API ?? "openai-completions") as "openai-completions" | "openai-responses",
-		models: [{ id: "scripted", name: "Scripted behavior", reasoning: false, input: ["text"],
+		models: [{ id: "scripted", name: "Scripted behavior", reasoning: process.env.PI_CONTEXT_TEST_REASONING === "1", input: ["text"],
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1000000, maxTokens: 4096, compat: { supportsStrictMode: true } }],
 	});
 	pi.on("session_start", async (_e, ctx) => {

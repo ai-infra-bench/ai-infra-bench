@@ -110,7 +110,7 @@ it("pi process exit stops managed processes and their grandchildren", async () =
 	});
 });
 
-it("SIGTERM to the pi process stops managed processes", async () => {
+it.each(["SIGTERM", "SIGINT"] as const)("%s to the pi process stops managed processes", async (signal) => {
 	const box = fresh();
 	const out = box.file("out.json");
 	const child = spawnChild(["start-and-wait", box.sessionDir, box.cwd, box.agentDir, out]);
@@ -118,13 +118,19 @@ it("SIGTERM to the pi process stops managed processes", async () => {
 	pids.push(info.pid, info.grandchild);
 	expect(pidAlive(info.pid)).toBe(true);
 	expect(pidAlive(info.grandchild)).toBe(true);
-	child.kill("SIGTERM");
+	child.kill(signal);
 	const result = await exited(child);
-	expect(result.signal === "SIGTERM" || result.code !== null, (child as any).output()).toBe(true);
 	await waitFor(() => !pidAlive(info.pid) && !pidAlive(info.grandchild), {
-		label: "managed process tree gone after SIGTERM",
+		label: `managed process tree gone after ${signal}`,
 		timeoutMs: 8000,
 	});
+	// Observe cleanup before asserting status, so status-only failures remain distinguishable.
+	const observation = { deliveredSignal: signal, ...result, managedAlive: pidAlive(info.pid), grandchildAlive: pidAlive(info.grandchild) };
+	process.stdout.write(`SIGNAL_OBSERVATION ${JSON.stringify(observation)}\n`);
+	expect(
+		result.signal !== null || (result.code !== null && result.code !== 0),
+		`pi must exit by signal or nonzero status: ${JSON.stringify(observation)}\n${(child as any).output()}`,
+	).toBe(true);
 });
 
 it("a later pi process resumes the session and reads finished records", async () => {

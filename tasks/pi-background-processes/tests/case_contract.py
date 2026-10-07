@@ -1,6 +1,8 @@
 """Verifier-owned case inventory; contains no candidate imports."""
 
 CONTRACT_CASES = {
+    "foreground bash preserves built-in truncation text, metadata and full output",
+    'one output line independently wakes for both ready and error',
     "registers bg_run, bg_logs, bg_list, bg_kill and bg_watch",
     "bg_run returns a running record and bg_logs pages output in order",
     "bg_logs bounds a page to 64 KB and serves the newest lines by default",
@@ -14,6 +16,7 @@ CONTRACT_CASES = {
     "wake goes to the active session after the starting session was replaced",
     "two processes firing in one window wake in first-fire order",
     "log flood is paged from disk without growing the heap",
+    "short-line log flood keeps bounded heap and exact deep and tail pages",
     "bash keeps the built-in contract for commands that finish before the silence threshold",
     "a silent bash command moves to the background and its next output and exit wake the agent",
 }
@@ -21,5 +24,6 @@ CONTRACT_CASES = {
 LIFECYCLE_CASES = {
     "pi process exit stops managed processes and their grandchildren",
     "SIGTERM to the pi process stops managed processes",
+    "SIGINT to the pi process stops managed processes",
     "a later pi process resumes the session and reads finished records",
 }

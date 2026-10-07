@@ -13,8 +13,8 @@ state could accept a mislabeled button.
 
 Retain the bindings, their review basis, candidate snapshot and verifier hashes
 before replay. An unmatched action requires integration review; it does not
-establish a candidate failure. Existing controls exercise renamed selectors
-and a public custom SelectList, without claiming support for every terminal UI.
+establish a candidate failure. The harness supports selectors and a public custom SelectList, without claiming
+support for every terminal UI.
 
 A `plan_submit` tool result can display the plan. The verifier renders the actual
 `ToolExecutionComponent` with `setExpanded(true)`, corresponding to a user's tool
@@ -26,3 +26,11 @@ Adapting interaction does not change assertions for stale approval, exact
 execution, Stay, Refine, restrictions or persistence. The reviewed Plan Mode
 v0.0.11 campaign also checked a verbose expanded-result positive control and a
 custom renderer that hides the plan as a negative control.
+
+The checked-in `validation/tools/ui-reference.json` and `ui-renamed.json` are
+explicit curator bindings. `renamed-visible-actions` uses Run approved steps,
+Keep planning, and Revise draft and carries a separate binding from the reference.
+There is no label-guessing fallback. Use the
+[reviewed replay entrypoint](pi-reviewed-replay.md) to bind those inputs to the
+materialized candidate and verifier before scoring. A binding file alone is
+insufficient: missing or stale profiles remain unscored.

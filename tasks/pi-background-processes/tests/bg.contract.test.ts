@@ -5,7 +5,7 @@
  * provider and real fixture processes, and observes only public results: tool
  * results, the session message stream, the session file, and OS process state.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { afterEach, expect, it } from "vitest";
 import {
 	BG_TOOLS,
@@ -531,4 +531,84 @@ it("log flood is paged from disk without growing the heap", { timeout: 60_000 },
 	expect(page.lines).toHaveLength(3);
 	expect(page.lines[0]).toMatch(/^line 100001 x+$/);
 	expect(page.total).toBeGreaterThan(400000);
+});
+
+it("short-line log flood keeps bounded heap and exact deep and tail pages", { timeout: 60_000 }, async () => {
+	expect(typeof global.gc, "test.sh must run vitest with --expose-gc").toBe("function");
+	const l = await live("short-line-flood");
+	global.gc!();
+	const before = process.memoryUsage().heapUsed;
+	// 48 MiB, as in the existing flood case, but 25,165,824 short lines.
+	// This is ordinary shell stdout, with no candidate internals inspected.
+	const script = 'const fs=require("fs");const b=Buffer.from("a\\nb\\nc\\nd\\n".repeat(8192));for(let i=0;i<768;i++)fs.writeSync(1,b)';
+	await prompt(l, [toolCall("bg_run", { command: `node -e '${script}'` }), say("started")]);
+	const rec = payload(l.rec.lastResult("bg_run"));
+	pids.push(rec.pid);
+	await waitFor(() => wakeMessages(l.session).some(wake => wake.details.id === rec.id && wake.details.reasons.includes("exit")),
+		{ label: "short-line flood exit wake", timeoutMs: 40_000 });
+	global.gc!();
+	const retained = process.memoryUsage().heapUsed - before;
+	await prompt(l, [toolCall("bg_logs", { id: rec.id, offset: 20_000_000, limit: 3 }), say("deep page")]);
+	const page = payload(l.rec.lastResult("bg_logs"));
+	expect(page.offset).toBe(20_000_000);
+	expect(page.total).toBe(25_165_824);
+	expect(page.lines).toEqual(["a", "b", "c"]);
+	await prompt(l, [toolCall("bg_logs", { id: rec.id }), say("tail page")]);
+	const tail = payload(l.rec.lastResult("bg_logs"));
+	expect(tail.total).toBe(page.total);
+	expect(tail.offset + tail.lines.length).toBe(tail.total);
+	expect(tail.lines.at(-1)).toBe("d");
+	expect(Buffer.byteLength(tail.lines.join("\n"), "utf8")).toBeLessThanOrEqual(64 * 1024);
+	for (let i = 0; i < tail.lines.length; i++) expect(tail.lines[i]).toBe(["a", "b", "c", "d"][(tail.offset + i) % 4]);
+	global.gc!();
+	const afterPaging = process.memoryUsage().heapUsed - before;
+	process.stdout.write("SHORT_LINE_MEMORY " + JSON.stringify({ outputBytes: 48 * 1024 * 1024, total: page.total, retained, afterPaging }) + "\n");
+	expect(retained).toBeLessThan(24 * 1024 * 1024);
+	expect(afterPaging).toBeLessThan(24 * 1024 * 1024);
+});
+
+it("one output line independently wakes for both ready and error", async () => {
+	const l = await live("overlapping-patterns");
+	await prompt(l, [
+		toolCall("bg_run", { command: "sleep 0.15; printf 'READY ERROR\\n'; sleep 60",
+			wake: { ready: "READY", error: "ERROR" } }),
+		toolCall("slow_wait", { ms: 1200 }), say("after both matches"),
+	]);
+	const rec = payload(l.rec.lastResult("bg_run"));
+	pids.push(rec.pid);
+	const wakes = wakeMessages(l.session).filter(wake => wake.details.id === rec.id);
+	expect(wakes.flatMap(wake => wake.details.reasons).sort()).toEqual(["error", "ready"]);
+	for (const wake of wakes) {
+		expect(wake.details.matchedLine).toBe("READY ERROR");
+		expect(wake.index).toBeGreaterThan(toolResultIndex(l.session, "slow_wait"));
+	}
+});
+
+it("foreground bash preserves built-in truncation text, metadata and full output", async () => {
+	const { createBashTool } = await import("../../src/core/tools/bash.ts");
+	const l = await live("foreground-truncation");
+	const scripts = [
+		'process.stdout.write("a".repeat(80000))',
+		'process.stdout.write("line\\n".repeat(3000))',
+		'process.stdout.write(("b".repeat(100)+"\\n").repeat(1000))',
+		'process.stdout.write("界🙂".repeat(30000))',
+	];
+	const normalize = (result: any) => ({
+		...result,
+		content: result.content.map((part: any) => part.type === "text" ? {
+			...part, text: part.text.replace(/Full output: [^\]]+/g, "Full output: <path>"),
+		} : part),
+		details: result.details ? { ...result.details, fullOutputPath: "<path>" } : result.details,
+	});
+	for (const script of scripts) {
+		const command = `node -e '${script}'`;
+		const expected = await createBashTool(l.box.cwd).execute("reference", { command }, undefined);
+		await prompt(l, [toolCall("bash", { command, stalledSec: 5 }), say("done")]);
+		const actual: any = l.rec.lastResult("bash").result;
+		expect(normalize(actual)).toEqual(normalize(expected));
+		expect(readFileSync(actual.details.fullOutputPath)).toEqual(readFileSync((expected.details as any).fullOutputPath));
+	}
+	await prompt(l, [toolCall("bg_list", {}), say("listed")]);
+	expect(payload(l.rec.lastResult("bg_list")).processes).toEqual([]);
+	expect(wakeMessages(l.session)).toEqual([]);
 });

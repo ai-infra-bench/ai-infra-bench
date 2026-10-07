@@ -1,5 +1,5 @@
 diff --git a/packages/coding-agent/examples/extensions/plan-mode/README.md b/packages/coding-agent/examples/extensions/plan-mode/README.md
-index 2568a684b..380588df5 100644
+index 2568a684bf6dc64d9af19b57ce4be70d91ed3cd7..380588df5636039f5406afc46294a27c3d6098b9 100644
 --- a/packages/coding-agent/examples/extensions/plan-mode/README.md
 +++ b/packages/coding-agent/examples/extensions/plan-mode/README.md
 @@ -1,66 +1,78 @@
@@ -138,10 +138,10 @@ index 2568a684b..380588df5 100644
 +npx vitest run test/plan-mode-extension.test.ts test/plan-mode-utils.test.ts
 +```
 diff --git a/packages/coding-agent/examples/extensions/plan-mode/index.ts b/packages/coding-agent/examples/extensions/plan-mode/index.ts
-index 737ce56ac..8df95eeda 100644
+index 737ce56ac7eb9053458454e7dbf942452aa7dfd9..a9c095b9212a3fd97504fa9be6b48e15ad7b5f9e 100644
 --- a/packages/coding-agent/examples/extensions/plan-mode/index.ts
 +++ b/packages/coding-agent/examples/extensions/plan-mode/index.ts
-@@ -1,390 +1,327 @@
+@@ -1,390 +1,329 @@
 -/**
 - * Plan Mode Extension
 - *
@@ -778,7 +778,9 @@ index 737ce56ac..8df95eeda 100644
 +			if (entry.type === "custom" && entry.customType === JOURNAL && isPlanEvent(entry.data))
 +				view = reduceJournal(view, entry.data);
  		}
-+		const resumed = view.initialized;
++		const resumed = view.initialized || ctx.sessionManager.getBranch().some(
++			(entry) => entry.type === "message" && entry.message.role === "assistant",
++		);
 +		if (!resumed) append({ kind: "opened", sessionId: view.state.sessionId });
 +		if (view.state.mode === "planning") pi.setActiveTools(planningTools());
 +		else
@@ -791,7 +793,7 @@ index 737ce56ac..8df95eeda 100644
  }
 diff --git a/packages/coding-agent/examples/extensions/plan-mode/journal.ts b/packages/coding-agent/examples/extensions/plan-mode/journal.ts
 new file mode 100644
-index 000000000..fdbbc37d5
+index 0000000000000000000000000000000000000000..fdbbc37d56a2cb41e73ada5723d372b902b18f6c
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/plan-mode/journal.ts
 @@ -0,0 +1,129 @@
@@ -925,7 +927,7 @@ index 000000000..fdbbc37d5
 +	}
 +}
 diff --git a/packages/coding-agent/test/plan-mode-extension.test.ts b/packages/coding-agent/test/plan-mode-extension.test.ts
-index 419a707e9..e6dd6ca9f 100644
+index 419a707e97dea861dbc10a55f1472e611147c5df..6d5be295081df99b9bcbb95648e45408790ce3eb 100644
 --- a/packages/coding-agent/test/plan-mode-extension.test.ts
 +++ b/packages/coding-agent/test/plan-mode-extension.test.ts
 @@ -1,167 +1,329 @@
@@ -1018,7 +1020,7 @@ index 419a707e9..e6dd6ca9f 100644
 +		hasUI: options.hasUI ?? true,
 +		isIdle: () => !busy,
 +		hasPendingMessages: () => pending,
-+		sessionManager: { getEntries: () => entries, getSessionId: () => options.sessionId ?? "session-a" },
++		sessionManager: { getEntries: () => entries, getBranch: () => entries, getSessionId: () => options.sessionId ?? "session-a" },
 +		ui: {
 +			select,
 +			editor,

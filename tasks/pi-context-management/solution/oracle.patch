@@ -1,6 +1,5 @@
 diff --git a/packages/coding-agent/examples/extensions/context-management/README.md b/packages/coding-agent/examples/extensions/context-management/README.md
 new file mode 100644
-index 0000000..fa3e58a
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/context-management/README.md
 @@ -0,0 +1,26 @@
@@ -21,7 +20,7 @@ index 0000000..fa3e58a
 +Use `history_search({query: "a distinctive clue"})` to find original messages,
 +assistant tool calls, and tool results. Search returns matching records with
 +stable `window_id` and `item_id` pairs and previews around each match.
-+`history_read({window_id, item_id})` returns one complete original record; it
++`history_read({window_id, item_id})` returns a lossless JSON message, including reasoning; it
 +never reloads the whole archive. No cursor or offset arguments are required.
 +
 +Notes and window boundaries are custom entries in Pi's session journal. Reopen
@@ -32,10 +31,9 @@ index 0000000..fa3e58a
 +example's supported workflow. Existing automatic compaction policy is unchanged.
 diff --git a/packages/coding-agent/examples/extensions/context-management/index.ts b/packages/coding-agent/examples/extensions/context-management/index.ts
 new file mode 100644
-index 0000000..53e02e8
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/context-management/index.ts
-@@ -0,0 +1,118 @@
+@@ -0,0 +1,114 @@
 +import { randomUUID } from "node:crypto";
 +import type { AgentMessage } from "@earendil-works/pi-agent-core";
 +import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -66,11 +64,7 @@ index 0000000..53e02e8
 +			if (message.role !== "user" && message.role !== "assistant" && message.role !== "toolResult") continue;
 +			if (message.role === "user") users.push(message);
 +			current.push(message);
-+			const text = typeof message.content === "string" ? message.content : message.content.map((part) => {
-+				if (part.type === "text") return part.text;
-+				if (part.type === "toolCall") return `${part.name}\n${JSON.stringify(part.arguments)}`;
-+				return "";
-+			}).filter(Boolean).join("\n");
++			const text = JSON.stringify(message);
 +			items.push({ window_id: windowId, item_id: entry.id,
 +				role: message.role === "toolResult" ? "tool" : message.role,
 +				...(message.role === "toolResult" ? { tool_name: message.toolName } : {}), text });

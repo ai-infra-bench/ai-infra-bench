@@ -510,10 +510,10 @@ index 1cbd49a89..90af32729 100644
  	| {
 diff --git a/packages/coding-agent/src/core/safe-rollback.ts b/packages/coding-agent/src/core/safe-rollback.ts
 new file mode 100644
-index 000000000..375781a19
+index 000000000..6d7cabaf5
 --- /dev/null
 +++ b/packages/coding-agent/src/core/safe-rollback.ts
-@@ -0,0 +1,439 @@
+@@ -0,0 +1,453 @@
 +import { execFileSync } from "node:child_process";
 +import { createHash, randomUUID } from "node:crypto";
 +import {
@@ -527,7 +527,7 @@ index 000000000..375781a19
 +	writeFileSync,
 +} from "node:fs";
 +import { chmod, lstat, mkdir, readdir, rename, rmdir, unlink, writeFile } from "node:fs/promises";
-+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
++import { dirname, join, resolve } from "node:path";
 +import type { SessionManager } from "./session-manager.ts";
 +
 +export interface RollbackCheckpoint {
@@ -547,7 +547,21 @@ index 000000000..375781a19
 +	digest: string;
 +	mode: number;
 +}
++// Path keys are byte strings: Latin-1 is a bijection from bytes to code units.
++// JSON escapes control characters without losing bytes. Never send these keys
++// directly to fs, which would encode them as UTF-8; decode to Buffer first.
 +type Snapshot = Record<string, FileImage>;
++
++function parentBytes(path: Buffer): Buffer {
++	const slash = path.lastIndexOf(0x2f);
++	return path.subarray(0, Math.max(1, slash));
++}
++
++function displayPath(path: string): string {
++	const bytes = Buffer.from(path, "latin1");
++	const text = bytes.toString("utf8");
++	return Buffer.from(text).equals(bytes) ? text : `bytes:${bytes.toString("hex")}`;
++}
 +interface Checkpoint extends RollbackCheckpoint {
 +	before: Snapshot;
 +	after?: Snapshot;
@@ -558,7 +572,7 @@ index 000000000..375781a19
 +	files: Record<string, FileImage | null>;
 +}
 +interface Journal {
-+	version: 1;
++	version: 2;
 +	sessionId: string;
 +	root: string;
 +	checkpoints: Checkpoint[];
@@ -591,7 +605,7 @@ index 000000000..375781a19
 +	private readonly sessionManager: SessionManager;
 +	private readonly journalPath: string;
 +	private readonly blobRoot: string;
-+	private readonly excludedPaths: string[];
++	private readonly excludedPaths: Buffer[];
 +	private committedLength = 0;
 +	private journal: Journal;
 +	private liveRequest = false;
@@ -606,7 +620,7 @@ index 000000000..375781a19
 +		this.committedLength = committedLength;
 +		this.blobRoot = `${journalPath}.blobs`;
 +		this.excludedPaths = [sessionManager.getSessionFile()!, journalPath, `${journalPath}.init`, this.blobRoot].map(
-+			(path) => resolve(path),
++			(path) => Buffer.from(resolve(path)),
 +		);
 +	}
 +
@@ -620,7 +634,7 @@ index 000000000..375781a19
 +		const journalPath = `${sessionFile}.rollback.frames`;
 +		if (existsSync(journalPath)) {
 +			const { journal, committedLength } = SafeRollbackStore.readFrames(journalPath);
-+			if (journal.version !== 1 || journal.sessionId !== sessionManager.getSessionId()) {
++			if (journal.version !== 2 || journal.sessionId !== sessionManager.getSessionId()) {
 +				throw new Error("Invalid safe rollback journal for this session");
 +			}
 +			return new SafeRollbackStore(sessionManager, journalPath, journal, committedLength);
@@ -629,9 +643,9 @@ index 000000000..375781a19
 +		const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
 +			cwd: sessionManager.getCwd(),
 +			encoding: "utf8",
-+		}).trim();
++		}).replace(/\n$/, "");
 +		const store = new SafeRollbackStore(sessionManager, journalPath, {
-+			version: 1,
++			version: 2,
 +			sessionId: sessionManager.getSessionId(),
 +			root,
 +			checkpoints: [],
@@ -799,7 +813,7 @@ index 000000000..375781a19
 +			}
 +		}
 +		if (conflicts.size > 0) {
-+			this.conflicts = [...conflicts].sort();
++			this.conflicts = [...conflicts].sort().map(displayPath);
 +			throw new Error(`Rollback conflicts with idle workspace edits: ${this.conflicts.join(", ")}`);
 +		}
 +		this.conflicts = undefined;
@@ -843,11 +857,11 @@ index 000000000..375781a19
 +				} catch (error) {
 +					if (!missing(error)) throw error;
 +				}
-+				await mkdir(dirname(absolute), { recursive: true });
-+				const staged = join(
-+					dirname(absolute),
-+					`.pi-rollback-${intent.stagingId}-${createHash("sha256").update(path).digest("hex").slice(0, 16)}`,
-+				);
++				await mkdir(parentBytes(absolute), { recursive: true });
++				const staged = Buffer.concat([
++					parentBytes(absolute),
++					Buffer.from(`/.pi-rollback-${intent.stagingId}-${createHash("sha256").update(path).digest("hex").slice(0, 16)}`),
++				]);
 +				const bytes = readFileSync(join(this.blobRoot, file.digest));
 +				if (createHash("sha256").update(bytes).digest("hex") !== file.digest) {
 +					throw new Error(`Invalid rollback content blob for ${path}`);
@@ -876,25 +890,25 @@ index 000000000..375781a19
 +		}
 +	}
 +
-+	private async removeEmptyDirectories(path: string): Promise<void> {
-+		for (const entry of await readdir(path, { withFileTypes: true })) {
++	private async removeEmptyDirectories(path: Buffer): Promise<void> {
++		for (const entry of await readdir(path, { withFileTypes: true, encoding: "buffer" })) {
 +			if (!entry.isDirectory())
-+				throw new Error(`Rollback path contains an unrelated file: ${join(path, entry.name)}`);
-+			await this.removeEmptyDirectories(join(path, entry.name));
++				throw new Error(`Rollback path contains an unrelated file: ${Buffer.concat([path, Buffer.from("/"), entry.name])}`);
++			await this.removeEmptyDirectories(Buffer.concat([path, Buffer.from("/"), entry.name]));
 +		}
 +		await rmdir(path);
 +	}
 +
-+	private absolute(path: string): string {
-+		const absolute = resolve(this.journal.root, path);
-+		const rel = relative(this.journal.root, absolute);
-+		if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel))
++	private absolute(path: string): Buffer {
++		// Git emits root-relative slash-separated bytes, with no normalization.
++		// Check components before joining so literal backslashes stay literal.
++		if (!path || path.includes("\0") || path.split("/").some((part) => !part || part === "." || part === ".."))
 +			throw new Error("Invalid rollback path");
-+		return absolute;
++		return Buffer.concat([Buffer.from(this.journal.root.replace(/\/$/, "") + "/"), Buffer.from(path, "latin1")]);
 +	}
 +
-+	private assertNoSymlinkParents(absolute: string): void {
-+		for (let parent = dirname(absolute); parent !== this.journal.root; parent = dirname(parent)) {
++	private assertNoSymlinkParents(absolute: Buffer): void {
++		for (let parent = parentBytes(absolute); !parent.equals(Buffer.from(this.journal.root)); parent = parentBytes(parent)) {
 +			try {
 +				if (lstatSync(parent).isSymbolicLink())
 +					throw new Error(`Symlink parent is outside rollback scope: ${parent}`);
@@ -909,13 +923,13 @@ index 000000000..375781a19
 +			cwd: this.journal.root,
 +			maxBuffer: 64 * 1024 * 1024,
 +		})
-+			.toString("utf8")
++			.toString("latin1")
 +			.split("\0")
 +			.filter(Boolean);
 +		const result: Snapshot = Object.create(null);
 +		for (const path of [...new Set(paths)].sort()) {
 +			const absolute = this.absolute(path);
-+			if (this.excludedPaths.some((excluded) => absolute === excluded || absolute.startsWith(`${excluded}${sep}`)))
++			if (this.excludedPaths.some((excluded) => absolute.equals(excluded) || (absolute.subarray(0, excluded.length).equals(excluded) && absolute[excluded.length] === 0x2f)))
 +				continue;
 +			this.assertNoSymlinkParents(absolute);
 +			try {
@@ -955,10 +969,10 @@ index 000000000..375781a19
 +}
 diff --git a/packages/coding-agent/test/safe-rollback.test.ts b/packages/coding-agent/test/safe-rollback.test.ts
 new file mode 100644
-index 000000000..6353ac4a6
+index 000000000..84672897f
 --- /dev/null
 +++ b/packages/coding-agent/test/safe-rollback.test.ts
-@@ -0,0 +1,185 @@
+@@ -0,0 +1,209 @@
 +import { execFileSync } from "node:child_process";
 +import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 +import { tmpdir } from "node:os";
@@ -1142,5 +1156,29 @@ index 000000000..6353ac4a6
 +		await store.rollback(store.list()[0].id, restore);
 +		expect(statSync(join(cwd, "nested")).isDirectory()).toBe(true);
 +		expect(readFileSync(join(cwd, "nested", "item.txt"), "utf8")).toBe("nested original");
++	});
++
++	it("keeps raw filename bytes distinct from UTF-8 names across restart", async () => {
++		const raw = Buffer.concat([Buffer.from(cwd + "/raw-"), Buffer.from([255])]);
++		const unicode = join(cwd, "raw-ÿ");
++		const replacement = join(cwd, "raw-�");
++		writeFileSync(raw, "raw before");
++		writeFileSync(unicode, "unicode before");
++		writeFileSync(replacement, "replacement before");
++		chmodSync(raw, 0o751);
++		store.begin();
++		writeFileSync(raw, "raw changed");
++		chmodSync(raw, 0o600);
++		writeFileSync(unicode, "unicode changed");
++		rmSync(replacement);
++		store.finish();
++		manager = SessionManager.open(manager.getSessionFile()!);
++		store = SafeRollbackStore.open(manager, false)!;
++		await store.recover(restore);
++		await store.rollback(store.list()[0].id, restore);
++		expect(readFileSync(raw, "utf8")).toBe("raw before");
++		expect(statSync(raw).mode & 0o7777).toBe(0o751);
++		expect(readFileSync(unicode, "utf8")).toBe("unicode before");
++		expect(readFileSync(replacement, "utf8")).toBe("replacement before");
 +	});
 +});

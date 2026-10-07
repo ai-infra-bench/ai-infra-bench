@@ -24,6 +24,7 @@ from scripted_provider import ScriptedProvider, tool
 HERE = Path(__file__).resolve().parent
 UID = GID = 65534
 CASE_IDS = [
+    'raw_untracked_filenames', 'raw_tracked_filenames', 'multibyte_utf8_filenames',
     'tracked_ignored_files', 'linux_literal_filenames', 'sdk_public_contract', 'runtime_fork_contract', 'disabled_regression', 'in_memory_rejected',
     'normal_files_and_conversation', 'checkpoint_branch_and_idempotence',
     'invalid_and_foreign_targets', 'idle_external_conflict',
@@ -421,6 +422,97 @@ def linux_literal_filenames(f):
     f.provider.script({'text': 'continued'})
     p.prompt('continue-after-literal-filenames')
     assert_no_text(f.provider.requests[-1], 'literal-filenames-' + f.nonce)
+
+
+def byte_filename_recovery(f, *, tracked, raw):
+    """Reach arbitrary Linux names through real Bash, then observe only public recovery."""
+    import shlex
+    root = os.fsencode(f.project)
+    suffix = b'\xff' if raw else '雪'.encode()
+    parent = b'dir-' + suffix
+    names = [b'edit-' + suffix, b'delete-' + suffix, b'new-' + suffix,
+             parent + b'/rename-\xfe', parent + b'/renamed-\xfe',
+             b'edit-\xef\xbf\xbd', b'edit-\xc3\xbf', b'edit-\xc3\x83\xc2\xbf',
+             parent + b'/deleted-child-\x80', b'mode-' + suffix]
+    if not raw:
+        names = [name.replace(b'\xfe', 'é'.encode()).replace(b'\x80', '界'.encode()) for name in names]
+    initial = [0, 1, 3, 5, 6, 7, 8, 9]
+    for index in initial:
+        path = root + b'/' + names[index]
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'wb') as stream:
+            stream.write(b'original-' + str(index).encode() + b'\x00\xff-' + f.nonce.encode())
+        os.chmod(path, 0o640 if index != 9 else 0o751)
+    if tracked:
+        # Staged baseline differs from pre-request user work; rollback must not
+        # replace that work with Git contents or mutate the index itself.
+        git(f.project, 'add', '--', *[os.fsdecode(names[index]) for index in initial])
+        with open(root + b'/' + names[0], 'ab') as stream:
+            stream.write(b'preexisting-unstaged')
+    f.git_baseline = f.git_state()
+    index_before = (f.project / '.git/index').read_bytes()
+    f.chown()
+
+    def inventory():
+        result = {}
+        for directory, dirs, files in os.walk(root):
+            if directory == root:
+                dirs.remove(b'.git')
+            for name in files:
+                path = directory + b'/' + name
+                with open(path, 'rb') as stream:
+                    result[os.path.relpath(path, root).hex()] = {
+                        'bytes': stream.read().hex(), 'mode': os.stat(path).st_mode & 0o7777}
+        return result
+
+    expected = inventory()
+    p = f.peer(); p.require_api()
+    before = p.call('inspect')['messages']
+    marker = 'byte-filenames-' + f.nonce
+    code = ('import os; names=' + repr(names) + '; '
+            'open(names[0],"wb").write(b"changed"); os.chmod(names[9],0o600); '
+            'os.unlink(names[1]); os.unlink(names[8]); '
+            'open(names[2],"wb").write(b"created"); os.rename(names[3],names[4]); '
+            'open(names[5],"wb").write(b"replacement-character-control"); '
+            'open(names[6],"wb").write(b"valid-utf8-control"); '
+            'open(names[7],"wb").write(b"double-encoding-control")')
+    f.provider.script(tool('bash', command='python3 -c ' + shlex.quote(code)), {'text':'done'})
+    p.prompt(marker)
+    mutated = inventory()
+    require(mutated[names[0].hex()]['bytes'] == b'changed'.hex(), 'Real Bash did not edit byte filename')
+    require(mutated[names[9].hex()]['mode'] == 0o600, 'Real Bash did not change mode')
+    require(names[1].hex() not in mutated and names[8].hex() not in mutated, 'Real Bash did not delete byte filenames')
+    require(names[3].hex() not in mutated and names[4].hex() in mutated and names[2].hex() in mutated,
+            'Real Bash did not create/rename byte filenames')
+    checkpoint = p.list()[0]['id']
+    p.rollback(checkpoint)
+    actual = inventory()
+    require(actual == expected, 'Byte-exact file inventory was not restored: ' + json.dumps({'expected': expected, 'actual': actual}))
+    assert_conversation_restored(p, before)
+    require((f.project / '.git/index').read_bytes() == index_before, 'Rollback modified raw Git index bytes')
+    f.assert_baseline()
+    p.kill(); p.close()
+    p = f.peer(enable=None)
+    require(p.state()['status'] == 'ready', 'Byte filename recovery did not survive restart')
+    require(inventory() == expected, 'Restored byte filename inventory changed after restart')
+    assert_conversation_restored(p, before)
+    p.rollback(checkpoint)
+    require(inventory() == expected, 'Repeated byte filename rollback changed files')
+    f.provider.script({'text':'continued'})
+    p.prompt('continue-after-byte-filenames')
+    assert_no_text(f.provider.requests[-1], marker)
+
+
+def raw_untracked_filenames(f):
+    byte_filename_recovery(f, tracked=False, raw=True)
+
+
+def raw_tracked_filenames(f):
+    byte_filename_recovery(f, tracked=True, raw=True)
+
+
+def multibyte_utf8_filenames(f):
+    byte_filename_recovery(f, tracked=True, raw=False)
 
 
 def sdk_public_contract(f):

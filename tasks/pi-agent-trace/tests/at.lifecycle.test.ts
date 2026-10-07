@@ -203,3 +203,31 @@ it("a pi process killed during a tool execution leaves that turn's chat span on 
 	]);
 	expect(third.pid).not.toBe(first.pid);
 });
+
+// Enter through the SDK's public sequential execution mode. The second tool
+// marks its start only after the real agent loop persisted the first result.
+it("a completed sequential tool is durable while the following tool is still running", async () => {
+	const box = sandbox();
+	boxes.push(box);
+	const marker = join(box.root, "sequential.marker");
+	const child = spawnChild(["sequential-tools", box.sessionDir, box.cwd, box.agentDir,
+		join(box.root, "unused.json"), marker]);
+	const view = await readJson(marker, child);
+	await sleep(200);
+	child.kill("SIGKILL");
+	expect((await exited(child)).signal).toBe("SIGKILL");
+	const entries = readFileSync(view.sessionFile, "utf8").trim().split("\n").map(line => JSON.parse(line));
+	const result = entries.find(entry => entry.type === "message" &&
+		entry.message?.role === "toolResult" && entry.message.toolCallId === "sequential-first");
+	expect(result, "first result is actually persisted before the second tool").toBeDefined();
+	const trace = readTrace(join(view.sessionDir, "traces", `${view.sessionId}.otlp.jsonl`));
+	expect(trace.errors).toEqual([]);
+	expect(liveProblems(trace.all)).toEqual([]);
+	const first = trace.spans.filter(span => span.attributes["gen_ai.tool.call.id"] === "sequential-first");
+	expect(first).toHaveLength(1);
+	expect(first[0].attributes["pi.session.entry_id"]).toBe(result.id);
+	expect(first[0].status).toEqual({ code: 1 });
+	expect(trace.starts.filter(span => span.attributes["gen_ai.tool.call.id"] === "sequential-first")).toHaveLength(1);
+	expect(trace.starts.filter(span => span.attributes["gen_ai.tool.call.id"] === "sequential-second")).toHaveLength(1);
+	expect(trace.spans.filter(span => span.attributes["gen_ai.tool.call.id"] === "sequential-second")).toHaveLength(0);
+});

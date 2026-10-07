@@ -10,17 +10,17 @@
     },
     {
       "name": "alt-astra-run5",
-      "expected_reward": 1,
+      "expected_reward": 0,
       "patch": "patches/alt-astra-run5.patch",
       "patch_sha256": "9dbd663c125c32af6363f187a9b76c0548d96f0810f9d3455e7593ec2c931d60",
-      "reason": "Real gpt-6-astra submission (rev3): alternative implementation that passes every case."
+      "reason": "Historical submission retained unchanged as a negative control: ordinary cases and literal task transport pass, but context_snapshot rejects it because a later public context extension changes the final parent model request and the fork does not preserve that prefix."
     },
     {
       "name": "alt-sol-run6",
-      "expected_reward": 1,
+      "expected_reward": 0,
       "patch": "patches/alt-sol-run6.patch",
       "patch_sha256": "200811f936205dfa28878175f1c8dda7c6abdbe2a3a276322177eb404cf70ec3",
-      "reason": "Real gpt-6-sol submission (rev3.1): alternative implementation that passes every case."
+      "reason": "Historical submission retained unchanged as a negative control: ordinary cases and literal task transport pass, but context_snapshot rejects it because a later public context extension changes the final parent model request and the fork does not preserve that prefix."
     },
     {
       "name": "control-aborted-turn-counts",
@@ -170,6 +170,34 @@
       "patch": "patches/real-sol-run5.patch",
       "patch_sha256": "4177ebba24efd026884db58d2243d94145c8b4d69fcf64f902298425ef8752a1",
       "reason": "Real gpt-6-sol submission (rev3): uses the tool's stale ctx after /reload (result lost) and, while the parent compacts, steers without triggering a run (result never reaches the model)."
+    },
+    {
+      "name": "control-task-cli-interpretation",
+      "expected_reward": 0,
+      "patch": "patches/control-task-cli-interpretation.patch",
+      "patch_sha256": "7aed2f8dda1a5f65e535d00fb504b351c31b03915a938cd676f35f8ca9116b51",
+      "reason": "Previous reference passes ordinary tasks but interprets Markdown/CLI/file/command prefixes instead of sending literal task text."
+    },
+    {
+      "name": "control-persisted-context-only",
+      "expected_reward": 0,
+      "patch": "patches/control-persisted-context-only.patch",
+      "patch_sha256": "97a09c24cf59af455f8f385e9e564360f25f91088fd46ffac603590ced7b02fa",
+      "reason": "Previous reference handles literal tasks but copies persisted history instead of the actual model request after context extensions."
+    },
+    {
+      "name": "control-main-thread-parent-watch",
+      "expected_reward": 0,
+      "patch": "patches/control-main-thread-parent-watch.patch",
+      "patch_sha256": "dbe774efffa06cc8dd85c33221b5dd94e3b0d147f020c4d8ffc31f986ce307e0",
+      "reason": "Previous reference retained byte-for-byte: parent-death polling runs on the child main event loop and cannot stop a fork executing a synchronous public tool within 5 seconds."
+    },
+    {
+      "name": "control-cli-exit-zero",
+      "expected_reward": 0,
+      "patch": "patches/control-cli-exit-zero.patch",
+      "patch_sha256": "6cd812ebe054182ac7529a807db993043cce9df6809738238470b738a383f5f5",
+      "reason": "Current reference exits the actual Pi CLI with status0 during extension initialization in context_snapshot before required requests complete; ordinary other cases and candidate unit tests still execute."
     }
   ]
 }

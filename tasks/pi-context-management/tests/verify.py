@@ -17,7 +17,7 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-CASES = ["ordinary", "empty", "rollover", "repeated", "resume", "notes", "history", "batch", "isolation", "responses", "clear_resume", "repeated_unchanged"]
+CASES = ["ordinary", "empty", "rollover", "repeated", "resume", "notes", "history", "batch", "isolation", "responses", "clear_resume", "repeated_unchanged", "thinking_search", "thinking_read"]
 TOOLS = {"new_context", "notes_write", "notes_read", "history_search", "history_read"}
 
 
@@ -50,7 +50,13 @@ def calls(*items):
 
 def result(body):
     assert body["messages"][-1]["role"] == "tool", "Expected tool result in the next actual model request"
-    return json.loads(text(body["messages"][-1]))
+    payload = text(body["messages"][-1])
+    try:
+        value = json.loads(payload)
+    except ValueError as exc:
+        raise AssertionError("Expected JSON tool result, received: " + payload[:240]) from exc
+    assert isinstance(value, dict), "Expected a JSON object tool result"
+    return value
 
 
 def notes_present(notes, value):
@@ -186,6 +192,11 @@ class Scenario:
         if self.name == "ordinary":
             body = yield calls(call("evidence",key="side"))
             assert self.evidence["side"] in all_text(body)
+            marker = "builtin-bash-" + self.nonce
+            body = yield calls(call("bash", command="printf " + marker + " > builtin-output.txt; cat builtin-output.txt"))
+            assert body["messages"][-1]["role"] == "tool", "Expected builtin Bash result"
+            assert text(body["messages"][-1]) == marker, "Builtin Bash output changed while extension disabled"
+            self.checked("disabled_builtin_bash_output")
         elif self.name == "empty":
             # No notes_write prerequisite, even when there is old work to discard.
             body = yield dict(calls(call("evidence", key="old"), call("evidence", key="noise")), content=self.hypothesis)
@@ -302,6 +313,22 @@ class Scenario:
             body = yield calls(call("new_context"))
             self.check_fresh(body)
             assert not notes_present(previous, all_text(body))
+        elif self.name in ["thinking_search", "thinking_read"]:
+            # A standard reasoning-capable API response is parsed and journaled
+            # by Pi itself; the fixture never inserts an internal message.
+            anchor = "reasoning-anchor-" + uuid.uuid4().hex
+            reasoning = anchor + "\n先排除重试🙂e\u0301，再检查连接池。\n" + uuid.uuid4().hex
+            body = yield dict(calls(call("evidence", key="side")),
+                              content=self.hypothesis, reasoning_content=reasoning)
+            body = yield calls(call("new_context"))
+            self.check_fresh(body, notes=False)
+            assert anchor not in all_text(body), "Old assistant reasoning remains in active context"
+            # Search once by reasoning and independently by visible text. The
+            # complete reasoning and visible text must belong to the same record;
+            # a later search call containing just the query cannot satisfy this.
+            query = anchor if self.name == "thinking_search" else self.hypothesis
+            body, _ = yield from self.recover(query, reasoning, also=self.hypothesis)
+            self.checked("original_assistant_reasoning_and_visible_text_recovered")
         elif self.name == "history":
             body = yield from self.setup_window()
             # A receipt near the end of a long record must lead back to that record.
@@ -415,6 +442,7 @@ def run_case(name, repo, output):
         "PATH": os.environ["PATH"], "LANG": "C.UTF-8", "HOME": str(directory / "home"), "TMPDIR": str(directory / "tmp"),
         "PI_CODING_AGENT_DIR": str(directory / "agent"), "PI_CONTEXT_TEST_URL": f"http://127.0.0.1:{server.server_port}",
         "NODE_OPTIONS": f"--import={repo}/node_modules/tsx/dist/loader.mjs", "TSX_TSCONFIG_PATH": str(repo / "tsconfig.json"),
+        "PI_CONTEXT_TEST_REASONING": "1" if name in ["thinking_search", "thinking_read"] else "0",
         "PI_CONTEXT_TEST_API": "openai-responses" if name == "responses" else "openai-completions",
         "PI_NO_LOCAL_LLM": "1", "AWS_EC2_METADATA_DISABLED": "true", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null",
     }
@@ -460,6 +488,9 @@ def run_case(name, repo, output):
         if name == "isolation" and len(sessions) == 2:
             assert sessions[0] != sessions[1], "Independent sessions share identity"
         assert (directory / "workspace/keep.txt").read_text() == scenario.nonce, "Context transition reset workspace"
+        if name == "ordinary" and scenario.done:
+            assert (directory / "workspace/builtin-output.txt").read_text() == "builtin-bash-" + scenario.nonce, "Builtin Bash filesystem effect missing while extension disabled"
+            scenario.checked("disabled_builtin_bash_filesystem_effect")
         passed = not scenario.errors and len(exits) == phases and all(code == 0 for code in exits)
     except Exception as exc:
         scenario.errors.append(repr(exc))

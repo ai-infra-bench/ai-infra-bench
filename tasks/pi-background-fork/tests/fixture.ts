@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { execFileSync } from "node:child_process";
 import { Type } from "typebox";
 
 // Verifier-owned user extension, installed through settings.json like the candidate's.
@@ -7,6 +8,15 @@ import { Type } from "typebox";
 // observations to the verifier. It never reads or changes the fork machinery.
 export default function fixture(pi: ExtensionAPI) {
 	const endpoint = process.env.PI_FORK_TEST_URL!;
+	// A normal user extension contributes a process-local workspace observation.
+	// It is registered after the candidate in this case, so the observed boundary
+	// is the final provider request, not one particular context handler's input.
+	if (process.env.PI_FORK_CONTEXT_OBSERVATION === "1") {
+		pi.on("context", event => ({ messages: [
+			{ role: "user" as const, content: `Workspace observation from process ${process.pid}`, timestamp: Date.now() },
+			...event.messages,
+		] }));
+	}
 	const post = async (path: string, body: Record<string, unknown>) => {
 		const response = await fetch(`${endpoint}${path}`, {
 			method: "POST",
@@ -16,6 +26,19 @@ export default function fixture(pi: ExtensionAPI) {
 		return response.text();
 	};
 	const event = (name: string, fields: Record<string, unknown> = {}) => post("/event", { event: name, ...fields });
+
+	// A normal extension tool can perform synchronous subprocess work. Ownership
+	// must still be enforced while this tool blocks the child Pi event loop.
+	pi.registerTool({
+		name: "synchronous-work", label: "Synchronous work",
+		description: "Perform a synchronous local operation.", parameters: Type.Object({}),
+		async execute() {
+			await event("synchronous_work_started");
+			execFileSync("/bin/sleep", ["12"]);
+			await event("synchronous_work_finished");
+			return { content: [{ type: "text", text: "synchronous work finished" }], details: {} };
+		},
+	});
 
 	const model = (id: string) => ({
 		id,

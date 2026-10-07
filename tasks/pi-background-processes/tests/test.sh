@@ -21,7 +21,40 @@
 # its .git belong to the agent, so check_scope.py hashes the protected files against
 # tests/base-manifest.json and the image's root-owned build manifest (see its docstring).
 set -uo pipefail
-mkdir -p /logs/verifier
+# Reap agent-phase writers before changing ownership or touching old outputs.
+reap_node() {
+  pkill -9 -u node 2>/dev/null || true
+  for _ in $(seq 1 100); do pgrep -u node >/dev/null 2>&1 || break; sleep 0.1; done
+}
+reap_node
+# Harbor uploads tests after the agent phase and may preserve the host UID.
+# Reap candidate processes first, then protect this trusted upload before loading
+# any Python helper or candidate code. A UID1000 host must not make /tests writable
+# by the node account. Reject links/special files instead of following them.
+/usr/bin/python3 -I - <<'PI_PROTECT_TESTS' || exit 2
+import os
+import stat
+from pathlib import Path
+root = Path("/tests")
+paths = [root]
+for parent, dirs, files in os.walk(root, followlinks=False):
+    paths.extend(Path(parent) / name for name in dirs + files)
+for path in paths:
+    mode = path.lstat().st_mode
+    if not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+        raise RuntimeError(f"unsupported verifier upload entry: {path}")
+for path in paths:
+    os.chown(path, 0, 0, follow_symlinks=False)
+    os.chmod(path, stat.S_IMODE(path.stat().st_mode) & ~0o022)
+PI_PROTECT_TESTS
+umask 022
+# Harbor may provide writable output mounts and pre-existing node-owned files.
+# Establish the boundary explicitly, preserving already-open stdout files.
+/usr/bin/python3 -I /tests/prepare_verifier_output.py || exit 2
+if ! su -p node -s /bin/bash -c '/usr/bin/python3 -I /tests/prepare_verifier_output.py --check-not-writable'; then
+  echo "verifier output isolation failed: candidate can still write an output path"
+  exit 2
+fi
 rm -f /logs/verifier/{reward.txt,reward.json,contract-junit.xml,lifecycle-junit.xml,contract-summary.json,lifecycle-summary.json,scope.log,scope-summary.json,candidate-tests-junit.xml}
 export PI_WORKSPACE=/workspace/pi
 export PI_VERIFIER_FIXTURES=/tests/fixtures
@@ -53,17 +86,11 @@ rm -rf "$VOUT" && mkdir -p "$VOUT" && chown node:node "$VOUT"
 # (-p keeps HOME/PI_*/NODE_OPTIONS and the unset provider keys). exec so the
 # timeout/kill lands on node, not on su.
 as_node() { su -p node -s /bin/bash -c "cd /workspace/pi/packages/coding-agent && $*"; }
-# Kill anything the candidate left running before root reads a report or writes
-# the reward, so no node-owned process can rewrite them afterwards.
-reap_node() {
-  pkill -9 -u node 2>/dev/null || true
-  for _ in $(seq 1 100); do pgrep -u node >/dev/null 2>&1 || break; sleep 0.1; done
-}
 
 if ! cd /workspace/pi/packages/coding-agent; then
   echo "verifier: workspace /workspace/pi/packages/coding-agent is missing" | tee /logs/verifier/verifier-error.log
   printf '0\n' > /logs/verifier/reward.txt
-  printf '{"reward":0,"command_exit_code":1,"error":"workspace missing"}\n' > /logs/verifier/reward.json
+  printf '{"reward":0,"command_exit_code":1}\n' > /logs/verifier/reward.json
   exit 0
 fi
 # Nothing the agent phase left running may touch the workspace while it is judged.
@@ -74,7 +101,7 @@ as_node 'rm -rf test/__verifier__' || true
 if su node -s /bin/bash -c 'test -w /tests || test -w /tests/test.sh || test -w /opt/pi-baseline'; then
   echo "verifier: /tests or /opt/pi-baseline is writable by the candidate user" | tee /logs/verifier/verifier-error.log
   printf '0\n' > /logs/verifier/reward.txt
-  printf '{"reward":0,"command_exit_code":1,"error":"verifier files writable by candidate"}\n' > /logs/verifier/reward.json
+  printf '{"reward":0,"command_exit_code":1}\n' > /logs/verifier/reward.json
   exit 0
 fi
 

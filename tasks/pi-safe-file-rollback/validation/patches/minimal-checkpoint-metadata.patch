@@ -303,12 +303,12 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..79b21885b6b06df6c86ca4aced3408dce4777891
 --- /dev/null
 +++ b/packages/coding-agent/src/core/safe-rollback.ts
-@@ -0,0 +1,370 @@
+@@ -0,0 +1,384 @@
 +import { execFileSync } from "node:child_process";
 +import { randomUUID } from "node:crypto";
 +import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 +import { chmod, lstat, mkdir, rmdir, unlink, writeFile } from "node:fs/promises";
-+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
++import { dirname, resolve } from "node:path";
 +import type { SessionManager } from "./session-manager.ts";
 +
 +export interface RollbackCheckpoint {
@@ -328,7 +328,21 @@ index 0000000000000000000000000000000000000000..79b21885b6b06df6c86ca4aced3408dc
 +	bytes: string;
 +	mode: number;
 +}
++// Path keys are byte strings: Latin-1 is a bijection from bytes to code units.
++// JSON escapes control characters without losing bytes. Never send these keys
++// directly to fs, which would encode them as UTF-8; decode to Buffer first.
 +type Snapshot = Record<string, FileImage>;
++
++function parentBytes(path: Buffer): Buffer {
++	const slash = path.lastIndexOf(0x2f);
++	return path.subarray(0, Math.max(1, slash));
++}
++
++function displayPath(path: string): string {
++	const bytes = Buffer.from(path, "latin1");
++	const text = bytes.toString("utf8");
++	return Buffer.from(text).equals(bytes) ? text : `bytes:${bytes.toString("hex")}`;
++}
 +interface Checkpoint extends RollbackCheckpoint {
 +	before: Snapshot;
 +	after?: Snapshot;
@@ -338,7 +352,7 @@ index 0000000000000000000000000000000000000000..79b21885b6b06df6c86ca4aced3408dc
 +	files: Record<string, FileImage | null>;
 +}
 +interface Journal {
-+	version: 1;
++	version: 2;
 +	sessionId: string;
 +	root: string;
 +	checkpoints: Checkpoint[];
@@ -374,7 +388,7 @@ index 0000000000000000000000000000000000000000..79b21885b6b06df6c86ca4aced3408dc
 +export class SafeRollbackStore {
 +	private readonly sessionManager: SessionManager;
 +	private readonly journalPath: string;
-+	private readonly excludedPaths: string[];
++	private readonly excludedPaths: Buffer[];
 +	private journal: Journal;
 +	private liveRequest = false;
 +	private restoring = false;
@@ -386,7 +400,7 @@ index 0000000000000000000000000000000000000000..79b21885b6b06df6c86ca4aced3408dc
 +		this.journalPath = journalPath;
 +		this.journal = journal;
 +		this.excludedPaths = [sessionManager.getSessionFile()!, journalPath, `${journalPath}.tmp`].map((path) =>
-+			resolve(path),
++			Buffer.from(resolve(path)),
 +		);
 +	}
 +
@@ -400,7 +414,7 @@ index 0000000000000000000000000000000000000000..79b21885b6b06df6c86ca4aced3408dc
 +		const journalPath = `${sessionFile}.rollback.json`;
 +		if (existsSync(journalPath)) {
 +			const journal = JSON.parse(readFileSync(journalPath, "utf8")) as Journal;
-+			if (journal.version !== 1 || journal.sessionId !== sessionManager.getSessionId()) {
++			if (journal.version !== 2 || journal.sessionId !== sessionManager.getSessionId()) {
 +				throw new Error("Invalid safe rollback journal for this session");
 +			}
 +			return new SafeRollbackStore(sessionManager, journalPath, journal);
@@ -409,9 +423,9 @@ index 0000000000000000000000000000000000000000..79b21885b6b06df6c86ca4aced3408dc
 +		const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
 +			cwd: sessionManager.getCwd(),
 +			encoding: "utf8",
-+		}).trim();
++		}).replace(/\n$/, "");
 +		const store = new SafeRollbackStore(sessionManager, journalPath, {
-+			version: 1,
++			version: 2,
 +			sessionId: sessionManager.getSessionId(),
 +			root,
 +			checkpoints: [],
@@ -546,7 +560,7 @@ index 0000000000000000000000000000000000000000..79b21885b6b06df6c86ca4aced3408dc
 +			}
 +		}
 +		if (conflicts.size > 0) {
-+			this.conflicts = [...conflicts].sort();
++			this.conflicts = [...conflicts].sort().map(displayPath);
 +			throw new Error(`Rollback conflicts with idle workspace edits: ${this.conflicts.join(", ")}`);
 +		}
 +		this.conflicts = undefined;
@@ -590,7 +604,7 @@ index 0000000000000000000000000000000000000000..79b21885b6b06df6c86ca4aced3408dc
 +				} catch (error) {
 +					if (!missing(error)) throw error;
 +				}
-+				await mkdir(dirname(absolute), { recursive: true });
++				await mkdir(parentBytes(absolute), { recursive: true });
 +				await writeFile(absolute, Buffer.from(file.bytes, "base64"), { mode: file.mode });
 +				await chmod(absolute, file.mode);
 +			}
@@ -614,16 +628,16 @@ index 0000000000000000000000000000000000000000..79b21885b6b06df6c86ca4aced3408dc
 +		}
 +	}
 +
-+	private absolute(path: string): string {
-+		const absolute = resolve(this.journal.root, path);
-+		const rel = relative(this.journal.root, absolute);
-+		if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel))
++	private absolute(path: string): Buffer {
++		// Git emits root-relative slash-separated bytes, with no normalization.
++		// Check components before joining so literal backslashes stay literal.
++		if (!path || path.includes("\0") || path.split("/").some((part) => !part || part === "." || part === ".."))
 +			throw new Error("Invalid rollback path");
-+		return absolute;
++		return Buffer.concat([Buffer.from(this.journal.root.replace(/\/$/, "") + "/"), Buffer.from(path, "latin1")]);
 +	}
 +
-+	private async removeEmptyParents(absolute: string): Promise<void> {
-+		for (let parent = dirname(absolute); parent !== this.journal.root; parent = dirname(parent)) {
++	private async removeEmptyParents(absolute: Buffer): Promise<void> {
++		for (let parent = parentBytes(absolute); !parent.equals(Buffer.from(this.journal.root)); parent = parentBytes(parent)) {
 +			try {
 +				await rmdir(parent);
 +			} catch (error) {
@@ -633,8 +647,8 @@ index 0000000000000000000000000000000000000000..79b21885b6b06df6c86ca4aced3408dc
 +		}
 +	}
 +
-+	private assertNoSymlinkParents(absolute: string): void {
-+		for (let parent = dirname(absolute); parent !== this.journal.root; parent = dirname(parent)) {
++	private assertNoSymlinkParents(absolute: Buffer): void {
++		for (let parent = parentBytes(absolute); !parent.equals(Buffer.from(this.journal.root)); parent = parentBytes(parent)) {
 +			try {
 +				if (lstatSync(parent).isSymbolicLink())
 +					throw new Error(`Symlink parent is outside rollback scope: ${parent}`);
@@ -649,13 +663,13 @@ index 0000000000000000000000000000000000000000..79b21885b6b06df6c86ca4aced3408dc
 +			cwd: this.journal.root,
 +			maxBuffer: 64 * 1024 * 1024,
 +		})
-+			.toString("utf8")
++			.toString("latin1")
 +			.split("\0")
 +			.filter(Boolean);
 +		const result: Snapshot = Object.create(null);
 +		for (const path of [...new Set(paths)].sort()) {
 +			const absolute = this.absolute(path);
-+			if (this.excludedPaths.includes(absolute)) continue;
++			if (this.excludedPaths.some((excluded) => excluded.equals(absolute))) continue;
 +			this.assertNoSymlinkParents(absolute);
 +			try {
 +				const stat = lstatSync(absolute);
@@ -890,7 +904,7 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..83a3ca031da9c464bf69f3c8ccdf0952363a94a5
 --- /dev/null
 +++ b/packages/coding-agent/test/safe-rollback.test.ts
-@@ -0,0 +1,169 @@
+@@ -0,0 +1,193 @@
 +import { execFileSync } from "node:child_process";
 +import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 +import { tmpdir } from "node:os";
@@ -1058,5 +1072,29 @@ index 0000000000000000000000000000000000000000..83a3ca031da9c464bf69f3c8ccdf0952
 +		await store.rollback(store.list()[0].id, restore);
 +		expect(readFileSync(join(cwd, "__proto__"), "utf8")).toBe("before");
 +		expect(existsSync(join(cwd, "constructor"))).toBe(false);
++	});
++
++	it("keeps raw filename bytes distinct from UTF-8 names across restart", async () => {
++		const raw = Buffer.concat([Buffer.from(cwd + "/raw-"), Buffer.from([255])]);
++		const unicode = join(cwd, "raw-ÿ");
++		const replacement = join(cwd, "raw-�");
++		writeFileSync(raw, "raw before");
++		writeFileSync(unicode, "unicode before");
++		writeFileSync(replacement, "replacement before");
++		chmodSync(raw, 0o751);
++		store.begin();
++		writeFileSync(raw, "raw changed");
++		chmodSync(raw, 0o600);
++		writeFileSync(unicode, "unicode changed");
++		rmSync(replacement);
++		store.finish();
++		manager = SessionManager.open(manager.getSessionFile()!);
++		store = SafeRollbackStore.open(manager, false)!;
++		await store.recover(restore);
++		await store.rollback(store.list()[0].id, restore);
++		expect(readFileSync(raw, "utf8")).toBe("raw before");
++		expect(statSync(raw).mode & 0o7777).toBe(0o751);
++		expect(readFileSync(unicode, "utf8")).toBe("unicode before");
++		expect(readFileSync(replacement, "utf8")).toBe("replacement before");
 +	});
 +});

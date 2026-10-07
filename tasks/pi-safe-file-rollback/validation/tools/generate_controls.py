@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Regenerate complete Base-applicable negative controls from the Oracle patch.
 
-Usage: python3 validation/tools/generate_controls.py --base-repo /path/to/pi
+Usage: python3 validation/tools/generate_controls.py --base-repo /path/to/pi \
+    --output-dir /tmp/rollback-control-generation
 The repository must contain the pinned Base object. It is never modified.
-Compilation and behavioral grading are separate validation steps.
+Compilation and behavioral grading are separate validation steps. Patches and
+ci-cases.json are updated in place; generation records go outside the task.
 """
 
 import argparse
@@ -111,11 +113,16 @@ def fingerprint(root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-repo", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True, help="New external directory for generation records")
     parser.add_argument("--cases", nargs="*", choices=[item[0] for item in CONTROLS])
     args = parser.parse_args()
     selected = [item for item in CONTROLS if not args.cases or item[0] in args.cases]
     tools = Path(__file__).resolve().parent
     validation = tools.parent
+    output = args.output_dir.resolve()
+    if output.is_relative_to(validation.parent.resolve()):
+        parser.error("--output-dir must be outside the task directory")
+    output.mkdir(parents=True, exist_ok=False)
     oracle = validation.parent / "solution/oracle.patch"
     archive = run(["git", "archive", BASE], cwd=args.base_repo)
     cases = []
@@ -157,13 +164,7 @@ def main():
     controlled_names = {item[0] for item in selected}
     existing["cases"] = [case for case in existing["cases"] if case["name"] not in controlled_names] + cases
     case_file.write_text(json.dumps(existing, indent=2) + "\n")
-    provenance_file = tools / "control-generation.json"
-    if args.cases and provenance_file.exists():
-        previous = json.loads(provenance_file.read_text())
-        assert previous["base_commit"] == provenance["base_commit"]
-        assert previous["oracle_patch_sha256"] == provenance["oracle_patch_sha256"]
-        provenance["controls"] = [item for item in previous["controls"] if item["name"] not in controlled_names] + provenance["controls"]
-    provenance_file.write_text(json.dumps(provenance, indent=2) + "\n")
+    (output / "control-generation.json").write_text(json.dumps(provenance, indent=2) + "\n")
     print(f"Generated and checked {len(cases)} standalone Base patches")
 
 

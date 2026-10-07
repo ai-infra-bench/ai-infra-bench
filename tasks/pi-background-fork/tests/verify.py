@@ -35,6 +35,8 @@ WAIT = 45.0
 
 CASES = [
     "basic_fork",
+    "literal_tasks",
+    "context_snapshot",
     "deliver_while_running",
     "compacted_context",
     "parallel_forks",
@@ -45,6 +47,7 @@ CASES = [
     "empty_task",
     "final_answer",
     "parent_killed",
+    "parent_killed_sync_tool",
     "deliver_at_run_end",
     "fork_beside_running_tool",
     "deliver_during_compaction",
@@ -524,6 +527,42 @@ def own_task(body, tasks):
     return []
 
 
+def case_literal_tasks(case, run):
+    tasks = ["- Inspect the other call sites\n- Report whether they have the same bug",
+             "@not-a-file: investigate this literal task",
+             "/verifier-reload inspect the reload command without running it"]
+    case.child_script = lambda c, b, p: ("text", "LT-CHILD-ANSWER done")
+    case.script = parent_script("LT", tasks, "LT-PARENT-AFTER")
+    parent = run.start("fork-test/scripted-a")
+    parent.prompt("LT-USER LT-FORK investigate the three literal tasks")
+    run.require_fork_tool()
+    parent.wait_idle_runs(1)
+    path = run.session_file(parent)
+    case.wait_until(lambda: len(fork_results(path)) == len(tasks), "all literal task results")
+    ids = check_fork_tool_result(parent)
+    results = fork_results(path)
+    for entry in results:
+        check(entry["details"]["forkId"] in ids, "unknown fork result")
+        check_result_entry(entry, entry["details"]["forkId"], "completed", path)
+    requests = case.child_requests()
+    children = case.requesting_children()
+    check(len(children) == len(tasks), "every task must reach a child model")
+    received = []
+    for pid in children:
+        first = next(r["body"] for r in requests if r["pid"] == pid)
+        assigned = own_task(first, tasks)
+        check(len(assigned) == 1, "child must receive exactly its literal task after the forking message")
+        received.append(assigned[0])
+    check(sorted(received) == sorted(tasks), f"tasks interpreted or changed: {received!r}")
+    check(not [e for e in case.events if e.get("event") == "reload_requested"],
+          "literal task invoked a command")
+    check_no_children(case)
+
+
+def case_context_snapshot(case, run):
+    case_basic_fork(case, run)
+
+
 def case_basic_fork(case, run):
     task = "BF-TASK: report the codename you were told"
     case.child_script = None
@@ -946,6 +985,55 @@ def case_parent_killed(case, run):
     check_no_children(case, since=killed_at)
 
 
+def case_parent_killed_sync_tool(case, run):
+    def child_script(_case, body, _pid):
+        if convo(body)[-1].get("role") == "tool":
+            return ("text", "SYNC-CHILD-ANSWER done")
+        return ("tools", [("synchronous-work", {})])
+
+    case.child_script = child_script
+    case.script = parent_script("SYNC", ["Perform a synchronous local investigation"], "SYNC-PARENT-AFTER")
+    parent = run.start("fork-test/scripted-a")
+    parent.prompt("SYNC-USER SYNC-FORK investigate in the background")
+    run.require_fork_tool()
+    parent.wait_idle_runs(1)
+    event = case.wait_until(lambda: [e for e in case.events
+                                    if e.get("event") == "synchronous_work_started" and e["pid"] != case.parent_pid],
+                            "the fork's synchronous tool start")[0]
+    child_pid = event["pid"]
+    # Observe the actual synchronous subprocess, rather than assuming that the
+    # event sent immediately before execFileSync means the blocking call began.
+    def synchronous_subprocess():
+        try:
+            children = Path(f"/proc/{child_pid}/task/{child_pid}/children").read_text().split()
+            return next((int(pid) for pid in children
+                         if [arg for arg in cmdline(int(pid)) if arg] == [b"/bin/sleep", b"12"]), None)
+        except FileNotFoundError:
+            return None
+
+    tool_pid = case.wait_until(synchronous_subprocess, "the fork's execFileSync subprocess")
+    parent_file = run.session_file(parent)
+    try:
+        check(alive(child_pid), "scenario: child exited before parent death")
+        check(not any(e.get("event") == "synchronous_work_finished" for e in case.events),
+              "scenario: synchronous work already completed")
+        killed_at = time.monotonic()
+        kill_as_node(parent.proc.pid)
+        parent.proc.wait(timeout=10)
+        check(not case.parent_events("session_shutdown"), "scenario: parent shut down instead of dying")
+        while alive(child_pid) and time.monotonic() - killed_at < STOP_BOUND:
+            time.sleep(0.025)
+        case.record("event", {"event": "sync_parent_death_observation", "pid": child_pid,
+                              "elapsed_after_kill": time.monotonic() - killed_at,
+                              "child_alive": alive(child_pid), "tool_pid": tool_pid})
+        check(not alive(child_pid), "fork still running 5s after parent death during synchronous tool execution")
+        check(not fork_results(parent_file), "a stopped fork delivered a result")
+    finally:
+        # Cleanup is after the independent Pi-process ownership observation.
+        if alive(tool_pid):
+            kill_as_node(tool_pid)
+
+
 def case_deliver_at_run_end(case, run):
     task = "RE-TASK: finish while the parent writes its last reply"
 
@@ -1256,7 +1344,8 @@ def run_case(name, output):
     for part in ["agent", "home", "tmp", "work", "bin"]:
         (scratch / part).mkdir()
     (agent_dir / "settings.json").write_text(json.dumps({
-        "extensions": [str(fixture), str(EXTENSION)],
+        "extensions": ([str(EXTENSION), str(fixture)] if name == "context_snapshot"
+                       else [str(fixture), str(EXTENSION)]),
         "compaction": {"enabled": False, "keepRecentTokens": 1},
         "retry": {"enabled": False},
     }))
@@ -1269,6 +1358,7 @@ def run_case(name, output):
         "PATH": f"{scratch / 'bin'}:/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8", "TZ": "UTC",
         "HOME": str(scratch / "home"), "TMPDIR": str(scratch / "tmp"), "PI_CODING_AGENT_DIR": str(agent_dir),
         "PI_FORK_TEST_URL": f"http://127.0.0.1:{server.server_port}",
+        "PI_FORK_CONTEXT_OBSERVATION": "1" if name == "context_snapshot" else "0",
         "PI_OFFLINE": "1", "PI_TELEMETRY": "0", "PI_NO_LOCAL_LLM": "1",
         "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null",
     }

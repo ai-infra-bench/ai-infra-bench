@@ -3,9 +3,10 @@
   "cases": [
     {
       "name": "alternative-class-manager-sparse-index",
-      "expected_reward": 1,
+      "expected_reward": 0,
       "patch": "patches/alternative-class-manager-sparse-index.patch",
-      "patch_sha256": "90c32bba76cb38145b2512af1fc6385d3d978169a1a42cae7023fddc1fecf4b1"
+      "patch_sha256": "90c32bba76cb38145b2512af1fc6385d3d978169a1a42cae7023fddc1fecf4b1",
+      "reason": "Retained unchanged as an incomplete alternative: long foreground output omits the builtin truncation annotation and details, despite correctly handling independent ready/error matches."
     },
     {
       "name": "control-killall-on-session-shutdown",
@@ -93,9 +94,10 @@
     },
     {
       "name": "alt-grok-0.0.4-vitest-guard",
-      "expected_reward": 1,
+      "expected_reward": 0,
       "patch": "patches/alt-grok-0.0.4-vitest-guard.patch",
-      "patch_sha256": "607b2ae60eb5284fe89eb707e23dedff891af5a4709025021adfb9e88cbd44a8"
+      "patch_sha256": "607b2ae60eb5284fe89eb707e23dedff891af5a4709025021adfb9e88cbd44a8",
+      "reason": "Retained unchanged as an incomplete historical submission: the foreground long-line annotation reports the retained 50 KB tail as the total line size, instead of the actual 80 KB line."
     },
     {
       "name": "alt-grok-0.0.4-clean-pass",
@@ -128,6 +130,34 @@
       "apply_after": "oracle",
       "patch": "patches/control-built-dist-tampered.patch",
       "patch_sha256": "34b2986a790d756d103fdd2ce2abed6efb86a55319fb795c675c62d6460369eb"
+    },
+    {
+      "name": "control-overlapping-ready-error",
+      "expected_reward": 0,
+      "patch": "patches/control-overlapping-ready-error.patch",
+      "patch_sha256": "1011d89f0ea5e635bd6fc2c606baba8f4107adef0df436365f1eebb2d4c7886a",
+      "reason": "Previous reference treats ready and error as mutually exclusive when one output line matches both; each fired reason is required."
+    },
+    {
+      "name": "control-foreground-truncation-format",
+      "expected_reward": 0,
+      "patch": "patches/control-foreground-truncation-format.patch",
+      "patch_sha256": "e803d5a60e8f4ca265329ad7d2dce3996c81991d6a9c1d6d729c07fc75926af2",
+      "reason": "Previous reference fixes overlapping wake patterns but manually formats truncated foreground output, loses builtin metadata and mislabels long partial lines."
+    },
+    {
+      "name": "control-per-line-heap-index",
+      "patch": "patches/control-per-line-heap-index.patch",
+      "patch_sha256": "d11c4ceafccf2afaa50c3c64339e0e4d83cc77bbdafd98e9d5fe4903ae65f95f",
+      "expected_reward": 0,
+      "reason": "Previous Oracle retained byte-for-byte: retains one heap offset per output line, so48MiB of short lines grows retained heap by about276MiB."
+    },
+    {
+      "name": "control-signal-exits-zero",
+      "patch": "patches/control-signal-exits-zero.patch",
+      "patch_sha256": "0c41c1ecf3267aa6b0df439268f51c495bd408128095cb52ca59410691d76cfb",
+      "expected_reward": 0,
+      "reason": "Current Oracle completes managed-process cleanup after SIGTERM/SIGINT, then exits the actual Pi process with status0 instead of by signal or nonzero as required."
     }
   ]
 }

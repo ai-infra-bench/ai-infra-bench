@@ -1,0 +1,21 @@
+--- a/packages/coding-agent/examples/extensions/plan-mode/index.ts
++++ b/packages/coding-agent/examples/extensions/plan-mode/index.ts
+@@ -174,14 +174,14 @@
+ 		try {
+ 			const choice = await ctx.ui.select(
+ 				`Plan ${displayed.planId}, revision ${displayed.revision}\n${displayed.steps.map((step, i) => `${i + 1}. ${step}`).join("\n")}\nWhat next?`,
+-				["Execute the plan (track progress)", "Stay in plan mode", "Refine the plan"],
++				["Run approved steps", "Keep planning", "Revise draft"],
+ 			);
+-			if (choice === "Execute the plan (track progress)" && displayed.planId) {
++			if (choice === "Run approved steps" && displayed.planId) {
+ 				const error = approve(ctx, displayed.sessionId, displayed.planId, displayed.revision);
+ 				result("approve", error);
+ 				if (error) ctx.ui.notify(`Plan approval rejected: ${error}`, "warning");
+-			} else if (choice === "Refine the plan") {
+-				const refinement = await ctx.ui.editor("Refine the plan:", "");
++			} else if (choice === "Revise draft") {
++				const refinement = await ctx.ui.editor("Revise draft:", "");
+ 				if (refinement?.trim() && state.mode === "planning" && state.planId === displayed.planId && !busy(ctx)) {
+ 					pi.sendUserMessage(refinement.trim(), { deliverAs: "followUp" });
+ 				}

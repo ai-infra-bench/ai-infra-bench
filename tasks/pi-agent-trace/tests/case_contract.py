@@ -23,6 +23,7 @@ CONTRACT_CASES = {
 }
 
 LIFECYCLE_CASES = {
+    'a completed sequential tool is durable while the following tool is still running',
     "a later pi process appends to the same trace with the same trace id and its own process id",
     "a pi process killed during a tool execution leaves that turn's chat span on disk",
 }

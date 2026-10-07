@@ -252,7 +252,7 @@ def main() -> None:
     previous = json.loads(manifest_path.read_text()) if manifest_path.exists() else {"cases": []}
     generated_names = {case[0] for case in generated}
     retained = [case for case in previous["cases"] if case["name"] not in generated_names]
-    manifest = {"schema_version": "ai_infra_bench_validation_cases.v2", "cases": retained + entries}
+    manifest = {**previous, "schema_version": "ai_infra_bench_validation_cases.v2", "cases": retained + entries}
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     (tools / "wrong-control-provenance.json").write_text(json.dumps({
         "base_commit": BASE_SHA,

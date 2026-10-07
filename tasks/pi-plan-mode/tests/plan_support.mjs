@@ -22,9 +22,11 @@ function selectAction(choices, kind) {
   const label = uiActions.select?.[kind];
   if (label !== undefined) {
     if (typeof label !== "string" || !label.length) throw new Error(`Invalid UI binding for ${kind}`);
-    return choices.find((value) => value === label);
+    const choice = choices.find((value) => value === label);
+    if (choice === undefined) throw new Error(`Unbound public UI action ${kind}: ${JSON.stringify(choices)}`);
+    return choice;
   }
-  return choices.find((value) => value.toLowerCase().includes(kind.toLowerCase()));
+  throw new Error(`Missing reviewed UI binding for ${kind}`);
 }
 
 export const WORKSPACE = process.env.PI_WORKSPACE ?? "/workspace/pi";

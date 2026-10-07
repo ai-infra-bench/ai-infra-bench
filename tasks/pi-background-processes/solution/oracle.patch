@@ -1,6 +1,5 @@
 diff --git a/packages/coding-agent/examples/extensions/background-processes/README.md b/packages/coding-agent/examples/extensions/background-processes/README.md
 new file mode 100644
-index 0000000..f49dd1f
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/background-processes/README.md
 @@ -0,0 +1,72 @@
@@ -78,10 +77,9 @@ index 0000000..f49dd1f
 +```
 diff --git a/packages/coding-agent/examples/extensions/background-processes/index.ts b/packages/coding-agent/examples/extensions/background-processes/index.ts
 new file mode 100644
-index 0000000..a3e3f5f
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/background-processes/index.ts
-@@ -0,0 +1,945 @@
+@@ -0,0 +1,936 @@
 +/**
 + * Background Processes Extension
 + *
@@ -119,7 +117,7 @@ index 0000000..a3e3f5f
 +	type ExtensionAPI,
 +	type ExtensionContext,
 +	getShellConfig,
-+	truncateTail,
++	createBashToolDefinition,
 +} from "@earendil-works/pi-coding-agent";
 +import { Type } from "typebox";
 +
@@ -166,9 +164,6 @@ index 0000000..a3e3f5f
 +const DEFAULT_KILL_TIMEOUT_SEC = 5;
 +const DEFAULT_CLEANUP_TIMEOUT_SEC = 30;
 +const DEFAULT_STALLED_SEC = 30;
-+const FOREGROUND_MAX_LINES = 2000;
-+const FOREGROUND_MAX_BYTES = 50 * 1024;
-+const FOREGROUND_BUFFER_BYTES = 4 * 1024 * 1024;
 +const EXIT_GRACE_MS = 1000;
 +
 +// ---------------------------------------------------------------------------
@@ -187,12 +182,12 @@ index 0000000..a3e3f5f
 +	ownerSessionId: string;
 +	logPath: string;
 +	recordPath: string;
-+	/** Byte offset where line i starts; the final entry is the current file length. */
-+	lineStarts: number[];
++	/** Scalar positions only: raw bytes are spooled immediately, including partial lines. */
++	writtenBytes: number;
++	completeBytes: number;
 +	fd: number | null;
 +	child: ChildProcess | null;
 +	pgid: number | null;
-+	pending: Buffer;
 +	rules: WakeRules;
 +	readyFired: boolean;
 +	outputFired: boolean;
@@ -286,29 +281,47 @@ index 0000000..a3e3f5f
 +	}
 +}
 +
-+/** Rebuild line offsets for a log file written by an earlier pi process. */
-+function scanLineStarts(path: string): number[] {
-+	const starts = [0];
-+	if (!existsSync(path)) return starts;
++/** Visit line boundaries with one fixed-size buffer, never retaining a per-line index. */
++function visitLines(path: string, length: number, visit: (start: number, end: number, line: number) => boolean): void {
++	if (length === 0 || !existsSync(path)) return;
 +	const fd = openSync(path, "r");
 +	try {
 +		const chunk = Buffer.allocUnsafe(1 << 16);
 +		let position = 0;
-+		for (;;) {
-+			const read = readSync(fd, chunk, 0, chunk.length, position);
++		let start = 0;
++		let line = 0;
++		while (position < length) {
++			const read = readSync(fd, chunk, 0, Math.min(chunk.length, length - position), position);
 +			if (read === 0) break;
 +			let index = chunk.indexOf(10, 0);
 +			while (index !== -1 && index < read) {
-+				starts.push(position + index + 1);
++				const end = position + index + 1;
++				if (!visit(start, end, line++)) return;
++				start = end;
 +				index = chunk.indexOf(10, index + 1);
 +			}
 +			position += read;
 +		}
-+		if (starts[starts.length - 1] !== position) starts.push(position);
++		if (start < position) visit(start, position, line);
 +	} finally {
 +		closeSync(fd);
 +	}
-+	return starts;
++}
++
++function readRange(path: string, position: number, length: number): Buffer {
++	const buffer = Buffer.allocUnsafe(length);
++	const fd = openSync(path, "r");
++	try {
++		let offset = 0;
++		while (offset < length) {
++			const read = readSync(fd, buffer, offset, length - offset, position + offset);
++			if (read === 0) return buffer.subarray(0, offset);
++			offset += read;
++		}
++		return buffer;
++	} finally {
++		closeSync(fd);
++	}
 +}
 +
 +// ---------------------------------------------------------------------------
@@ -400,51 +413,39 @@ index 0000000..a3e3f5f
 +
 +	function ingest(managed: Managed, chunk: Buffer): void {
 +		managed.onChunk?.(chunk);
-+		const data = managed.pending.length ? Buffer.concat([managed.pending, chunk]) : chunk;
-+		const lastNewline = data.lastIndexOf(10);
-+		if (lastNewline === -1) {
-+			managed.pending = data;
-+			return;
-+		}
-+		const complete = data.subarray(0, lastNewline + 1);
-+		managed.pending = Buffer.from(data.subarray(lastNewline + 1));
-+		appendLines(managed, complete);
++		appendLines(managed, chunk);
 +	}
 +
-+	function appendLines(managed: Managed, complete: Buffer): void {
-+		if (managed.fd === null || complete.length === 0) return;
-+		const base = managed.lineStarts[managed.lineStarts.length - 1]!;
-+		writeSync(managed.fd, complete);
++	function appendLines(managed: Managed, chunk: Buffer): void {
++		if (managed.fd === null || chunk.length === 0) return;
++		const base = managed.writtenBytes;
++		writeSync(managed.fd, chunk);
++		managed.writtenBytes += chunk.length;
 +		const needText =
 +			managed.rules.ready !== null ||
 +			managed.rules.error !== null ||
 +			(managed.record.backgrounded && managed.rules.output && !managed.outputFired);
-+		let start = 0;
-+		let index = complete.indexOf(10, 0);
++		let index = chunk.indexOf(10, 0);
 +		while (index !== -1) {
-+			managed.lineStarts.push(base + index + 1);
++			const end = base + index;
 +			if (needText) {
-+				const line = complete.toString("utf8", start, index);
-+				if (managed.rules.ready && !managed.readyFired && managed.rules.ready.test(line)) {
-+					queueWake(managed, "ready", line);
-+				} else if (managed.rules.error?.test(line)) {
-+					queueWake(managed, "error", line);
-+				}
-+				if (managed.record.backgrounded && managed.rules.output && !managed.outputFired) {
-+					queueWake(managed, "output", line);
-+				}
++				// A line split across chunks is recovered from disk only when a wake
++				// needs its text. Partial output itself is never retained in memory.
++				const line = managed.completeBytes >= base
++					? chunk.toString("utf8", managed.completeBytes - base, index)
++					: readRange(managed.logPath, managed.completeBytes, end - managed.completeBytes).toString("utf8");
++				if (managed.rules.ready && !managed.readyFired && managed.rules.ready.test(line)) queueWake(managed, "ready", line);
++				if (managed.rules.error?.test(line)) queueWake(managed, "error", line);
++				if (managed.record.backgrounded && managed.rules.output && !managed.outputFired) queueWake(managed, "output", line);
 +			}
-+			start = index + 1;
-+			index = complete.indexOf(10, start);
++			managed.completeBytes = end + 1;
++			managed.record.logLines += 1;
++			index = chunk.indexOf(10, index + 1);
 +		}
-+		managed.record.logLines = managed.lineStarts.length - 1;
 +	}
 +
 +	function flushPending(managed: Managed): void {
-+		if (managed.pending.length === 0) return;
-+		const tail = Buffer.concat([managed.pending, Buffer.from("\n")]);
-+		managed.pending = Buffer.alloc(0);
-+		appendLines(managed, tail);
++		if (managed.writtenBytes > managed.completeBytes) appendLines(managed, Buffer.from("\n"));
 +	}
 +
 +	function appendNote(managed: Managed, text: string): void {
@@ -471,6 +472,7 @@ index 0000000..a3e3f5f
 +		wake?: { ready?: string; error?: string };
 +		cleanup?: { command: string; timeoutSec?: number };
 +		foreground?: boolean;
++		env?: NodeJS.ProcessEnv;
 +	}): Managed {
 +		if (!sessionDir) throw new Error("background-processes: session storage is not initialised yet");
 +		const cwd = input.cwd ? (isAbsolute(input.cwd) ? input.cwd : resolve(cwdDefault, input.cwd)) : cwdDefault;
@@ -494,7 +496,7 @@ index 0000000..a3e3f5f
 +			cwd,
 +			detached: true,
 +			stdio: ["ignore", "pipe", "pipe"],
-+			env: process.env,
++			env: input.env ?? process.env,
 +		});
 +		if (!child.pid) {
 +			closeSync(fd);
@@ -523,11 +525,11 @@ index 0000000..a3e3f5f
 +			ownerSessionId: sessionId,
 +			logPath,
 +			recordPath,
-+			lineStarts: [0],
++			writtenBytes: 0,
++			completeBytes: 0,
 +			fd,
 +			child,
 +			pgid: child.pid,
-+			pending: Buffer.alloc(0),
 +			rules,
 +			readyFired: false,
 +			outputFired: false,
@@ -619,33 +621,40 @@ index 0000000..a3e3f5f
 +	}
 +
 +	function readPage(managed: Managed, offset: number | undefined, limit: number | undefined) {
-+		if (managed.fd === null && managed.lineStarts.length === 1) managed.lineStarts = scanLineStarts(managed.logPath);
-+		const starts = managed.lineStarts;
-+		const total = starts.length - 1;
-+		let first: number;
-+		let last: number; // exclusive
++		const total = managed.record.logLines;
++		const length = managed.completeBytes;
++		let first = Math.min(Math.max(Math.trunc(offset ?? 0), 0), total);
++		let buffer: Buffer = Buffer.alloc(0);
 +		if (offset === undefined && limit === undefined) {
-+			last = total;
-+			first = total;
-+			while (first > 0 && starts[last]! - starts[first - 1]! <= PAGE_BYTES) first -= 1;
-+		} else {
-+			first = Math.min(Math.max(offset ?? 0, 0), total);
-+			last = limit === undefined ? total : Math.min(first + Math.max(limit, 0), total);
-+			while (last > first && starts[last]! - starts[first]! > PAGE_BYTES) last -= 1;
-+		}
-+		let lines: string[] = [];
-+		if (last > first && existsSync(managed.logPath)) {
-+			const fd = openSync(managed.logPath, "r");
-+			try {
-+				const length = starts[last]! - starts[first]!;
-+				const buffer = Buffer.allocUnsafe(length);
-+				readSync(fd, buffer, 0, length, starts[first]!);
-+				const text = buffer.toString("utf8");
-+				lines = text.endsWith("\n") ? text.slice(0, -1).split("\n") : text.split("\n");
-+			} finally {
-+				closeSync(fd);
++			// Read at most one page plus the preceding byte to detect whether the
++			// page starts on a line boundary; discard only an incomplete first line.
++			const start = Math.max(0, length - PAGE_BYTES);
++			const probe = Math.max(0, start - 1);
++			buffer = readRange(managed.logPath, probe, length - probe);
++			if (start > 0) {
++				const previous = buffer[0];
++				buffer = buffer.subarray(1);
++				if (previous !== 10) {
++					const newline = buffer.indexOf(10);
++					buffer = newline === -1 ? Buffer.alloc(0) : buffer.subarray(newline + 1);
++				}
 +			}
++		} else if (first < total && (limit === undefined || limit > 0)) {
++			const count = limit === undefined ? total - first : Math.max(0, Math.trunc(limit));
++			let from = 0;
++			let to = 0;
++			visitLines(managed.logPath, length, (start, end, line) => {
++				if (line < first) return true;
++				if (line === first) from = start;
++				if (line - first >= count || end - from > PAGE_BYTES) return false;
++				to = end;
++				return line - first + 1 < count;
++			});
++			if (to > from) buffer = readRange(managed.logPath, from, to - from);
 +		}
++		const text = buffer.toString("utf8");
++		const lines = buffer.length === 0 ? [] : (text.endsWith("\n") ? text.slice(0, -1) : text).split("\n");
++		if (offset === undefined && limit === undefined) first = total - lines.length;
 +		return { id: managed.record.id, offset: first, lines, total };
 +	}
 +
@@ -679,11 +688,11 @@ index 0000000..a3e3f5f
 +						ownerSessionId: sessionId,
 +						logPath: join(dir, `${record.id}.log`),
 +						recordPath: join(dir, entry),
-+						lineStarts: [0],
++						writtenBytes: 0,
++						completeBytes: 0,
 +						fd: null,
 +						child: null,
 +						pgid: null,
-+						pending: Buffer.alloc(0),
 +						rules: { ready: null, error: null, exit: false, output: false },
 +						readyFired: true,
 +						outputFired: true,
@@ -698,8 +707,10 @@ index 0000000..a3e3f5f
 +						queuedLine: null,
 +						queuedExitCode: null,
 +					};
-+					managed.lineStarts = scanLineStarts(managed.logPath);
-+					managed.record.logLines = managed.lineStarts.length - 1;
++					managed.writtenBytes = existsSync(managed.logPath) ? statSync(managed.logPath).size : 0;
++					managed.completeBytes = managed.writtenBytes;
++					managed.record.logLines = 0;
++					visitLines(managed.logPath, managed.completeBytes, () => { managed.record.logLines += 1; return true; });
 +					state.processes.set(record.id, managed);
 +				} catch {
 +					// unreadable record; skip
@@ -953,83 +964,60 @@ index 0000000..a3e3f5f
 +				}),
 +			),
 +		}),
-+		async execute(_toolCallId, params, signal, onUpdate, ctx) {
++		async execute(toolCallId, params, signal, onUpdate, ctx) {
 +			bind(ctx);
-+			const timeoutMs = resolveTimeoutMs(params.timeout);
 +			const stalledSec = resolveStalledSec(params.stalledSec);
-+			if (signal?.aborted) throw new Error("Command aborted");
-+			const managed = startManaged({ command: params.command, foreground: true });
-+
-+			const chunks: Buffer[] = [];
-+			let buffered = 0;
-+			const outputText = () => Buffer.concat(chunks).toString("utf8");
-+			const render = (empty: string) => {
-+				const truncation = truncateTail(outputText(), {
-+					maxLines: FOREGROUND_MAX_LINES,
-+					maxBytes: FOREGROUND_MAX_BYTES,
-+				});
-+				let text = truncation.content || empty;
-+				if (truncation.truncated) {
-+					const startLine = truncation.totalLines - truncation.outputLines + 1;
-+					text += `\n\n[Showing lines ${startLine}-${truncation.totalLines} of ${truncation.totalLines}. Full output: ${managed.logPath}]`;
-+				}
-+				return text;
-+			};
-+			const withStatus = (text: string, status: string) => `${text ? `${text}\n\n` : ""}${status}`;
-+
-+			type Outcome = "exited" | "backgrounded" | "timeout" | "aborted";
-+			let settle: (outcome: Outcome) => void = () => {};
-+			const settled = new Promise<Outcome>((resolveFn) => {
-+				settle = resolveFn;
-+			});
-+			let stallTimer: NodeJS.Timeout | undefined;
-+			const armStall = () => {
-+				if (stallTimer) clearTimeout(stallTimer);
-+				stallTimer = setTimeout(() => settle("backgrounded"), stalledSec * 1000);
-+			};
-+			managed.onChunk = (chunk) => {
-+				chunks.push(chunk);
-+				buffered += chunk.length;
-+				while (buffered > FOREGROUND_BUFFER_BYTES && chunks.length > 1) buffered -= chunks.shift()!.length;
-+				armStall();
-+				onUpdate?.({ content: [{ type: "text", text: outputText() }], details: undefined });
-+			};
-+			armStall();
-+			const timeoutTimer = timeoutMs === undefined ? undefined : setTimeout(() => settle("timeout"), timeoutMs);
-+			const onAbort = () => settle("aborted");
-+			signal?.addEventListener("abort", onAbort, { once: true });
-+			void managed.exited.then(() => settle("exited"));
-+
-+			const outcome = await settled;
-+			if (stallTimer) clearTimeout(stallTimer);
-+			if (timeoutTimer) clearTimeout(timeoutTimer);
-+			signal?.removeEventListener("abort", onAbort);
-+			managed.onChunk = null;
-+
-+			if (outcome === "backgrounded") {
-+				background(managed, stalledSec);
-+				return result({ ...managed.record });
-+			}
-+			if (outcome === "timeout" || outcome === "aborted") {
-+				await kill(managed, 1);
-+				const text = render("");
-+				throw new Error(
-+					withStatus(
-+						text,
-+						outcome === "timeout" ? `Command timed out after ${params.timeout} seconds` : "Command aborted",
-+					),
-+				);
-+			}
-+			const text = render("(no output)");
-+			const code = managed.record.exitCode;
-+			if (code !== 0 && code !== null) throw new Error(withStatus(text, `Command exited with code ${code}`));
-+			return { content: [{ type: "text", text }], details: undefined };
++			let promoted: Managed | undefined;
++			// The public built-in owns decoding, bounded accumulation, full-output
++			// persistence, truncation details and error formatting. Only the process
++			// lifetime changes when the silence deadline promotes it to the background.
++			const builtin = createBashToolDefinition(ctx.cwd, { operations: {
++				async exec(command, cwd, { onData, signal, timeout, env }) {
++					const timeoutMs = resolveTimeoutMs(timeout);
++					if (signal?.aborted) throw new Error("aborted");
++					const managed = startManaged({ command, cwd, env, foreground: true });
++					type Outcome = "exited" | "backgrounded" | "timeout" | "aborted";
++					let settle: (outcome: Outcome) => void = () => {};
++					const settled = new Promise<Outcome>(resolve => { settle = resolve; });
++					let stallTimer: NodeJS.Timeout | undefined;
++					const armStall = () => {
++						if (stallTimer) clearTimeout(stallTimer);
++						stallTimer = setTimeout(() => settle("backgrounded"), stalledSec * 1000);
++					};
++					managed.onChunk = chunk => { onData(chunk); armStall(); };
++					armStall();
++					const timeoutTimer = timeoutMs === undefined ? undefined : setTimeout(() => settle("timeout"), timeoutMs);
++					const onAbort = () => settle("aborted");
++					signal?.addEventListener("abort", onAbort, { once: true });
++					void managed.exited.then(() => settle("exited"));
++					try {
++						const outcome = await settled;
++						if (outcome === "backgrounded") {
++							background(managed, stalledSec);
++							promoted = managed;
++							return { exitCode: 0 };
++						}
++						if (outcome === "timeout" || outcome === "aborted") {
++							await kill(managed, 1);
++							throw new Error(outcome === "timeout" ? `timeout:${timeout}` : "aborted");
++						}
++						return { exitCode: managed.record.exitCode };
++					} finally {
++						if (stallTimer) clearTimeout(stallTimer);
++						if (timeoutTimer) clearTimeout(timeoutTimer);
++						signal?.removeEventListener("abort", onAbort);
++						managed.onChunk = null;
++					}
++				},
++			} });
++			const foregroundResult = await builtin.execute(toolCallId,
++				{ command: params.command, timeout: params.timeout }, signal, onUpdate, ctx);
++			return promoted ? result({ ...promoted.record }) : foregroundResult;
 +		},
 +	});
 +}
 diff --git a/packages/coding-agent/test/background-processes-extension.test.ts b/packages/coding-agent/test/background-processes-extension.test.ts
 new file mode 100644
-index 0000000..5b9e098
 --- /dev/null
 +++ b/packages/coding-agent/test/background-processes-extension.test.ts
 @@ -0,0 +1,203 @@

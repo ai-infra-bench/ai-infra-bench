@@ -56,9 +56,10 @@ def input_hashes(task_dir: Path) -> dict[str, str]:
         lock_path.relative_to(environment).as_posix(): sha256_file(lock_path),
         "lock/manifest.json": sha256_file(lock_manifest_path),
     }
-    runtime_config = environment / "pi-template.json"
-    if runtime_config.is_file():
-        files["pi-template.json"] = sha256_file(runtime_config)
+    for name in ("pi-template.json", "build-config.json"):
+        config_path = environment / name
+        if config_path.is_file():
+            files[name] = sha256_file(config_path)
     return files
 
 

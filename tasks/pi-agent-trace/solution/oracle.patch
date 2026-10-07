@@ -1,6 +1,6 @@
 diff --git a/packages/coding-agent/examples/extensions/agent-trace/README.md b/packages/coding-agent/examples/extensions/agent-trace/README.md
 new file mode 100644
-index 000000000..465470060
+index 0000000..4654700
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/agent-trace/README.md
 @@ -0,0 +1,73 @@
@@ -79,9 +79,10 @@ index 000000000..465470060
 +Run the offline regression tests with `npm test -w packages/coding-agent`.
 diff --git a/packages/coding-agent/examples/extensions/agent-trace/index.ts b/packages/coding-agent/examples/extensions/agent-trace/index.ts
 new file mode 100644
+index 0000000..4797856
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/agent-trace/index.ts
-@@ -0,0 +1,539 @@
+@@ -0,0 +1,555 @@
 +/**
 + * Agent Trace Extension
 + *
@@ -461,8 +462,26 @@ new file mode 100644
 +		chat = undefined;
 +	});
 +
++	/** Flush completed tools in completion order once their entries are persisted.
++	 * Sequential calls persist one result before the next tool starts; concurrent
++	 * calls may persist a whole batch only later. Never invent an entry id.
++	 */
++	function flushTools(ctx: ExtensionContext) {
++		const branch = ctx.sessionManager.getBranch();
++		const assistantIndex = lastAssistantEntryIndex(branch);
++		while (turnTools.length) {
++			const { span, toolCallId } = turnTools[0];
++			const entryId = toolResultEntryId(branch, assistantIndex, toolCallId);
++			if (!entryId) break;
++			span.attributes.set("pi.session.entry_id", entryId);
++			write(span);
++			turnTools.shift();
++		}
++	}
++
 +	pi.on("tool_execution_start", async (event, ctx) => {
 +		flushChats(ctx);
++		flushTools(ctx);
 +		const span = start(`execute_tool ${event.toolName}`, KIND_INTERNAL, turn, Date.now(), [
 +			["gen_ai.operation.name", "execute_tool"],
 +			["gen_ai.tool.name", event.toolName],
@@ -490,11 +509,7 @@ new file mode 100644
 +		const chatFailed = turnChats.some((span) => span.status.code === STATUS_ERROR);
 +
 +		flushChats(ctx);
-+		for (const { span, toolCallId } of turnTools) {
-+			const entryId = toolResultEntryId(branch, assistantIndex, toolCallId);
-+			if (entryId) span.attributes.set("pi.session.entry_id", entryId);
-+			write(span);
-+		}
++		flushTools(ctx);
 +
 +		if (steerThisTurn > 0 && assistantIndex >= 0) {
 +			// The steering messages of this turn are the last ones between the previous assistant entry and this one
@@ -512,7 +527,7 @@ new file mode 100644
 +		previousAssistantIndex = assistantIndex;
 +
 +		turn.attributes.set("pi.turn.stop_reason", message?.stopReason ?? "unknown");
-+		turn.attributes.set("pi.turn.tool_call_count", turnTools.length);
++		turn.attributes.set("pi.turn.tool_call_count", message?.content.filter(part => part.type === "toolCall").length ?? 0);
 +		if (chatFailed || message?.stopReason === "error" || message?.stopReason === "aborted") {
 +			fail(turn, message?.errorMessage ?? "aborted");
 +		}
@@ -571,6 +586,8 @@ new file mode 100644
 +	// pi's quit path can shut the runtime down while a run is still streaming:
 +	// close whatever is open so the trace ends with an explicit reason.
 +	pi.on("session_shutdown", async (_event, ctx) => {
++		flushChats(ctx);
++		flushTools(ctx);
 +		const now = Date.now();
 +		if (run && !runEntryResolved) {
 +			const branch = ctx.sessionManager.getBranch();
@@ -623,7 +640,7 @@ new file mode 100644
 +}
 diff --git a/packages/coding-agent/test/agent-trace-extension.test.ts b/packages/coding-agent/test/agent-trace-extension.test.ts
 new file mode 100644
-index 000000000..12ce93d66
+index 0000000..12ce93d
 --- /dev/null
 +++ b/packages/coding-agent/test/agent-trace-extension.test.ts
 @@ -0,0 +1,293 @@
@@ -922,7 +939,7 @@ index 000000000..12ce93d66
 +});
 diff --git a/packages/coding-agent/test/agent-trace-write-failure.test.ts b/packages/coding-agent/test/agent-trace-write-failure.test.ts
 new file mode 100644
-index 000000000..1dc315b32
+index 0000000..1dc315b
 --- /dev/null
 +++ b/packages/coding-agent/test/agent-trace-write-failure.test.ts
 @@ -0,0 +1,81 @@

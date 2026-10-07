@@ -58,3 +58,18 @@ describe("plan lifecycle", () => {
     expect(resumed.callsAtOpen).toBe(0); expect(resumed.calls).toBe(0); expect(resumed.approvedCount).toBe(0);
   });
 });
+
+it("L05 previously persisted sessions without Plan Mode ignore plan flag", () => {
+  const value = box(); const seeded = run({ box: value, mode: "seed-without-extension" });
+  expect(existsSync(seeded.sessionFile)).toBe(true);
+  expect(seeded.entries.filter((entry: { type: string }) => entry.type === "custom")).toEqual([]);
+  expect(seeded.entries.some((entry: any) => entry.type === "message" && entry.message.role === "assistant")).toBe(true);
+  expect(seeded.calls).toBe(1);
+  const resumed = run({ box: value, mode: "resume", sessionFile: seeded.sessionFile, flag: true });
+  expect(resumed.pid).not.toBe(seeded.pid);
+  // An inactive plan's ID/revision representation is not part of the contract.
+  expect(resumed.state).toMatchObject({ sessionId: seeded.sessionId, mode: "normal", steps: [] });
+  expect(resumed.tools).toContain("write"); expect(resumed.tools).toContain("bash");
+  expect(resumed.tools).not.toContain("plan_submit");
+  expect(resumed.callsAtOpen).toBe(0); expect(resumed.calls).toBe(0); expect(resumed.approvedCount).toBe(0);
+});

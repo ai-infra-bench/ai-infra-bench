@@ -77,12 +77,12 @@ ARG PI_LOCK_SHA256
 # APIs (models.dev, OpenRouter, ...) and deletes the tracked `<provider>.models.ts` of any
 # provider the APIs no longer list, so a fresh build depends on the build date and broke
 # on 2026-09-19 when `kimi-coding` disappeared upstream. The catalog is taken instead from
-# the published @earendil-works/pi-ai package of the same release, pinned by sha256. For
-# 0.85.1 that package is the build of the base commit itself (the base commit is the
-# "Release v0.85.1" commit; its 177 dist .js files are byte-identical to this image's
-# build; catalog generated 4 minutes after the commit), so it reveals nothing after the
-# base commit although npm published it 11 minutes after `dependency_cutoff`. pi's own
-# `check:model-data` validates the data against the tracked sources during the build.
+# the published @earendil-works/pi-ai package of the same release, pinned by sha256.
+# The 0.85.1 catalog was generated at 2026-09-05T11:58:56.761Z and its package
+# published at 12:05:47.996Z. Compare both with the task's effective cutoff: a
+# named package override is required when they postdate its default cutoff.
+# Matching compiled JavaScript does not establish the age of generated data.
+# Pi's check:model-data validates catalog compatibility with the tracked sources.
 ARG PI_AI_VERSION=0.85.1
 ARG PI_AI_TARBALL_SHA256=af7d11986179445ce6fe88b37d57de22f823c0ffd3a65cae31c555b7f5e99253
 RUN echo "$PI_LOCK_SHA256  package-lock.json" | sha256sum -c - \

@@ -33,7 +33,9 @@ export default function teamWorker(pi: ExtensionAPI) {
 			if (!args.message || Buffer.byteLength(args.message, "utf8") > 1024 * 1024) {
 				throw new Error("message must be nonempty and no larger than 1 MiB");
 			}
-			if ((args.broadcast === true) === (typeof args.to === "string" && args.to.length > 0)) {
+			const hasTo = Object.hasOwn(args, "to");
+			const hasBroadcast = Object.hasOwn(args, "broadcast");
+			if (hasTo === hasBroadcast || (hasBroadcast && args.broadcast !== true) || (hasTo && !args.to)) {
 				throw new Error("Specify exactly one recipient or broadcast: true");
 			}
 			const result = await locked(directory, () => {
@@ -62,15 +64,16 @@ export default function teamWorker(pi: ExtensionAPI) {
 			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
 		},
 	});
-	pi.on("turn_end", async (event) => {
+	let aborted = false;
+	let continuationSettled: (() => void) | undefined;
+	const receive = async (settled = false) => {
 		const messages = await locked(directory, () => {
 			const mailbox = inbox(directory, self);
 			const files = fs.readdirSync(mailbox).filter((file) => file.endsWith(".json"));
 			const queued = files.map((file) => JSON.parse(fs.readFileSync(path.join(mailbox, file), "utf8")) as Envelope);
 			queued.sort((a, b) => a.from.localeCompare(b.from) || a.sequence - b.sequence);
 			for (const file of files) fs.unlinkSync(path.join(mailbox, file));
-			const terminal = event.message.role === "assistant" && event.message.stopReason !== "toolUse";
-			if (queued.length === 0 && terminal) {
+			if (settled && (queued.length === 0 || aborted)) {
 				const members = readMembers(directory);
 				const member = members.find((entry) => entry.id === self);
 				if (member) member.state = "finished";
@@ -78,7 +81,10 @@ export default function teamWorker(pi: ExtensionAPI) {
 			}
 			return queued;
 		});
-		if (messages.length > 0) {
+		if (messages.length > 0 && !aborted) {
+			// At agent_settled the original prompt is about to return. Await a
+			// continuation accepted during post-run work before print mode exits.
+			const done = settled ? new Promise<void>((resolve) => { continuationSettled = resolve; }) : undefined;
 			pi.sendMessage(
 				{
 					customType: "team_findings",
@@ -88,6 +94,18 @@ export default function teamWorker(pi: ExtensionAPI) {
 				},
 				{ deliverAs: "steer", triggerTurn: true },
 			);
+			await done;
 		}
+	};
+	pi.on("turn_end", async (event) => {
+		aborted = event.message.role === "assistant" && event.message.stopReason === "aborted";
+		await receive();
+	});
+	// turn_end and agent_end can precede automatic retry or compaction. Only
+	// this event means the Pi run has no remaining automatic continuation.
+	pi.on("agent_settled", async () => {
+		const complete = continuationSettled;
+		continuationSettled = undefined;
+		try { await receive(true); } finally { complete?.(); }
 	});
 }

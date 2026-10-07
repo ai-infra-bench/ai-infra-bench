@@ -52,6 +52,9 @@ export default function fixture(pi: ExtensionAPI) {
 		await event("resource_snapshot", {resources});
 	});
 	pi.on("session_start", async () => { await event("session_start"); });
+	pi.on("turn_end", async ({ message }) => {
+		await event("observed_turn_end", { stopReason: message.role === "assistant" ? message.stopReason : message.role });
+	});
 	pi.on("session_shutdown", async () => { await event("session_shutdown"); });
 	pi.on("message_end", async ({ message }) => {
 		if (message.role === "toolResult" && message.isError) {

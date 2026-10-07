@@ -1,6 +1,5 @@
 diff --git a/packages/coding-agent/examples/extensions/fork/README.md b/packages/coding-agent/examples/extensions/fork/README.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..510da1a107b4a7cf021d25e190779474a92ab6fd
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/fork/README.md
 @@ -0,0 +1,32 @@
@@ -24,10 +23,10 @@ index 0000000000000000000000000000000000000000..510da1a107b4a7cf021d25e190779474
 +- The fork is the same pi CLI as the parent (same Node executable and script), with the
 +  parent's environment, model and thinking level. Its session file sits in the parent's
 +  session directory and names the parent session as `parentSession`.
-+- The fork's session starts as a copy of the parent's current branch, ending with the
-+  assistant message that called `fork`, plus a result for each tool call of that message.
-+  Its task is its prompt. After a compaction, pi rebuilds the same compacted context from
-+  the copied branch.
++- The fork's session saves the parent model's actual request messages, including context
++  extensions and compaction, followed by the forking assistant message and tool results.
++  The first child request preserves that snapshot. Its only new instruction is the
++  literal task, transported through session data so CLI prefixes cannot reinterpret it.
 +- Forks do not get the `fork` tool.
 +- When the fork ends, a `fork-result` message with `details` `{ forkId, status, sessionFile,
 +  error? }` is sent to the parent. An idle parent starts a run for it; a running parent
@@ -38,10 +37,9 @@ index 0000000000000000000000000000000000000000..510da1a107b4a7cf021d25e190779474
 +  `/reload` keeps them running.
 diff --git a/packages/coding-agent/examples/extensions/fork/index.ts b/packages/coding-agent/examples/extensions/fork/index.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..27f9b570cba4110902499c8460ace2040c5c3e4b
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/fork/index.ts
-@@ -0,0 +1,363 @@
+@@ -0,0 +1,445 @@
 +/**
 + * Background forks: the `fork` tool starts a separate pi process that inherits the
 + * conversation so far, works on a task while the parent keeps going, and reports its
@@ -51,6 +49,8 @@ index 0000000000000000000000000000000000000000..27f9b570cba4110902499c8460ace204
 +import { randomBytes } from "node:crypto";
 +import { existsSync, readFileSync, writeFileSync } from "node:fs";
 +import { join } from "node:path";
++import { Worker } from "node:worker_threads";
++import type { Context, Provider } from "@earendil-works/pi-ai";
 +import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 +import { CURRENT_SESSION_VERSION } from "@earendil-works/pi-coding-agent";
 +import { Type } from "typebox";
@@ -80,6 +80,8 @@ index 0000000000000000000000000000000000000000..27f9b570cba4110902499c8460ace204
 +}
 +
 +interface Registry {
++	request?: Context;
++	restoreRequest?: () => void;
 +	forks: Map<string, ForkRecord>;
 +	/** Results sent to pi that have not reached the parent's model yet, by fork id. */
 +	undelivered: Map<string, PendingResult>;
@@ -94,6 +96,25 @@ index 0000000000000000000000000000000000000000..27f9b570cba4110902499c8460ace204
 +const registryKey = Symbol.for("pi.fork-extension.registry");
 +const globals = globalThis as { [registryKey]?: Registry };
 +const registry: Registry = (globals[registryKey] ??= { forks: new Map(), undelivered: new Map(), inRequest: new Set() });
++
++/** Capture after all public context handlers and message conversion have run. */
++function observeRequest(ctx: ExtensionContext, transform: (request: Context) => Context): () => void {
++	const provider = ctx.model && ctx.modelRegistry.getProvider(ctx.model.provider);
++	if (!provider) throw new Error("fork requires a registered model provider");
++	const original = provider.streamSimple;
++	let active = true;
++	const restore = () => {
++		active = false;
++		if (provider.streamSimple === wrapped) provider.streamSimple = original;
++	};
++	const wrapped: Provider["streamSimple"] = (model, request, options) => {
++		const capture = active;
++		restore();
++		return original.call(provider, model, capture ? transform(request) : request, options);
++	};
++	provider.streamSimple = wrapped;
++	return restore;
++}
 +
 +function newId(): string {
 +	return randomBytes(4).toString("hex");
@@ -119,11 +140,11 @@ index 0000000000000000000000000000000000000000..27f9b570cba4110902499c8460ace204
 +}
 +
 +/**
-+ * Writes the fork's session: the parent's current branch (whose leaf is the assistant
-+ * message that called fork), then a result for every tool call of that message so the
-+ * fork's context never ends in an unanswered call. The task itself is the fork's prompt.
++ * Persist the final parent model request and the assistant message that called fork,
++ * then a result for every tool call so the child never has unanswered calls. The
++ * snapshot includes public context transformations and the compacted model view.
 + */
-+function writeForkSession(ctx: ExtensionContext, forkId: string, toolCallId: string): string {
++function writeForkSession(ctx: ExtensionContext, forkId: string, toolCallId: string, task: string): string {
 +	const manager = ctx.sessionManager;
 +	const parentSessionFile = manager.getSessionFile();
 +	if (!parentSessionFile) throw new Error("fork needs a persisted session");
@@ -141,8 +162,16 @@ index 0000000000000000000000000000000000000000..27f9b570cba4110902499c8460ace204
 +		parentSession: parentSessionFile,
 +	};
 +	const taken = new Set(branch.map((entry) => entry.id));
-+	const lines = [header, ...branch].map((entry) => JSON.stringify(entry));
-+	let parentId = leaf.id;
++	const request = registry.request;
++	if (!request) throw new Error("fork has no parent model request snapshot");
++	const lines = [JSON.stringify(header)];
++	let parentId: string | null = null;
++	for (const message of [...request.messages, leaf.message]) {
++		const id = entryId(taken);
++		lines.push(JSON.stringify({ type: "message", id, parentId,
++			timestamp: new Date().toISOString(), message }));
++		parentId = id;
++	}
 +	for (const part of leaf.message.content) {
 +		if (part.type !== "toolCall") continue;
 +		const own = part.id === toolCallId;
@@ -172,6 +201,14 @@ index 0000000000000000000000000000000000000000..27f9b570cba4110902499c8460ace204
 +		);
 +		parentId = id;
 +	}
++	// Transport task text in session data, never through CLI option/file parsing.
++	lines.push(JSON.stringify({
++		type: "custom", customType: "fork-bootstrap", id: entryId(taken), parentId,
++		timestamp: new Date().toISOString(), data: {
++			task, context: { systemPrompt: request.systemPrompt,
++				messages: lines.slice(1).map(line => JSON.parse(line).message) },
++		},
++	}));
 +	const file = join(manager.getSessionDir(), `${header.timestamp.replace(/[:.]/g, "-")}_fork-${forkId}.jsonl`);
 +	writeFileSync(file, `${lines.join("\n")}\n`);
 +	return file;
@@ -279,7 +316,7 @@ index 0000000000000000000000000000000000000000..27f9b570cba4110902499c8460ace204
 +	if (!model) throw new Error("no model is selected");
 +	const forkId = newId();
 +	const parentSessionFile = ctx.sessionManager.getSessionFile()!;
-+	const sessionFile = writeForkSession(ctx, forkId, toolCallId);
++	const sessionFile = writeForkSession(ctx, forkId, toolCallId, task);
 +	const script = process.argv[1];
 +	if (!script) throw new Error("cannot locate the pi CLI of this process");
 +	const args = [
@@ -294,7 +331,7 @@ index 0000000000000000000000000000000000000000..27f9b570cba4110902499c8460ace204
 +		"--mode",
 +		"json",
 +		"-p",
-+		task,
++		"fork-launch",
 +	];
 +	const child = spawn(process.execPath, args, {
 +		cwd: ctx.cwd,
@@ -329,16 +366,20 @@ index 0000000000000000000000000000000000000000..27f9b570cba4110902499c8460ace204
 +	const store = globalThis as { [key]?: boolean };
 +	if (!Number.isInteger(parentPid) || parentPid <= 1 || store[key]) return;
 +	store[key] = true;
-+	const timer = setInterval(() => {
-+		try {
-+			process.kill(parentPid, 0);
-+		} catch {
-+			process.exit(1);
-+		}
-+		// Reparented: the parent is gone even if its pid was reused.
-+		if (process.ppid !== parentPid) process.exit(1);
-+	}, WATCH_INTERVAL_MS);
-+	timer.unref();
++	// A public tool may block the main event loop (for example execFileSync).
++	// Watch ownership from a separate thread and signal the whole Pi process;
++	// process.exit() in a worker would terminate only that worker.
++	const watcher = new Worker(`
++		const { workerData } = require("node:worker_threads");
++		const check = () => {
++			let gone = process.ppid !== workerData.parentPid;
++			try { process.kill(workerData.parentPid, 0); } catch { gone = true; }
++			if (gone) process.kill(process.pid, "SIGKILL");
++		};
++		check();
++		setInterval(check, workerData.interval);
++	`, { eval: true, execArgv: [], workerData: { parentPid, interval: WATCH_INTERVAL_MS } });
++	watcher.unref();
 +}
 +
 +export default function (pi: ExtensionAPI) {
@@ -346,6 +387,39 @@ index 0000000000000000000000000000000000000000..27f9b570cba4110902499c8460ace204
 +	// whose parent died without stopping it (killed, crashed) exits on its own.
 +	if (process.env[FORK_ENV]) {
 +		watchParent(Number(process.env[PARENT_PID_ENV]));
++		let task: string;
++		let context: Context;
++		let firstPrompt = true;
++		let firstRequest = true;
++		let restoreRequest: (() => void) | undefined;
++		pi.on("session_start", (_event, ctx) => {
++			const bootstrap = ctx.sessionManager.getEntries().find(
++				entry => entry.type === "custom" && entry.customType === "fork-bootstrap",
++			);
++			if (bootstrap?.type !== "custom" || typeof (bootstrap.data as any)?.task !== "string") {
++				throw new Error("fork task is missing");
++			}
++			const data = bootstrap.data as { task: string; context: Context };
++			task = data.task;
++			context = data.context;
++		});
++		pi.on("message_end", (event) => {
++			if (firstPrompt && event.message.role === "user") {
++				firstPrompt = false;
++				return { message: { ...event.message, content: task } };
++			}
++		});
++		pi.on("session_before_compact", () => firstRequest ? { cancel: true } : undefined);
++		pi.on("context", (_event, ctx) => {
++			if (!firstRequest) return;
++			restoreRequest?.();
++			restoreRequest = observeRequest(ctx, request => {
++				firstRequest = false;
++				return { ...request, systemPrompt: context.systemPrompt,
++					messages: [...context.messages, { role: "user", content: task, timestamp: Date.now() }] };
++			});
++		});
++		pi.on("session_shutdown", () => restoreRequest?.());
 +		return;
 +	}
 +
@@ -357,7 +431,12 @@ index 0000000000000000000000000000000000000000..27f9b570cba4110902499c8460ace204
 +	pi.on("before_agent_start", (_event, ctx) => bind(ctx));
 +	// A result has reached the parent's model once a response to a request containing it
 +	// completes; an aborted or failed response does not count.
-+	pi.on("context", (event) => {
++	pi.on("context", (event, ctx) => {
++		registry.restoreRequest?.();
++		registry.restoreRequest = observeRequest(ctx, request => {
++			registry.request = structuredClone({ systemPrompt: request.systemPrompt, messages: request.messages });
++			return request;
++		});
 +		registry.inRequest.clear();
 +		for (const message of event.messages) {
 +			const m = message as { role?: string; customType?: string; details?: { forkId?: string } };
@@ -375,6 +454,7 @@ index 0000000000000000000000000000000000000000..27f9b570cba4110902499c8460ace204
 +	});
 +	pi.on("agent_settled", (_event, ctx) => resendUndelivered(ctx));
 +	pi.on("session_shutdown", (event, ctx) => {
++		registry.restoreRequest?.();
 +		// /reload replaces this runtime but keeps the session: its forks keep running.
 +		if (event.reason === "reload") return;
 +		const sessionFile = ctx.sessionManager.getSessionFile();
@@ -407,7 +487,6 @@ index 0000000000000000000000000000000000000000..27f9b570cba4110902499c8460ace204
 +}
 diff --git a/packages/coding-agent/test/fork-extension.test.ts b/packages/coding-agent/test/fork-extension.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..76af3bf25550fd30182b6c927825265e15e636f6
 --- /dev/null
 +++ b/packages/coding-agent/test/fork-extension.test.ts
 @@ -0,0 +1,40 @@

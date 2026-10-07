@@ -23,7 +23,7 @@ from scenario import Scenario
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CASES = ["plain_parallel", "plain_single", "plain_chain", "direct", "use_finding", "broadcast", "ordered",
-         "unicode", "completion_boundary", "invalid_recipient", "self_recipient", "malformed", "finished_recipient", "direct_private", "five_workers_private", "isolation", "reuse", "cancellation", "broadcast_partial", "size_below", "size_at", "size_over", "cleanup_repeated", "cancel_queued"]
+         "unicode", "completion_boundary", "invalid_recipient", "self_recipient", "malformed", "finished_recipient", "direct_private", "five_workers_private", "isolation", "reuse", "cancellation", "broadcast_partial", "size_below", "size_at", "size_over", "cleanup_repeated", "cancel_queued", "retry_recovery", "retry_exhausted"]
 
 
 def text(message):
@@ -98,7 +98,7 @@ class Case:
         if name == "ordered":
             self.payloads["one"].append("更正：空 cursor 也有效；" + uuid.uuid4().hex)
         self.replies = {g: "收到并采用；" + uuid.uuid4().hex for g in ["one", "two", "three", "four"]}
-        self.roles = ["A", "B", "C"] if name in ["broadcast", "broadcast_partial", "direct_private", "finished_recipient"] else ["A", "B"]
+        self.roles = ["A", "B", "C"] if name in ["broadcast", "broadcast_partial", "direct_private", "finished_recipient", "retry_exhausted"] else ["A", "B"]
         if name == "five_workers_private":
             self.roles = ["A", "B", "C", "D", "E"]
         if name == "plain_single":
@@ -111,6 +111,14 @@ class Case:
         self.cancel_ready = threading.Event()
         self.proc = None
         self.started = threading.Event()
+        self.malformed = self.binding.malformed_sends() if name == "malformed" else []
+        # Unique rejected findings distinguish accidental delivery from unrelated
+        # context. Binding still forwards each original argument unchanged.
+        self.rejected_findings = []
+        for arguments in self.malformed:
+            if isinstance(arguments.get("message"), str):
+                arguments["message"] += " " + uuid.uuid4().hex
+                self.rejected_findings.append(arguments["message"])
 
     @property
     def current_group(self):
@@ -146,8 +154,8 @@ class Case:
         self.event(group, role, "work:" + stage)
         if stage == "ready":
             boundary = "model_stream_held" if self.name == "completion_boundary" else "work:slow_work"
-            self.wait(lambda: all(self.has(group, r, boundary) for r in (["B"] if self.name in ["direct_private", "five_workers_private", "finished_recipient", "broadcast_partial"] else self.roles[1:])), "recipients working")
-            if self.name in ["finished_recipient", "broadcast_partial"]:
+            self.wait(lambda: all(self.has(group, r, boundary) for r in (["B"] if self.name in ["direct_private", "five_workers_private", "finished_recipient", "broadcast_partial", "retry_exhausted"] else self.roles[1:])), "recipients working")
+            if self.name in ["finished_recipient", "broadcast_partial", "retry_exhausted"]:
                 # C is finished beyond doubt: its session ended and its process
                 # exited (and was reaped), so no implementation can deliver to it.
                 self.wait(lambda: self.has(group, "C", "session_shutdown"), "C finished before send")
@@ -238,6 +246,8 @@ class Case:
         self.steps[actor] = n + 1
         self.requests.append({"group": group, "role": role, "step": n, "pid": pid, "body": body})
         self.event(group, role, "model_request", step=n)
+        if role not in ["ROOT", "A"]:
+            assert not any(contains_finding(messages, p) for p in self.rejected_findings), "rejected malformed message was delivered"
         names = {t["function"]["name"] for t in body.get("tools", [])}
         if role == "ROOT":
             # Global handle/listener snapshots are diagnostic, not dispatch-owned
@@ -268,7 +278,7 @@ class Case:
             self.completed.add(actor)
             return {"content": "Independent work completed."}
         assert {self.binding.tool_name("team_send"), self.binding.tool_name("team_members")} <= names, f"{group}/{role}: communication tools absent"
-        if role not in ["A", "B"] and self.name in ["direct_private", "five_workers_private", "finished_recipient", "broadcast_partial"]:
+        if role not in ["A", "B"] and self.name in ["direct_private", "five_workers_private", "finished_recipient", "broadcast_partial", "retry_exhausted"]:
             if n == 0 and not (role == "C" and self.name in ["finished_recipient", "broadcast_partial"]):
                 return self.call("test_work", {"stage": "observer"})
             assert not any(contains_finding(messages, p) for p in self.payloads[group]), "direct message leaked to a nonrecipient"
@@ -299,8 +309,8 @@ class Case:
             return self.call("test_work", {"stage": "ready" if role == "A" else "slow_work"})
         count = len(self.payloads[group])
         if role == "A":
-            invalid = {"invalid_recipient": "missing", "self_recipient": "A", "finished_recipient": "C"}
-            malformed = self.binding.malformed_sends() if self.name == "malformed" else []
+            invalid = {"invalid_recipient": "missing", "self_recipient": "A", "finished_recipient": "C", "retry_exhausted": "C"}
+            malformed = self.malformed
             if self.name == "size_over": malformed = [{"to": "B", "message": self.oversize}]
             offset = len(malformed) or int(self.name in invalid)
             if 2 <= n < 2 + offset:
@@ -401,7 +411,25 @@ def make_handler(case):
                 elif self.path == "/work":
                     payload = case.work(body["group"], body["role"], body["stage"]).encode()
                 elif self.path == "/v1/chat/completions":
-                    delta = case.respond(body, int(self.headers["X-Pi-Test-Pid"]))
+                    pid = int(self.headers["X-Pi-Test-Pid"])
+                    # Exercise Pi's supported provider-error retry path, without
+                    # replacing its agent loop or changing any candidate state.
+                    target = "B" if case.name == "retry_recovery" else "C"
+                    inject = (case.name in ["retry_recovery", "retry_exhausted"]
+                              and pid == case.pids.get(("one", target))
+                              and (case.name == "retry_exhausted" or
+                                   (case.steps.get(("one", target)) == 1 and
+                                    not case.has("one", target, "provider_503"))))
+                    if inject:
+                        case.event("one", target, "provider_503", pid=pid)
+                        payload = json.dumps({"error": {"message": "503 server overloaded; retry this request", "type": "server_error"}}).encode()
+                        self.send_response(503)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(payload)))
+                        self.end_headers()
+                        self.wfile.write(payload)
+                        return
+                    delta = case.respond(body, pid)
                     chunks = []
                     completion_id = "chatcmpl-" + uuid.uuid4().hex
                     for d, finish in [(dict(role="assistant", **delta), None), ({}, "tool_calls" if "tool_calls" in delta else "stop")]:
@@ -448,7 +476,8 @@ def _run_case(name, repo, output, case):
     (agent_dir / "agents/worker.md").write_text("---\nname: worker\ndescription: Investigation worker\n---\nPerform the assigned work.\n")
     (agent_dir / "settings.json").write_text(json.dumps({
         "extensions": [str(Path(__file__).with_name("fixture.ts"))],
-        "compaction": {"enabled": False}, "retry": {"enabled": False},
+        "compaction": {"enabled": False},
+        "retry": {"enabled": name in ["retry_recovery", "retry_exhausted"], "maxRetries": 2, "baseDelayMs": 50},
     }))
     for path in [scratch, *scratch.rglob("*")]:
         os.chown(path, 60000, 60000)
@@ -528,6 +557,29 @@ def _run_case(name, repo, output, case):
     expected_actors = {("one", "ROOT")} | {(g, r) for g in case.groups for r in case.roles}
     processes_ok = expected_actors == case.pids.keys() and len(set(case.pids.values())) == len(expected_actors)
     completion_ok = expected_actors <= case.completed
+    if name == "retry_exhausted":
+        # C deliberately exhausts its supported retry budget, then really exits.
+        completion_ok = expected_actors - {("one", "C")} <= case.completed
+    if name in ["retry_recovery", "retry_exhausted"]:
+        try:
+            role = "B" if name == "retry_recovery" else "C"
+            events = [e for e in case.events if e["group"] == "one" and e["role"] == role]
+            failures = [e for e in events if e["event"] == "provider_503"]
+            assert len(failures) == (1 if name == "retry_recovery" else 3), "retry fixture did not exercise its bounded provider failure budget"
+            assert all(e["pid"] == case.pids[("one", role)] for e in failures), "retry changed worker process"
+            error = next(e for e in events if e["event"] == "observed_turn_end" and e["stopReason"] == "error")
+            assert failures[0]["sequence"] < error["sequence"], "missing real error turn after HTTP 503"
+            if name == "retry_recovery":
+                resumed = next(e for e in events if e["event"] == "model_request" and e["step"] == 1)
+                slow = next(e for e in events if e["event"] == "tool_start:slow_work")
+                accepted = next(e for e in case.events if e["role"] == "A" and e["event"] == "all_sends_returned")
+                ended = next(e for e in events if e["event"] == "tool_end:slow_work")
+                delivered = next(e for e in events if e["event"] == "peer_message_in_model_input")
+                assert error["sequence"] < resumed["sequence"] < slow["sequence"] < accepted["sequence"] < ended["sequence"] < delivered["sequence"], "retry did not preserve live acceptance and next-call delivery ordering"
+            else:
+                assert case.has("one", "C", "process_exited"), "retry-exhausted recipient did not exit before rejection"
+        except (AssertionError, StopIteration) as exc:
+            case.errors.append(str(exc) or "retry lifecycle observation missing")
     if name in ["cancellation", "cancel_queued"]:
         completion_ok = cancelled and not child_alive
     if name == "cancel_queued":

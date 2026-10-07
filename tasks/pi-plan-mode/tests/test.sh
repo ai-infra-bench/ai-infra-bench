@@ -32,6 +32,14 @@ publish() {
   chmod -R go-w /logs/verifier 2>/dev/null || true
 }
 trap publish EXIT
+# Missing/stale interaction integration is unscored, never a candidate failure.
+rm -f /logs/verifier/reward.txt /logs/verifier/reward.json
+python3 -I "$trusted_tests/ui_profile.py" check --tests "$trusted_tests" > "$grader_out/grading-status.json"
+if [ "$?" -ne 0 ]; then
+  cat "$grader_out/grading-status.json"
+  exit 0
+fi
+printf '{"status":"scored"}\n' > "$grader_out/grading-status.json"
 printf '0\n' > $grader_out/reward.txt
 rm -f $grader_out/contract-junit.xml $grader_out/lifecycle-junit.xml $grader_out/pass-to-pass-junit.xml $grader_out/reward.json $grader_out/pass-to-pass-summary.json $grader_out/pass-to-pass-check.log $grader_out/contract-check.log $grader_out/lifecycle-check.log
 unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_OAUTH_TOKEN OPENAI_API_KEY GEMINI_API_KEY GOOGLE_CLOUD_API_KEY GROQ_API_KEY CEREBRAS_API_KEY XAI_API_KEY OPENROUTER_API_KEY ZAI_API_KEY ZAI_CODING_CN_API_KEY MISTRAL_API_KEY MINIMAX_API_KEY MINIMAX_CN_API_KEY AI_GATEWAY_API_KEY OPENCODE_API_KEY COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN HF_TOKEN DEEPSEEK_API_KEY FIREWORKS_API_KEY KIMI_API_KEY MOONSHOT_API_KEY NVIDIA_API_KEY TOGETHER_API_KEY BASETEN_API_KEY CLOUDFLARE_API_KEY RADIUS_API_KEY ANT_LING_API_KEY XIAOMI_API_KEY XIAOMI_TOKEN_PLAN_AMS_API_KEY XIAOMI_TOKEN_PLAN_CN_API_KEY XIAOMI_TOKEN_PLAN_SGP_API_KEY QWEN_TOKEN_PLAN_API_KEY QWEN_TOKEN_PLAN_CN_API_KEY AZURE_OPENAI_API_KEY AZURE_OPENAI_BASE_URL AZURE_OPENAI_RESOURCE_NAME GOOGLE_APPLICATION_CREDENTIALS GOOGLE_CLOUD_PROJECT GCLOUD_PROJECT GOOGLE_CLOUD_LOCATION AWS_PROFILE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION AWS_DEFAULT_REGION AWS_BEARER_TOKEN_BEDROCK AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI AWS_WEB_IDENTITY_TOKEN_FILE
@@ -92,6 +100,20 @@ python3 "$trusted_tests/check_junit.py" $grader_out/contract-junit.xml contract 
 timeout 300 node ../../node_modules/vitest/vitest.mjs run --config /workspace/pi/packages/coding-agent/vitest.config.ts --pool=forks --reporter=junit --outputFile=$grader_out/lifecycle-junit.xml test/__plan_verifier__/plan.lifecycle.test.ts > $grader_out/lifecycle.log 2>&1 || lifecycle_rc=$?
 python3 "$trusted_tests/check_junit.py" $grader_out/lifecycle-junit.xml lifecycle > $grader_out/lifecycle-check.log 2>&1 || lifecycle_check_rc=$?
 rm -rf test/__plan_verifier__
+# A visible control outside the reviewed adapter requires integration review.
+python3 - "$grader_out" <<'CHECK_UI_INTEGRATION'
+import json, sys
+from pathlib import Path
+out = Path(sys.argv[1])
+for name in ('contract-summary.json', 'lifecycle-summary.json'):
+    path = out / name
+    if path.exists() and json.loads(path.read_text()).get('integration_needed'):
+        (out / 'grading-status.json').write_text(json.dumps({'status': 'integration_needed', 'reason': 'Unmatched reviewed public UI action'}) + '\n')
+        for reward in ('reward.txt', 'reward.json'):
+            (out / reward).unlink(missing_ok=True)
+        raise SystemExit(2)
+CHECK_UI_INTEGRATION
+if [ "$?" -ne 0 ]; then exit 0; fi
 reward=0
 if [ "$integrity_rc" -eq 0 ] && [ "$scope_rc" -eq 0 ] && [ "$p2p_check_rc" -eq 0 ] && [ "$contract_rc" -eq 0 ] && [ "$contract_check_rc" -eq 0 ] && [ "$lifecycle_rc" -eq 0 ] && [ "$lifecycle_check_rc" -eq 0 ]; then reward=1; fi
 printf '%s\n' "$reward" > $grader_out/reward.txt
