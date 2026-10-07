@@ -1,0 +1,1741 @@
+diff --git a/packages/coding-agent/examples/extensions/agent-trace/README.md b/packages/coding-agent/examples/extensions/agent-trace/README.md
+new file mode 100644
+index 000000000..bb4573e74
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/agent-trace/README.md
+@@ -0,0 +1,37 @@
++# Agent Trace
++
++Exports the pi agent loop as a local OpenTelemetry trace so eval harnesses can see what a run actually did, with timings and token accounting.
++
++Load it with `pi -e packages/coding-agent/examples/extensions/agent-trace` or by pointing `DefaultResourceLoader` at this directory.
++
++## Trace file
++
++Spans are appended as JSON Lines to:
++
++```
++<SessionManager.getSessionDir()>/traces/<session-id>.otlp.jsonl
++```
++
++Set `PI_AGENT_TRACE_FILE` to replace that path. The directory is created on demand. Each line is one OTLP/JSON `ExportTraceServiceRequest` holding a single span. A span is written twice: a **start** line (attribute `pi.span.phase` = `"start"`, no `endTimeUnixNano` or `status`) at the event that opens it, and an **end** line with the same ids, `endTimeUnixNano`, and `status` once the span has finished. A reader that de-duplicates by `spanId` (last line wins) always holds the current state; a start without an end is in progress. Reloads and later processes append to the same file.
++
++## Spans
++
++| name | kind | parent | start / end |
++|---|---|---|---|
++| `pi.run` | INTERNAL (1) | none, or `PI_AGENT_TRACE_PARENT` | `agent_start` / `agent_end` |
++| `pi.turn` | INTERNAL (1) | the run | `turn_start` / `turn_end` |
++| `chat <model>` | CLIENT (3) | the turn | assistant `message_start` / first `tool_execution_start` or `turn_end` |
++| `execute_tool <name>` | INTERNAL (1) | the turn | `tool_execution_start` / `turn_end` |
++| `pi.compaction` | INTERNAL (1) | none, or `PI_AGENT_TRACE_PARENT` | `session_before_compact` / `session_compact` or `session_compact_failed` |
++
++Run triggers: `prompt` (a `before_agent_start` preceded the start), `continuation` (start arrived before the previous run's `agent_settled`), or `wakeup` (idle `sendMessage` with `triggerTurn`). Steering messages stay in the same run (`pi.run.steer_count` / `pi.run.steer_entry_ids`). Overflow recovery is a `continuation` with `pi.run.after_compaction` and no `pi.session.entry_id`.
++
++## Sub-agents
++
++While a tool runs, `PI_AGENT_TRACE_PARENT` is set to `<traceId>-<spanId>` of that tool span (the most recently started still-running tool if several overlap). Child pi processes inherit it, use that `traceId`, and parent their root spans (runs, compactions) on that `spanId`. Each process still writes its own session trace file.
++
++## Failures
++
++- Tool `isError`, assistant `stopReason` `error`/`aborted`, and failed compaction are ERROR (`status.code` 2). Runs stay OK even when a turn fails.
++- `session_shutdown` ends every open span with ERROR `"shutdown"`, child-first.
++- A write failure is reported once per process via `sendMessage` (`customType: "agent-trace"`, `triggerTurn: false`) whose text starts with `agent-trace: cannot write`. Later spans are still attempted if the path recovers.
+diff --git a/packages/coding-agent/examples/extensions/agent-trace/index.ts b/packages/coding-agent/examples/extensions/agent-trace/index.ts
+new file mode 100644
+index 000000000..9baaeef0d
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/agent-trace/index.ts
+@@ -0,0 +1,871 @@
++/**
++ * Agent-trace extension.
++ *
++ * Exports the agent loop as a local OTLP/JSONL trace: one span per run, turn,
++ * provider chat, tool execution, and compaction. Each span is appended twice
++ * (start line, then end line) so a reader tailing the file sees in-flight work.
++ *
++ * File: <sessionDir>/traces/<session-id>.otlp.jsonl
++ * Override: PI_AGENT_TRACE_FILE
++ * Sub-agent parent: PI_AGENT_TRACE_PARENT=<traceId>-<spanId>
++ */
++
++import { createHash, randomBytes } from "node:crypto";
++import { appendFileSync, mkdirSync } from "node:fs";
++import { dirname, join } from "node:path";
++import type { AgentMessage } from "@earendil-works/pi-agent-core";
++import type { AssistantMessage } from "@earendil-works/pi-ai";
++import {
++	type CompactionEntry,
++	type CustomMessageEntry,
++	type ExtensionAPI,
++	type ExtensionContext,
++	type SessionEntry,
++	VERSION,
++} from "@earendil-works/pi-coding-agent";
++
++const SCOPE_NAME = "pi.agent-trace";
++const SCOPE_VERSION = "1";
++const KIND_INTERNAL = 1;
++const KIND_CLIENT = 3;
++const STATUS_OK = 1;
++const STATUS_ERROR = 2;
++const TRACE_PARENT_RE = /^([0-9a-f]{32})-([0-9a-f]{16})$/;
++const NS_PER_MS = 1_000_000n;
++
++type OtlpValue =
++	| { stringValue: string }
++	| { intValue: string }
++	| { boolValue: boolean }
++	| { arrayValue: { values: Array<{ stringValue: string }> } };
++
++type OtlpAttr = { key: string; value: OtlpValue };
++
++type OtlpStatus = { code: number; message?: string };
++
++type RunTrigger = "prompt" | "continuation" | "wakeup";
++
++interface SpanRec {
++	traceId: string;
++	spanId: string;
++	parentSpanId?: string;
++	name: string;
++	kind: number;
++	startTimeUnixNano: bigint;
++	startAttrs: OtlpAttr[];
++	endTimeUnixNano?: bigint;
++	endAttrs?: OtlpAttr[];
++	status?: OtlpStatus;
++	endWritten: boolean;
++}
++
++interface ToolRec {
++	span: SpanRec;
++	toolCallId: string;
++	toolName: string;
++	endedAt?: bigint;
++	endOrder?: number;
++}
++
++interface ChatRec {
++	span: SpanRec;
++	message?: AssistantMessage;
++}
++
++interface TurnRec {
++	span: SpanRec;
++	index: number;
++	chat?: ChatRec;
++	tools: ToolRec[];
++	assistant?: AssistantMessage;
++}
++
++interface RunRec {
++	span: SpanRec;
++	trigger: RunTrigger;
++	turnCount: number;
++	afterCompaction?: string;
++	initialUsers: AgentMessage[];
++	initialCustoms: AgentMessage[];
++	steers: AgentMessage[];
++	seenAssistant: boolean;
++	turn?: TurnRec;
++}
++
++function str(key: string, value: string): OtlpAttr {
++	return { key, value: { stringValue: value } };
++}
++
++function int(key: string, value: number | bigint): OtlpAttr {
++	return { key, value: { intValue: String(value) } };
++}
++
++function bool(key: string, value: boolean): OtlpAttr {
++	return { key, value: { boolValue: value } };
++}
++
++function strs(key: string, values: string[]): OtlpAttr {
++	return { key, value: { arrayValue: { values: values.map((value) => ({ stringValue: value })) } } };
++}
++
++function attrKey(attr: OtlpAttr): string {
++	return attr.key;
++}
++
++function mergeAttrs(start: OtlpAttr[], extra: OtlpAttr[]): OtlpAttr[] {
++	const seen = new Set(start.map(attrKey));
++	const out = start.slice();
++	for (const attr of extra) {
++		if (seen.has(attr.key)) continue;
++		seen.add(attr.key);
++		out.push(attr);
++	}
++	return out;
++}
++
++function hexId(bytes: number): string {
++	return randomBytes(bytes).toString("hex");
++}
++
++function traceIdFromSessionId(sessionId: string): string {
++	return createHash("sha256").update(sessionId).digest("hex").slice(0, 32);
++}
++
++function parseTraceParent(value: string | undefined): { traceId: string; spanId: string } | undefined {
++	if (!value) return undefined;
++	const match = TRACE_PARENT_RE.exec(value);
++	if (!match) return undefined;
++	return { traceId: match[1], spanId: match[2] };
++}
++
++function nowNs(): bigint {
++	return BigInt(Date.now()) * NS_PER_MS;
++}
++
++function msToNs(ms: number): bigint {
++	return BigInt(ms) * NS_PER_MS;
++}
++
++function isAssistant(message: AgentMessage): message is AssistantMessage {
++	return message.role === "assistant";
++}
++
++function isCustom(message: AgentMessage): message is AgentMessage & { role: "custom"; customType: string } {
++	return message.role === "custom";
++}
++
++function extractText(value: unknown): string {
++	if (typeof value === "string") return value;
++	if (!value || typeof value !== "object") return value == null ? "" : String(value);
++	const record = value as { content?: unknown; text?: unknown };
++	if (typeof record.text === "string" && record.content === undefined) return record.text;
++	if (Array.isArray(record.content)) {
++		return record.content
++			.map((part) => {
++				if (typeof part === "string") return part;
++				if (
++					part &&
++					typeof part === "object" &&
++					"text" in part &&
++					typeof (part as { text: unknown }).text === "string"
++				) {
++					return (part as { text: string }).text;
++				}
++				return "";
++			})
++			.join("");
++	}
++	if (typeof record.text === "string") return record.text;
++	return "";
++}
++
++function assistantErrorMessage(message: AssistantMessage): string {
++	return message.errorMessage || "aborted";
++}
++
++function isAssistantError(message: AssistantMessage): boolean {
++	return message.stopReason === "error" || message.stopReason === "aborted";
++}
++
++class AgentTracer {
++	private readonly pi: ExtensionAPI;
++	private readonly originalParent = process.env.PI_AGENT_TRACE_PARENT;
++	private readonly inheritedParent = parseTraceParent(process.env.PI_AGENT_TRACE_PARENT);
++
++	private sessionId?: string;
++	private sessionDir?: string;
++	private filePath?: string;
++	private traceId?: string;
++	private resourceAttrs: OtlpAttr[] = [];
++	private lastEndNs = 0n;
++	private writeErrorReported = false;
++	private referencedIds = new Set<string>();
++
++	private seenBeforeAgentStart = false;
++	private settled = true;
++	private pendingAfterCompaction?: string;
++
++	private run?: RunRec;
++	private compaction?: { span: SpanRec; reason: string; willRetry: boolean };
++	private runningTools: ToolRec[] = [];
++	private toolEndSeq = 0;
++
++	constructor(pi: ExtensionAPI) {
++		this.pi = pi;
++	}
++
++	bind(ctx: ExtensionContext): void {
++		if (this.sessionId) return;
++		const sessionManager = ctx.sessionManager;
++		this.sessionId = sessionManager.getSessionId();
++		this.sessionDir = sessionManager.getSessionDir();
++		const inherited = this.inheritedParent;
++		this.traceId = inherited?.traceId ?? traceIdFromSessionId(this.sessionId);
++		const override = process.env.PI_AGENT_TRACE_FILE;
++		this.filePath =
++			override && override.length > 0 ? override : join(this.sessionDir, "traces", `${this.sessionId}.otlp.jsonl`);
++		this.resourceAttrs = [
++			str("service.name", "pi"),
++			str("service.version", VERSION),
++			str("pi.session.id", this.sessionId),
++			int("process.pid", process.pid),
++		];
++	}
++
++	onBeforeAgentStart(): void {
++		this.seenBeforeAgentStart = true;
++	}
++
++	onAgentStart(_event: unknown, ctx: ExtensionContext): void {
++		this.bind(ctx);
++		const trigger: RunTrigger = this.seenBeforeAgentStart ? "prompt" : this.settled ? "wakeup" : "continuation";
++		this.seenBeforeAgentStart = false;
++		this.settled = false;
++		const span = this.startSpan({
++			name: "pi.run",
++			kind: KIND_INTERNAL,
++			parentSpanId: this.rootParentId(),
++			attrs: [str("pi.run.trigger", trigger)],
++		});
++		this.run = {
++			span,
++			trigger,
++			turnCount: 0,
++			afterCompaction: trigger === "continuation" ? this.pendingAfterCompaction : undefined,
++			initialUsers: [],
++			initialCustoms: [],
++			steers: [],
++			seenAssistant: false,
++		};
++	}
++
++	onAgentEnd(_event: unknown, ctx: ExtensionContext): void {
++		this.bind(ctx);
++		const run = this.run;
++		if (!run) return;
++		if (run.turn) this.endTurn(ctx, run.turn);
++		const extra: OtlpAttr[] = [int("pi.run.turn_count", run.turnCount)];
++		const entryId = this.resolveRunEntryId(ctx, run);
++		if (entryId) extra.push(str("pi.session.entry_id", entryId));
++		else if (run.trigger === "continuation" && run.afterCompaction) {
++			extra.push(str("pi.run.after_compaction", run.afterCompaction));
++		}
++		const steerIds = this.resolveSteerIds(ctx, run);
++		extra.push(int("pi.run.steer_count", run.steers.length));
++		extra.push(strs("pi.run.steer_entry_ids", steerIds));
++		this.endSpan(run.span, extra, { code: STATUS_OK });
++		this.run = undefined;
++		this.pendingAfterCompaction = undefined;
++	}
++
++	onAgentSettled(): void {
++		this.settled = true;
++	}
++
++	onTurnStart(event: { turnIndex: number; timestamp: number }, ctx: ExtensionContext): void {
++		this.bind(ctx);
++		const run = this.run;
++		if (!run) return;
++		run.turnCount += 1;
++		const startNs = this.clampStart(msToNs(event.timestamp), run.span.startTimeUnixNano);
++		const span = this.startSpan({
++			name: "pi.turn",
++			kind: KIND_INTERNAL,
++			parentSpanId: run.span.spanId,
++			attrs: [int("pi.turn.index", event.turnIndex)],
++			startNs,
++		});
++		run.turn = { span, index: event.turnIndex, tools: [] };
++	}
++
++	onTurnEnd(
++		event: { message: AgentMessage; toolResults: Array<{ toolCallId: string }> },
++		ctx: ExtensionContext,
++	): void {
++		this.bind(ctx);
++		const turn = this.run?.turn;
++		if (!turn) return;
++		if (isAssistant(event.message)) turn.assistant = event.message;
++		this.endTurn(ctx, turn);
++	}
++
++	onMessageStart(event: { message: AgentMessage }, ctx: ExtensionContext): void {
++		this.bind(ctx);
++		const message = event.message;
++		if (!isAssistant(message)) return;
++		const turn = this.run?.turn;
++		if (!turn) return;
++		const model = message.model || "unknown";
++		const span = this.startSpan({
++			name: `chat ${model}`,
++			kind: KIND_CLIENT,
++			parentSpanId: turn.span.spanId,
++			attrs: [
++				str("gen_ai.operation.name", "chat"),
++				str("gen_ai.system", message.provider || "unknown"),
++				str("gen_ai.request.model", model),
++			],
++			notBefore: turn.span.startTimeUnixNano,
++		});
++		turn.chat = { span, message };
++	}
++
++	onMessageEnd(event: { message: AgentMessage }, ctx: ExtensionContext): void {
++		this.bind(ctx);
++		const message = event.message;
++		if (!isAssistant(message)) {
++			this.trackUserOrCustom(message);
++			return;
++		}
++		const turn = this.run?.turn;
++		if (!turn?.chat) return;
++		if (this.run) this.run.seenAssistant = true;
++		turn.assistant = message;
++		turn.chat.message = message;
++		const extra = this.chatEndAttrs(message);
++		const status: OtlpStatus = isAssistantError(message)
++			? { code: STATUS_ERROR, message: assistantErrorMessage(message) }
++			: { code: STATUS_OK };
++		this.holdEnd(turn.chat.span, extra, status);
++	}
++
++	onToolExecutionStart(event: { toolCallId: string; toolName: string }, ctx: ExtensionContext): void {
++		this.bind(ctx);
++		const turn = this.run?.turn;
++		if (!turn) return;
++		this.flushChatEnd(ctx, turn);
++		const afterChat = turn.chat?.span.endTimeUnixNano;
++		const span = this.startSpan({
++			name: `execute_tool ${event.toolName}`,
++			kind: KIND_INTERNAL,
++			parentSpanId: turn.span.spanId,
++			attrs: [
++				str("gen_ai.operation.name", "execute_tool"),
++				str("gen_ai.tool.name", event.toolName),
++				str("gen_ai.tool.call.id", event.toolCallId),
++			],
++			notBefore: afterChat !== undefined ? afterChat + 1n : turn.span.startTimeUnixNano,
++		});
++		const tool: ToolRec = { span, toolCallId: event.toolCallId, toolName: event.toolName };
++		turn.tools.push(tool);
++		this.runningTools.push(tool);
++		this.syncTraceParentEnv();
++	}
++
++	onToolExecutionEnd(event: { toolCallId: string; result: unknown; isError: boolean }, ctx: ExtensionContext): void {
++		this.bind(ctx);
++		const turn = this.run?.turn;
++		const tool = turn?.tools.find(
++			(item) => item.toolCallId === event.toolCallId && !item.span.endWritten && item.endedAt === undefined,
++		);
++		if (!tool) {
++			this.dropRunningTool(event.toolCallId);
++			this.syncTraceParentEnv();
++			return;
++		}
++		const extra: OtlpAttr[] = [bool("pi.tool.is_error", event.isError)];
++		const status: OtlpStatus = event.isError
++			? { code: STATUS_ERROR, message: extractText(event.result) }
++			: { code: STATUS_OK };
++		this.holdEnd(tool.span, extra, status);
++		tool.endedAt = tool.span.endTimeUnixNano;
++		tool.endOrder = this.toolEndSeq++;
++		this.dropRunningTool(event.toolCallId);
++		this.syncTraceParentEnv();
++	}
++
++	onSessionBeforeCompact(event: { reason: string; willRetry: boolean }, ctx: ExtensionContext): void {
++		this.bind(ctx);
++		const span = this.startSpan({
++			name: "pi.compaction",
++			kind: KIND_INTERNAL,
++			parentSpanId: this.rootParentId(),
++			attrs: [str("pi.compaction.reason", event.reason), bool("pi.compaction.will_retry", event.willRetry)],
++		});
++		this.compaction = { span, reason: event.reason, willRetry: event.willRetry };
++	}
++
++	onSessionCompact(event: { compactionEntry: CompactionEntry; willRetry: boolean }, ctx: ExtensionContext): void {
++		this.bind(ctx);
++		const compaction = this.compaction;
++		if (!compaction) return;
++		this.markReferenced(event.compactionEntry.id);
++		if (event.willRetry) this.pendingAfterCompaction = event.compactionEntry.id;
++		const extra: OtlpAttr[] = [
++			int("pi.compaction.tokens_before", event.compactionEntry.tokensBefore),
++			str("pi.compaction.first_kept_entry_id", event.compactionEntry.firstKeptEntryId),
++			str("pi.session.entry_id", event.compactionEntry.id),
++		];
++		const usage = event.compactionEntry.usage;
++		if (usage) {
++			extra.push(int("gen_ai.usage.input_tokens", usage.input));
++			extra.push(int("gen_ai.usage.output_tokens", usage.output));
++		}
++		this.endSpan(compaction.span, extra, { code: STATUS_OK });
++		this.compaction = undefined;
++	}
++
++	onSessionCompactFailed(event: { errorMessage?: string; aborted?: boolean }, ctx: ExtensionContext): void {
++		this.bind(ctx);
++		const compaction = this.compaction;
++		if (!compaction) return;
++		this.endSpan(compaction.span, [], {
++			code: STATUS_ERROR,
++			message: event.errorMessage || "aborted",
++		});
++		this.compaction = undefined;
++	}
++
++	onSessionShutdown(_event: unknown, ctx: ExtensionContext): void {
++		this.bind(ctx);
++		const shutdown: OtlpStatus = { code: STATUS_ERROR, message: "shutdown" };
++		const turn = this.run?.turn;
++		if (turn?.chat && !turn.chat.span.endWritten) {
++			turn.chat.span.endTimeUnixNano = undefined;
++			const entryId = turn.chat.message ? this.findAssistantEntryId(ctx, turn.chat.message) : undefined;
++			const extra = entryId ? [str("pi.session.entry_id", entryId)] : [];
++			this.endSpan(turn.chat.span, mergeAttrs(turn.chat.span.endAttrs ?? [], extra), shutdown);
++		}
++		if (turn) {
++			for (const tool of this.toolsInEndOrder(turn)) {
++				if (tool.span.endWritten) continue;
++				tool.span.endTimeUnixNano = undefined;
++				const entryId = this.findToolEntryId(ctx, tool.toolCallId);
++				const extra = entryId ? [str("pi.session.entry_id", entryId)] : [];
++				this.endSpan(tool.span, mergeAttrs(tool.span.endAttrs ?? [], extra), shutdown);
++			}
++			if (!turn.span.endWritten) this.endSpan(turn.span, this.turnEndAttrs(turn), shutdown);
++		}
++		if (this.compaction && !this.compaction.span.endWritten) {
++			this.compaction.span.endTimeUnixNano = undefined;
++			this.endSpan(this.compaction.span, [], shutdown);
++			this.compaction = undefined;
++		}
++		if (this.run && !this.run.span.endWritten) {
++			const extra: OtlpAttr[] = [int("pi.run.turn_count", this.run.turnCount)];
++			const entryId = this.resolveRunEntryId(ctx, this.run);
++			if (entryId) extra.push(str("pi.session.entry_id", entryId));
++			else if (this.run.trigger === "continuation" && this.run.afterCompaction) {
++				extra.push(str("pi.run.after_compaction", this.run.afterCompaction));
++			}
++			extra.push(int("pi.run.steer_count", this.run.steers.length));
++			extra.push(strs("pi.run.steer_entry_ids", this.resolveSteerIds(ctx, this.run)));
++			this.endSpan(this.run.span, extra, shutdown);
++			this.run = undefined;
++		}
++		this.runningTools = [];
++		this.restoreTraceParentEnv();
++	}
++
++	private trackUserOrCustom(message: AgentMessage): void {
++		const run = this.run;
++		if (!run) return;
++		if (message.role !== "user" && !isCustom(message)) return;
++		if (!run.seenAssistant) {
++			if (message.role === "user") run.initialUsers.push(message);
++			else run.initialCustoms.push(message);
++			return;
++		}
++		run.steers.push(message);
++	}
++
++	private chatEndAttrs(message: AssistantMessage, entryId?: string): OtlpAttr[] {
++		const usage = message.usage;
++		const attrs: OtlpAttr[] = [
++			int("gen_ai.usage.input_tokens", usage?.input ?? 0),
++			int("gen_ai.usage.output_tokens", usage?.output ?? 0),
++			int("pi.usage.cache_read_tokens", usage?.cacheRead ?? 0),
++			int("pi.usage.cache_write_tokens", usage?.cacheWrite ?? 0),
++			strs("gen_ai.response.finish_reasons", [message.stopReason]),
++		];
++		if (entryId) attrs.push(str("pi.session.entry_id", entryId));
++		return attrs;
++	}
++
++	private turnEndAttrs(turn: TurnRec): OtlpAttr[] {
++		const assistant = turn.assistant ?? turn.chat?.message;
++		const attrs: OtlpAttr[] = [int("pi.turn.tool_call_count", turn.tools.length)];
++		if (assistant) attrs.push(str("pi.turn.stop_reason", assistant.stopReason));
++		return attrs;
++	}
++
++	private endTurn(ctx: ExtensionContext, turn: TurnRec): void {
++		if (turn.span.endWritten) {
++			if (this.run?.turn === turn) this.run.turn = undefined;
++			return;
++		}
++		this.flushChatEnd(ctx, turn);
++		this.flushToolEnds(ctx, turn);
++		const assistant = turn.assistant ?? turn.chat?.message;
++		const extra = this.turnEndAttrs(turn);
++		const status: OtlpStatus =
++			assistant && isAssistantError(assistant)
++				? { code: STATUS_ERROR, message: assistantErrorMessage(assistant) }
++				: { code: STATUS_OK };
++		this.endSpan(turn.span, extra, status);
++		if (this.run?.turn === turn) this.run.turn = undefined;
++	}
++
++	private flushChatEnd(ctx: ExtensionContext, turn: TurnRec): void {
++		const chat = turn.chat;
++		if (!chat || chat.span.endWritten) return;
++		const message = chat.message ?? turn.assistant;
++		if (message && this.run) this.run.seenAssistant = true;
++		const entryId = message ? this.findAssistantEntryId(ctx, message) : undefined;
++		if (chat.span.endAttrs) {
++			if (entryId) chat.span.endAttrs = mergeAttrs(chat.span.endAttrs, [str("pi.session.entry_id", entryId)]);
++			this.writeEnd(chat.span);
++			return;
++		}
++		if (!message) {
++			this.endSpan(chat.span, [], { code: STATUS_OK });
++			return;
++		}
++		const extra = this.chatEndAttrs(message, entryId);
++		const status: OtlpStatus = isAssistantError(message)
++			? { code: STATUS_ERROR, message: assistantErrorMessage(message) }
++			: { code: STATUS_OK };
++		this.endSpan(chat.span, extra, status);
++	}
++
++	private toolsInEndOrder(turn: TurnRec): ToolRec[] {
++		return turn.tools
++			.slice()
++			.sort((a, b) => (a.endOrder ?? Number.MAX_SAFE_INTEGER) - (b.endOrder ?? Number.MAX_SAFE_INTEGER));
++	}
++
++	private flushToolEnds(ctx: ExtensionContext, turn: TurnRec): void {
++		const tools = this.toolsInEndOrder(turn);
++		for (const tool of tools) {
++			if (tool.span.endWritten) continue;
++			const entryId = this.findToolEntryId(ctx, tool.toolCallId);
++			if (tool.span.endAttrs) {
++				if (entryId) tool.span.endAttrs = mergeAttrs(tool.span.endAttrs, [str("pi.session.entry_id", entryId)]);
++				this.writeEnd(tool.span);
++			} else {
++				const extra: OtlpAttr[] = [bool("pi.tool.is_error", false)];
++				if (entryId) extra.push(str("pi.session.entry_id", entryId));
++				this.endSpan(tool.span, extra, { code: STATUS_OK });
++			}
++		}
++	}
++
++	private rootParentId(): string | undefined {
++		return this.inheritedParent?.spanId;
++	}
++
++	private startSpan(opts: {
++		name: string;
++		kind: number;
++		parentSpanId?: string;
++		attrs: OtlpAttr[];
++		startNs?: bigint;
++		notBefore?: bigint;
++	}): SpanRec {
++		const startNs = this.clampStart(opts.startNs ?? nowNs(), opts.notBefore);
++		const span: SpanRec = {
++			traceId: this.traceId!,
++			spanId: hexId(8),
++			parentSpanId: opts.parentSpanId,
++			name: opts.name,
++			kind: opts.kind,
++			startTimeUnixNano: startNs,
++			startAttrs: opts.attrs,
++			endWritten: false,
++		};
++		this.writeStart(span);
++		return span;
++	}
++
++	private holdEnd(span: SpanRec, extra: OtlpAttr[], status: OtlpStatus): void {
++		span.endTimeUnixNano = this.clampEnd(span.startTimeUnixNano, nowNs(), false);
++		span.endAttrs = extra;
++		span.status = status;
++	}
++
++	private endSpan(span: SpanRec, extra: OtlpAttr[], status: OtlpStatus): void {
++		if (span.endWritten) return;
++		span.endTimeUnixNano = this.clampEnd(span.startTimeUnixNano, span.endTimeUnixNano ?? nowNs(), true);
++		span.endAttrs = extra;
++		span.status = status;
++		this.writeEnd(span);
++	}
++
++	private clampStart(candidate: bigint, notBefore?: bigint): bigint {
++		let t = candidate;
++		if (notBefore !== undefined && t < notBefore) t = notBefore;
++		return t;
++	}
++
++	private clampEnd(start: bigint, candidate: bigint, commit: boolean): bigint {
++		let t = candidate;
++		if (t < start) t = start;
++		if (commit) {
++			if (t < this.lastEndNs) t = this.lastEndNs;
++			this.lastEndNs = t;
++		}
++		return t;
++	}
++
++	private writeStart(span: SpanRec): void {
++		this.appendSpan({
++			traceId: span.traceId,
++			spanId: span.spanId,
++			parentSpanId: span.parentSpanId,
++			name: span.name,
++			kind: span.kind,
++			startTimeUnixNano: span.startTimeUnixNano.toString(),
++			attributes: mergeAttrs(span.startAttrs, [str("pi.span.phase", "start")]),
++		});
++	}
++
++	private writeEnd(span: SpanRec): void {
++		if (span.endWritten) return;
++		const endNs = this.clampEnd(span.startTimeUnixNano, span.endTimeUnixNano ?? nowNs(), true);
++		span.endTimeUnixNano = endNs;
++		const payload: Record<string, unknown> = {
++			traceId: span.traceId,
++			spanId: span.spanId,
++			name: span.name,
++			kind: span.kind,
++			startTimeUnixNano: span.startTimeUnixNano.toString(),
++			endTimeUnixNano: endNs.toString(),
++			attributes: mergeAttrs(span.startAttrs, span.endAttrs ?? []),
++			status: span.status ?? { code: STATUS_OK },
++		};
++		if (span.parentSpanId) payload.parentSpanId = span.parentSpanId;
++		this.appendSpan(payload);
++		span.endWritten = true;
++	}
++
++	private appendSpan(span: Record<string, unknown>): void {
++		if (span.parentSpanId === undefined) delete span.parentSpanId;
++		const line = `${JSON.stringify({
++			resourceSpans: [
++				{
++					resource: { attributes: this.resourceAttrs },
++					scopeSpans: [
++						{
++							scope: { name: SCOPE_NAME, version: SCOPE_VERSION },
++							spans: [span],
++						},
++					],
++				},
++			],
++		})}\n`;
++		this.appendLine(line);
++	}
++
++	private appendLine(line: string): void {
++		const path = this.filePath;
++		if (!path) return;
++		try {
++			mkdirSync(dirname(path), { recursive: true });
++			appendFileSync(path, line);
++		} catch {
++			this.reportWriteError(path);
++		}
++	}
++
++	private reportWriteError(path: string): void {
++		if (this.writeErrorReported) return;
++		this.writeErrorReported = true;
++		try {
++			this.pi.sendMessage(
++				{
++					customType: "agent-trace",
++					content: `agent-trace: cannot write ${path}`,
++					display: false,
++				},
++				{ triggerTurn: false },
++			);
++		} catch {
++			// Reporting must never throw into pi.
++		}
++	}
++
++	private dropRunningTool(toolCallId: string): void {
++		const index = this.runningTools.findIndex((tool) => tool.toolCallId === toolCallId);
++		if (index >= 0) this.runningTools.splice(index, 1);
++	}
++
++	private syncTraceParentEnv(): void {
++		if (this.runningTools.length === 0) {
++			this.restoreTraceParentEnv();
++			return;
++		}
++		const current = this.runningTools[this.runningTools.length - 1];
++		process.env.PI_AGENT_TRACE_PARENT = `${this.traceId}-${current.span.spanId}`;
++	}
++
++	private restoreTraceParentEnv(): void {
++		if (this.originalParent === undefined) delete process.env.PI_AGENT_TRACE_PARENT;
++		else process.env.PI_AGENT_TRACE_PARENT = this.originalParent;
++	}
++
++	private branch(ctx: ExtensionContext): SessionEntry[] {
++		return ctx.sessionManager.getBranch();
++	}
++
++	private markReferenced(id: string): void {
++		this.referencedIds.add(id);
++	}
++
++	private takeEntry(
++		ctx: ExtensionContext,
++		predicate: (entry: SessionEntry) => boolean,
++		fromEnd = false,
++	): string | undefined {
++		const branch = this.branch(ctx);
++		const list = fromEnd ? [...branch].reverse() : branch;
++		for (const entry of list) {
++			if (this.referencedIds.has(entry.id)) continue;
++			if (!predicate(entry)) continue;
++			this.referencedIds.add(entry.id);
++			return entry.id;
++		}
++		return undefined;
++	}
++
++	private findAssistantEntryId(ctx: ExtensionContext, message: AssistantMessage): string | undefined {
++		return (
++			this.takeEntry(ctx, (entry) => entry.type === "message" && entry.message === message, true) ??
++			this.takeEntry(
++				ctx,
++				(entry) =>
++					entry.type === "message" &&
++					entry.message.role === "assistant" &&
++					(entry.message as AssistantMessage).timestamp === message.timestamp,
++				true,
++			)
++		);
++	}
++
++	private findToolEntryId(ctx: ExtensionContext, toolCallId: string): string | undefined {
++		return this.takeEntry(
++			ctx,
++			(entry) =>
++				entry.type === "message" &&
++				entry.message.role === "toolResult" &&
++				"toolCallId" in entry.message &&
++				entry.message.toolCallId === toolCallId,
++			true,
++		);
++	}
++
++	private findUserEntryId(ctx: ExtensionContext, message: AgentMessage): string | undefined {
++		return (
++			this.takeEntry(ctx, (entry) => entry.type === "message" && entry.message === message) ??
++			this.takeEntry(
++				ctx,
++				(entry) =>
++					entry.type === "message" &&
++					entry.message.role === "user" &&
++					entry.message.timestamp === message.timestamp,
++			)
++		);
++	}
++
++	private findCustomEntryId(
++		ctx: ExtensionContext,
++		message: AgentMessage & { customType: string },
++	): string | undefined {
++		return this.takeEntry(ctx, (entry) => {
++			if (entry.type !== "custom_message") return false;
++			const custom = entry as CustomMessageEntry;
++			return (
++				custom.customType === message.customType && extractText(custom.content) === extractText(message.content)
++			);
++		});
++	}
++
++	private resolveRunEntryId(ctx: ExtensionContext, run: RunRec): string | undefined {
++		if (run.trigger === "prompt") {
++			const user = run.initialUsers[0];
++			return user ? this.findUserEntryId(ctx, user) : undefined;
++		}
++		const custom = run.initialCustoms[0];
++		if (custom && isCustom(custom)) return this.findCustomEntryId(ctx, custom);
++		const user = run.initialUsers[0];
++		return user ? this.findUserEntryId(ctx, user) : undefined;
++	}
++
++	private resolveSteerIds(ctx: ExtensionContext, run: RunRec): string[] {
++		const ids: string[] = [];
++		for (const message of run.steers) {
++			const id = isCustom(message) ? this.findCustomEntryId(ctx, message) : this.findUserEntryId(ctx, message);
++			if (id) ids.push(id);
++		}
++		return ids;
++	}
++}
++
++export default function (pi: ExtensionAPI) {
++	const tracer = new AgentTracer(pi);
++
++	pi.on("session_start", (_event, ctx) => {
++		tracer.bind(ctx);
++	});
++	pi.on("before_agent_start", () => {
++		tracer.onBeforeAgentStart();
++	});
++	pi.on("agent_start", (event, ctx) => {
++		tracer.onAgentStart(event, ctx);
++	});
++	pi.on("agent_end", (event, ctx) => {
++		tracer.onAgentEnd(event, ctx);
++	});
++	pi.on("agent_settled", () => {
++		tracer.onAgentSettled();
++	});
++	pi.on("turn_start", (event, ctx) => {
++		tracer.onTurnStart(event, ctx);
++	});
++	pi.on("turn_end", (event, ctx) => {
++		tracer.onTurnEnd(event, ctx);
++	});
++	pi.on("message_start", (event, ctx) => {
++		tracer.onMessageStart(event, ctx);
++	});
++	pi.on("message_end", (event, ctx) => {
++		tracer.onMessageEnd(event, ctx);
++	});
++	pi.on("tool_execution_start", (event, ctx) => {
++		tracer.onToolExecutionStart(event, ctx);
++	});
++	pi.on("tool_execution_end", (event, ctx) => {
++		tracer.onToolExecutionEnd(event, ctx);
++	});
++	pi.on("session_before_compact", (event, ctx) => {
++		tracer.onSessionBeforeCompact(event, ctx);
++	});
++	pi.on("session_compact", (event, ctx) => {
++		tracer.onSessionCompact(event, ctx);
++	});
++	pi.on("session_compact_failed", (event, ctx) => {
++		tracer.onSessionCompactFailed(event, ctx);
++	});
++	pi.on("session_shutdown", (event, ctx) => {
++		tracer.onSessionShutdown(event, ctx);
++	});
++}
+diff --git a/packages/coding-agent/test/agent-trace-extension.test.ts b/packages/coding-agent/test/agent-trace-extension.test.ts
+new file mode 100644
+index 000000000..c3820d6d1
+--- /dev/null
++++ b/packages/coding-agent/test/agent-trace-extension.test.ts
+@@ -0,0 +1,815 @@
++import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
++import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
++import { Type } from "typebox";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import agentTrace from "../examples/extensions/agent-trace/index.ts";
++import type { ExtensionAPI, ExtensionContext, SessionEntry } from "../src/core/extensions/index.ts";
++import { VERSION } from "../src/index.ts";
++import { createHarnessWithExtensions, type Harness } from "./test-harness.ts";
++
++type OtlpValue =
++	| { stringValue: string }
++	| { intValue: string }
++	| { boolValue: boolean }
++	| { arrayValue: { values: Array<{ stringValue: string }> } };
++
++type OtlpSpan = {
++	traceId: string;
++	spanId: string;
++	parentSpanId?: string;
++	name: string;
++	kind: number;
++	startTimeUnixNano: string;
++	endTimeUnixNano?: string;
++	attributes: Array<{ key: string; value: OtlpValue }>;
++	status?: { code: number; message?: string };
++};
++
++type ExportRequest = {
++	resourceSpans: Array<{
++		resource: { attributes: Array<{ key: string; value: OtlpValue }> };
++		scopeSpans: Array<{ scope: { name: string; version: string }; spans: OtlpSpan[] }>;
++	}>;
++};
++
++function usage(partial?: Partial<AssistantMessage["usage"]>): AssistantMessage["usage"] {
++	return {
++		input: partial?.input ?? 10,
++		output: partial?.output ?? 4,
++		cacheRead: partial?.cacheRead ?? 1,
++		cacheWrite: partial?.cacheWrite ?? 2,
++		totalTokens: partial?.totalTokens ?? 17,
++		cost: partial?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
++	};
++}
++
++function assistant(overrides: Partial<AssistantMessage> = {}): AssistantMessage {
++	return {
++		role: "assistant",
++		content: [{ type: "text", text: "ok" }],
++		api: "anthropic-messages",
++		provider: "anthropic",
++		model: "claude-test",
++		usage: usage(),
++		stopReason: "stop",
++		timestamp: Date.now(),
++		...overrides,
++	};
++}
++
++function user(text: string): AgentMessage {
++	return { role: "user", content: [{ type: "text", text }], timestamp: Date.now() };
++}
++
++function custom(customType: string, text: string): AgentMessage {
++	return {
++		role: "custom",
++		customType,
++		content: [{ type: "text", text }],
++		display: false,
++		timestamp: Date.now(),
++	} as AgentMessage;
++}
++
++function toolResult(toolCallId: string, toolName: string, text: string, isError = false): ToolResultMessage {
++	return {
++		role: "toolResult",
++		toolCallId,
++		toolName,
++		content: [{ type: "text", text }],
++		isError,
++		timestamp: Date.now(),
++	};
++}
++
++function attrMap(span: OtlpSpan): Record<string, OtlpValue> {
++	const out: Record<string, OtlpValue> = {};
++	for (const attr of span.attributes) out[attr.key] = attr.value;
++	return out;
++}
++
++function stringAttr(span: OtlpSpan, key: string): string | undefined {
++	const value = attrMap(span)[key];
++	return value && "stringValue" in value ? value.stringValue : undefined;
++}
++
++function intAttr(span: OtlpSpan, key: string): string | undefined {
++	const value = attrMap(span)[key];
++	return value && "intValue" in value ? value.intValue : undefined;
++}
++
++function boolAttr(span: OtlpSpan, key: string): boolean | undefined {
++	const value = attrMap(span)[key];
++	return value && "boolValue" in value ? value.boolValue : undefined;
++}
++
++function arrayAttr(span: OtlpSpan, key: string): string[] | undefined {
++	const value = attrMap(span)[key];
++	return value && "arrayValue" in value ? value.arrayValue.values.map((item) => item.stringValue) : undefined;
++}
++
++function spanOf(record: ExportRequest): OtlpSpan {
++	const spans = record.resourceSpans[0]?.scopeSpans[0]?.spans;
++	expect(spans).toHaveLength(1);
++	return spans![0];
++}
++
++function resourceAttrs(record: ExportRequest): Record<string, OtlpValue> {
++	const out: Record<string, OtlpValue> = {};
++	for (const attr of record.resourceSpans[0].resource.attributes) out[attr.key] = attr.value;
++	return out;
++}
++
++type Handler = (event: any, ctx: ExtensionContext) => unknown;
++
++function createDriver(options: { parent?: string; sessionId?: string; filePath?: string } = {}) {
++	const tempDir = mkdtempSync(join(tmpdir(), "pi-agent-trace-"));
++	const sessionDir = join(tempDir, "session");
++	mkdirSync(sessionDir, { recursive: true });
++	const filePath = options.filePath ?? join(tempDir, "trace.otlp.jsonl");
++	const sessionId = options.sessionId ?? "sess-trace-1";
++
++	vi.stubEnv("PI_AGENT_TRACE_FILE", filePath);
++	if (options.parent !== undefined) {
++		vi.stubEnv("PI_AGENT_TRACE_PARENT", options.parent);
++	} else {
++		vi.stubEnv("PI_AGENT_TRACE_PARENT", "");
++		delete process.env.PI_AGENT_TRACE_PARENT;
++	}
++
++	const handlers = new Map<string, Handler>();
++	const sendMessage = vi.fn();
++	const entries: SessionEntry[] = [];
++	let nextId = 1;
++
++	agentTrace({
++		on(event: string, handler: Handler) {
++			handlers.set(event, handler);
++		},
++		sendMessage,
++	} as unknown as ExtensionAPI);
++
++	const ctx = {
++		sessionManager: {
++			getSessionId: () => sessionId,
++			getSessionDir: () => sessionDir,
++			getBranch: () => entries,
++		},
++	} as unknown as ExtensionContext;
++
++	function persist(message: AgentMessage): void {
++		const id = `e${nextId++}`;
++		if (message.role === "custom") {
++			const customMessage = message as AgentMessage & { customType: string; content: unknown; display?: boolean };
++			entries.push({
++				type: "custom_message",
++				id,
++				parentId: entries.length > 0 ? entries[entries.length - 1].id : null,
++				timestamp: new Date().toISOString(),
++				customType: customMessage.customType,
++				content: customMessage.content as never,
++				display: customMessage.display ?? false,
++			});
++			return;
++		}
++		entries.push({
++			type: "message",
++			id,
++			parentId: entries.length > 0 ? entries[entries.length - 1].id : null,
++			timestamp: new Date().toISOString(),
++			message,
++		});
++	}
++
++	async function emit(event: { type: string } & Record<string, unknown>): Promise<void> {
++		await handlers.get(event.type)?.(event, ctx);
++		if (event.type === "message_end" && event.message) persist(event.message as AgentMessage);
++	}
++
++	function readRecords(): ExportRequest[] {
++		if (!existsSync(filePath)) return [];
++		return readFileSync(filePath, "utf8")
++			.split("\n")
++			.filter((line) => line.length > 0)
++			.map((line) => JSON.parse(line) as ExportRequest);
++	}
++
++	function readSpans(): OtlpSpan[] {
++		return readRecords().map(spanOf);
++	}
++
++	function endsByName(): Map<string, OtlpSpan> {
++		const map = new Map<string, OtlpSpan>();
++		for (const span of readSpans()) {
++			if (span.endTimeUnixNano) map.set(span.name, span);
++		}
++		return map;
++	}
++
++	return { tempDir, filePath, sessionDir, sessionId, sendMessage, entries, emit, readRecords, readSpans, endsByName };
++}
++
++const temps: string[] = [];
++const harnesses: Harness[] = [];
++
++afterEach(() => {
++	while (temps.length > 0) {
++		const dir = temps.pop();
++		if (dir && existsSync(dir)) rmSync(dir, { recursive: true, force: true });
++	}
++	while (harnesses.length > 0) {
++		harnesses.pop()?.cleanup();
++	}
++	delete process.env.PI_AGENT_TRACE_FILE;
++	delete process.env.PI_AGENT_TRACE_PARENT;
++});
++
++describe("agent-trace extension", () => {
++	it("writes start then end lines for a prompt run without tools", async () => {
++		const driver = createDriver();
++		temps.push(driver.tempDir);
++		const prompt = user("hello");
++		const reply = assistant();
++
++		await driver.emit({ type: "before_agent_start", prompt: "hello", systemPrompt: "", systemPromptOptions: {} });
++		await driver.emit({ type: "agent_start" });
++		await driver.emit({ type: "turn_start", turnIndex: 0, timestamp: Date.now() });
++		await driver.emit({ type: "message_end", message: prompt });
++		await driver.emit({ type: "message_start", message: reply });
++		expect(driver.readSpans().filter((span) => span.name.startsWith("chat") && !span.endTimeUnixNano)).toHaveLength(
++			1,
++		);
++		await driver.emit({ type: "message_end", message: reply });
++		expect(driver.readSpans().filter((span) => span.name.startsWith("chat") && span.endTimeUnixNano)).toHaveLength(0);
++		await driver.emit({ type: "turn_end", turnIndex: 0, message: reply, toolResults: [] });
++		await driver.emit({ type: "agent_end", messages: [prompt, reply] });
++		await driver.emit({ type: "agent_settled" });
++
++		const records = driver.readRecords();
++		expect(records.length).toBeGreaterThan(0);
++		for (const record of records) {
++			expect(record.resourceSpans).toHaveLength(1);
++			expect(record.resourceSpans[0].scopeSpans).toHaveLength(1);
++			expect(record.resourceSpans[0].scopeSpans[0].scope).toEqual({ name: "pi.agent-trace", version: "1" });
++			expect(record.resourceSpans[0].scopeSpans[0].spans).toHaveLength(1);
++			const resource = resourceAttrs(record);
++			expect(resource["service.name"]).toEqual({ stringValue: "pi" });
++			expect(resource["service.version"]).toEqual({ stringValue: VERSION });
++			expect(resource["pi.session.id"]).toEqual({ stringValue: driver.sessionId });
++			expect(resource["process.pid"]).toEqual({ intValue: String(process.pid) });
++		}
++
++		const spans = driver.readSpans();
++		const byId = new Map<string, OtlpSpan[]>();
++		for (const span of spans) {
++			const list = byId.get(span.spanId) ?? [];
++			list.push(span);
++			byId.set(span.spanId, list);
++		}
++		expect([...byId.values()].every((list) => list.length === 2)).toBe(true);
++		for (const [start, end] of byId.values()) {
++			expect(start.endTimeUnixNano).toBeUndefined();
++			expect(start.status).toBeUndefined();
++			expect(stringAttr(start, "pi.span.phase")).toBe("start");
++			expect(end.endTimeUnixNano).toBeDefined();
++			expect(end.status).toEqual({ code: 1 });
++			expect(stringAttr(end, "pi.span.phase")).toBeUndefined();
++			expect(end.traceId).toBe(start.traceId);
++			expect(end.spanId).toBe(start.spanId);
++			expect(end.parentSpanId).toBe(start.parentSpanId);
++			expect(end.name).toBe(start.name);
++			expect(end.kind).toBe(start.kind);
++			expect(end.startTimeUnixNano).toBe(start.startTimeUnixNano);
++			expect(BigInt(end.startTimeUnixNano) <= BigInt(end.endTimeUnixNano!)).toBe(true);
++			expect(start.traceId).toMatch(/^[0-9a-f]{32}$/);
++			expect(start.spanId).toMatch(/^[0-9a-f]{16}$/);
++		}
++
++		const ended = driver.endsByName();
++		const run = ended.get("pi.run")!;
++		expect(stringAttr(run, "pi.run.trigger")).toBe("prompt");
++		expect(intAttr(run, "pi.run.turn_count")).toBe("1");
++		expect(intAttr(run, "pi.run.steer_count")).toBe("0");
++		expect(arrayAttr(run, "pi.run.steer_entry_ids")).toEqual([]);
++		expect(stringAttr(run, "pi.session.entry_id")).toBe(driver.entries[0].id);
++		expect(run.parentSpanId).toBeUndefined();
++		expect(run.kind).toBe(1);
++
++		const turn = ended.get("pi.turn")!;
++		expect(turn.parentSpanId).toBe(run.spanId);
++		expect(intAttr(turn, "pi.turn.index")).toBe("0");
++		expect(stringAttr(turn, "pi.turn.stop_reason")).toBe("stop");
++		expect(intAttr(turn, "pi.turn.tool_call_count")).toBe("0");
++
++		const chat = ended.get("chat claude-test")!;
++		expect(chat.parentSpanId).toBe(turn.spanId);
++		expect(chat.kind).toBe(3);
++		expect(stringAttr(chat, "gen_ai.operation.name")).toBe("chat");
++		expect(stringAttr(chat, "gen_ai.system")).toBe("anthropic");
++		expect(stringAttr(chat, "gen_ai.request.model")).toBe("claude-test");
++		expect(intAttr(chat, "gen_ai.usage.input_tokens")).toBe("10");
++		expect(intAttr(chat, "gen_ai.usage.output_tokens")).toBe("4");
++		expect(intAttr(chat, "pi.usage.cache_read_tokens")).toBe("1");
++		expect(intAttr(chat, "pi.usage.cache_write_tokens")).toBe("2");
++		expect(arrayAttr(chat, "gen_ai.response.finish_reasons")).toEqual(["stop"]);
++		expect(stringAttr(chat, "pi.session.entry_id")).toBe(driver.entries[1].id);
++		expect(intAttr(chat, "gen_ai.usage.input_tokens")).toMatch(/^\d+$/);
++	});
++
++	it("writes the chat end before the tool start at the first tool_execution_start", async () => {
++		const driver = createDriver();
++		temps.push(driver.tempDir);
++		const prompt = user("use tool");
++		const reply = assistant({
++			stopReason: "toolUse",
++			content: [{ type: "toolCall", id: "call-1", name: "echo", arguments: { text: "hi" } }],
++		});
++
++		await driver.emit({ type: "before_agent_start", prompt: "use tool", systemPrompt: "", systemPromptOptions: {} });
++		await driver.emit({ type: "agent_start" });
++		await driver.emit({ type: "turn_start", turnIndex: 0, timestamp: Date.now() });
++		await driver.emit({ type: "message_end", message: prompt });
++		await driver.emit({ type: "message_start", message: reply });
++		await driver.emit({ type: "message_end", message: reply });
++		const beforeTool = driver.readSpans();
++		expect(beforeTool.some((span) => span.name.startsWith("execute_tool"))).toBe(false);
++		expect(beforeTool.filter((span) => span.name.startsWith("chat") && span.endTimeUnixNano)).toHaveLength(0);
++
++		await driver.emit({ type: "tool_execution_start", toolCallId: "call-1", toolName: "echo", args: {} });
++		const mid = driver.readSpans().map((span) => `${span.name}:${span.endTimeUnixNano ? "end" : "start"}`);
++		const chatEnd = mid.lastIndexOf("chat claude-test:end");
++		const toolStart = mid.indexOf("execute_tool echo:start");
++		expect(chatEnd).toBeGreaterThanOrEqual(0);
++		expect(toolStart).toBeGreaterThan(chatEnd);
++
++		await driver.emit({
++			type: "tool_execution_end",
++			toolCallId: "call-1",
++			toolName: "echo",
++			result: { content: [{ type: "text", text: "hi" }] },
++			isError: false,
++		});
++		expect(driver.readSpans().some((span) => span.name === "execute_tool echo" && span.endTimeUnixNano)).toBe(false);
++
++		const result = toolResult("call-1", "echo", "hi");
++		await driver.emit({ type: "message_end", message: result });
++		await driver.emit({ type: "turn_end", turnIndex: 0, message: reply, toolResults: [result] });
++		await driver.emit({ type: "agent_end", messages: [prompt, reply, result] });
++
++		const tool = driver.endsByName().get("execute_tool echo")!;
++		expect(stringAttr(tool, "gen_ai.operation.name")).toBe("execute_tool");
++		expect(stringAttr(tool, "gen_ai.tool.name")).toBe("echo");
++		expect(stringAttr(tool, "gen_ai.tool.call.id")).toBe("call-1");
++		expect(boolAttr(tool, "pi.tool.is_error")).toBe(false);
++		expect(stringAttr(tool, "pi.session.entry_id")).toBe(
++			driver.entries.find((e) => e.type === "message" && e.message.role === "toolResult")?.id,
++		);
++		expect(tool.status).toEqual({ code: 1 });
++		expect(tool.kind).toBe(1);
++	});
++
++	it("writes overlapping tool spans in the order they end", async () => {
++		const driver = createDriver();
++		temps.push(driver.tempDir);
++		const prompt = user("tools");
++		const reply = assistant({ stopReason: "toolUse" });
++
++		await driver.emit({ type: "before_agent_start", prompt: "tools", systemPrompt: "", systemPromptOptions: {} });
++		await driver.emit({ type: "agent_start" });
++		await driver.emit({ type: "turn_start", turnIndex: 0, timestamp: Date.now() });
++		await driver.emit({ type: "message_end", message: prompt });
++		await driver.emit({ type: "message_start", message: reply });
++		await driver.emit({ type: "message_end", message: reply });
++		await driver.emit({ type: "tool_execution_start", toolCallId: "a", toolName: "slow", args: {} });
++		const parentAfterA = process.env.PI_AGENT_TRACE_PARENT;
++		await driver.emit({ type: "tool_execution_start", toolCallId: "b", toolName: "fast", args: {} });
++		const parentAfterB = process.env.PI_AGENT_TRACE_PARENT;
++		expect(parentAfterB).not.toBe(parentAfterA);
++		expect(parentAfterB).toMatch(/^[0-9a-f]{32}-[0-9a-f]{16}$/);
++
++		await driver.emit({
++			type: "tool_execution_end",
++			toolCallId: "b",
++			toolName: "fast",
++			result: { content: [{ type: "text", text: "b" }] },
++			isError: false,
++		});
++		expect(process.env.PI_AGENT_TRACE_PARENT).toBe(parentAfterA);
++		await driver.emit({
++			type: "tool_execution_end",
++			toolCallId: "a",
++			toolName: "slow",
++			result: { content: [{ type: "text", text: "a" }] },
++			isError: false,
++		});
++		expect(process.env.PI_AGENT_TRACE_PARENT).toBeUndefined();
++
++		const resultB = toolResult("b", "fast", "b");
++		const resultA = toolResult("a", "slow", "a");
++		await driver.emit({ type: "message_end", message: resultB });
++		await driver.emit({ type: "message_end", message: resultA });
++		await driver.emit({ type: "turn_end", turnIndex: 0, message: reply, toolResults: [resultA, resultB] });
++		await driver.emit({ type: "agent_end", messages: [] });
++
++		const names = driver
++			.readSpans()
++			.filter((span) => span.endTimeUnixNano && span.name.startsWith("execute_tool"))
++			.map((span) => span.name);
++		expect(names).toEqual(["execute_tool fast", "execute_tool slow"]);
++	});
++
++	it("classifies wakeup, continuation, steering, and overflow recovery", async () => {
++		const driver = createDriver();
++		temps.push(driver.tempDir);
++
++		const wakeup = custom("wake", "go");
++		await driver.emit({ type: "agent_start" });
++		await driver.emit({ type: "turn_start", turnIndex: 0, timestamp: Date.now() });
++		await driver.emit({ type: "message_end", message: wakeup });
++		const wakeReply = assistant({ content: [{ type: "text", text: "woke" }] });
++		await driver.emit({ type: "message_start", message: wakeReply });
++		await driver.emit({ type: "message_end", message: wakeReply });
++		await driver.emit({ type: "turn_end", turnIndex: 0, message: wakeReply, toolResults: [] });
++		await driver.emit({ type: "agent_end", messages: [wakeup, wakeReply] });
++		expect(stringAttr(driver.endsByName().get("pi.run")!, "pi.run.trigger")).toBe("wakeup");
++		expect(stringAttr(driver.endsByName().get("pi.run")!, "pi.session.entry_id")).toBe(driver.entries[0].id);
++
++		await driver.emit({ type: "agent_settled" });
++
++		const prompt = user("first");
++		const steer = user("steer me");
++		const firstReply = assistant({ content: [{ type: "text", text: "one" }] });
++		const secondReply = assistant({ content: [{ type: "text", text: "two" }] });
++		await driver.emit({ type: "before_agent_start", prompt: "first", systemPrompt: "", systemPromptOptions: {} });
++		await driver.emit({ type: "agent_start" });
++		await driver.emit({ type: "turn_start", turnIndex: 0, timestamp: Date.now() });
++		await driver.emit({ type: "message_end", message: prompt });
++		await driver.emit({ type: "message_start", message: firstReply });
++		await driver.emit({ type: "message_end", message: firstReply });
++		await driver.emit({ type: "turn_end", turnIndex: 0, message: firstReply, toolResults: [] });
++		await driver.emit({ type: "turn_start", turnIndex: 1, timestamp: Date.now() });
++		await driver.emit({ type: "message_end", message: steer });
++		await driver.emit({ type: "message_start", message: secondReply });
++		await driver.emit({ type: "message_end", message: secondReply });
++		await driver.emit({ type: "turn_end", turnIndex: 1, message: secondReply, toolResults: [] });
++		await driver.emit({ type: "agent_end", messages: [] });
++		const promptRun = driver
++			.readSpans()
++			.filter((span) => span.name === "pi.run" && span.endTimeUnixNano)
++			.at(-1)!;
++		expect(stringAttr(promptRun, "pi.run.trigger")).toBe("prompt");
++		expect(intAttr(promptRun, "pi.run.steer_count")).toBe("1");
++		expect(arrayAttr(promptRun, "pi.run.steer_entry_ids")).toEqual([
++			driver.entries.find((entry) => entry.type === "message" && entry.message === steer)!.id,
++		]);
++
++		const overflow = assistant({ stopReason: "error", errorMessage: "prompt is too long" });
++		await driver.emit({ type: "before_agent_start", prompt: "big", systemPrompt: "", systemPromptOptions: {} });
++		await driver.emit({ type: "agent_start" });
++		await driver.emit({ type: "turn_start", turnIndex: 0, timestamp: Date.now() });
++		await driver.emit({ type: "message_end", message: user("big") });
++		await driver.emit({ type: "message_start", message: overflow });
++		await driver.emit({ type: "message_end", message: overflow });
++		await driver.emit({ type: "turn_end", turnIndex: 0, message: overflow, toolResults: [] });
++		await driver.emit({ type: "agent_end", messages: [] });
++		const overflowChat = driver.endsByName().get("chat claude-test")!;
++		expect(overflowChat.status).toEqual({ code: 2, message: "prompt is too long" });
++		const overflowTurn = driver
++			.readSpans()
++			.filter((span) => span.name === "pi.turn" && span.endTimeUnixNano)
++			.at(-1)!;
++		expect(overflowTurn.status).toEqual({ code: 2, message: "prompt is too long" });
++
++		const compactEntry = {
++			type: "compaction" as const,
++			id: "cmp-1",
++			parentId: null,
++			timestamp: new Date().toISOString(),
++			summary: "sum",
++			firstKeptEntryId: driver.entries[0].id,
++			tokensBefore: 99,
++			usage: usage({ input: 3, output: 2 }),
++		};
++		driver.entries.push(compactEntry);
++		await driver.emit({ type: "session_before_compact", reason: "overflow", willRetry: true });
++		await driver.emit({
++			type: "session_compact",
++			compactionEntry: compactEntry,
++			fromExtension: false,
++			reason: "overflow",
++			willRetry: true,
++		});
++		const compaction = driver.endsByName().get("pi.compaction")!;
++		expect(stringAttr(compaction, "pi.compaction.reason")).toBe("overflow");
++		expect(boolAttr(compaction, "pi.compaction.will_retry")).toBe(true);
++		expect(intAttr(compaction, "pi.compaction.tokens_before")).toBe("99");
++		expect(stringAttr(compaction, "pi.compaction.first_kept_entry_id")).toBe(driver.entries[0].id);
++		expect(intAttr(compaction, "gen_ai.usage.input_tokens")).toBe("3");
++		expect(stringAttr(compaction, "pi.session.entry_id")).toBe("cmp-1");
++		expect(compaction.parentSpanId).toBeUndefined();
++
++		await driver.emit({ type: "agent_start" });
++		await driver.emit({ type: "turn_start", turnIndex: 0, timestamp: Date.now() });
++		const recovered = assistant({ content: [{ type: "text", text: "recovered" }] });
++		await driver.emit({ type: "message_start", message: recovered });
++		await driver.emit({ type: "message_end", message: recovered });
++		await driver.emit({ type: "turn_end", turnIndex: 0, message: recovered, toolResults: [] });
++		await driver.emit({ type: "agent_end", messages: [] });
++		const continuation = driver
++			.readSpans()
++			.filter((span) => span.name === "pi.run" && span.endTimeUnixNano)
++			.at(-1)!;
++		expect(stringAttr(continuation, "pi.run.trigger")).toBe("continuation");
++		expect(stringAttr(continuation, "pi.session.entry_id")).toBeUndefined();
++		expect(stringAttr(continuation, "pi.run.after_compaction")).toBe("cmp-1");
++	});
++
++	it("records tool errors, aborted assistants, and failed compaction", async () => {
++		const driver = createDriver();
++		temps.push(driver.tempDir);
++		const prompt = user("fail");
++		const reply = assistant({
++			stopReason: "aborted",
++			errorMessage: undefined,
++			content: [{ type: "toolCall", id: "c1", name: "boom", arguments: {} }],
++		});
++		await driver.emit({ type: "before_agent_start", prompt: "fail", systemPrompt: "", systemPromptOptions: {} });
++		await driver.emit({ type: "agent_start" });
++		await driver.emit({ type: "turn_start", turnIndex: 0, timestamp: Date.now() });
++		await driver.emit({ type: "message_end", message: prompt });
++		await driver.emit({ type: "message_start", message: reply });
++		await driver.emit({ type: "message_end", message: reply });
++		await driver.emit({ type: "tool_execution_start", toolCallId: "c1", toolName: "boom", args: {} });
++		await driver.emit({
++			type: "tool_execution_end",
++			toolCallId: "c1",
++			toolName: "boom",
++			result: { content: [{ type: "text", text: "nope" }] },
++			isError: true,
++		});
++		const result = toolResult("c1", "boom", "nope", true);
++		await driver.emit({ type: "message_end", message: result });
++		await driver.emit({ type: "turn_end", turnIndex: 0, message: reply, toolResults: [result] });
++		await driver.emit({ type: "agent_end", messages: [] });
++
++		expect(driver.endsByName().get("execute_tool boom")?.status).toEqual({ code: 2, message: "nope" });
++		expect(driver.endsByName().get("chat claude-test")?.status).toEqual({ code: 2, message: "aborted" });
++		expect(driver.endsByName().get("pi.turn")?.status).toEqual({ code: 2, message: "aborted" });
++		expect(driver.endsByName().get("pi.run")?.status).toEqual({ code: 1 });
++
++		await driver.emit({ type: "session_before_compact", reason: "manual", willRetry: false });
++		await driver.emit({
++			type: "session_compact_failed",
++			reason: "manual",
++			aborted: true,
++			willRetry: false,
++			fromExtension: false,
++		});
++		const failed = driver.endsByName().get("pi.compaction")!;
++		expect(failed.status).toEqual({ code: 2, message: "aborted" });
++		expect(intAttr(failed, "pi.compaction.tokens_before")).toBeUndefined();
++		expect(stringAttr(failed, "pi.session.entry_id")).toBeUndefined();
++		expect(boolAttr(failed, "pi.compaction.will_retry")).toBe(false);
++	});
++
++	it("ends open spans child-first on shutdown and leaves no entry id for unpersisted chat", async () => {
++		const driver = createDriver();
++		temps.push(driver.tempDir);
++		const reply = assistant({ stopReason: "pending" as AssistantMessage["stopReason"] });
++		await driver.emit({ type: "before_agent_start", prompt: "hi", systemPrompt: "", systemPromptOptions: {} });
++		await driver.emit({ type: "agent_start" });
++		await driver.emit({ type: "turn_start", turnIndex: 0, timestamp: Date.now() });
++		await driver.emit({ type: "message_start", message: reply });
++		await driver.emit({ type: "session_shutdown", reason: "quit" });
++
++		const ends = driver.readSpans().filter((span) => span.endTimeUnixNano);
++		expect(ends.map((span) => span.name)).toEqual(["chat claude-test", "pi.turn", "pi.run"]);
++		for (const span of ends) {
++			expect(span.status).toEqual({ code: 2, message: "shutdown" });
++		}
++		expect(stringAttr(ends[0], "pi.session.entry_id")).toBeUndefined();
++		expect(intAttr(ends[2], "pi.run.turn_count")).toBe("1");
++		let last = 0n;
++		for (const span of ends) {
++			const t = BigInt(span.endTimeUnixNano!);
++			expect(t >= last).toBe(true);
++			last = t;
++		}
++	});
++
++	it("parents root spans on PI_AGENT_TRACE_PARENT and reuses that trace id", async () => {
++		const parentTrace = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
++		const parentSpan = "bbbbbbbbbbbbbbbb";
++		const driver = createDriver({ parent: `${parentTrace}-${parentSpan}` });
++		temps.push(driver.tempDir);
++		await driver.emit({ type: "agent_start" });
++		await driver.emit({ type: "turn_start", turnIndex: 0, timestamp: Date.now() });
++		await driver.emit({ type: "agent_end", messages: [] });
++		const run = driver.endsByName().get("pi.run")!;
++		expect(run.traceId).toBe(parentTrace);
++		expect(run.parentSpanId).toBe(parentSpan);
++		const turn = driver.endsByName().get("pi.turn")!;
++		expect(turn.traceId).toBe(parentTrace);
++		expect(turn.parentSpanId).toBe(run.spanId);
++	});
++
++	it("appends on reload and keeps a stable trace id for the session", async () => {
++		const driver = createDriver({ sessionId: "stable-session" });
++		temps.push(driver.tempDir);
++		await driver.emit({ type: "agent_start" });
++		await driver.emit({ type: "agent_end", messages: [] });
++		const firstTrace = driver.endsByName().get("pi.run")!.traceId;
++
++		const handlers = new Map<string, Handler>();
++		agentTrace({
++			on(event: string, handler: Handler) {
++				handlers.set(event, handler);
++			},
++			sendMessage: vi.fn(),
++		} as unknown as ExtensionAPI);
++		const ctx = {
++			sessionManager: {
++				getSessionId: () => "stable-session",
++				getSessionDir: () => driver.sessionDir,
++				getBranch: () => driver.entries,
++			},
++		} as unknown as ExtensionContext;
++		await handlers.get("agent_start")?.({ type: "agent_start" }, ctx);
++		await handlers.get("agent_end")?.({ type: "agent_end", messages: [] }, ctx);
++
++		const runs = driver.readSpans().filter((span) => span.name === "pi.run" && span.endTimeUnixNano);
++		expect(runs).toHaveLength(2);
++		expect(runs[1].traceId).toBe(firstTrace);
++		expect(runs[1].spanId).not.toBe(runs[0].spanId);
++	});
++
++	it("writes to <sessionDir>/traces/<sessionId>.otlp.jsonl by default", async () => {
++		delete process.env.PI_AGENT_TRACE_FILE;
++		const tempDir = mkdtempSync(join(tmpdir(), "pi-agent-trace-default-"));
++		temps.push(tempDir);
++		const sessionDir = join(tempDir, "sessions");
++		mkdirSync(sessionDir, { recursive: true });
++		const handlers = new Map<string, Handler>();
++		agentTrace({
++			on(event: string, handler: Handler) {
++				handlers.set(event, handler);
++			},
++			sendMessage: vi.fn(),
++		} as unknown as ExtensionAPI);
++		const ctx = {
++			sessionManager: {
++				getSessionId: () => "sid1",
++				getSessionDir: () => sessionDir,
++				getBranch: () => [],
++			},
++		} as unknown as ExtensionContext;
++		await handlers.get("agent_start")?.({ type: "agent_start" }, ctx);
++		await handlers.get("agent_end")?.({ type: "agent_end", messages: [] }, ctx);
++		const expected = join(sessionDir, "traces", "sid1.otlp.jsonl");
++		expect(existsSync(expected)).toBe(true);
++		expect(readFileSync(expected, "utf8").split("\n").filter(Boolean).length).toBeGreaterThan(0);
++	});
++
++	it("reports a write failure once and keeps writing when the path recovers", async () => {
++		const tempDir = mkdtempSync(join(tmpdir(), "pi-agent-trace-fail-"));
++		temps.push(tempDir);
++		const blocker = join(tempDir, "blocked");
++		writeFileSync(blocker, "not a directory");
++		const filePath = join(blocker, "trace.otlp.jsonl");
++		const driver = createDriver({ filePath });
++		temps.push(driver.tempDir);
++
++		await driver.emit({ type: "agent_start" });
++		await driver.emit({ type: "agent_end", messages: [] });
++		expect(driver.sendMessage).toHaveBeenCalledTimes(1);
++		expect(driver.sendMessage.mock.calls[0][0]).toMatchObject({
++			customType: "agent-trace",
++			display: false,
++		});
++		expect(String(driver.sendMessage.mock.calls[0][0].content)).toMatch(/^agent-trace: cannot write /);
++		expect(driver.sendMessage.mock.calls[0][1]).toEqual({ triggerTurn: false });
++
++		await driver.emit({ type: "agent_start" });
++		expect(driver.sendMessage).toHaveBeenCalledTimes(1);
++
++		rmSync(blocker);
++		mkdirSync(blocker, { recursive: true });
++		await driver.emit({ type: "agent_end", messages: [] });
++		await driver.emit({ type: "agent_start" });
++		await driver.emit({ type: "agent_end", messages: [] });
++		expect(existsSync(filePath)).toBe(true);
++		expect(driver.sendMessage).toHaveBeenCalledTimes(1);
++		expect(driver.readSpans().some((span) => span.name === "pi.run")).toBe(true);
++	});
++});
++
++describe("agent-trace extension with AgentSession", () => {
++	it("records session entry ids for a prompt with a tool call", async () => {
++		const tempDir = mkdtempSync(join(tmpdir(), "pi-agent-trace-harness-"));
++		temps.push(tempDir);
++		const filePath = join(tempDir, "trace.otlp.jsonl");
++		vi.stubEnv("PI_AGENT_TRACE_FILE", filePath);
++
++		const echo: AgentTool = {
++			name: "echo",
++			label: "Echo",
++			description: "Echo",
++			parameters: Type.Object({ text: Type.String() }),
++			execute: async () => ({ content: [{ type: "text", text: "echoed" }], details: {} }),
++		};
++		const harness = await createHarnessWithExtensions({
++			responses: [{ toolCalls: [{ id: "echo-1", name: "echo", args: { text: "hi" } }] }, "done"],
++			tools: [echo],
++			baseToolsOverride: { echo },
++			extensionFactories: [agentTrace],
++		});
++		harnesses.push(harness);
++
++		await harness.session.prompt("please echo");
++
++		const records = readFileSync(filePath, "utf8")
++			.split("\n")
++			.filter(Boolean)
++			.map((line) => JSON.parse(line) as ExportRequest);
++		const ends = records.map(spanOf).filter((span) => span.endTimeUnixNano);
++		const branch = harness.sessionManager.getBranch();
++		const userEntry = branch.find((entry) => entry.type === "message" && entry.message.role === "user");
++		const assistantEntries = branch.filter((entry) => entry.type === "message" && entry.message.role === "assistant");
++		const toolEntry = branch.find((entry) => entry.type === "message" && entry.message.role === "toolResult");
++		const run = ends.find((span) => span.name === "pi.run")!;
++		const chats = ends.filter((span) => span.name === "chat faux-1");
++		const toolSpan = ends.find((span) => span.name === "execute_tool echo")!;
++		expect(stringAttr(run, "pi.session.entry_id")).toBe(userEntry?.id);
++		expect(chats.map((span) => stringAttr(span, "pi.session.entry_id"))).toEqual(
++			assistantEntries.map((entry) => entry.id),
++		);
++		expect(stringAttr(toolSpan, "pi.session.entry_id")).toBe(toolEntry?.id);
++		expect(stringAttr(run, "pi.run.trigger")).toBe("prompt");
++	});
++
++	it("leaves run, turn, chat, and tool start lines on disk while a tool is running", async () => {
++		const tempDir = mkdtempSync(join(tmpdir(), "pi-agent-trace-live-"));
++		temps.push(tempDir);
++		const filePath = join(tempDir, "trace.otlp.jsonl");
++		vi.stubEnv("PI_AGENT_TRACE_FILE", filePath);
++
++		let release!: () => void;
++		const gate = new Promise<void>((resolve) => {
++			release = resolve;
++		});
++		const wait: AgentTool = {
++			name: "wait",
++			label: "Wait",
++			description: "Wait",
++			parameters: Type.Object({}),
++			execute: async () => {
++				await gate;
++				return { content: [{ type: "text", text: "released" }], details: {} };
++			},
++		};
++		const harness = await createHarnessWithExtensions({
++			responses: [{ toolCalls: [{ name: "wait", args: {} }] }, "done"],
++			tools: [wait],
++			baseToolsOverride: { wait },
++			extensionFactories: [agentTrace],
++		});
++		harnesses.push(harness);
++
++		const started = new Promise<void>((resolve) => {
++			const unsub = harness.session.subscribe((event) => {
++				if (event.type === "tool_execution_start") {
++					unsub();
++					resolve();
++				}
++			});
++		});
++		const prompt = harness.session.prompt("wait please");
++		await started;
++
++		const spans = readFileSync(filePath, "utf8")
++			.split("\n")
++			.filter(Boolean)
++			.map((line) => spanOf(JSON.parse(line) as ExportRequest));
++		const names = spans.map((span) => `${span.name}:${span.endTimeUnixNano ? "end" : "start"}`);
++		expect(names).toContain("pi.run:start");
++		expect(names).toContain("pi.turn:start");
++		expect(names.some((name) => name.startsWith("chat ") && name.endsWith(":start"))).toBe(true);
++		expect(names.some((name) => name.startsWith("chat ") && name.endsWith(":end"))).toBe(true);
++		expect(names).toContain("execute_tool wait:start");
++		expect(names).not.toContain("execute_tool wait:end");
++		expect(names).not.toContain("pi.turn:end");
++		expect(names).not.toContain("pi.run:end");
++
++		release();
++		await prompt;
++		const after = readFileSync(filePath, "utf8")
++			.split("\n")
++			.filter(Boolean)
++			.map((line) => spanOf(JSON.parse(line) as ExportRequest));
++		expect(after.some((span) => span.name === "execute_tool wait" && span.endTimeUnixNano)).toBe(true);
++		expect(after.some((span) => span.name === "pi.run" && span.endTimeUnixNano)).toBe(true);
++	});
++});

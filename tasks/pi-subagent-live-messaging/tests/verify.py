@@ -1,0 +1,659 @@
+#!/usr/bin/env python3
+"""Behavioral verifier: real Pi parent and child CLI processes, scripted text model.
+
+Only model responses and an ordinary slow external tool are controlled. No
+candidate communication transport, queue, routing, or agent-loop code is mocked.
+"""
+from __future__ import annotations
+
+import argparse
+import tempfile
+import shutil
+import json
+import os
+from pathlib import Path
+import re
+import signal
+import subprocess
+import threading
+import time
+import uuid
+from binding import Binding
+from scenario import Scenario
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+CASES = ["plain_parallel", "plain_single", "plain_chain", "direct", "use_finding", "broadcast", "ordered",
+         "unicode", "completion_boundary", "invalid_recipient", "self_recipient", "malformed", "finished_recipient", "direct_private", "five_workers_private", "isolation", "reuse", "cancellation", "broadcast_partial", "size_below", "size_at", "size_over", "cleanup_repeated", "cancel_queued", "retry_recovery", "retry_exhausted"]
+
+
+def text(message):
+    content = message.get("content", "")
+    return content if isinstance(content, str) else "\n".join(
+        part.get("text", "") for part in (content or []) if part.get("type") == "text")
+
+
+def model_text_views(message):
+    """Read plain text or a JSON envelope without assuming the candidate's format.
+
+    Keep alternative views, rather than appending decoded text: the same finding
+    must not be counted twice merely because its envelope can be decoded.
+    JSON string values are decoded once; message content itself is not rewritten.
+    """
+    original = text(message)
+    views = [original]
+    decoder = json.JSONDecoder()
+
+    def strings(value):
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, list):
+            return [s for item in value for s in strings(item)]
+        if isinstance(value, dict):
+            return [s for key, item in value.items() for s in [key, *strings(item)]]
+        return [str(value)]
+
+    # A candidate may prefix its JSON with attribution/instructions or a fence.
+    # Only decode complete containers; never interpret arbitrary escape sequences.
+    for match in re.finditer(r"[\[{]", original):
+        try:
+            value, end = decoder.raw_decode(original, match.start())
+        except ValueError:
+            continue
+        suffix = original[end:]
+        if suffix.strip() not in ["", "```"]:
+            continue
+        views.append(original[:match.start()] + "\n".join(strings(value)) + suffix)
+        break
+    return views
+
+
+def contains_finding(messages, finding):
+    return any(finding in view for message in messages for view in model_text_views(message))
+
+
+class Case:
+    def __init__(self, name, binding=None, scenario=None):
+        self.name = name
+        self.scenario = scenario or Scenario()
+        self.binding = binding or Binding()
+        self.request_context = threading.local()
+        self.condition = threading.Condition()
+        self.events, self.requests, self.errors = [], [], []
+        self.call_operations = {}
+        self.steps, self.pids = {}, {}
+        self.payloads = {g: ["接口使用 cursor；" + uuid.uuid4().hex] for g in ["one", "two", "three", "four"]}
+        if name == "unicode":
+            self.payloads["one"][0] += '\n并发限制≠串行化🙂 "path\\cache"'
+        if name == "use_finding":
+            self.payloads = {g: "Use endpoint /api/items-" + uuid.uuid4().hex for g in ["one", "two", "three", "four"]}
+            self.payloads = {g: [p] for g, p in self.payloads.items()}
+        self.oversize = None
+        if name.startswith("size_"):
+            # Unique markers at both ends catch silent prefix/suffix truncation.
+            prefix, suffix = "开头" + uuid.uuid4().hex, uuid.uuid4().hex + "🙂结尾"
+            payload = self.scenario.size_payload(name, prefix, suffix)
+            if name == "size_over": self.oversize = payload
+            else: self.payloads["one"] = [payload]
+        self.used = set()
+        if name == "ordered":
+            self.payloads["one"].append("更正：空 cursor 也有效；" + uuid.uuid4().hex)
+        self.replies = {g: "收到并采用；" + uuid.uuid4().hex for g in ["one", "two", "three", "four"]}
+        self.roles = ["A", "B", "C"] if name in ["broadcast", "broadcast_partial", "direct_private", "finished_recipient", "retry_exhausted"] else ["A", "B"]
+        if name == "five_workers_private":
+            self.roles = ["A", "B", "C", "D", "E"]
+        if name == "plain_single":
+            self.roles = ["A"]
+        self.groups = ["one", "two"] if name in ["isolation", "reuse"] else ["one"]
+        if name == "cleanup_repeated": self.groups = ["one", "two", "three", "four"]
+        self.observed = set()
+        self.completed = set()
+        self.closed = False
+        self.cancel_ready = threading.Event()
+        self.proc = None
+        self.started = threading.Event()
+        self.malformed = self.binding.malformed_sends() if name == "malformed" else []
+        # Unique rejected findings distinguish accidental delivery from unrelated
+        # context. Binding still forwards each original argument unchanged.
+        self.rejected_findings = []
+        for arguments in self.malformed:
+            if isinstance(arguments.get("message"), str):
+                arguments["message"] += " " + uuid.uuid4().hex
+                self.rejected_findings.append(arguments["message"])
+
+    @property
+    def current_group(self):
+        return getattr(self.request_context, "group", "one")
+
+    def event(self, group, role, kind, **fields):
+        with self.condition:
+            self.events.append({"sequence": len(self.events), "group": group, "role": role, "event": kind, **fields})
+            self.condition.notify_all()
+
+    def has(self, group, role, kind):
+        return any(e["group"] == group and e["role"] == role and e["event"] == kind for e in self.events)
+
+    def wait(self, predicate, description):
+        with self.condition:
+            assert self.condition.wait_for(lambda: self.closed or predicate(), 12), "Timed out: " + description
+            assert not self.closed, "case closed"
+
+    def wait_exited(self, group, role):
+        pid = self.pids[(group, role)]
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline and not self.closed:
+            try:
+                state = Path(f"/proc/{pid}/stat").read_text().split(") ", 1)[1].split()[0]
+            except (FileNotFoundError, ProcessLookupError):
+                return
+            if state == "Z":
+                return
+            time.sleep(0.05)
+        raise AssertionError(f"Timed out: {group}/{role} process exit after its final response")
+
+    def work(self, group, role, stage):
+        self.event(group, role, "work:" + stage)
+        if stage == "ready":
+            boundary = "model_stream_held" if self.name == "completion_boundary" else "work:slow_work"
+            self.wait(lambda: all(self.has(group, r, boundary) for r in (["B"] if self.name in ["direct_private", "five_workers_private", "finished_recipient", "broadcast_partial", "retry_exhausted"] else self.roles[1:])), "recipients working")
+            if self.name in ["finished_recipient", "broadcast_partial", "retry_exhausted"]:
+                # C is finished beyond doubt: its session ended and its process
+                # exited (and was reaped), so no implementation can deliver to it.
+                self.wait(lambda: self.has(group, "C", "session_shutdown"), "C finished before send")
+                self.wait_exited(group, "C")
+                self.event(group, "C", "process_exited")
+            return self.payloads[group][0]
+        if stage == "slow_work":
+            if self.name == "cancellation":
+                if all(self.has(group, r, "work:slow_work") for r in self.roles):
+                    self.cancel_ready.set()
+                self.wait(lambda: False, "cancellation")
+            if self.name == "cancel_queued" and role == "B":
+                self.wait(lambda: False, "cancel with accepted message still queued")
+            self.wait(lambda: self.has(group, "A", "all_sends_returned"), "send accepted before tool completion")
+            return "External work completed normally."
+        if stage == "observer":
+            self.wait(lambda: (group, "B") in self.observed, "private recipient received")
+            return "Observer work completed."
+        if stage == "hold_sender":
+            if self.name == "broadcast":
+                self.wait(lambda: all((group, r) in self.observed for r in self.roles[1:]), "all broadcast recipients")
+            else:
+                self.wait(lambda: self.has(group, "B", "reply_send_returned"), "reply accepted")
+            return "Sender continues its investigation."
+        raise AssertionError("unexpected stage " + stage)
+
+    def tool(self, name, arguments):
+        operation = name
+        name, arguments = self.binding.encode(name, arguments, self.current_group)
+        call_id = "call_" + uuid.uuid4().hex
+        self.call_operations[call_id] = operation
+        return {"index": 0, "id": call_id, "type": "function",
+                "function": {"name": name, "arguments": json.dumps(arguments, ensure_ascii=False)}}
+
+    def call(self, name, arguments):
+        return {"tool_calls": [self.tool(name, arguments)]}
+
+    def last_result(self, messages):
+        results = [m for m in messages if m.get("role") == "tool"]
+        assert results, "missing tool result"
+        last = results[-1]
+        call_id = last.get("tool_call_id")
+        name = next((c["function"]["name"] for m in messages for c in m.get("tool_calls", []) if c["id"] == call_id), "")
+        operation = self.call_operations.get(call_id, name)
+        raw = text(last)
+        try: raw = json.loads(raw)
+        except ValueError: pass
+        return self.binding.decode(operation, raw, self.current_group)
+
+    def events_error(self, messages):
+        result = [m for m in messages if m.get("role") == "tool"][-1]
+        return any(e["event"] == "tool_error" and e.get("toolCallId") == result["tool_call_id"] for e in self.events)
+
+    def check_input(self, group, role, messages, payloads, sender):
+        # The contract permits any model-visible message role. Do not require
+        # the Oracle's custom-message-to-user conversion.
+        views = [model_text_views(m) for m in messages]
+        incoming = [max(options, key=lambda view: sum(view.count(p) for p in payloads)) for options in views]
+        flattened = "\n".join(incoming)
+        positions = []
+        for payload in payloads:
+            occurrences = sum(max(view.count(payload) for view in options) for options in views)
+            assert occurrences == 1, f"{group}/{role}: finding absent, truncated, or duplicated in model input"
+            matching = [m for m in incoming if payload in m]
+            assert self.binding.sender_identity(group, sender) in matching[0], f"{group}/{role}: sender identity missing"
+            positions.append(flattened.index(payload))
+        assert positions == sorted(positions), "sender order changed"
+        assert not any(contains_finding(messages, p) for g in self.groups if g != group for p in self.payloads[g]), "message leaked across teams"
+        if self.oversize:
+            assert not contains_finding(messages, self.oversize[:38]), "rejected oversized message was delivered"
+        assert not self.has(group, sender, "session_shutdown"), "sender ended before delivery"
+        self.observed.add((group, role))
+        self.event(group, role, "peer_message_in_model_input", sender=sender)
+
+    def respond(self, body, pid):
+        messages = body["messages"]
+        role, group = "ROOT", "one"
+        for message in messages:
+            if message.get("role") == "user":
+                match = re.search(r"\bROLE:([A-Z]+) GROUP:([a-z]+)", text(message))
+                if match:
+                    role, group = match.groups()
+                    break
+        self.request_context.group = group
+        actor = (group, role)
+        assert self.pids.get(actor) == pid, "model request not associated with the observed Pi process"
+        n = self.steps.get(actor, 0)
+        self.steps[actor] = n + 1
+        self.requests.append({"group": group, "role": role, "step": n, "pid": pid, "body": body})
+        self.event(group, role, "model_request", step=n)
+        if role not in ["ROOT", "A"]:
+            assert not any(contains_finding(messages, p) for p in self.rejected_findings), "rejected malformed message was delivered"
+        names = {t["function"]["name"] for t in body.get("tools", [])}
+        if role == "ROOT":
+            # Global handle/listener snapshots are diagnostic, not dispatch-owned
+            # resources. Repeated dispatches are checked through real exchange,
+            # isolation and child termination; cancel_queued scans every
+            # worker-writable location for retained message content.
+            if n == 0 or (self.name == "reuse" and n == 1) or (self.name == "cleanup_repeated" and n < len(self.groups)):
+                assert "subagent" in names, "subagent tool failed to load"
+                calls = []
+                for g in ([self.groups[n]] if self.name in ["reuse", "cleanup_repeated"] else self.groups):
+                    tasks = [{"agent": "worker", "id": r, "task": f"ROLE:{r} GROUP:{g} Investigate independently."} for r in self.roles]
+                    args = {"tasks": tasks, "communication": True}
+                    if self.name == "plain_parallel":
+                        # Existing behavior: the pre-feature call shape, communication off.
+                        args = {"tasks": [{"agent": t["agent"], "task": t["task"]} for t in tasks], "communication": False}
+                    if self.name == "plain_single":
+                        args = {"agent": "worker", "task": tasks[0]["task"]}
+                    if self.name == "plain_chain":
+                        args = {"chain": [{"agent": "worker", "task": t["task"]} for t in tasks]}
+                    calls.append(self.tool("subagent", args))
+                for index, call in enumerate(calls):
+                    call["index"] = index
+                return {"tool_calls": calls}
+            assert n == (len(self.groups) if self.name in ["reuse", "cleanup_repeated"] else 1), "parent should not relay peer discoveries"
+            self.completed.add(actor)
+            return {"content": "Parent finished."}
+        if self.name.startswith("plain_"):
+            self.completed.add(actor)
+            return {"content": "Independent work completed."}
+        assert {self.binding.tool_name("team_send"), self.binding.tool_name("team_members")} <= names, f"{group}/{role}: communication tools absent"
+        if role not in ["A", "B"] and self.name in ["direct_private", "five_workers_private", "finished_recipient", "broadcast_partial", "retry_exhausted"]:
+            if n == 0 and not (role == "C" and self.name in ["finished_recipient", "broadcast_partial"]):
+                return self.call("test_work", {"stage": "observer"})
+            assert not any(contains_finding(messages, p) for p in self.payloads[group]), "direct message leaked to a nonrecipient"
+            self.completed.add(actor)
+            return {"content": "Nonrecipient finished."}
+        if role != "A" and n <= 1:
+            assert not any(contains_finding(messages, p) for p in self.payloads[group]), "recipient knew private finding before delivery"
+        # Discover peers after the actors we need are genuinely running. A live-only
+        # roster need not include queued, finished, or unrelated observer workers.
+        discovery_roles = self.roles if self.name == "broadcast" else ["A", "B"]
+        if n == 0:
+            self.wait(lambda: all(self.has(group, r, "model_request") for r in discovery_roles), "discovery peers running")
+            return self.call("team_members", {})
+        if n == 1:
+            membership = self.last_result(messages)
+            assert membership["self"] == role, "wrong self identity"
+            member_ids = [m["id"] for m in membership["members"]]
+            assert len(member_ids) == len(set(member_ids)), "duplicate team identity"
+            # A roster may list only teammates; the caller already has its own
+            # address. Agent-definition labels are not a required result field.
+            assert set(discovery_roles) - {role} <= set(member_ids) <= set(self.roles), "incorrect team membership"
+            if self.name == "cancellation":
+                return self.call("test_work", {"stage": "slow_work"})
+            if role != "A" and self.name == "completion_boundary":
+                self.event(group, role, "model_stream_held")
+                self.wait(lambda: self.has(group, "A", "all_sends_returned"), "send during final model response")
+                return {"content": "My original investigation is complete."}
+            return self.call("test_work", {"stage": "ready" if role == "A" else "slow_work"})
+        count = len(self.payloads[group])
+        if role == "A":
+            invalid = {"invalid_recipient": "missing", "self_recipient": "A", "finished_recipient": "C", "retry_exhausted": "C"}
+            malformed = self.malformed
+            if self.name == "size_over": malformed = [{"to": "B", "message": self.oversize}]
+            offset = len(malformed) or int(self.name in invalid)
+            if 2 <= n < 2 + offset:
+                if n > 2:
+                    assert self.events_error(messages) or self.binding.invalid_rejected(self.last_result(messages)), "malformed arguments were not explicitly rejected"
+                return self.call("team_send", malformed[n - 2] if malformed else {"to": invalid[self.name], "message": "must be rejected"})
+            if n == 2 + offset and offset:
+                if malformed:
+                    assert self.events_error(messages) or self.binding.invalid_rejected(self.last_result(messages)), "malformed arguments were not explicitly rejected"
+                else:
+                    result = self.last_result(messages)
+                    assert result["accepted"] == [] and any(f["id"] == invalid[self.name] and f["reason"] for f in result["failed"]), "invalid recipient accepted"
+            sending_n = n - offset
+            if 2 <= sending_n <= count + 1:
+                if sending_n > 2:
+                    result = self.last_result(messages)
+                    assert result["accepted"] == ["B"] and not result["failed"]
+                args = {"message": self.payloads[group][sending_n - 2]}
+                args.update({"broadcast": True} if self.name in ["broadcast", "broadcast_partial"] else {"to": "B"})
+                return self.call("team_send", args)
+            if sending_n == count + 2:
+                result = self.last_result(messages)
+                targets = self.roles[1:] if self.name == "broadcast" else ["B"]
+                if self.name == "broadcast_partial":
+                    assert result["accepted"] == ["B"], "partial broadcast must accept the running teammate only"
+                    assert len(result["failed"]) == 1 and result["failed"][0]["id"] == "C" and result["failed"][0]["reason"], "partial broadcast failure for the finished teammate was hidden or misattributed"
+                else:
+                    assert set(result["accepted"]) == set(targets) and not result["failed"], "send was not accepted for every live target"
+                if self.name == "cancel_queued":
+                    self.event(group, role, "accepted_before_cancel")
+                    self.cancel_ready.set()
+                    self.wait(lambda: False, "parent cancellation after acceptance")
+                self.event(group, role, "all_sends_returned")
+                return self.call("test_work", {"stage": "hold_sender"})
+            if sending_n == count + 3:
+                if self.name != "broadcast":
+                    self.check_input(group, role, messages, [self.replies[group]], "B")
+                self.completed.add(actor)
+                return {"content": "Sender finished after live exchange."}
+        else:
+            if n == 2:
+                self.check_input(group, role, messages, self.payloads[group], "A")
+                if self.name == "broadcast":
+                    self.completed.add(actor)
+                    return {"content": "Broadcast used."}
+                if self.name == "use_finding":
+                    paths = [match.group(0) for m in messages for view in model_text_views(m)
+                             for match in re.finditer(r"/api/items-[0-9a-f]{32}", view)]
+                    assert paths, "no endpoint in actual recipient input"
+                    return self.call("test_probe", {"path": paths[-1]})
+                return self.call("team_send", {"to": "A", "message": self.replies[group]})
+            if self.name == "use_finding" and n == 3:
+                assert self.last_result(messages).get("status") == 200, "recipient used wrong endpoint"
+                assert (group, role) in self.used, "probe did not execute"
+                return self.call("team_send", {"to": "A", "message": self.replies[group]})
+            if n == (4 if self.name == "use_finding" else 3):
+                result = self.last_result(messages)
+                assert result["accepted"] == ["A"] and not result["failed"], "reply was not accepted"
+                self.event(group, role, "reply_send_returned")
+                # Keep B alive until A has consumed the reply; this is external
+                # work synchronization and supplies no message content.
+                self.wait(lambda: (group, "A") in self.observed, "reply in A model input")
+                self.completed.add(actor)
+                return {"content": "Receiver finished after reply."}
+        raise AssertionError(f"Unexpected request {group}/{role}/{n}")
+
+
+def make_handler(case):
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def do_POST(self):
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+                content_type = "text/plain"
+                if self.path == "/event":
+                    actor = (body["group"], body["role"])
+                    case.started.wait(5)
+                    pid = body["pid"]
+                    assert type(pid) is int and pid > 1, "invalid worker PID"
+                    status = Path(f"/proc/{pid}/status").read_text()
+                    assert re.search(r"^Uid:\s+60000\s+60000\s+60000\s+60000$", status, re.M), "event PID is not an isolated worker"
+                    assert re.search(r"^NoNewPrivs:\s+1$", status, re.M), "worker can acquire privileges"
+                    if actor[1] == "ROOT":
+                        assert pid == case.proc.pid, "unexpected root Pi PID"
+                    assert actor not in case.pids or case.pids[actor] == pid, "actor PID changed"
+                    case.pids[actor] = pid
+                    case.event(*actor, body["event"], **{k: v for k, v in body.items() if k not in ["group", "role", "event"]})
+                    payload = b"ok"
+                elif self.path == "/probe":
+                    actor = (body["group"], body["role"])
+                    expected = re.search(r"/api/items-[0-9a-f]{32}", case.payloads[body["group"]][0])
+                    valid = expected is not None and body["path"] == expected.group(0) and actor in case.observed
+                    case.event(*actor, "endpoint_probe", path=body["path"], status=200 if valid else 404)
+                    if valid: case.used.add(actor)
+                    payload = json.dumps({"status": 200 if valid else 404}).encode()
+                elif self.path == "/work":
+                    payload = case.work(body["group"], body["role"], body["stage"]).encode()
+                elif self.path == "/v1/chat/completions":
+                    pid = int(self.headers["X-Pi-Test-Pid"])
+                    # Exercise Pi's supported provider-error retry path, without
+                    # replacing its agent loop or changing any candidate state.
+                    target = "B" if case.name == "retry_recovery" else "C"
+                    inject = (case.name in ["retry_recovery", "retry_exhausted"]
+                              and pid == case.pids.get(("one", target))
+                              and (case.name == "retry_exhausted" or
+                                   (case.steps.get(("one", target)) == 1 and
+                                    not case.has("one", target, "provider_503"))))
+                    if inject:
+                        case.event("one", target, "provider_503", pid=pid)
+                        payload = json.dumps({"error": {"message": "503 server overloaded; retry this request", "type": "server_error"}}).encode()
+                        self.send_response(503)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(payload)))
+                        self.end_headers()
+                        self.wfile.write(payload)
+                        return
+                    delta = case.respond(body, pid)
+                    chunks = []
+                    completion_id = "chatcmpl-" + uuid.uuid4().hex
+                    for d, finish in [(dict(role="assistant", **delta), None), ({}, "tool_calls" if "tool_calls" in delta else "stop")]:
+                        chunks.append({"id": completion_id, "object": "chat.completion.chunk",
+                                       "created": int(time.time()), "model": "scripted",
+                                       "choices": [{"index": 0, "delta": d, "finish_reason": finish}]})
+                    payload = ("".join("data: " + json.dumps(c, ensure_ascii=False) + "\n\n" for c in chunks) + "data: [DONE]\n\n").encode()
+                    content_type = "text/event-stream"
+                else:
+                    raise AssertionError("Unexpected HTTP endpoint")
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+            except Exception as exc:
+                if not case.closed:
+                    case.errors.append(str(exc))
+                payload = json.dumps({"error": {"message": str(exc), "type": "invalid_request_error"}}).encode()
+                try:
+                    self.send_response(400)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                except OSError:
+                    pass
+    return Handler
+
+
+def _run_case(name, repo, output, case):
+    directory = output / name
+    directory.mkdir(parents=True)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(case))
+    case.server = server
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    # Reports stay root-private. Only this disposable tree is writable by Pi.
+    scratch = Path(tempfile.mkdtemp(prefix="pi-behavior-", dir="/tmp"))
+    case.scratch = scratch
+    agent_dir = scratch / "agent"
+    (agent_dir / "agents").mkdir(parents=True)
+    for part in ["workspace", "home", "tmp"]:
+        (scratch / part).mkdir()
+    (agent_dir / "agents/worker.md").write_text("---\nname: worker\ndescription: Investigation worker\n---\nPerform the assigned work.\n")
+    (agent_dir / "settings.json").write_text(json.dumps({
+        "extensions": [str(Path(__file__).with_name("fixture.ts"))],
+        "compaction": {"enabled": False},
+        "retry": {"enabled": name in ["retry_recovery", "retry_exhausted"], "maxRetries": 2, "baseDelayMs": 50},
+    }))
+    for path in [scratch, *scratch.rglob("*")]:
+        os.chown(path, 60000, 60000)
+        path.chmod(0o700 if path.is_dir() else 0o600)
+    # Install the extension the way its README documents: in the agent directory, so every
+    # pi process with this agent directory (the parent and the workers) discovers it. Created
+    # after the ownership pass so no chown/chmod ever follows it into the candidate checkout.
+    (agent_dir / "extensions").mkdir()
+    os.chown(agent_dir / "extensions", 60000, 60000)
+    (agent_dir / "extensions").chmod(0o700)
+    (agent_dir / "extensions" / "subagent").symlink_to(repo / "packages/coding-agent/examples/extensions/subagent", target_is_directory=True)
+    os.lchown(agent_dir / "extensions" / "subagent", 60000, 60000)
+    env = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8", "TZ": "UTC", "HOME": str(scratch / "home"),
+        "TMPDIR": str(scratch / "tmp"), "PI_CODING_AGENT_DIR": str(agent_dir),
+        "PI_TEXT_TEST_URL": f"http://127.0.0.1:{server.server_port}",
+        "NODE_OPTIONS": f"--import={repo}/node_modules/tsx/dist/loader.mjs", "TSX_TSCONFIG_PATH": str(repo / "tsconfig.json"),
+        "PI_NO_LOCAL_LLM": "1", "AWS_EC2_METADATA_DISABLED": "true",
+        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null",
+    }
+    command = ["/usr/bin/python3", "-I", str(Path(__file__).with_name("worker_exec.py")), "/usr/local/bin/node", str(repo / "packages/coding-agent/src/cli.ts"), "--mode", "json", "-p", "--no-session",
+               "--model", "text-test/scripted",
+               "Coordinate the investigation."]
+    started = time.monotonic()
+    proc = subprocess.Popen(command, cwd=scratch / "workspace", env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, start_new_session=True)
+    case.proc = proc
+    case.started.set()
+    cancelled = False
+    if name in ["cancellation", "cancel_queued"]:
+        if case.cancel_ready.wait(25):
+            proc.send_signal(signal.SIGTERM)
+            cancelled = True
+        else:
+            case.errors.append("children never reached cancellation boundary")
+    try:
+        stdout, stderr = proc.communicate(timeout=45)
+    except subprocess.TimeoutExpired:
+        case.errors.append("parent timeout")
+        os.killpg(proc.pid, signal.SIGKILL)
+        stdout, stderr = proc.communicate()
+    def live_children():
+        alive = []
+        for actor, pid in case.pids.items():
+            if actor[1] == "ROOT":
+                continue
+            try:
+                state = Path(f"/proc/{pid}/stat").read_text().split(") ", 1)[1].split()[0]
+                if state != "Z":
+                    alive.append(pid)
+            except FileNotFoundError:
+                pass
+        return alive
+
+    cleanup_started = time.monotonic()
+    child_alive = live_children()
+    # Cancellation is asynchronous. Observe bounded termination without killing
+    # children on the candidate's behalf; persistent orphans still fail below.
+    while cancelled and child_alive and time.monotonic() - cleanup_started < 6:
+        time.sleep(0.05)
+        child_alive = live_children()
+    cleanup_wait = time.monotonic() - cleanup_started
+    if child_alive:
+        case.errors.append(f"child processes still alive: {child_alive}")
+        for pid in child_alive:
+            try:
+                # Never perform a privileged kill on a candidate-reported PID.
+                subprocess.run(["/usr/bin/python3", "-I", str(Path(__file__).with_name("worker_exec.py")),
+                                "--kill", str(pid)], env={"PATH": "/usr/bin:/bin"}, check=False)
+            except ProcessLookupError:
+                pass
+    with case.condition:
+        case.closed = True
+        case.condition.notify_all()
+    server.shutdown()
+    server.server_close()
+    expected_actors = {("one", "ROOT")} | {(g, r) for g in case.groups for r in case.roles}
+    processes_ok = expected_actors == case.pids.keys() and len(set(case.pids.values())) == len(expected_actors)
+    completion_ok = expected_actors <= case.completed
+    if name == "retry_exhausted":
+        # C deliberately exhausts its supported retry budget, then really exits.
+        completion_ok = expected_actors - {("one", "C")} <= case.completed
+    if name in ["retry_recovery", "retry_exhausted"]:
+        try:
+            role = "B" if name == "retry_recovery" else "C"
+            events = [e for e in case.events if e["group"] == "one" and e["role"] == role]
+            failures = [e for e in events if e["event"] == "provider_503"]
+            assert len(failures) == (1 if name == "retry_recovery" else 3), "retry fixture did not exercise its bounded provider failure budget"
+            assert all(e["pid"] == case.pids[("one", role)] for e in failures), "retry changed worker process"
+            error = next(e for e in events if e["event"] == "observed_turn_end" and e["stopReason"] == "error")
+            assert failures[0]["sequence"] < error["sequence"], "missing real error turn after HTTP 503"
+            if name == "retry_recovery":
+                resumed = next(e for e in events if e["event"] == "model_request" and e["step"] == 1)
+                slow = next(e for e in events if e["event"] == "tool_start:slow_work")
+                accepted = next(e for e in case.events if e["role"] == "A" and e["event"] == "all_sends_returned")
+                ended = next(e for e in events if e["event"] == "tool_end:slow_work")
+                delivered = next(e for e in events if e["event"] == "peer_message_in_model_input")
+                assert error["sequence"] < resumed["sequence"] < slow["sequence"] < accepted["sequence"] < ended["sequence"] < delivered["sequence"], "retry did not preserve live acceptance and next-call delivery ordering"
+            else:
+                assert case.has("one", "C", "process_exited"), "retry-exhausted recipient did not exit before rejection"
+        except (AssertionError, StopIteration) as exc:
+            case.errors.append(str(exc) or "retry lifecycle observation missing")
+    if name in ["cancellation", "cancel_queued"]:
+        completion_ok = cancelled and not child_alive
+    if name == "cancel_queued":
+        # Transport-agnostic: after the parent and every child have stopped, no
+        # worker-writable file may still hold the accepted-but-undelivered finding.
+        try: case.scenario.assert_cancelled_resources(case)
+        except AssertionError as exc: case.errors.append(str(exc))
+    passed = processes_ok and completion_ok and not case.errors and (cancelled or proc.returncode == 0)
+    result = {"name": name, "passed": passed, "exit_code": proc.returncode, "errors": case.errors,
+              "actors": {f"{g}/{r}": pid for (g, r), pid in case.pids.items()},
+              "observed": sorted(f"{g}/{r}" for g, r in case.observed),
+              "completed": sorted(f"{g}/{r}" for g, r in case.completed),
+              "cleanup_wait_seconds": round(cleanup_wait, 3),
+              "elapsed_seconds": round(time.monotonic() - started, 2)}
+    (directory / "result.json").write_text(json.dumps(result, ensure_ascii=True, indent=2))
+    (directory / "requests.json").write_text(json.dumps(case.requests, ensure_ascii=True, indent=2))
+    (directory / "events.json").write_text(json.dumps(case.events, ensure_ascii=True, indent=2))
+    (directory / "stdout.jsonl").write_text(stdout)
+    (directory / "stderr.txt").write_text(stderr)
+    # The tree is candidate-owned; shutil.rmtree uses fd-based symlink protection.
+    shutil.rmtree(scratch)
+    return result
+
+
+def run_case(name, repo, output):
+    case = Case(name, Binding(), Scenario())
+    try:
+        return _run_case(name, repo, output, case)
+    except Exception as exc:
+        with case.condition:
+            case.closed = True
+            case.condition.notify_all()
+        cleanup_errors = []
+        if case.proc is not None and case.proc.poll() is None:
+            try:
+                os.killpg(case.proc.pid, signal.SIGKILL)
+                case.proc.communicate(timeout=5)
+            except Exception as cleanup_exc:
+                cleanup_errors.append(repr(cleanup_exc))
+        if hasattr(case, 'server'):
+            try:
+                case.server.shutdown()
+                case.server.server_close()
+            except Exception as cleanup_exc:
+                cleanup_errors.append(repr(cleanup_exc))
+        result = {'name': name, 'passed': False,
+                  'errors': [*case.errors, repr(exc), *cleanup_errors]}
+        directory = output / name
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / 'result.json').write_text(json.dumps(result, indent=2))
+        return result
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repo", type=Path, default=Path("/workspace/pi"))
+    parser.add_argument("--output", type=Path, default=Path("/logs/verifier/text-behavior"))
+    parser.add_argument("--cases", nargs="+", choices=CASES, default=CASES)
+    args = parser.parse_args()
+    args.output = args.output.resolve()
+    args.output.mkdir(parents=True, exist_ok=True)
+    results = []
+    for name in args.cases:
+        try:
+            result = run_case(name, args.repo.resolve(), args.output)
+        except Exception as exc:
+            result = {"name": name, "passed": False, "errors": [repr(exc)]}
+        results.append(result)
+        print(json.dumps(result, ensure_ascii=True), flush=True)
+    summary = {"case_count": len(results), "passed": sum(r["passed"] for r in results),
+               "external_model_calls": 0, "results": results}
+    (args.output / "summary.json").write_text(json.dumps(summary, ensure_ascii=True, indent=2))
+    return 0 if len(results) == len(args.cases) and all(r["passed"] for r in results) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

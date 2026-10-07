@@ -17,7 +17,7 @@ Survey evidence belongs in `data/vllm_survey_results.jsonl`. Do not include resp
 
 ## Build a Harbor task
 
-Read the [Harbor documentation](https://harborframework.com/docs) for the execution model and task format. Copy [`templates/harbor-task`](templates/harbor-task/) to `tasks/<task-id>/`, replace every placeholder, and keep the contribution self-contained. Existing vLLM tasks use [`templates/vllm-harbor-all-in-one`](templates/vllm-harbor-all-in-one/) to generate reproducible CPU environments.
+Read the [Harbor documentation](https://harborframework.com/docs) for the execution model and task format. Copy [`templates/harbor-task`](templates/harbor-task/) to `tasks/<task-id>/`, replace every placeholder, and keep the contribution self-contained. Existing vLLM tasks use [`templates/vllm-harbor-all-in-one`](templates/vllm-harbor-all-in-one/) to generate reproducible CPU environments. Agent-harness tasks on pi use [`templates/pi-harbor-node`](templates/pi-harbor-node/), its Node counterpart.
 
 The repository includes a project-adapted [`create-task` Skill](.agents/skills/create-task/SKILL.md). Invoke `$create-task` in Codex to work through task scaffolding, environment setup, behavioral verification, and construction checks.
 

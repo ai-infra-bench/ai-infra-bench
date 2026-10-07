@@ -1,0 +1,7 @@
+# Derived rollout image: the task image plus a preinstalled claude-code, so Harbor skips its
+# network install (it only checks that `claude` is on PATH). Build:
+#   docker build --build-arg BASE=ai-infra-bench/<task>:local -t ai-infra-bench/<task>:rollout-cc -f tools/rollout-images/Dockerfile.claude-code tools/rollout-images
+ARG BASE=ai-infra-bench/pi-background-processes:local
+FROM ${BASE}
+ARG CLAUDE_CODE_VERSION=2.1.270
+RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} && claude --version && npm cache clean --force

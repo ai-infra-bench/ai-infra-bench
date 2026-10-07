@@ -1,0 +1,51 @@
+diff --git a/packages/coding-agent/examples/extensions/plan-mode/index.ts b/packages/coding-agent/examples/extensions/plan-mode/index.ts
+index 48312f60a0069f6c5335db40d771c8aaae314a43..fccbe6a3c06b29ba4592659ee41d19f14fa76c6f 100644
+--- a/packages/coding-agent/examples/extensions/plan-mode/index.ts
++++ b/packages/coding-agent/examples/extensions/plan-mode/index.ts
+@@ -2,7 +2,7 @@
+ 
+ import { randomUUID } from "node:crypto";
+ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+-import { Key } from "@earendil-works/pi-tui";
++import { Key, Text } from "@earendil-works/pi-tui";
+ import { Type } from "typebox";
+ import { markCompletedSteps, type TodoItem } from "./utils.ts";
+ 
+@@ -103,10 +103,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
+ 		} else {
+ 			ctx.ui.setStatus("plan-mode", undefined);
+ 		}
+-		ctx.ui.setWidget(
+-			"plan-todos",
+-			todos.length ? todos.map((item) => `${item.completed ? "[x]" : "[ ]"} ${item.step}. ${item.text}`) : undefined,
+-		);
++
+ 	}
+ 
+ 	function result(operation: Operation, errorCode: ControlError | null): void {
+@@ -173,7 +170,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
+ 		const displayed = snapshot();
+ 		try {
+ 			const choice = await ctx.ui.select(
+-				`Plan ${displayed.planId}, revision ${displayed.revision}\n${displayed.steps.map((step, i) => `${i + 1}. ${step}`).join("\n")}\nWhat next?`,
++				"Review submitted plan",
+ 				["Execute the plan (track progress)", "Stay in plan mode", "Refine the plan"],
+ 			);
+ 			if (choice === "Execute the plan (track progress)" && displayed.planId) {
+@@ -195,6 +192,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
+ 	pi.registerTool({
+ 		name: "plan_submit",
+ 		label: "Submit plan",
++		renderResult: () => new Text("Plan submitted", 0, 0),
+ 		description:
+ 			"Submit or replace the entire plan for user review. Only available during planning; submission does not approve execution.",
+ 		parameters: Type.Object({ steps: Type.Array(Type.String(), { minItems: 1 }) }),
+@@ -213,7 +211,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
+ 			persist();
+ 			updateStatus(ctx);
+ 			const submitted = snapshot();
+-			return { content: [{ type: "text", text: JSON.stringify(submitted) }], details: submitted };
++			return { content: [{ type: "text", text: JSON.stringify({ metadata: Array.from({ length: 12 }, (_, i) => `Display context ${i}`), state: submitted }, null, 2) }], details: submitted };
+ 		},
+ 	});
+ 

@@ -1,0 +1,12 @@
+diff --git a/packages/coding-agent/examples/extensions/agent-trace/index.ts b/packages/coding-agent/examples/extensions/agent-trace/index.ts
+--- a/packages/coding-agent/examples/extensions/agent-trace/index.ts
++++ b/packages/coding-agent/examples/extensions/agent-trace/index.ts
+@@ -262,7 +262,7 @@
+ 			reply?: (env: NodeJS.ProcessEnv | undefined) => void;
+ 		} | undefined;
+ 		if (!request || typeof request.reply !== "function") return;
+-		const span = typeof request.toolCallId === "string" ? tools.get(request.toolCallId) : undefined;
++		const span = typeof request.toolCallId === "string" ? Array.from(tools.values()).at(-1) : undefined;
+ 		request.reply(span ? {
+ 			...(request.env ?? process.env),
+ 			[TRACE_PARENT_ENV]: `${span.traceId}-${span.spanId}`,

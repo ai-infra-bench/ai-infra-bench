@@ -1,0 +1,915 @@
+diff --git a/packages/coding-agent/examples/extensions/fork/README.md b/packages/coding-agent/examples/extensions/fork/README.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..cec01d954c3b1dc20889c3790a6009f272b8556c
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/fork/README.md
+@@ -0,0 +1,45 @@
++# Fork
++
++Run a side investigation in a separate pi process with a snapshot of the current
++conversation. The parent continues working and receives a `fork-result` message
++when the investigation finishes.
++
++Add the absolute path to `index.ts` to `extensions` in your agent directory's
++`settings.json` (normally `~/.pi/agent/settings.json`):
++
++```json
++{
++  "extensions": ["/absolute/path/to/fork/index.ts"]
++}
++```
++
++Install through settings, rather than `pi -e`, so the child loads the same
++extension. Requires Node 22 and pi 0.85.1. The extension briefly wraps the public
++provider's stream method to capture the final request after all context hooks;
++the original method is restored before it runs.
++
++The model calls `fork({ "task": "Check whether the other call sites have the same bug" })`.
++The tool immediately returns a unique `forkId`. The child inherits the current
++model, thinking level, environment, effective system prompt, and model context
++(including compaction). Every tool call in the forking assistant message gets a
++synthetic result in the child: these calls belong to the parent and are not
++replayed. The literal task is the child's only new instruction. Forks cannot
++call `fork` themselves.
++
++Each fork saves a session beside its parent's, with `parentSession` in its header.
++Results include the fork id, completion status, session path, and any failure
++reason. Escape does not discard a pending result. `/reload` preserves forks;
++quitting or replacing the parent session stops them. A worker watches a pipe
++owned by the parent and kills the child if the parent dies, including SIGKILL.
++The watchdog starts before the CLI loads extensions and works even when the
++child's main thread is blocked.
++
++Forks share the working directory and filesystem. Tasks should account for
++concurrent edits. Each fork uses the parent's configured providers and incurs
++its own model usage.
++
++Offline tests:
++
++```sh
++npm test -w packages/coding-agent -- test/fork-extension.test.ts
++```
+diff --git a/packages/coding-agent/examples/extensions/fork/index.ts b/packages/coding-agent/examples/extensions/fork/index.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..27be487da753c2cef8d099694c7d8e7451d2b8a1
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/fork/index.ts
+@@ -0,0 +1,415 @@
++import { type ChildProcess, spawn } from "node:child_process";
++import { randomUUID } from "node:crypto";
++import { existsSync } from "node:fs";
++import { resolve } from "node:path";
++import type { AgentMessage } from "@earendil-works/pi-agent-core";
++import type { AssistantMessage, Context, Message, Provider } from "@earendil-works/pi-ai";
++import {
++	convertToLlm,
++	type ExtensionAPI,
++	type ExtensionContext,
++	SessionManager,
++} from "@earendil-works/pi-coding-agent";
++import { Type } from "typebox";
++
++const CHILD = "PI_FORK_CHILD";
++const BOOTSTRAP = "fork-bootstrap";
++const STATE = Symbol.for("pi.example.fork.state");
++
++// Run before the CLI loads extensions. A worker watches a pipe held only by the
++// parent, so even a blocked child event loop cannot outlive a dead parent.
++const watchdog = `data:text/javascript,${encodeURIComponent(`
++import { Socket } from "node:net";
++const owner = new Socket({ fd: 3, readable: true, writable: false });
++const stop = () => process.kill(process.pid, "SIGKILL");
++owner.on("end", stop);
++owner.on("error", stop);
++owner.resume();
++`)}`;
++const preload = `data:text/javascript,${encodeURIComponent(`
++import { Worker } from "node:worker_threads";
++const guard = new Worker(new URL(${JSON.stringify(watchdog)}), { execArgv: [] });
++guard.on("error", () => process.exit(1));
++guard.unref();
++`)}`;
++
++interface Bootstrap {
++	task: string;
++	systemPrompt: string;
++}
++
++interface ResultDetails {
++	forkId: string;
++	status: "completed" | "failed";
++	sessionFile?: string;
++	error?: string;
++}
++
++interface Result {
++	customType: "fork-result";
++	content: string;
++	display: true;
++	details: ResultDetails;
++}
++
++interface Job {
++	id: string;
++	sessionFile: string;
++	inheritedAssistants: number;
++	child?: ChildProcess;
++	result?: Result;
++	queued: boolean;
++	seen: boolean;
++	inRequest: boolean;
++	finished: boolean;
++}
++
++interface State {
++	sessionId: string;
++	jobs: Map<string, Job>;
++	request: AgentMessage[];
++	systemPrompt?: string;
++	restoreRequest?: () => void;
++	assistant?: AssistantMessage;
++	pi?: ExtensionAPI;
++	ctx?: ExtensionContext;
++	closed: boolean;
++	onExit: () => void;
++}
++
++// Extension modules are evaluated again on /reload. Keep process ownership outside
++// the module cache, but replace all API/context references on session_start.
++const registry = globalThis as typeof globalThis & { [STATE]?: State };
++
++// context handlers are ordered and can replace the message array. Observe the
++// public provider's stream entry point to get the final, converted request,
++// regardless of extension order. Restore the method before calling it.
++function observeRequest(ctx: ExtensionContext, observe: (request: Context) => Context): () => void {
++	const provider = ctx.model && ctx.modelRegistry.getProvider(ctx.model.provider);
++	if (!provider) throw new Error("Fork requires a registered provider");
++	const original = provider.streamSimple;
++	let active = true;
++	const restore = () => {
++		active = false;
++		if (provider.streamSimple === wrapped) provider.streamSimple = original;
++	};
++	const wrapped: Provider["streamSimple"] = (model, request, options) => {
++		const capture = active;
++		restore();
++		return original.call(provider, model, capture ? observe(request) : request, options);
++	};
++	provider.streamSimple = wrapped;
++	return restore;
++}
++
++function stop(state: State): void {
++	state.closed = true;
++	state.pi = undefined;
++	state.ctx = undefined;
++	state.restoreRequest?.();
++	process.off("exit", state.onExit);
++	for (const job of state.jobs.values()) {
++		if (job.finished || !job.child) continue;
++		job.child.kill("SIGTERM");
++		const timer = setTimeout(() => {
++			if (!job.finished) job.child?.kill("SIGKILL");
++		}, 1000);
++		timer.unref();
++	}
++}
++
++function recorded(ctx: ExtensionContext, id: string): boolean {
++	return ctx.sessionManager
++		.getEntries()
++		.some(
++			(entry) =>
++				entry.type === "custom_message" &&
++				entry.customType === "fork-result" &&
++				(entry.details as ResultDetails | undefined)?.forkId === id,
++		);
++}
++
++function deliver(state: State): void {
++	const { pi, ctx } = state;
++	if (state.closed || !pi || !ctx) return;
++	for (const job of state.jobs.values()) {
++		if (!job.result || job.seen || job.queued) continue;
++		job.queued = true;
++		if (recorded(ctx, job.id)) {
++			// Escape can arrive after persistence but before the next model request.
++			// Wake the agent without recording the result a second time.
++			pi.sendMessage({ customType: "fork-wake", content: [], display: false }, { triggerTurn: true });
++		} else {
++			pi.sendMessage(job.result, { triggerTurn: true, deliverAs: "steer" });
++		}
++	}
++}
++
++function finish(state: State, job: Job, reason?: string): void {
++	if (job.finished) return;
++	job.finished = true;
++	if (state.closed) return;
++	let last: AssistantMessage | undefined;
++	try {
++		if (existsSync(job.sessionFile)) {
++			const assistants = SessionManager.open(job.sessionFile)
++				.getEntries()
++				.flatMap((entry) =>
++					entry.type === "message" && entry.message.role === "assistant" ? [entry.message] : [],
++				);
++			if (assistants.length > job.inheritedAssistants) last = assistants.at(-1);
++		}
++	} catch (error) {
++		reason ??= String(error);
++	}
++	if (last?.stopReason === "error" || last?.stopReason === "aborted") {
++		reason = last.errorMessage || `Model response ${last.stopReason}`;
++	}
++	if (!last) reason ??= "Fork exited without an assistant response";
++	const text =
++		last?.content
++			.filter((part) => part.type === "text")
++			.map((part) => part.text)
++			.join("\n") ?? "";
++	job.result = {
++		customType: "fork-result",
++		display: true,
++		content: `Fork ${job.id} ${reason ? "failed" : "completed"}:\n\n${reason ?? text}`,
++		details: {
++			forkId: job.id,
++			status: reason ? "failed" : "completed",
++			...(existsSync(job.sessionFile) ? { sessionFile: job.sessionFile } : {}),
++			...(reason ? { error: reason } : {}),
++		},
++	};
++	deliver(state);
++}
++
++function installChild(pi: ExtensionAPI): void {
++	let bootstrap: Bootstrap;
++	let prefix: Message[];
++	let first = true;
++	let restoreRequest: (() => void) | undefined;
++	pi.on("session_start", (_event, ctx) => {
++		const entries = ctx.sessionManager.getEntries();
++		const entry = entries.find((item) => item.type === "custom" && item.customType === BOOTSTRAP);
++		if (!entry || entry.type !== "custom") throw new Error("Missing fork bootstrap");
++		bootstrap = entry.data as Bootstrap;
++		prefix = convertToLlm(entries.flatMap((item) => (item.type === "message" ? [item.message] : [])));
++	});
++	// The CLI receives a fixed launch token, so a task beginning with / or @
++	// cannot execute a command or expand a file. Only the literal task is saved.
++	pi.on("message_end", (event) => {
++		if (first && event.message.role === "user") {
++			return { message: { ...event.message, content: bootstrap.task } };
++		}
++	});
++	pi.on("before_agent_start", () => ({ systemPrompt: bootstrap.systemPrompt }));
++	pi.on("session_before_compact", () => (first ? { cancel: true } : undefined));
++	pi.on("context", (_event, ctx) => {
++		if (!first) return;
++		restoreRequest?.();
++		restoreRequest = observeRequest(ctx, (request) => {
++			first = false;
++			return {
++				...request,
++				systemPrompt: bootstrap.systemPrompt,
++				messages: [...prefix, { role: "user", content: bootstrap.task, timestamp: Date.now() }],
++			};
++		});
++	});
++	pi.on("session_shutdown", () => restoreRequest?.());
++}
++
++export default function (pi: ExtensionAPI) {
++	if (process.env[CHILD]) {
++		installChild(pi);
++		return;
++	}
++	let state: State;
++	pi.on("session_start", (_event, ctx) => {
++		const previous = registry[STATE];
++		if (previous && !previous.closed && previous.sessionId === ctx.sessionManager.getSessionId()) {
++			state = previous;
++		} else {
++			if (previous) stop(previous);
++			state = {
++				sessionId: ctx.sessionManager.getSessionId(),
++				jobs: new Map(),
++				request: [],
++				closed: false,
++				onExit: () => {
++					for (const job of state.jobs.values()) if (!job.finished) job.child?.kill("SIGKILL");
++				},
++			};
++			registry[STATE] = state;
++			process.once("exit", state.onExit);
++		}
++		state.pi = pi;
++		state.ctx = ctx;
++		deliver(state);
++	});
++	pi.on("session_shutdown", (event) => {
++		state.restoreRequest?.();
++		if (event.reason === "reload") {
++			state.pi = undefined;
++			state.ctx = undefined;
++		} else {
++			stop(state);
++		}
++	});
++	pi.on("context", (_event, ctx) => {
++		state.ctx = ctx;
++		state.restoreRequest?.();
++		state.restoreRequest = observeRequest(ctx, (request) => {
++			const messages = [...request.messages];
++			for (const job of state.jobs.values()) {
++				if (!job.result || job.seen || !recorded(ctx, job.id)) continue;
++				const content = job.result.content;
++				const present = messages.some(
++					(message) =>
++						message.role === "user" &&
++						(typeof message.content === "string"
++							? message.content
++							: message.content
++									.filter((part) => part.type === "text")
++									.map((part) => part.text)
++									.join("\n")
++						).includes(content),
++				);
++				// Compaction or another context hook may have removed a recorded,
++				// unseen result. Restore it to the request, never a second session entry.
++				if (!present) messages.push({ role: "user", content, timestamp: Date.now() });
++				job.inRequest = true;
++			}
++			state.request = structuredClone(messages);
++			state.systemPrompt = request.systemPrompt;
++			return { ...request, messages };
++		});
++	});
++	pi.on("before_provider_request", (_event, ctx) => {
++		if (ctx.signal?.aborted) return;
++		for (const job of state.jobs.values()) if (job.inRequest) job.seen = true;
++	});
++	pi.on("message_end", (event, ctx) => {
++		if (event.message.role !== "assistant") return;
++		state.assistant = event.message;
++		// Custom providers may not implement before_provider_request.
++		if (event.message.stopReason !== "aborted" && !ctx.signal?.aborted) {
++			for (const job of state.jobs.values()) if (job.inRequest) job.seen = true;
++		}
++	});
++	pi.on("agent_settled", (_event, ctx) => {
++		state.ctx = ctx;
++		for (const job of state.jobs.values()) if (!job.seen) job.queued = false;
++		// Let abort/queue cleanup finish before starting another run.
++		setImmediate(() => deliver(state));
++	});
++	pi.registerTool({
++		name: "fork",
++		label: "Fork",
++		description:
++			"Start a background investigation with a copy of this conversation. Its result returns automatically.",
++		parameters: Type.Object({ task: Type.String() }),
++		async execute(toolCallId, { task }, _signal, _onUpdate, ctx) {
++			if (!task.trim()) throw new Error("Fork task must not be empty");
++			if (!ctx.model || !state?.assistant) throw new Error("Fork requires a model and an assistant tool call");
++			const assistant = structuredClone(state.assistant);
++			if (!assistant.content.some((part) => part.type === "toolCall" && part.id === toolCallId)) {
++				throw new Error("Fork tool call is missing from the current assistant message");
++			}
++			const id = randomUUID();
++			const session = SessionManager.create(ctx.cwd, ctx.sessionManager.getSessionDir(), {
++				parentSession: ctx.sessionManager.getSessionFile(),
++			});
++			const messages = convertToLlm(structuredClone(state.request));
++			for (const message of [...messages, assistant]) session.appendMessage(message);
++			// Parent tools may not have run yet, and their future output must never
++			// leak into this snapshot. Close every call explicitly in the child.
++			for (const call of assistant.content) {
++				if (call.type !== "toolCall") continue;
++				session.appendMessage({
++					role: "toolResult",
++					toolCallId: call.id,
++					toolName: call.name,
++					content: [
++						{ type: "text", text: "Tool belongs to the parent run; no result is available in this fork." },
++					],
++					isError: false,
++					timestamp: Date.now(),
++				});
++			}
++			session.appendCustomEntry(BOOTSTRAP, {
++				task,
++				systemPrompt: state.systemPrompt ?? ctx.getSystemPrompt(),
++			} satisfies Bootstrap);
++			const job: Job = {
++				id,
++				sessionFile: resolve(session.getSessionFile()!),
++				inheritedAssistants: messages.filter((message) => message.role === "assistant").length + 1,
++				queued: false,
++				seen: false,
++				inRequest: false,
++				finished: false,
++			};
++			state.jobs.set(id, job);
++			const owner = state;
++			let stderr = "";
++			let started = false;
++			try {
++				const child = spawn(
++					process.execPath,
++					[
++						...process.execArgv,
++						"--import",
++						preload,
++						process.argv[1],
++						"--mode",
++						"json",
++						"--print",
++						"--session",
++						job.sessionFile,
++						"--provider",
++						ctx.model.provider,
++						"--model",
++						ctx.model.id,
++						"--thinking",
++						pi.getThinkingLevel(),
++						"fork-start",
++					],
++					{ cwd: ctx.cwd, env: { ...process.env, [CHILD]: id }, stdio: ["ignore", "ignore", "pipe", "pipe"] },
++				);
++				job.child = child;
++				child.stderr?.on("data", (chunk: Buffer) => {
++					stderr = (stderr + chunk.toString()).slice(-8192);
++				});
++				child.once("error", (error) => finish(owner, job, error.message));
++				const exited = (code: number | null, signal: NodeJS.Signals | null) => {
++					finish(
++						owner,
++						job,
++						signal
++							? `Fork killed by ${signal}`
++							: code !== 0
++								? `Fork exited with code ${code}${stderr ? `: ${stderr}` : ""}`
++								: undefined,
++					);
++				};
++				// A descendant can keep stderr open after pi exits. Do not wait for it.
++				child.once("exit", exited);
++				child.once("close", exited);
++				await new Promise<void>((accept, reject) => {
++					child.once("spawn", accept);
++					child.once("error", reject);
++				});
++				started = true;
++			} catch (error) {
++				finish(owner, job, error instanceof Error ? error.message : String(error));
++			}
++			return {
++				content: [{ type: "text", text: `${started ? "Started" : "Could not start"} fork ${id}` }],
++				details: { forkId: id },
++			};
++		},
++	});
++}
+diff --git a/packages/coding-agent/test/fork-extension.test.ts b/packages/coding-agent/test/fork-extension.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..9b6b7891a81b3041e9f0dc227c65068a847236a6
+--- /dev/null
++++ b/packages/coding-agent/test/fork-extension.test.ts
+@@ -0,0 +1,437 @@
++import * as childProcess from "node:child_process";
++import { EventEmitter } from "node:events";
++import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { PassThrough } from "node:stream";
++import type { AgentMessage } from "@earendil-works/pi-agent-core";
++import {
++	type AssistantMessage,
++	type Context,
++	createAssistantMessageEventStream,
++	type Provider,
++} from "@earendil-works/pi-ai";
++import { Type } from "typebox";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import forkExtension from "../examples/extensions/fork/index.ts";
++import type { ExtensionAPI, ExtensionContext, ExtensionEvent, ToolDefinition } from "../src/core/extensions/types.ts";
++import { convertToLlm } from "../src/core/messages.ts";
++import { SessionManager } from "../src/core/session-manager.ts";
++
++vi.mock("@earendil-works/pi-coding-agent", () => ({
++	get SessionManager() {
++		return SessionManager;
++	},
++	convertToLlm: (messages: AgentMessage[]) => convertToLlm(messages),
++}));
++vi.mock("node:child_process", async (importOriginal) => ({
++	...(await importOriginal<typeof childProcess>()),
++	spawn: vi.fn(),
++}));
++
++const parameters = Type.Object({ task: Type.String() });
++type ForkTool = ToolDefinition<typeof parameters, { forkId: string }>;
++type Handler = (event: ExtensionEvent, ctx: ExtensionContext) => unknown;
++
++function assistant(
++	content: AssistantMessage["content"],
++	stopReason: AssistantMessage["stopReason"] = "stop",
++): AssistantMessage {
++	return {
++		role: "assistant",
++		content,
++		stopReason,
++		api: "anthropic-messages",
++		provider: "anthropic",
++		model: "claude-sonnet-4-5",
++		usage: {
++			input: 1,
++			output: 1,
++			cacheRead: 0,
++			cacheWrite: 0,
++			totalTokens: 2,
++			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
++		},
++		timestamp: 123,
++	};
++}
++
++class Child extends EventEmitter {
++	stderr = new PassThrough();
++	kill = vi.fn(() => true);
++}
++
++const directories: string[] = [];
++const shutdowns: (() => void)[] = [];
++
++function setup(existing?: SessionManager) {
++	const directory = mkdtempSync(join(tmpdir(), "pi-fork-test-"));
++	directories.push(directory);
++	const session = existing ?? SessionManager.create(directory, directory);
++	let lastRequest: Context | undefined;
++	const provider = {
++		streamSimple: vi.fn((_model, context: Context) => {
++			lastRequest = context;
++			return createAssistantMessageEventStream();
++		}),
++	} as unknown as Provider;
++	const ctx = {
++		cwd: directory,
++		sessionManager: session,
++		model: { provider: "anthropic", id: "claude-sonnet-4-5" },
++		modelRegistry: { getProvider: () => provider },
++		isIdle: () => false,
++		getSystemPrompt: () => "Parent effective system prompt",
++	} as unknown as ExtensionContext;
++	const handlers = new Map<string, Handler>();
++	let tool: ForkTool | undefined;
++	const sendMessage = vi.fn<ExtensionAPI["sendMessage"]>();
++	const api = {
++		on: (name: string, handler: Handler) => handlers.set(name, handler),
++		registerTool: (definition: ForkTool) => {
++			tool = definition;
++		},
++		getThinkingLevel: () => "high",
++		sendMessage,
++	} as unknown as ExtensionAPI;
++	forkExtension(api);
++	const emit = (event: ExtensionEvent) => handlers.get(event.type)?.(event, ctx);
++	emit({ type: "session_start", reason: existing ? "reload" : "startup" });
++	shutdowns.push(() => {
++		emit({ type: "session_shutdown", reason: "quit" });
++	});
++	const call = (id = "call-1", task = "Check other call sites") => {
++		if (!tool) throw new Error("fork not registered");
++		return tool.execute(id, { task }, undefined, undefined, ctx);
++	};
++	const request = (messages: AgentMessage[]) => {
++		provider.streamSimple(ctx.model!, { messages: convertToLlm(messages), systemPrompt: ctx.getSystemPrompt() });
++		return lastRequest!;
++	};
++	return { ctx, session, emit, call, sendMessage, tool, request, provider };
++}
++
++function prepare(parent: ReturnType<typeof setup>, count = 1) {
++	const request: AgentMessage[] = [
++		{ role: "compactionSummary", summary: "Only compacted history", tokensBefore: 10000, timestamp: 1 },
++		{ role: "user", content: "Investigate the bug", timestamp: 2 },
++		{ role: "custom", customType: "injected", content: "Context hook addition", display: false, timestamp: 3 },
++	];
++	const message = assistant(
++		[
++			{ type: "text", text: "I will investigate in parallel." },
++			...Array.from({ length: count }, (_, index) => ({
++				type: "toolCall" as const,
++				id: `call-${index + 1}`,
++				name: "fork",
++				arguments: { task: `Task ${index}` },
++			})),
++			{ type: "toolCall", id: "other", name: "read", arguments: { path: "file.ts" } },
++		],
++		"toolUse",
++	);
++	parent.emit({ type: "context", messages: request });
++	parent.request(request);
++	parent.emit({ type: "message_end", message });
++	return { request, message };
++}
++
++function mockSpawn() {
++	const children: Child[] = [];
++	const spawn = vi
++		.mocked(childProcess.spawn)
++		.mockReset()
++		.mockImplementation(() => {
++			const child = new Child();
++			children.push(child);
++			queueMicrotask(() => child.emit("spawn"));
++			return child as unknown as childProcess.ChildProcess;
++		});
++	const file = (index = 0) => {
++		const args = spawn.mock.calls[index][1] as string[];
++		return args[args.indexOf("--session") + 1];
++	};
++	const complete = (index = 0, text = "Exact final answer\nSecond line") => {
++		SessionManager.open(file(index)).appendMessage(assistant([{ type: "text", text }]));
++		children[index].emit("close", 0, null);
++	};
++	return { spawn, children, file, complete };
++}
++
++afterEach(() => {
++	for (const shutdown of shutdowns.splice(0)) shutdown();
++	vi.restoreAllMocks();
++	vi.unstubAllEnvs();
++	vi.useRealTimers();
++	for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
++});
++
++describe("fork extension", () => {
++	it("disables recursive forks and gives the child exactly the inherited context plus its literal task", async () => {
++		const { file } = mockSpawn();
++		const parent = setup();
++		const { request, message } = prepare(parent, 2);
++		const task = "/command @file is a literal task";
++		await parent.call("call-1", task);
++		vi.stubEnv("PI_FORK_CHILD", "child-test");
++		const child = setup(SessionManager.open(file()));
++		expect(child.tool).toBeUndefined();
++		expect(
++			child.emit({ type: "message_end", message: { role: "user", content: "fork-start", timestamp: 4 } }),
++		).toEqual({ message: { role: "user", content: task, timestamp: 4 } });
++		child.emit({
++			type: "context",
++			messages: [{ role: "user", content: "extra child hook instruction", timestamp: 5 }],
++		});
++		const first = child.request([{ role: "user", content: "later child hook instruction", timestamp: 6 }]);
++		expect(first.messages.slice(0, 4)).toEqual([...convertToLlm(request), message]);
++		expect(first.messages.slice(4, 7).map((item) => item.role)).toEqual(["toolResult", "toolResult", "toolResult"]);
++		expect(first.messages.at(-1)).toEqual({ role: "user", content: task, timestamp: expect.any(Number) });
++		expect(first.messages).toHaveLength(8);
++		expect(child.emit({ type: "context", messages: [] })).toBeUndefined();
++	});
++
++	it("captures replacements from later context hooks and restores the provider method", async () => {
++		const { file } = mockSpawn();
++		const parent = setup();
++		const { message } = prepare(parent);
++		const original = parent.provider.streamSimple;
++		parent.emit({ type: "context", messages: [] });
++		const replaced: AgentMessage[] = [{ role: "user", content: "Late context replacement", timestamp: 10 }];
++		parent.request(replaced);
++		expect(parent.provider.streamSimple).toBe(original);
++		parent.emit({ type: "message_end", message });
++		await parent.call();
++		const messages = SessionManager.open(file())
++			.getEntries()
++			.flatMap((entry) => (entry.type === "message" ? [entry.message] : []));
++		expect(messages.slice(0, 2)).toEqual([...replaced, message]);
++	});
++
++	it("kills a child with a blocked main thread when its ownership pipe closes", async () => {
++		const { spawn } = mockSpawn();
++		const parent = setup();
++		prepare(parent);
++		await parent.call();
++		const args = spawn.mock.calls[0][1] as string[];
++		const preload = args[process.execArgv.length + 1];
++		const script = join(parent.ctx.cwd, "blocked.cjs");
++		const ready = join(parent.ctx.cwd, "ready");
++		writeFileSync(
++			script,
++			`require("node:fs").writeFileSync(${JSON.stringify(ready)}, "ready"); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);`,
++		);
++		const child = childProcess.fork(script, [], {
++			execArgv: ["--import", preload],
++			stdio: ["ignore", "ignore", "pipe", "pipe", "ipc"],
++		});
++		try {
++			await vi.waitFor(() => expect(existsSync(ready)).toBe(true), { timeout: 5000, interval: 20 });
++			const exited = new Promise<NodeJS.Signals | null>((done) =>
++				child.once("exit", (_code, signal) => done(signal)),
++			);
++			child.stdio[3]?.destroy();
++			expect(await exited).toBe("SIGKILL");
++		} finally {
++			child.kill("SIGKILL");
++		}
++	}, 10000);
++
++	it("rejects blank tasks without starting a process", async () => {
++		const { spawn } = mockSpawn();
++		const parent = setup();
++		prepare(parent);
++		await expect(parent.call("call-1", " \n\t")).rejects.toThrow("must not be empty");
++		expect(spawn).not.toHaveBeenCalled();
++	});
++
++	it("returns after spawn, snapshots compacted request order, and closes every assistant tool call", async () => {
++		const { spawn, children, file } = mockSpawn();
++		const parent = setup();
++		const { request, message } = prepare(parent, 2);
++		const result = await parent.call();
++		expect(result.details.forkId).toBeTruthy();
++		expect(result.content).toEqual([{ type: "text", text: `Started fork ${result.details.forkId}` }]);
++		expect(parent.sendMessage).not.toHaveBeenCalled();
++		expect(children[0].kill).not.toHaveBeenCalled();
++		const child = SessionManager.open(file());
++		expect(child.getHeader()?.parentSession).toBe(parent.session.getSessionFile());
++		expect(child.getSessionDir()).toBe(parent.session.getSessionDir());
++		const messages = child.getEntries().flatMap((entry) => (entry.type === "message" ? [entry.message] : []));
++		expect(messages.slice(0, 4)).toEqual([...convertToLlm(request), message]);
++		expect(messages.slice(4).map((item) => item.role === "toolResult" && item.toolCallId)).toEqual([
++			"call-1",
++			"call-2",
++			"other",
++		]);
++		request.push({ role: "user", content: "Later parent work", timestamp: 4 });
++		expect(JSON.stringify(messages)).not.toContain("Later parent work");
++		expect(spawn.mock.calls[0][0]).toBe(process.execPath);
++		expect(spawn.mock.calls[0][1]).toEqual([
++			...process.execArgv,
++			"--import",
++			expect.stringContaining("data:text/javascript,"),
++			process.argv[1],
++			"--mode",
++			"json",
++			"--print",
++			"--session",
++			file(),
++			"--provider",
++			"anthropic",
++			"--model",
++			"claude-sonnet-4-5",
++			"--thinking",
++			"high",
++			"fork-start",
++		]);
++		expect(spawn.mock.calls[0][2]).toMatchObject({ env: { ...process.env, PI_FORK_CHILD: result.details.forkId } });
++	});
++
++	it("attributes concurrent completions and only delivers each once", async () => {
++		const { children, complete, file } = mockSpawn();
++		const parent = setup();
++		prepare(parent, 3);
++		const results = await Promise.all([parent.call("call-1"), parent.call("call-2"), parent.call("call-3")]);
++		expect(new Set(results.map((item) => item.details.forkId)).size).toBe(3);
++		complete(2, "Third");
++		complete(0, "First");
++		complete(1, "Second");
++		children[0].emit("close", 0, null);
++		expect(parent.sendMessage).toHaveBeenCalledTimes(3);
++		for (const [index, callIndex] of [
++			[2, 0],
++			[0, 1],
++			[1, 2],
++		]) {
++			expect(parent.sendMessage.mock.calls[callIndex]).toEqual([
++				expect.objectContaining({
++					customType: "fork-result",
++					display: true,
++					details: { forkId: results[index].details.forkId, status: "completed", sessionFile: file(index) },
++				}),
++				{ triggerTurn: true, deliverAs: "steer" },
++			]);
++		}
++	});
++
++	it("requeues a result discarded by Escape and acknowledges it in the next model context", async () => {
++		const { complete } = mockSpawn();
++		const parent = setup();
++		prepare(parent);
++		await parent.call();
++		complete();
++		const result = parent.sendMessage.mock.calls[0][0];
++		expect(result.content).toContain("Exact final answer\nSecond line");
++		parent.emit({ type: "agent_settled" });
++		await new Promise<void>((done) => setImmediate(done));
++		expect(parent.sendMessage).toHaveBeenCalledTimes(2);
++		parent.session.appendCustomMessageEntry(result.customType, result.content, result.display, result.details);
++		parent.emit({ type: "context", messages: [{ ...result, role: "custom", timestamp: 1 }] });
++		parent.request([{ ...result, role: "custom", timestamp: 1 }]);
++		parent.emit({ type: "before_provider_request", payload: {} });
++		parent.emit({ type: "agent_settled" });
++		await new Promise<void>((done) => setImmediate(done));
++		expect(parent.sendMessage).toHaveBeenCalledTimes(2);
++	});
++
++	it("does not duplicate a result persisted just before Escape", async () => {
++		const { complete } = mockSpawn();
++		const parent = setup();
++		prepare(parent);
++		await parent.call();
++		complete();
++		const result = parent.sendMessage.mock.calls[0][0];
++		parent.session.appendCustomMessageEntry(result.customType, result.content, result.display, result.details);
++		parent.emit({ type: "agent_settled" });
++		await new Promise<void>((done) => setImmediate(done));
++		expect(parent.sendMessage.mock.calls[1][0].customType).toBe("fork-wake");
++		parent.emit({ type: "context", messages: [] });
++		const context = parent.request([]);
++		expect(context.messages).toEqual([{ content: result.content, role: "user", timestamp: expect.any(Number) }]);
++		expect(parent.session.getEntries().filter((entry) => entry.type === "custom_message")).toHaveLength(1);
++	});
++
++	it("does not acknowledge a result when Escape aborts request preparation", async () => {
++		const { complete } = mockSpawn();
++		const parent = setup();
++		prepare(parent);
++		await parent.call();
++		complete();
++		const result = parent.sendMessage.mock.calls[0][0];
++		parent.session.appendCustomMessageEntry(result.customType, result.content, result.display, result.details);
++		parent.emit({ type: "context", messages: [{ ...result, role: "custom", timestamp: 1 }] });
++		parent.request([{ ...result, role: "custom", timestamp: 1 }]);
++		const abort = new AbortController();
++		abort.abort();
++		parent.ctx.signal = abort.signal;
++		parent.emit({ type: "before_provider_request", payload: {} });
++		parent.emit({ type: "message_end", message: assistant([], "aborted") });
++		parent.emit({ type: "agent_settled" });
++		await new Promise<void>((done) => setImmediate(done));
++		expect(parent.sendMessage.mock.calls[1][0].customType).toBe("fork-wake");
++	});
++
++	it.each(["new", "resume", "fork", "quit"] as const)(
++		"stops owned processes on %s and suppresses results",
++		async (reason) => {
++			vi.useFakeTimers();
++			const { children } = mockSpawn();
++			const parent = setup();
++			prepare(parent);
++			await parent.call();
++			parent.emit({ type: "session_shutdown", reason });
++			expect(children[0].kill).toHaveBeenCalledWith("SIGTERM");
++			await vi.advanceTimersByTimeAsync(1000);
++			expect(children[0].kill).toHaveBeenCalledWith("SIGKILL");
++			children[0].emit("close", null, "SIGKILL");
++			expect(parent.sendMessage).not.toHaveBeenCalled();
++		},
++	);
++
++	it("keeps running through reload and delivers a completion during reload to the new API", async () => {
++		const { children, complete } = mockSpawn();
++		const parent = setup();
++		prepare(parent);
++		await parent.call();
++		parent.emit({ type: "session_shutdown", reason: "reload" });
++		complete();
++		expect(children[0].kill).not.toHaveBeenCalled();
++		expect(parent.sendMessage).not.toHaveBeenCalled();
++		const reloaded = setup(parent.session);
++		expect(reloaded.sendMessage).toHaveBeenCalledTimes(1);
++		expect(reloaded.sendMessage.mock.calls[0][0].customType).toBe("fork-result");
++	});
++
++	it.each(["model", "signal", "exit", "spawn"])("reports %s failures exactly once", async (kind) => {
++		const { children, file } = mockSpawn();
++		const parent = setup();
++		prepare(parent);
++		await parent.call();
++		let reason: string;
++		if (kind === "model") {
++			SessionManager.open(file()).appendMessage({
++				...assistant([], "error"),
++				errorMessage: "Provider returned: quota exhausted",
++			});
++			reason = "Provider returned: quota exhausted";
++			children[0].emit("close", 0, null);
++		} else if (kind === "signal") {
++			reason = "Fork killed by SIGKILL";
++			children[0].emit("close", null, "SIGKILL");
++		} else if (kind === "exit") {
++			reason = "Fork exited with code 17: startup failed";
++			children[0].stderr.write("startup failed");
++			children[0].emit("close", 17, null);
++		} else {
++			reason = "spawn ENOENT";
++			children[0].emit("error", new Error(reason));
++		}
++		children[0].emit("close", 1, null);
++		expect(parent.sendMessage).toHaveBeenCalledTimes(1);
++		expect(parent.sendMessage.mock.calls[0][0]).toMatchObject({
++			content: expect.stringContaining(reason),
++			details: { status: "failed", error: reason, sessionFile: file() },
++		});
++	});
++});

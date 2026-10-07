@@ -1,0 +1,167 @@
+diff --git a/packages/coding-agent/examples/extensions/subagent/README.md b/packages/coding-agent/examples/extensions/subagent/README.md
+index da74f32..95d29c9 100644
+--- a/packages/coding-agent/examples/extensions/subagent/README.md
++++ b/packages/coding-agent/examples/extensions/subagent/README.md
+@@ -175,3 +175,17 @@ Project agents override user agents with the same name when `agentScope: "both"`
+ - Parallel model-visible output is capped at 50 KB per task; full results remain in tool details
+ - Agents discovered fresh on each invocation (allows editing mid-session)
+ - Parallel mode limited to 8 tasks, 4 concurrent
++
++## Live team communication
++
++For a parallel dispatch, set `communication: true` and give every task a unique
++`id`, for example `{ communication: true, tasks: [{id: "research", agent:
++"worker", task: "Investigate"}, {id: "implement", agent: "worker", task: "Implement"}] }`.
++Workers use `team_members({})` to discover instance IDs, then
++`team_send({to: "implement", message: "The endpoint requires cursor pagination"})`
++or `team_send({broadcast: true, message: "The endpoint requires cursor pagination"})`.
++Incoming findings enter model context at the next turn boundary automatically.
++Sending reports accepted and failed recipients; it does not await a response.
++IDs are scoped to one dispatch. Pending and finished workers cannot receive new
++messages. Cancellation cleans up the team's temporary mailboxes after children stop.
++This implementation uses local temporary storage and does not recover from host crashes.
+diff --git a/packages/coding-agent/examples/extensions/subagent/index.ts b/packages/coding-agent/examples/extensions/subagent/index.ts
+index 71b1a33..d301f7b 100644
+--- a/packages/coding-agent/examples/extensions/subagent/index.ts
++++ b/packages/coding-agent/examples/extensions/subagent/index.ts
+@@ -29,6 +29,7 @@ import {
+ import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
+ import { Type } from "typebox";
+ import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
++import { createTeam, type WorkerConfig } from "./team.ts";
+ 
+ const MAX_PARALLEL_TASKS = 8;
+ const MAX_CONCURRENCY = 4;
+@@ -232,7 +233,9 @@ async function mapWithConcurrencyLimit<TIn, TOut>(
+ 			results[current] = await fn(items[current], current);
+ 		}
+ 	});
+-	await Promise.all(workers);
++	const settled = await Promise.allSettled(workers);
++	const rejected = settled.find((result) => result.status === "rejected");
++	if (rejected?.status === "rejected") throw rejected.reason;
+ 	return results;
+ }
+ 
+@@ -280,6 +283,7 @@ async function runSingleAgent(
+ 	signal: AbortSignal | undefined,
+ 	onUpdate: OnUpdateCallback | undefined,
+ 	makeDetails: (results: SingleResult[]) => SubagentDetails,
++	team?: WorkerConfig,
+ ): Promise<SingleResult> {
+ 	const agent = agents.find((a) => a.name === agentName);
+ 
+@@ -298,6 +302,7 @@ async function runSingleAgent(
+ 	}
+ 
+ 	const args: string[] = ["--mode", "json", "-p", "--no-session"];
++	if (team) args.push("-e", team.extension);
+ 	const inheritsDispatchConfig = !agent.model;
+ 	const model = agent.model ?? dispatchDefaults.model;
+ 	if (model) args.push("--model", model);
+@@ -347,6 +352,7 @@ async function runSingleAgent(
+ 				cwd: cwd ?? defaultCwd,
+ 				shell: false,
+ 				stdio: ["ignore", "pipe", "pipe"],
++				env: team ? { ...process.env, PI_TEAM_DIRECTORY: team.directory, PI_TEAM_MEMBER: team.id } : process.env,
+ 			});
+ 			let buffer = "";
+ 
+@@ -412,7 +418,7 @@ async function runSingleAgent(
+ 					wasAborted = true;
+ 					proc.kill("SIGTERM");
+ 					setTimeout(() => {
+-						if (!proc.killed) proc.kill("SIGKILL");
++						if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL");
+ 					}, 5000);
+ 				};
+ 				if (signal.aborted) killProc();
+@@ -440,6 +446,7 @@ async function runSingleAgent(
+ }
+ 
+ const TaskItem = Type.Object({
++	id: Type.Optional(Type.String({ description: "Unique worker instance ID when communication is enabled" })),
+ 	agent: Type.String({ description: "Name of the agent to invoke" }),
+ 	task: Type.String({ description: "Task to delegate to the agent" }),
+ 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
+@@ -457,6 +464,7 @@ const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {
+ });
+ 
+ const SubagentParams = Type.Object({
++	communication: Type.Optional(Type.Boolean({ description: "Enable communication in this parallel dispatch" })),
+ 	agent: Type.Optional(Type.String({ description: "Name of the agent to invoke (for single mode)" })),
+ 	task: Type.Optional(Type.String({ description: "Task to delegate (for single mode)" })),
+ 	tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
+@@ -494,6 +502,7 @@ export default function (pi: ExtensionAPI) {
+ 			const hasTasks = (params.tasks?.length ?? 0) > 0;
+ 			const hasSingle = Boolean(params.agent && params.task);
+ 			const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle);
++			if (params.communication && !hasTasks) throw new Error("Communication requires parallel tasks");
+ 
+ 			const makeDetails =
+ 				(mode: "single" | "parallel" | "chain") =>
+@@ -642,29 +651,41 @@ export default function (pi: ExtensionAPI) {
+ 					}
+ 				};
+ 
+-				const results = await mapWithConcurrencyLimit(params.tasks, MAX_CONCURRENCY, async (t, index) => {
+-					const result = await runSingleAgent(
+-						ctx.cwd,
+-						dispatchDefaults,
+-						agents,
+-						t.agent,
+-						t.task,
+-						t.cwd,
+-						undefined,
+-						signal,
+-						// Per-task update callback
+-						(partial) => {
+-							if (partial.details?.results[0]) {
+-								allResults[index] = partial.details.results[0];
+-								emitParallelUpdate();
+-							}
+-						},
+-						makeDetails("parallel"),
+-					);
+-					allResults[index] = result;
+-					emitParallelUpdate();
+-					return result;
+-				});
++				const team = params.communication ? createTeam(params.tasks) : undefined;
++				let results: SingleResult[];
++				try {
++					results = await mapWithConcurrencyLimit(params.tasks, MAX_CONCURRENCY, async (t, index) => {
++						const member = await team?.start(index);
++						try {
++							const result = await runSingleAgent(
++								ctx.cwd,
++								dispatchDefaults,
++								agents,
++								t.agent,
++								t.task,
++								t.cwd,
++								undefined,
++								signal,
++								// Per-task update callback
++								(partial) => {
++									if (partial.details?.results[0]) {
++										allResults[index] = partial.details.results[0];
++										emitParallelUpdate();
++									}
++								},
++								makeDetails("parallel"),
++								member,
++							);
++							allResults[index] = result;
++							emitParallelUpdate();
++							return result;
++						} finally {
++							await team?.finish(index);
++						}
++					});
++				} finally {
++					team?.dispose();
++				}
+ 
+ 				const successCount = results.filter((r) => !isFailedResult(r)).length;
+ 				const summaries = results.map((r) => {

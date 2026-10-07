@@ -1,0 +1,2348 @@
+diff --git a/packages/coding-agent/examples/extensions/README.md b/packages/coding-agent/examples/extensions/README.md
+index d60d6e38e..3092d6c02 100644
+--- a/packages/coding-agent/examples/extensions/README.md
++++ b/packages/coding-agent/examples/extensions/README.md
+@@ -31,6 +31,7 @@ cp permission-gate.ts ~/.pi/agent/extensions/
+ | Extension | Description |
+ |-----------|-------------|
+ | `todo.ts` | Todo list tool + `/todos` command with custom rendering and state persistence |
++| `background-processes/` | Start, page, and kill long-lived processes; auto-background stalled `bash`; wake the agent on ready/error/output/exit |
+ | `hello.ts` | Minimal custom tool example |
+ | `question.ts` | Demonstrates `ctx.ui.select()` for asking the user questions with custom UI |
+ | `questionnaire.ts` | Multi-question input with tab bar navigation between questions |
+diff --git a/packages/coding-agent/examples/extensions/background-processes/README.md b/packages/coding-agent/examples/extensions/background-processes/README.md
+new file mode 100644
+index 000000000..276009adb
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/background-processes/README.md
+@@ -0,0 +1,37 @@
++# Background processes
++
++Managed long-lived processes for the coding agent: start them, page their logs, stop the whole tree, and let them wake the agent. Processes belong to the running pi process (they survive `/reload`, `/new`, `/fork`, and tree navigation) and are stopped with SIGTERM-then-SIGKILL when pi exits.
++
++Load with `pi -e packages/coding-agent/examples/extensions/background-processes` or copy this directory to `~/.pi/agent/extensions/` / `.pi/extensions/` so `DefaultResourceLoader` picks up `index.ts`.
++
++## Tools
++
++Every tool returns a JSON object as the result text and the same object as `details`. `bash` is the exception on its normal (foreground) path: it returns the built-in bash result text, truncation, and tool-error strings.
++
++| Tool | Arguments | Result |
++|------|-----------|--------|
++| `bg_run` | `command`, optional `cwd`, `name`, `wake.ready`, `wake.error`, `cleanup.command`, `cleanup.timeoutSec` | Process record (returns immediately) |
++| `bg_logs` | `id`, optional `offset`, `limit` | `{ id, offset, lines, total }` — a page of combined stdout/stderr. A page never exceeds 64KB. Omit `limit` to get the newest lines that fit. |
++| `bg_list` | _(none)_ | `{ processes }` — every record visible to this session, running and finished |
++| `bg_kill` | `id`, optional `timeoutSec` (default 5) | Final process record plus `cleanup: { ran, exitCode, failed } \| null` |
++| `bg_watch` | `id`, optional `ready`, `error`, `exit`, `output` | Updated process record |
++| `bash` | `command`, optional `timeout`, `stalledSec` (default 30) | Built-in bash result, or a process record with `backgrounded: true` and `stalledSec` if the command went silent while still running |
++
++A process record includes `id`, `name`, `command`, `cwd` (absolute), `pid`, `state` (`running` \| `exited` \| `killed`), `exitCode`, `startedAt`, `endedAt`, `logLines`, and `backgrounded` (true only when `bash` moved the command).
++
++Relative `cwd` values resolve against the session working directory. `bg_kill` signals the process and every descendant (`SIGTERM`, then `SIGKILL` after `timeoutSec`). If the process was started with `cleanup`, that command runs once the tree is gone (same cwd, default 30s timeout) and its output is appended to the same log. A failed or timed-out cleanup is returned as `failed: true`.
++
++Logs and the final record are stored under `{sessionDir}/background-processes/{sessionId}/{id}/`. A later pi process that resumes the session can list and page finished records; leftover `running` files are reported as `killed`/`exited`, never `running`. Output is written to disk as it arrives so pi's heap does not grow with log volume.
++
++## Wake rules
++
++Wakes are custom messages with `customType: "background-process"` and `details: { id, name, reasons, exitCode, matchedLine }`. `reasons` is a non-empty list drawn from `"ready"`, `"error"`, `"output"`, `"exit"`. `matchedLine` is the first output line that triggered the wake, or `null`.
++
++- **Default:** only process exit wakes the agent.
++- **`ready` / `error`:** only when that regex was supplied (to `bg_run` or `bg_watch`). Patterns are matched against each complete output line.
++- **`output`:** only for a command that `bash` moved to the background. The first complete line after the switch wakes, with that line as `matchedLine`.
++- **`ready` and `output`** wake at most once per process. **`error`** wakes at most once per delivery window. **`exit`** wakes exactly once when the process leaves `running`, including when `bg_kill` stops it (`state: "killed"`).
++- After the exit wake has been delivered, nothing else wakes for that process. `bg_watch` with `null` removes a pattern; `exit: false` / `output: false` silences that reason.
++- While the agent is busy, the wake is delivered after the current assistant turn finishes its tool calls and before the next model request (`deliverAs: "steer"`). While idle, it starts a new turn immediately (`triggerTurn: true`).
++- Several reasons for the same process in one window may be combined into one message. Several processes are reported in the order each first fired.
++- The wake goes to the session that started the process if that session is still active; otherwise to the current active session.
+diff --git a/packages/coding-agent/examples/extensions/background-processes/index.ts b/packages/coding-agent/examples/extensions/background-processes/index.ts
+new file mode 100644
+index 000000000..13fc2bc7d
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/background-processes/index.ts
+@@ -0,0 +1,433 @@
++/**
++ * Background Processes Extension
++ *
++ * Long-lived processes (dev servers, test watchers, local APIs) that the
++ * agent can start, page logs for, stop, and be woken by — without blocking
++ * the bash tool or leaving children behind after pi exits.
++ *
++ * Usage:
++ *   pi -e packages/coding-agent/examples/extensions/background-processes
++ */
++
++import { constants } from "node:fs";
++import { access, unlink } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { resolve } from "node:path";
++import {
++	type AgentToolResult,
++	type AgentToolUpdateCallback,
++	type BashToolDetails,
++	DEFAULT_MAX_BYTES,
++	DEFAULT_MAX_LINES,
++	type ExtensionAPI,
++	type ExtensionContext,
++	formatSize,
++	truncateTail,
++} from "@earendil-works/pi-coding-agent";
++import { Type } from "typebox";
++import { ProcessLog } from "./log-file.ts";
++import { getProcessManager, resetBackgroundProcessesForTests, toPublicRecord } from "./manager.ts";
++import { killProcessTree, spawnShellCommand } from "./process-tree.ts";
++import {
++	DEFAULT_CLEANUP_TIMEOUT_SEC,
++	DEFAULT_KILL_TIMEOUT_SEC,
++	DEFAULT_STALLED_SEC,
++	type ProcessRecord,
++} from "./types.ts";
++
++export { resetBackgroundProcessesForTests };
++export type { ProcessRecord } from "./types.ts";
++
++const manager = getProcessManager();
++
++function jsonResult<T>(value: T): AgentToolResult<T> {
++	return {
++		content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
++		details: value,
++	};
++}
++
++function resolveCwd(ctx: ExtensionContext, cwd?: string): string {
++	return cwd ? resolve(ctx.cwd, cwd) : ctx.cwd;
++}
++
++async function assertCwd(cwd: string, shellName: string): Promise<void> {
++	try {
++		await access(cwd, constants.F_OK);
++	} catch {
++		throw new Error(`Working directory does not exist: ${cwd}\nCannot execute ${shellName} commands.`);
++	}
++}
++
++function appendStatus(text: string, status: string): string {
++	return `${text ? `${text}\n\n` : ""}${status}`;
++}
++
++function formatBashOutput(
++	tail: string,
++	totalLines: number,
++	totalBytes: number,
++	fullOutputPath: string,
++): { text: string; details: BashToolDetails | undefined } {
++	const truncation = truncateTail(tail);
++	const truncated = totalLines > DEFAULT_MAX_LINES || totalBytes > DEFAULT_MAX_BYTES;
++	if (!truncated) {
++		return { text: truncation.content || "(no output)", details: undefined };
++	}
++	const outputLines = truncation.outputLines || truncation.content.split("\n").length;
++	const startLine = Math.max(1, totalLines - outputLines + 1);
++	const endLine = totalLines;
++	let text = truncation.content || "(no output)";
++	const details: BashToolDetails = {
++		truncation: {
++			...truncation,
++			truncated: true,
++			totalLines,
++			totalBytes,
++			truncatedBy: totalLines > DEFAULT_MAX_LINES ? "lines" : "bytes",
++		},
++		fullOutputPath,
++	};
++	if (truncation.lastLinePartial) {
++		text += `\n\n[Showing last ${formatSize(truncation.outputBytes)} of line ${endLine} (line is ${formatSize(Buffer.byteLength(truncation.content, "utf-8"))}). Full output: ${fullOutputPath}]`;
++	} else if (totalLines > DEFAULT_MAX_LINES && totalBytes <= DEFAULT_MAX_BYTES) {
++		text += `\n\n[Showing lines ${startLine}-${endLine} of ${totalLines}. Full output: ${fullOutputPath}]`;
++	} else {
++		text += `\n\n[Showing lines ${startLine}-${endLine} of ${totalLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Full output: ${fullOutputPath}]`;
++	}
++	return { text, details };
++}
++
++const bgRunSchema = Type.Object({
++	command: Type.String({ description: "Shell command to start in the background" }),
++	cwd: Type.Optional(
++		Type.String({ description: "Working directory (relative paths resolve against the session cwd)" }),
++	),
++	name: Type.Optional(Type.String({ description: "Display name for the process" })),
++	wake: Type.Optional(
++		Type.Object({
++			ready: Type.Optional(Type.String({ description: "Regex matched against each output line to wake on ready" })),
++			error: Type.Optional(Type.String({ description: "Regex matched against each output line to wake on error" })),
++		}),
++	),
++	cleanup: Type.Optional(
++		Type.Object({
++			command: Type.String({ description: "Command to run after the process tree is gone" }),
++			timeoutSec: Type.Optional(Type.Number({ description: "Cleanup timeout in seconds (default 30)" })),
++		}),
++	),
++});
++
++const bgLogsSchema = Type.Object({
++	id: Type.String({ description: "Process id" }),
++	offset: Type.Optional(Type.Number({ description: "Line offset to start from (0-based)" })),
++	limit: Type.Optional(Type.Number({ description: "Maximum number of lines to return" })),
++});
++
++const bgListSchema = Type.Object({});
++
++const bgKillSchema = Type.Object({
++	id: Type.String({ description: "Process id" }),
++	timeoutSec: Type.Optional(Type.Number({ description: "Seconds to wait after SIGTERM before SIGKILL (default 5)" })),
++});
++
++const bgWatchSchema = Type.Object({
++	id: Type.String({ description: "Process id" }),
++	ready: Type.Optional(Type.Union([Type.String(), Type.Null()])),
++	error: Type.Optional(Type.Union([Type.String(), Type.Null()])),
++	exit: Type.Optional(Type.Boolean()),
++	output: Type.Optional(Type.Boolean()),
++});
++
++const bashSchema = Type.Object({
++	command: Type.String({ description: "Shell command to execute" }),
++	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
++	stalledSec: Type.Optional(
++		Type.Number({
++			description: "Seconds of silence while still running before moving the command to the background (default 30)",
++		}),
++	),
++});
++
++type BashOutcome = { type: "exit"; code: number | null } | { type: "stall" } | { type: "timeout" } | { type: "abort" };
++
++async function executeBash(
++	params: { command: string; timeout?: number; stalledSec?: number },
++	signal: AbortSignal | undefined,
++	onUpdate: AgentToolUpdateCallback<unknown> | undefined,
++	ctx: ExtensionContext,
++): Promise<AgentToolResult<unknown>> {
++	await manager.bindContext(ctx);
++	if (params.timeout !== undefined && (!Number.isFinite(params.timeout) || params.timeout <= 0)) {
++		throw new Error("Invalid timeout: must be a finite number of seconds");
++	}
++	const stalledSec = params.stalledSec ?? DEFAULT_STALLED_SEC;
++	const cwd = ctx.cwd;
++	await assertCwd(cwd, "bash");
++
++	const tmpLog = `${tmpdir()}/pi-bash-${crypto.randomUUID()}.log`;
++	const log = await ProcessLog.create(tmpLog);
++	const startedAt = new Date().toISOString();
++	const spawned = spawnShellCommand(params.command, cwd);
++	const { child, pid } = spawned;
++
++	let tail = "";
++	let totalBytes = 0;
++	let adoptedId: string | null = null;
++	let forwarding = false;
++	const bufferedLines: string[] = [];
++	let lastUpdateAt = 0;
++
++	const emitUpdate = () => {
++		if (!onUpdate) return;
++		const now = Date.now();
++		if (now - lastUpdateAt < 100) return;
++		lastUpdateAt = now;
++		const { text, details } = formatBashOutput(tail, log.lineCount, totalBytes, tmpLog);
++		onUpdate({ content: [{ type: "text", text }], details });
++	};
++
++	const onData = (data: Buffer) => {
++		totalBytes += data.length;
++		const lines = log.append(data);
++		tail += data.toString("utf8");
++		if (tail.length > DEFAULT_MAX_BYTES * 3) {
++			const keep = tail.slice(-DEFAULT_MAX_BYTES * 2);
++			const nl = keep.indexOf("\n");
++			tail = nl >= 0 ? keep.slice(nl + 1) : keep;
++		}
++		if (forwarding) {
++			if (adoptedId) {
++				const proc = manager.get(adoptedId);
++				if (proc) manager.handleLines(proc, lines);
++			} else if (lines.length > 0) {
++				bufferedLines.push(...lines);
++			}
++		}
++		emitUpdate();
++		if (log.needsDrain) {
++			child.stdout?.pause();
++			child.stderr?.pause();
++			void log.waitForDrain().then(() => {
++				child.stdout?.resume();
++				child.stderr?.resume();
++			});
++		}
++	};
++	child.stdout?.on("data", onData);
++	child.stderr?.on("data", onData);
++
++	let settle!: (outcome: BashOutcome) => void;
++	const outcomePromise = new Promise<BashOutcome>((resolve) => {
++		let settled = false;
++		settle = (outcome) => {
++			if (settled) return;
++			settled = true;
++			resolve(outcome);
++		};
++	});
++
++	child.once("exit", (code) => settle({ type: "exit", code }));
++	child.once("error", () => settle({ type: "exit", code: 1 }));
++
++	let stallTimer: NodeJS.Timeout | undefined;
++	const armStall = () => {
++		if (stallTimer) clearTimeout(stallTimer);
++		stallTimer = setTimeout(() => settle({ type: "stall" }), Math.max(0, stalledSec) * 1000);
++	};
++	armStall();
++	child.stdout?.on("data", () => armStall());
++	child.stderr?.on("data", () => armStall());
++
++	let timeoutTimer: NodeJS.Timeout | undefined;
++	if (params.timeout !== undefined) {
++		timeoutTimer = setTimeout(() => settle({ type: "timeout" }), params.timeout * 1000);
++	}
++
++	const onAbort = () => settle({ type: "abort" });
++	if (signal) {
++		if (signal.aborted) onAbort();
++		else signal.addEventListener("abort", onAbort, { once: true });
++	}
++
++	const outcome = await outcomePromise;
++	if (stallTimer) clearTimeout(stallTimer);
++	if (timeoutTimer) clearTimeout(timeoutTimer);
++	if (signal) signal.removeEventListener("abort", onAbort);
++
++	if (outcome.type === "stall" && child.exitCode === null && child.signalCode === null) {
++		forwarding = true;
++		const record = await manager.adopt({
++			child,
++			pid,
++			log,
++			command: params.command,
++			cwd,
++			backgrounded: true,
++			stalledSec,
++			startedAt,
++		});
++		adoptedId = record.id;
++		const proc = manager.get(record.id);
++		if (proc && bufferedLines.length > 0) manager.handleLines(proc, bufferedLines);
++		return jsonResult({ ...record, backgrounded: true as const, stalledSec });
++	}
++
++	const finished: Exclude<BashOutcome, { type: "stall" }> =
++		outcome.type === "stall" ? { type: "exit", code: child.exitCode } : outcome;
++
++	if (finished.type === "timeout" || finished.type === "abort") {
++		await killProcessTree(pid, DEFAULT_KILL_TIMEOUT_SEC);
++	}
++
++	await log.close();
++	const snapshotTail = tail;
++	const { text, details } = formatBashOutput(snapshotTail, log.lineCount, totalBytes, tmpLog);
++	if (!details?.truncation?.truncated) {
++		await unlink(tmpLog).catch(() => {});
++	}
++
++	if (finished.type === "abort") {
++		throw new Error(appendStatus(text === "(no output)" ? "" : text, "Command aborted"));
++	}
++	if (finished.type === "timeout") {
++		throw new Error(
++			appendStatus(text === "(no output)" ? "" : text, `Command timed out after ${params.timeout} seconds`),
++		);
++	}
++	if (finished.code !== 0 && finished.code !== null) {
++		throw new Error(appendStatus(text, `Command exited with code ${finished.code}`));
++	}
++	return { content: [{ type: "text", text }], details };
++}
++
++export default function (pi: ExtensionAPI): void {
++	manager.bind({
++		sendMessage: (message, options) => pi.sendMessage(message, options),
++	});
++
++	pi.on("session_start", async (_event, ctx) => {
++		await manager.bindContext(ctx);
++	});
++
++	pi.on("session_shutdown", async (event) => {
++		if (event.reason === "quit") {
++			await manager.stopAll({ timeoutSec: DEFAULT_KILL_TIMEOUT_SEC });
++		}
++	});
++
++	pi.on("before_agent_start", () => {
++		manager.onBeforeAgentStart();
++	});
++
++	pi.on("agent_settled", () => {
++		manager.onAgentSettled();
++	});
++
++	pi.registerTool({
++		name: "bg_run",
++		label: "bg_run",
++		description:
++			"Start a shell command as a managed background process and return immediately with its process record. Use for long-lived processes such as dev servers, test watchers, and local APIs. Optional wake.ready / wake.error are regular expressions matched against each output line.",
++		promptSnippet: "Start a managed background process (dev server, watcher, long build)",
++		promptGuidelines: [
++			"Use bg_run for long-lived processes. Use bash for short commands that should finish before you continue.",
++			"After bg_run, page output with bg_logs and stop the tree with bg_kill. Do not background with nohup or trailing &.",
++		],
++		parameters: bgRunSchema,
++		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
++			await manager.bindContext(ctx);
++			const cwd = resolveCwd(ctx, params.cwd);
++			await assertCwd(cwd, "bash");
++			const record = await manager.start({
++				command: params.command,
++				cwd,
++				name: params.name,
++				wake: params.wake,
++				cleanup: params.cleanup
++					? {
++							command: params.cleanup.command,
++							timeoutSec: params.cleanup.timeoutSec ?? DEFAULT_CLEANUP_TIMEOUT_SEC,
++						}
++					: undefined,
++			});
++			return jsonResult(record);
++		},
++	});
++
++	pi.registerTool({
++		name: "bg_logs",
++		label: "bg_logs",
++		description:
++			"Page the combined stdout/stderr of a managed process. Omitting limit returns the newest lines that fit in 64KB.",
++		promptSnippet: "Page stdout/stderr of a managed background process",
++		parameters: bgLogsSchema,
++		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
++			await manager.bindContext(ctx);
++			const page = await manager.logs(params.id, params.offset, params.limit);
++			return jsonResult(page);
++		},
++	});
++
++	pi.registerTool({
++		name: "bg_list",
++		label: "bg_list",
++		description: "List managed background processes visible to this session (running and finished).",
++		promptSnippet: "List managed background processes",
++		parameters: bgListSchema,
++		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
++			await manager.bindContext(ctx);
++			return jsonResult({ processes: manager.list() });
++		},
++	});
++
++	pi.registerTool({
++		name: "bg_kill",
++		label: "bg_kill",
++		description:
++			"Stop a managed process and all of its descendants (SIGTERM, then SIGKILL after timeoutSec). Runs the process cleanup command if one was registered.",
++		promptSnippet: "Stop a managed background process and its descendants",
++		parameters: bgKillSchema,
++		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
++			await manager.bindContext(ctx);
++			const { record, cleanup } = await manager.kill(params.id, params.timeoutSec ?? DEFAULT_KILL_TIMEOUT_SEC);
++			return jsonResult({ ...record, cleanup });
++		},
++	});
++
++	pi.registerTool({
++		name: "bg_watch",
++		label: "bg_watch",
++		description:
++			"Change wake rules of a running managed process. Pass null to remove a ready/error pattern; exit: false or output: false silences that wake.",
++		promptSnippet: "Change wake rules of a running background process",
++		parameters: bgWatchSchema,
++		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
++			await manager.bindContext(ctx);
++			const record = manager.watch(params.id, {
++				ready: params.ready,
++				error: params.error,
++				exit: params.exit,
++				output: params.output,
++			});
++			return jsonResult(record);
++		},
++	});
++
++	pi.registerTool({
++		name: "bash",
++		label: "bash",
++		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds. If the command produces no output for stalledSec seconds (default 30) while still running, it becomes a managed background process.`,
++		promptSnippet: "Execute bash commands (ls, grep, find, etc.)",
++		promptGuidelines: ["You can inspect PI_* environment variables for current model and session details."],
++		parameters: bashSchema,
++		async execute(_toolCallId, params, signal, onUpdate, ctx) {
++			return executeBash(params, signal, onUpdate, ctx);
++		},
++	});
++}
++
++export function getManagedRecord(id: string): ProcessRecord | undefined {
++	const proc = getProcessManager().get(id);
++	return proc ? toPublicRecord(proc) : undefined;
++}
+diff --git a/packages/coding-agent/examples/extensions/background-processes/log-file.ts b/packages/coding-agent/examples/extensions/background-processes/log-file.ts
+new file mode 100644
+index 000000000..28760b142
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/background-processes/log-file.ts
+@@ -0,0 +1,298 @@
++/**
++ * Append-only process log. Bytes go to disk immediately; only a small
++ * decoder/partial-line buffer is kept in memory so output volume cannot
++ * grow the heap.
++ */
++
++import { closeSync, createWriteStream, existsSync, fstatSync, openSync, readSync, type WriteStream } from "node:fs";
++import { mkdir } from "node:fs/promises";
++import { dirname } from "node:path";
++import { StringDecoder } from "node:string_decoder";
++import { LOG_PAGE_MAX_BYTES } from "./types.ts";
++
++const MATCH_CAP_BYTES = 64 * 1024;
++
++export class ProcessLog {
++	filePath: string;
++	private stream: WriteStream;
++	private decoder = new StringDecoder("utf8");
++	private partial = "";
++	private completedLines = 0;
++	private hasPartial = false;
++	private writeChain: Promise<void> = Promise.resolve();
++	private highWater = false;
++	private drainWaiters: Array<() => void> = [];
++	closed = false;
++
++	constructor(filePath: string) {
++		this.filePath = filePath;
++		this.stream = this.openStream(filePath);
++	}
++
++	static async create(filePath: string): Promise<ProcessLog> {
++		await mkdir(dirname(filePath), { recursive: true });
++		return new ProcessLog(filePath);
++	}
++
++	get lineCount(): number {
++		return this.completedLines + (this.hasPartial ? 1 : 0);
++	}
++
++	get needsDrain(): boolean {
++		return this.highWater;
++	}
++
++	waitForDrain(): Promise<void> {
++		if (!this.highWater) return Promise.resolve();
++		return new Promise((resolve) => this.drainWaiters.push(resolve));
++	}
++
++	/**
++	 * Append raw bytes. Returns newly completed lines (without trailing newlines)
++	 * for wake matching. Lines longer than 64KB are truncated for matching only;
++	 * the full bytes are still written to disk.
++	 */
++	append(data: Buffer): string[] {
++		if (this.closed || data.length === 0) return [];
++		this.writeChain = this.writeChain.then(
++			() =>
++				new Promise<void>((resolve) => {
++					if (this.closed) {
++						resolve();
++						return;
++					}
++					const ok = this.stream.write(data);
++					if (!ok) {
++						this.highWater = true;
++						this.stream.once("drain", () => {
++							this.highWater = false;
++							const waiters = this.drainWaiters.splice(0);
++							for (const waiter of waiters) waiter();
++						});
++					}
++					resolve();
++				}),
++		);
++		return this.consumeText(this.decoder.write(data));
++	}
++
++	private consumeText(text: string): string[] {
++		if (!text) return [];
++		const combined = this.partial + text;
++		const parts = combined.split(/\n/);
++		this.partial = parts.pop() ?? "";
++		if (this.partial.length > MATCH_CAP_BYTES) {
++			this.partial = this.partial.slice(0, MATCH_CAP_BYTES);
++		}
++		this.hasPartial = this.partial.length > 0;
++		const completed: string[] = [];
++		for (const part of parts) {
++			this.completedLines++;
++			completed.push(part.replace(/\r$/, ""));
++		}
++		return completed;
++	}
++
++	async flush(): Promise<void> {
++		await this.writeChain;
++		if (this.closed) return;
++		await new Promise<void>((resolve, reject) => {
++			this.stream.write(Buffer.alloc(0), (err) => {
++				if (err) reject(err);
++				else resolve();
++			});
++		});
++	}
++
++	async close(): Promise<void> {
++		if (this.closed) return;
++		const leftover = this.decoder.end();
++		if (leftover) this.consumeText(leftover);
++		await this.flush();
++		this.closed = true;
++		await new Promise<void>((resolve) => this.stream.end(resolve));
++	}
++
++	async moveTo(newPath: string): Promise<void> {
++		await this.flush();
++		if (newPath === this.filePath) return;
++		await mkdir(dirname(newPath), { recursive: true });
++		const { rename, copyFile, unlink } = await import("node:fs/promises");
++		await new Promise<void>((resolve) => this.stream.end(resolve));
++		try {
++			await rename(this.filePath, newPath);
++		} catch {
++			await copyFile(this.filePath, newPath);
++			await unlink(this.filePath).catch(() => {});
++		}
++		this.filePath = newPath;
++		this.stream = this.openStream(newPath);
++		this.closed = false;
++	}
++
++	private openStream(filePath: string): WriteStream {
++		const stream = createWriteStream(filePath, { flags: "a" });
++		stream.on("error", () => {});
++		return stream;
++	}
++}
++
++function splitLogChunk(text: string, fileEndedWithNewline: boolean): string[] {
++	if (text.length === 0) return [];
++	const lines = text.split(/\n/);
++	if (fileEndedWithNewline || text.endsWith("\n")) {
++		if (lines[lines.length - 1] === "") lines.pop();
++	}
++	return lines.map((line) => line.replace(/\r$/, ""));
++}
++
++function takeBytesFromEnd(lines: string[], maxBytes: number): string[] {
++	const out: string[] = [];
++	let used = 0;
++	for (let i = lines.length - 1; i >= 0; i--) {
++		const line = lines[i];
++		const size = Buffer.byteLength(line, "utf-8") + (out.length > 0 ? 1 : 0);
++		if (used + size > maxBytes) {
++			if (out.length === 0) {
++				out.unshift(truncateToBytesFromEnd(line, maxBytes));
++			}
++			break;
++		}
++		out.unshift(line);
++		used += size;
++	}
++	return out;
++}
++
++function truncateToBytes(text: string, maxBytes: number): string {
++	const buf = Buffer.from(text, "utf-8");
++	if (buf.length <= maxBytes) return text;
++	return buf.subarray(0, maxBytes).toString("utf-8");
++}
++
++function truncateToBytesFromEnd(text: string, maxBytes: number): string {
++	const buf = Buffer.from(text, "utf-8");
++	if (buf.length <= maxBytes) return text;
++	return buf.subarray(buf.length - maxBytes).toString("utf-8");
++}
++
++/**
++ * Page a log file without loading it all into memory.
++ * `total` is the caller's line count so the served offset stays consistent
++ * with the process record even if the file is still being flushed.
++ */
++export function pageLogFile(
++	filePath: string,
++	total: number,
++	opts: { offset?: number; limit?: number },
++): { offset: number; lines: string[] } {
++	if (!existsSync(filePath) || total <= 0) {
++		return { offset: opts.offset ?? 0, lines: [] };
++	}
++
++	const fd = openSync(filePath, "r");
++	try {
++		const size = fstatSync(fd).size;
++		if (size === 0) return { offset: opts.offset ?? 0, lines: [] };
++
++		const fromStart = opts.offset !== undefined;
++		if (!fromStart) {
++			return pageFromEnd(fd, size, total, opts.limit);
++		}
++		return pageFromOffset(fd, size, total, Math.max(0, opts.offset ?? 0), opts.limit);
++	} finally {
++		closeSync(fd);
++	}
++}
++
++function pageFromEnd(
++	fd: number,
++	size: number,
++	total: number,
++	limit: number | undefined,
++): { offset: number; lines: string[] } {
++	const readSize = Math.min(size, LOG_PAGE_MAX_BYTES + 8 * 1024);
++	const buf = Buffer.alloc(readSize);
++	readSync(fd, buf, 0, readSize, size - readSize);
++	let text = buf.toString("utf-8");
++	if (readSize < size) {
++		const nl = text.indexOf("\n");
++		if (nl >= 0) text = text.slice(nl + 1);
++	}
++	let lines = splitLogChunk(text, true);
++	if (limit !== undefined) {
++		if (limit <= 0) return { offset: total, lines: [] };
++		lines = lines.slice(-limit);
++	}
++	lines = takeBytesFromEnd(lines, LOG_PAGE_MAX_BYTES);
++	const offset = Math.max(0, total - lines.length);
++	return { offset, lines };
++}
++
++function pageFromOffset(
++	fd: number,
++	size: number,
++	total: number,
++	offset: number,
++	limit: number | undefined,
++): { offset: number; lines: string[] } {
++	if (offset >= total) return { offset, lines: [] };
++	const maxLines = limit === undefined ? Number.POSITIVE_INFINITY : Math.max(0, limit);
++	if (maxLines === 0) return { offset, lines: [] };
++
++	const buf = Buffer.alloc(64 * 1024);
++	let position = 0;
++	let lineIndex = 0;
++	let current: number[] = [];
++	const lines: string[] = [];
++	let used = 0;
++
++	const emitLine = (bytes: number[]) => {
++		if (lineIndex < offset) {
++			lineIndex++;
++			return true;
++		}
++		if (lines.length >= maxLines) return false;
++		const line = Buffer.from(bytes).toString("utf-8").replace(/\r$/, "");
++		const extra = lines.length > 0 ? 1 : 0;
++		const lineBytes = Buffer.byteLength(line, "utf-8") + extra;
++		if (used + lineBytes > LOG_PAGE_MAX_BYTES) {
++			if (lines.length === 0) {
++				lines.push(truncateToBytes(line, LOG_PAGE_MAX_BYTES));
++			}
++			return false;
++		}
++		lines.push(line);
++		used += lineBytes;
++		lineIndex++;
++		return used < LOG_PAGE_MAX_BYTES && lines.length < maxLines;
++	};
++
++	while (position < size) {
++		const n = readSync(fd, buf, 0, buf.length, position);
++		if (n <= 0) break;
++		position += n;
++		for (let i = 0; i < n; i++) {
++			const b = buf[i];
++			if (b === 0x0a) {
++				if (current[current.length - 1] === 0x0d) current.pop();
++				const keep = emitLine(current);
++				current = [];
++				if (!keep && lineIndex > offset) {
++					return { offset, lines };
++				}
++			} else {
++				if (lineIndex >= offset && lines.length < maxLines) {
++					current.push(b);
++					if (current.length > LOG_PAGE_MAX_BYTES + 16) {
++						current.length = LOG_PAGE_MAX_BYTES + 16;
++					}
++				}
++			}
++		}
++	}
++	if (current.length > 0 && lineIndex >= offset && lines.length < maxLines) {
++		emitLine(current);
++	}
++	return { offset, lines };
++}
+diff --git a/packages/coding-agent/examples/extensions/background-processes/manager.ts b/packages/coding-agent/examples/extensions/background-processes/manager.ts
+new file mode 100644
+index 000000000..127ca8bea
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/background-processes/manager.ts
+@@ -0,0 +1,820 @@
++/**
++ * Process-wide registry for managed background processes.
++ *
++ * Lives on globalThis so /reload can rebind sendMessage without dropping
++ * running children. Processes are persisted under the starting session's
++ * storage directory.
++ */
++
++import type { ChildProcess } from "node:child_process";
++import { existsSync } from "node:fs";
++import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
++import { ProcessLog, pageLogFile } from "./log-file.ts";
++import { killProcessTree, killTreeNow, spawnShellCommand, treeAlive } from "./process-tree.ts";
++import {
++	type CleanupConfig,
++	type CleanupResult,
++	CUSTOM_TYPE,
++	DEFAULT_CLEANUP_TIMEOUT_SEC,
++	DEFAULT_KILL_TIMEOUT_SEC,
++	type ProcessRecord,
++	type ProcessState,
++	WAKE_REASON_ORDER,
++	type WakeConfig,
++	type WakeDetails,
++	type WakeReason,
++} from "./types.ts";
++
++export interface SessionStore {
++	sessionDir: string;
++	sessionId: string;
++}
++
++export interface StartOptions {
++	command: string;
++	cwd: string;
++	name?: string;
++	wake?: { ready?: string; error?: string };
++	cleanup?: { command: string; timeoutSec?: number };
++	backgrounded?: boolean;
++	stalledSec?: number;
++}
++
++export interface AdoptOptions extends StartOptions {
++	child: ChildProcess;
++	pid: number;
++	log: ProcessLog;
++	startedAt?: string;
++}
++
++interface PendingWake {
++	id: string;
++	name: string;
++	reasons: Set<WakeReason>;
++	exitCode: number | null;
++	matchedLine: string | null;
++	firstFiredAt: number;
++}
++
++interface PersistedRecord extends ProcessRecord {
++	sessionId: string;
++	wake: WakeConfig;
++	cleanup: CleanupConfig | null;
++	cleanupResult: CleanupResult | null;
++	stalledSec?: number;
++}
++
++export interface ManagedProcess {
++	id: string;
++	name: string;
++	command: string;
++	cwd: string;
++	pid: number | null;
++	state: ProcessState;
++	exitCode: number | null;
++	startedAt: string;
++	endedAt: string | null;
++	backgrounded: boolean;
++	stalledSec?: number;
++	sessionId: string;
++	sessionDir: string;
++	dir: string;
++	log: ProcessLog | null;
++	child: ChildProcess | null;
++	wake: WakeConfig;
++	cleanup: CleanupConfig | null;
++	cleanupResult: CleanupResult | null;
++	readyRegex: RegExp | null;
++	errorRegex: RegExp | null;
++	readyWoke: boolean;
++	outputWoke: boolean;
++	errorInWindow: boolean;
++	exitWakeDelivered: boolean;
++	killing: boolean;
++	ended: Promise<void>;
++	resolveEnded: () => void;
++}
++
++const GLOBAL_KEY = Symbol.for("@earendil-works/pi-coding-agent/background-processes");
++
++function compilePattern(pattern: string | null | undefined, label: string): RegExp | null {
++	if (pattern === null || pattern === undefined || pattern === "") return null;
++	try {
++		return new RegExp(pattern);
++	} catch (err) {
++		const message = err instanceof Error ? err.message : String(err);
++		throw new Error(`Invalid ${label} regular expression: ${message}`);
++	}
++}
++
++function defaultName(command: string, name?: string): string {
++	if (name?.trim()) return name.trim();
++	const token = command.trim().split(/\s+/)[0];
++	return token || "process";
++}
++
++function publicRecord(proc: ManagedProcess): ProcessRecord {
++	return {
++		id: proc.id,
++		name: proc.name,
++		command: proc.command,
++		cwd: proc.cwd,
++		pid: proc.pid,
++		state: proc.state,
++		exitCode: proc.exitCode,
++		startedAt: proc.startedAt,
++		endedAt: proc.endedAt,
++		logLines: proc.log?.lineCount ?? 0,
++		backgrounded: proc.backgrounded,
++	};
++}
++
++function persistShape(proc: ManagedProcess): PersistedRecord {
++	return {
++		...publicRecord(proc),
++		sessionId: proc.sessionId,
++		wake: { ...proc.wake },
++		cleanup: proc.cleanup,
++		cleanupResult: proc.cleanupResult,
++		stalledSec: proc.stalledSec,
++	};
++}
++
++async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
++	const tmp = `${path}.tmp`;
++	await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
++	await rename(tmp, path);
++}
++
++function processDir(store: SessionStore, id: string): string {
++	const root =
++		store.sessionDir && store.sessionDir.length > 0 ? store.sessionDir : join(tmpdir(), "pi-background-processes");
++	return join(root, "background-processes", store.sessionId, id);
++}
++
++function sessionKey(store: SessionStore): string {
++	return `${store.sessionDir}::${store.sessionId}`;
++}
++
++export class ProcessManager {
++	readonly processes = new Map<string, ManagedProcess>();
++	private diskRecords = new Map<string, ProcessRecord>();
++	private loadedKeys = new Set<string>();
++	store: SessionStore | null = null;
++	sendMessage: ExtensionAPI["sendMessage"] | null = null;
++	isIdle: () => boolean = () => true;
++	private pending = new Map<string, PendingWake>();
++	private flushScheduled = false;
++	private hooksInstalled = false;
++	private stoppingForExit = false;
++	private persistTimers = new Map<string, NodeJS.Timeout>();
++	private persistChain = new Map<string, Promise<void>>();
++
++	bind(options: { sendMessage: ExtensionAPI["sendMessage"]; isIdle?: () => boolean }): void {
++		this.sendMessage = options.sendMessage;
++		if (options.isIdle) this.isIdle = options.isIdle;
++		this.installHooks();
++		this.flushPending();
++	}
++
++	async bindContext(ctx: ExtensionContext): Promise<void> {
++		this.isIdle = () => {
++			try {
++				return ctx.isIdle();
++			} catch {
++				return true;
++			}
++		};
++		const sessionDir = ctx.sessionManager.getSessionDir?.() ?? "";
++		const sessionId = ctx.sessionManager.getSessionId?.() || "in-memory";
++		await this.setStore({ sessionDir, sessionId });
++	}
++
++	async setStore(store: SessionStore): Promise<void> {
++		this.store = store;
++		const key = sessionKey(store);
++		if (this.loadedKeys.has(key)) return;
++		this.loadedKeys.add(key);
++		await this.loadPersisted(store);
++	}
++
++	async loadPersisted(store: SessionStore): Promise<void> {
++		const root = join(
++			store.sessionDir && store.sessionDir.length > 0 ? store.sessionDir : join(tmpdir(), "pi-background-processes"),
++			"background-processes",
++			store.sessionId,
++		);
++		if (!existsSync(root)) return;
++		let entries: string[] = [];
++		try {
++			entries = await readdir(root);
++		} catch {
++			return;
++		}
++		for (const id of entries) {
++			if (this.processes.has(id)) continue;
++			const recordPath = join(root, id, "record.json");
++			try {
++				const raw = JSON.parse(await readFile(recordPath, "utf8")) as PersistedRecord;
++				if (raw.state === "running") {
++					raw.state = "killed";
++					raw.exitCode = raw.exitCode ?? null;
++					raw.endedAt = raw.endedAt ?? new Date().toISOString();
++					raw.pid = raw.pid ?? null;
++					await writeJsonAtomic(recordPath, raw).catch(() => {});
++				}
++				this.diskRecords.set(id, {
++					id: raw.id,
++					name: raw.name,
++					command: raw.command,
++					cwd: raw.cwd,
++					pid: raw.pid ?? null,
++					state: raw.state,
++					exitCode: raw.exitCode,
++					startedAt: raw.startedAt,
++					endedAt: raw.endedAt,
++					logLines: raw.logLines,
++					backgrounded: raw.backgrounded === true,
++				});
++			} catch {
++				// ignore unreadable records
++			}
++		}
++	}
++
++	list(): ProcessRecord[] {
++		const byId = new Map<string, ProcessRecord>();
++		for (const record of this.diskRecords.values()) byId.set(record.id, record);
++		for (const proc of this.processes.values()) byId.set(proc.id, publicRecord(proc));
++		return [...byId.values()].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
++	}
++
++	get(id: string): ManagedProcess | undefined {
++		return this.processes.get(id);
++	}
++
++	require(id: string): ManagedProcess {
++		const proc = this.processes.get(id);
++		if (proc) return proc;
++		throw new Error(`Unknown process id: ${id}`);
++	}
++
++	async start(options: StartOptions): Promise<ProcessRecord> {
++		const store = this.requireStore();
++		const id = crypto.randomUUID();
++		const dir = processDir(store, id);
++		await mkdir(dir, { recursive: true });
++		const log = await ProcessLog.create(join(dir, "output.log"));
++		const spawned = spawnShellCommand(options.command, options.cwd);
++		const proc = this.createManaged({
++			id,
++			dir,
++			store,
++			log,
++			child: spawned.child,
++			pid: spawned.pid,
++			options,
++		});
++		this.attachChild(proc);
++		await this.persist(proc);
++		return publicRecord(proc);
++	}
++
++	async adopt(options: AdoptOptions): Promise<ProcessRecord> {
++		const store = this.requireStore();
++		const id = crypto.randomUUID();
++		const dir = processDir(store, id);
++		await mkdir(dir, { recursive: true });
++		await options.log.moveTo(join(dir, "output.log"));
++		const proc = this.createManaged({
++			id,
++			dir,
++			store,
++			log: options.log,
++			child: options.child,
++			pid: options.pid,
++			options,
++			startedAt: options.startedAt,
++		});
++		this.attachChild(proc, { ioAlreadyAttached: true });
++		await this.persist(proc);
++		return publicRecord(proc);
++	}
++
++	private createManaged(args: {
++		id: string;
++		dir: string;
++		store: SessionStore;
++		log: ProcessLog;
++		child: ChildProcess;
++		pid: number;
++		options: StartOptions;
++		startedAt?: string;
++	}): ManagedProcess {
++		let resolveEnded!: () => void;
++		const ended = new Promise<void>((resolve) => {
++			resolveEnded = resolve;
++		});
++		const wake: WakeConfig = {
++			ready: args.options.wake?.ready ?? null,
++			error: args.options.wake?.error ?? null,
++			exit: true,
++			output: args.options.backgrounded === true,
++		};
++		const proc: ManagedProcess = {
++			id: args.id,
++			name: defaultName(args.options.command, args.options.name),
++			command: args.options.command,
++			cwd: args.options.cwd,
++			pid: args.pid,
++			state: "running",
++			exitCode: null,
++			startedAt: args.startedAt ?? new Date().toISOString(),
++			endedAt: null,
++			backgrounded: args.options.backgrounded === true,
++			stalledSec: args.options.stalledSec,
++			sessionId: args.store.sessionId,
++			sessionDir: args.store.sessionDir,
++			dir: args.dir,
++			log: args.log,
++			child: args.child,
++			wake,
++			cleanup: args.options.cleanup
++				? {
++						command: args.options.cleanup.command,
++						timeoutSec: args.options.cleanup.timeoutSec ?? DEFAULT_CLEANUP_TIMEOUT_SEC,
++					}
++				: null,
++			cleanupResult: null,
++			readyRegex: compilePattern(wake.ready, "wake.ready"),
++			errorRegex: compilePattern(wake.error, "wake.error"),
++			readyWoke: false,
++			outputWoke: false,
++			errorInWindow: false,
++			exitWakeDelivered: false,
++			killing: false,
++			ended,
++			resolveEnded,
++		};
++		this.processes.set(proc.id, proc);
++		this.diskRecords.delete(proc.id);
++		return proc;
++	}
++
++	private attachChild(proc: ManagedProcess, opts?: { ioAlreadyAttached?: boolean }): void {
++		const child = proc.child;
++		if (!child) return;
++
++		if (!opts?.ioAlreadyAttached) {
++			this.attachIO(proc, child);
++		} else {
++			this.attachIO(proc, child, { extraOnly: true });
++		}
++
++		const onExit = (code: number | null) => {
++			void this.onChildExit(proc, code);
++		};
++		child.once("exit", onExit);
++		child.once("error", () => {
++			void this.onChildExit(proc, 1);
++		});
++		if (child.exitCode !== null || child.signalCode !== null) {
++			child.removeListener("exit", onExit);
++			void this.onChildExit(proc, child.exitCode);
++		}
++	}
++
++	attachIO(proc: ManagedProcess, child: ChildProcess, opts?: { extraOnly?: boolean }): void {
++		if (opts?.extraOnly) {
++			return;
++		}
++		const onData = (data: Buffer) => {
++			if (!proc.log) return;
++			const lines = proc.log.append(data);
++			this.handleLines(proc, lines);
++			if (proc.log.needsDrain) {
++				child.stdout?.pause();
++				child.stderr?.pause();
++				void proc.log.waitForDrain().then(() => {
++					child.stdout?.resume();
++					child.stderr?.resume();
++				});
++			}
++		};
++		child.stdout?.on("data", onData);
++		child.stderr?.on("data", onData);
++	}
++
++	handleLines(proc: ManagedProcess, lines: string[]): void {
++		if (proc.state !== "running" || proc.exitWakeDelivered || lines.length === 0) return;
++		for (const line of lines) {
++			if (proc.wake.ready && proc.readyRegex && !proc.readyWoke && this.testLine(proc.readyRegex, line)) {
++				this.queueWake(proc, "ready", line);
++			}
++			if (proc.wake.error && proc.errorRegex && !proc.errorInWindow && this.testLine(proc.errorRegex, line)) {
++				this.queueWake(proc, "error", line);
++			}
++			if (proc.wake.output && !proc.outputWoke) {
++				this.queueWake(proc, "output", line);
++			}
++		}
++		this.schedulePersist(proc);
++	}
++
++	private testLine(regex: RegExp, line: string): boolean {
++		regex.lastIndex = 0;
++		return regex.test(line);
++	}
++
++	private async onChildExit(proc: ManagedProcess, code: number | null): Promise<void> {
++		if (proc.state !== "running") {
++			proc.resolveEnded();
++			return;
++		}
++		proc.state = proc.killing ? "killed" : "exited";
++		proc.exitCode = code;
++		proc.endedAt = new Date().toISOString();
++		await this.persist(proc);
++		if (proc.log) {
++			await proc.log.close().catch(() => {});
++		}
++		await this.persist(proc);
++		if (proc.wake.exit && !proc.exitWakeDelivered) {
++			this.queueWake(proc, "exit", null);
++		}
++		proc.resolveEnded();
++	}
++
++	async logs(
++		id: string,
++		offset?: number,
++		limit?: number,
++	): Promise<{ id: string; offset: number; lines: string[]; total: number }> {
++		const proc = this.processes.get(id);
++		if (proc) {
++			if (proc.log) await proc.log.flush();
++			const total = proc.log?.lineCount ?? 0;
++			const path = proc.log?.filePath ?? join(proc.dir, "output.log");
++			const page = pageLogFile(path, total, { offset, limit });
++			return { id, offset: page.offset, lines: page.lines, total };
++		}
++		const disk = this.diskRecords.get(id);
++		if (!disk) throw new Error(`Unknown process id: ${id}`);
++		const store = this.store;
++		const dir = store ? processDir({ sessionDir: store.sessionDir, sessionId: store.sessionId }, id) : null;
++		const path = dir ? join(dir, "output.log") : "";
++		const page = path
++			? pageLogFile(path, disk.logLines, { offset, limit })
++			: { offset: offset ?? 0, lines: [] as string[] };
++		return { id, offset: page.offset, lines: page.lines, total: disk.logLines };
++	}
++
++	watch(
++		id: string,
++		patch: { ready?: string | null; error?: string | null; exit?: boolean; output?: boolean },
++	): ProcessRecord {
++		const proc = this.require(id);
++		if (proc.state !== "running") {
++			throw new Error(`Process ${id} is not running`);
++		}
++		if (patch.ready !== undefined) {
++			proc.wake.ready = patch.ready;
++			proc.readyRegex = compilePattern(patch.ready, "ready");
++		}
++		if (patch.error !== undefined) {
++			proc.wake.error = patch.error;
++			proc.errorRegex = compilePattern(patch.error, "error");
++		}
++		if (patch.exit !== undefined) proc.wake.exit = patch.exit;
++		if (patch.output !== undefined) proc.wake.output = patch.output;
++		void this.persist(proc);
++		return publicRecord(proc);
++	}
++
++	async kill(
++		id: string,
++		timeoutSec = DEFAULT_KILL_TIMEOUT_SEC,
++	): Promise<{ record: ProcessRecord; cleanup: CleanupResult | null }> {
++		const proc = this.require(id);
++		if (proc.state === "running") {
++			proc.killing = true;
++			const pid = proc.pid;
++			if (pid !== null) {
++				await killProcessTree(pid, timeoutSec);
++			}
++			const waitDeadline = Date.now() + Math.max(timeoutSec, 0) * 1000 + 1500;
++			while (proc.state === "running" && Date.now() < waitDeadline) {
++				await new Promise((resolve) => setTimeout(resolve, 30));
++			}
++			if (proc.state === "running") {
++				await this.onChildExit(proc, null);
++			}
++		}
++
++		let cleanup: CleanupResult | null = null;
++		if (proc.cleanup) {
++			if (proc.cleanupResult) {
++				cleanup = proc.cleanupResult;
++			} else {
++				const pid = proc.pid;
++				if (pid !== null) {
++					const leftoverDeadline = Date.now() + 1000;
++					while (treeAlive(pid) && Date.now() < leftoverDeadline) {
++						await new Promise((resolve) => setTimeout(resolve, 20));
++					}
++				}
++				cleanup = await this.runCleanup(proc);
++				proc.cleanupResult = cleanup;
++				await this.persist(proc);
++			}
++		}
++		return { record: publicRecord(proc), cleanup };
++	}
++
++	private async runCleanup(proc: ManagedProcess): Promise<CleanupResult> {
++		const cleanup = proc.cleanup;
++		if (!cleanup) return { ran: false, exitCode: null, failed: false };
++		const timeoutSec = cleanup.timeoutSec ?? DEFAULT_CLEANUP_TIMEOUT_SEC;
++		let log = proc.log;
++		if (!log || log.closed) {
++			log = await ProcessLog.create(join(proc.dir, "output.log"));
++			proc.log = log;
++		}
++		try {
++			const spawned = spawnShellCommand(cleanup.command, proc.cwd);
++			const child = spawned.child;
++			const onData = (data: Buffer) => {
++				log.append(data);
++			};
++			child.stdout?.on("data", onData);
++			child.stderr?.on("data", onData);
++			const result = await new Promise<{ code: number | null; timedOut: boolean }>((resolve) => {
++				let settled = false;
++				const timer = setTimeout(() => {
++					if (settled) return;
++					void killProcessTree(spawned.pid, 1).finally(() => {
++						if (!settled) resolve({ code: null, timedOut: true });
++					});
++				}, Math.max(0, timeoutSec) * 1000);
++				child.once("exit", (code) => {
++					if (settled) return;
++					settled = true;
++					clearTimeout(timer);
++					resolve({ code, timedOut: false });
++				});
++				child.once("error", () => {
++					if (settled) return;
++					settled = true;
++					clearTimeout(timer);
++					resolve({ code: 1, timedOut: false });
++				});
++			});
++			await log.flush();
++			const failed = result.timedOut || result.code === null || result.code !== 0;
++			return { ran: true, exitCode: result.code, failed };
++		} catch {
++			return { ran: true, exitCode: null, failed: true };
++		}
++	}
++
++	async stopAll(options?: { timeoutSec?: number }): Promise<void> {
++		const timeoutSec = options?.timeoutSec ?? DEFAULT_KILL_TIMEOUT_SEC;
++		const running = [...this.processes.values()].filter((proc) => proc.state === "running");
++		await Promise.all(
++			running.map(async (proc) => {
++				proc.killing = true;
++				if (proc.pid !== null) await killProcessTree(proc.pid, timeoutSec);
++				if (proc.state === "running") await this.onChildExit(proc, null);
++			}),
++		);
++	}
++
++	stopAllSync(): void {
++		for (const proc of this.processes.values()) {
++			if (proc.state !== "running" || proc.pid === null) continue;
++			proc.killing = true;
++			killTreeNow(proc.pid, "SIGKILL");
++		}
++	}
++
++	private queueWake(proc: ManagedProcess, reason: WakeReason, matchedLine: string | null): void {
++		if (proc.exitWakeDelivered && reason !== "exit") return;
++		if (reason === "ready") {
++			if (!proc.wake.ready || proc.readyWoke) return;
++			proc.readyWoke = true;
++		}
++		if (reason === "error") {
++			if (!proc.wake.error || proc.errorInWindow) return;
++			proc.errorInWindow = true;
++		}
++		if (reason === "output") {
++			if (!proc.wake.output || proc.outputWoke) return;
++			proc.outputWoke = true;
++		}
++		if (reason === "exit") {
++			if (!proc.wake.exit || proc.exitWakeDelivered) return;
++			proc.exitWakeDelivered = true;
++		}
++
++		let pending = this.pending.get(proc.id);
++		if (!pending) {
++			pending = {
++				id: proc.id,
++				name: proc.name,
++				reasons: new Set(),
++				exitCode: proc.exitCode,
++				matchedLine: null,
++				firstFiredAt: Date.now(),
++			};
++			this.pending.set(proc.id, pending);
++		}
++		pending.reasons.add(reason);
++		pending.exitCode = proc.exitCode;
++		if (pending.matchedLine === null && matchedLine !== null) pending.matchedLine = matchedLine;
++		this.scheduleFlush();
++	}
++
++	private scheduleFlush(): void {
++		if (this.flushScheduled) return;
++		this.flushScheduled = true;
++		queueMicrotask(() => {
++			this.flushScheduled = false;
++			this.flushPending();
++		});
++	}
++
++	private flushPending(): void {
++		if (this.pending.size === 0) return;
++		const send = this.sendMessage;
++		if (!send) return;
++		const items = [...this.pending.values()].sort((a, b) => a.firstFiredAt - b.firstFiredAt);
++		this.pending.clear();
++		const idle = this.safeIsIdle();
++		for (const item of items) {
++			const reasons = WAKE_REASON_ORDER.filter((reason) => item.reasons.has(reason));
++			if (reasons.length === 0) continue;
++			const details: WakeDetails = {
++				id: item.id,
++				name: item.name,
++				reasons,
++				exitCode: item.exitCode,
++				matchedLine: item.matchedLine,
++			};
++			try {
++				send(
++					{
++						customType: CUSTOM_TYPE,
++						content: formatWakeContent(details),
++						display: true,
++						details,
++					},
++					{ triggerTurn: true, deliverAs: "steer" },
++				);
++			} catch {
++				this.pending.set(item.id, item);
++			}
++		}
++		if (idle) this.resetErrorWindows();
++	}
++
++	onBeforeAgentStart(): void {
++		this.resetErrorWindows();
++	}
++
++	onAgentSettled(): void {
++		this.resetErrorWindows();
++	}
++
++	private resetErrorWindows(): void {
++		for (const proc of this.processes.values()) {
++			proc.errorInWindow = false;
++		}
++	}
++
++	private safeIsIdle(): boolean {
++		try {
++			return this.isIdle();
++		} catch {
++			return true;
++		}
++	}
++
++	async persist(proc: ManagedProcess): Promise<void> {
++		const timer = this.persistTimers.get(proc.id);
++		if (timer) {
++			clearTimeout(timer);
++			this.persistTimers.delete(proc.id);
++		}
++		const previous = this.persistChain.get(proc.id) ?? Promise.resolve();
++		const next = previous.then(
++			() => this.writeRecord(proc),
++			() => this.writeRecord(proc),
++		);
++		this.persistChain.set(proc.id, next);
++		await next;
++	}
++
++	private async writeRecord(proc: ManagedProcess): Promise<void> {
++		try {
++			await mkdir(proc.dir, { recursive: true });
++			await writeJsonAtomic(join(proc.dir, "record.json"), persistShape(proc));
++		} catch {
++			// persistence is best-effort during teardown
++		}
++	}
++
++	private schedulePersist(proc: ManagedProcess): void {
++		if (this.persistTimers.has(proc.id)) return;
++		const timer = setTimeout(() => {
++			this.persistTimers.delete(proc.id);
++			void this.persist(proc);
++		}, 100);
++		timer.unref();
++		this.persistTimers.set(proc.id, timer);
++	}
++
++	private requireStore(): SessionStore {
++		if (!this.store) {
++			this.store = {
++				sessionDir: join(tmpdir(), "pi-background-processes"),
++				sessionId: "in-memory",
++			};
++		}
++		return this.store;
++	}
++
++	installHooks(): void {
++		if (this.hooksInstalled) return;
++		this.hooksInstalled = true;
++		if (process.env.VITEST) return;
++
++		const onFatalSignal = (signal: NodeJS.Signals) => {
++			if (this.stoppingForExit) return;
++			this.stoppingForExit = true;
++			for (const proc of this.processes.values()) {
++				if (proc.state === "running" && proc.pid !== null) {
++					proc.killing = true;
++					killTreeNow(proc.pid, "SIGTERM");
++				}
++			}
++			void this.stopAll({ timeoutSec: DEFAULT_KILL_TIMEOUT_SEC }).finally(() => {
++				try {
++					process.removeListener(signal, onFatalSignal);
++				} catch {
++					// ignore
++				}
++				try {
++					process.kill(process.pid, signal);
++				} catch {
++					process.exit(signal === "SIGINT" ? 130 : signal === "SIGHUP" ? 129 : 143);
++				}
++			});
++		};
++
++		process.prependListener("SIGTERM", onFatalSignal);
++		process.prependListener("SIGINT", onFatalSignal);
++		if (process.platform !== "win32") {
++			process.prependListener("SIGHUP", onFatalSignal);
++		}
++		process.on("exit", () => {
++			this.stopAllSync();
++		});
++	}
++
++	async resetForTests(): Promise<void> {
++		await this.stopAll({ timeoutSec: 1 });
++		for (const timer of this.persistTimers.values()) clearTimeout(timer);
++		this.persistTimers.clear();
++		this.persistChain.clear();
++		this.processes.clear();
++		this.diskRecords.clear();
++		this.loadedKeys.clear();
++		this.pending.clear();
++		this.store = null;
++		this.stoppingForExit = false;
++	}
++}
++
++function formatWakeContent(details: WakeDetails): string {
++	const reasonText = details.reasons.join(", ");
++	const line = details.matchedLine ? `\nmatched line: ${details.matchedLine}` : "";
++	const exit = details.reasons.includes("exit") && details.exitCode !== null ? `\nexit code: ${details.exitCode}` : "";
++	return `Background process "${details.name}" (${details.id}) woke the agent (${reasonText}).${line}${exit}`;
++}
++
++export function getProcessManager(): ProcessManager {
++	const g = globalThis as typeof globalThis & { [GLOBAL_KEY]?: ProcessManager };
++	if (!g[GLOBAL_KEY]) g[GLOBAL_KEY] = new ProcessManager();
++	return g[GLOBAL_KEY];
++}
++
++export async function resetBackgroundProcessesForTests(): Promise<void> {
++	await getProcessManager().resetForTests();
++}
++
++export function toPublicRecord(proc: ManagedProcess): ProcessRecord {
++	return publicRecord(proc);
++}
+diff --git a/packages/coding-agent/examples/extensions/background-processes/process-tree.ts b/packages/coding-agent/examples/extensions/background-processes/process-tree.ts
+new file mode 100644
+index 000000000..5a3d65181
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/background-processes/process-tree.ts
+@@ -0,0 +1,179 @@
++/**
++ * Spawn a command through the configured shell and stop a process tree
++ * with SIGTERM, then SIGKILL.
++ */
++
++import { type ChildProcess, spawn } from "node:child_process";
++import { readdirSync, readFileSync } from "node:fs";
++import { join } from "node:path";
++import { getShellConfig } from "@earendil-works/pi-coding-agent";
++
++export interface SpawnedCommand {
++	child: ChildProcess;
++	pid: number;
++}
++
++function unrefStdio(child: ChildProcess): void {
++	child.stdout?.unref();
++	child.stderr?.unref();
++	child.stdin?.unref();
++	child.unref();
++}
++
++export function spawnShellCommand(command: string, cwd: string, env: NodeJS.ProcessEnv = process.env): SpawnedCommand {
++	const shellConfig = getShellConfig();
++	const commandFromStdin = shellConfig.commandTransport === "stdin";
++	const child = spawn(shellConfig.shell, commandFromStdin ? shellConfig.args : [...shellConfig.args, command], {
++		cwd,
++		detached: process.platform !== "win32",
++		env,
++		stdio: [commandFromStdin ? "pipe" : "ignore", "pipe", "pipe"],
++		windowsHide: true,
++	});
++	if (commandFromStdin) {
++		child.stdin?.on("error", () => {});
++		child.stdin?.end(command);
++	}
++	child.on("error", () => {});
++	unrefStdio(child);
++	const pid = child.pid;
++	if (pid === undefined) {
++		throw new Error("Failed to start process: no pid assigned");
++	}
++	return { child, pid };
++}
++
++export function processAlive(pid: number): boolean {
++	if (pid <= 0) return false;
++	try {
++		process.kill(pid, 0);
++		return true;
++	} catch {
++		return false;
++	}
++}
++
++function listDirectChildren(pid: number): number[] {
++	if (process.platform === "win32") return [];
++	const children = new Set<number>();
++	try {
++		const tasks = readdirSync(`/proc/${pid}/task`);
++		for (const tid of tasks) {
++			try {
++				const text = readFileSync(`/proc/${pid}/task/${tid}/children`, "utf8");
++				for (const part of text.trim().split(/\s+/)) {
++					if (!part) continue;
++					const childPid = Number(part);
++					if (Number.isInteger(childPid) && childPid > 0) children.add(childPid);
++				}
++			} catch {
++				// task vanished
++			}
++		}
++	} catch {
++		// process vanished or /proc unavailable
++	}
++	return [...children];
++}
++
++export function collectProcessTree(rootPid: number): number[] {
++	const result: number[] = [];
++	const stack = [rootPid];
++	const seen = new Set<number>();
++	while (stack.length > 0) {
++		const pid = stack.pop()!;
++		if (seen.has(pid) || pid <= 0 || pid === process.pid) continue;
++		seen.add(pid);
++		result.push(pid);
++		for (const child of listDirectChildren(pid)) stack.push(child);
++	}
++	return result;
++}
++
++function sendSignal(pid: number, signal: NodeJS.Signals): void {
++	if (pid <= 0 || pid === process.pid) return;
++	try {
++		process.kill(pid, signal);
++	} catch {
++		// already gone
++	}
++}
++
++function signalTree(rootPid: number, signal: NodeJS.Signals): void {
++	if (process.platform !== "win32") {
++		try {
++			process.kill(-rootPid, signal);
++		} catch {
++			// group may already be gone
++		}
++	}
++	for (const pid of collectProcessTree(rootPid)) {
++		sendSignal(pid, signal);
++	}
++}
++
++export function processGroupAlive(pgid: number): boolean {
++	if (pgid <= 0) return false;
++	if (process.platform === "win32") return processAlive(pgid);
++	try {
++		process.kill(-pgid, 0);
++		return true;
++	} catch {
++		return processAlive(pgid) || collectProcessTree(pgid).some((pid) => processAlive(pid));
++	}
++}
++
++export function treeAlive(rootPid: number): boolean {
++	return processGroupAlive(rootPid);
++}
++
++function killWindowsTree(pid: number): void {
++	try {
++		const killer = spawn(
++			join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"),
++			["/F", "/T", "/PID", String(pid)],
++			{ stdio: "ignore", detached: true, windowsHide: true },
++		);
++		killer.once("error", () => {});
++		killer.unref();
++	} catch {
++		// ignore
++	}
++}
++
++export function killTreeNow(rootPid: number, signal: NodeJS.Signals): void {
++	if (process.platform === "win32") {
++		killWindowsTree(rootPid);
++		return;
++	}
++	signalTree(rootPid, signal);
++}
++
++export async function killProcessTree(rootPid: number, timeoutSec: number): Promise<void> {
++	if (process.platform === "win32") {
++		killWindowsTree(rootPid);
++		const deadline = Date.now() + Math.max(0, timeoutSec) * 1000;
++		while (Date.now() < deadline && treeAlive(rootPid)) {
++			await sleep(50);
++		}
++		return;
++	}
++
++	if (!treeAlive(rootPid)) return;
++	signalTree(rootPid, "SIGTERM");
++	const deadline = Date.now() + Math.max(0, timeoutSec) * 1000;
++	while (Date.now() < deadline && treeAlive(rootPid)) {
++		await sleep(50);
++	}
++	if (treeAlive(rootPid)) {
++		signalTree(rootPid, "SIGKILL");
++		const killDeadline = Date.now() + 1000;
++		while (Date.now() < killDeadline && treeAlive(rootPid)) {
++			await sleep(20);
++		}
++	}
++}
++
++export function sleep(ms: number): Promise<void> {
++	return new Promise((resolve) => setTimeout(resolve, ms));
++}
+diff --git a/packages/coding-agent/examples/extensions/background-processes/types.ts b/packages/coding-agent/examples/extensions/background-processes/types.ts
+new file mode 100644
+index 000000000..b88ec46a5
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/background-processes/types.ts
+@@ -0,0 +1,52 @@
++/** Public process record returned by the background-process tools. */
++export type ProcessState = "running" | "exited" | "killed";
++
++export type WakeReason = "ready" | "error" | "output" | "exit";
++
++export interface ProcessRecord {
++	id: string;
++	name: string;
++	command: string;
++	cwd: string;
++	pid: number | null;
++	state: ProcessState;
++	exitCode: number | null;
++	startedAt: string;
++	endedAt: string | null;
++	logLines: number;
++	backgrounded: boolean;
++}
++
++export interface WakeConfig {
++	ready: string | null;
++	error: string | null;
++	exit: boolean;
++	output: boolean;
++}
++
++export interface CleanupConfig {
++	command: string;
++	timeoutSec: number;
++}
++
++export interface CleanupResult {
++	ran: boolean;
++	exitCode: number | null;
++	failed: boolean;
++}
++
++export interface WakeDetails {
++	id: string;
++	name: string;
++	reasons: WakeReason[];
++	exitCode: number | null;
++	matchedLine: string | null;
++}
++
++export const LOG_PAGE_MAX_BYTES = 64 * 1024;
++export const DEFAULT_KILL_TIMEOUT_SEC = 5;
++export const DEFAULT_CLEANUP_TIMEOUT_SEC = 30;
++export const DEFAULT_STALLED_SEC = 30;
++export const CUSTOM_TYPE = "background-process";
++
++export const WAKE_REASON_ORDER: WakeReason[] = ["ready", "error", "output", "exit"];
+diff --git a/packages/coding-agent/test/background-processes-extension.test.ts b/packages/coding-agent/test/background-processes-extension.test.ts
+new file mode 100644
+index 000000000..b56aaa8a2
+--- /dev/null
++++ b/packages/coding-agent/test/background-processes-extension.test.ts
+@@ -0,0 +1,475 @@
++import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import backgroundProcessesExtension, {
++	resetBackgroundProcessesForTests,
++} from "../examples/extensions/background-processes/index.ts";
++import { processAlive } from "../examples/extensions/background-processes/process-tree.ts";
++import { LOG_PAGE_MAX_BYTES } from "../examples/extensions/background-processes/types.ts";
++import type { AgentToolResult } from "../src/core/extensions/index.ts";
++import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
++import { SessionManager } from "../src/core/session-manager.ts";
++import { createBashTool } from "../src/index.ts";
++
++type AnyTool = ToolDefinition<any, any, any>;
++type EventHandler = (event: any, ctx: ExtensionContext) => unknown | Promise<unknown>;
++
++function nodeEval(code: string): string {
++	return `${JSON.stringify(process.execPath)} -e ${JSON.stringify(code)}`;
++}
++
++function textOf(result: AgentToolResult<unknown>): string {
++	return result.content
++		.filter((block): block is { type: "text"; text: string } => block.type === "text")
++		.map((block) => block.text)
++		.join("\n");
++}
++
++function parseJson<T>(result: AgentToolResult<unknown>): T {
++	const obj = JSON.parse(textOf(result)) as T;
++	expect(result.details).toEqual(obj);
++	return obj;
++}
++
++async function waitFor<T>(fn: () => T | Promise<T>, pred: (value: T) => boolean, timeoutMs = 5000): Promise<T> {
++	const start = Date.now();
++	let last: T | undefined;
++	while (Date.now() - start < timeoutMs) {
++		last = await fn();
++		if (pred(last)) return last;
++		await new Promise((resolve) => setTimeout(resolve, 25));
++	}
++	throw new Error(`timed out waiting; last value: ${JSON.stringify(last)}`);
++}
++
++function setup(workDir: string, sessionDir: string) {
++	const tools = new Map<string, AnyTool>();
++	const handlers = new Map<string, EventHandler[]>();
++	const sendMessage = vi.fn();
++	let idle = true;
++
++	const api = {
++		registerTool(tool: AnyTool) {
++			tools.set(tool.name, tool);
++		},
++		on(event: string, handler: EventHandler) {
++			const list = handlers.get(event) ?? [];
++			list.push(handler);
++			handlers.set(event, list);
++		},
++		sendMessage,
++	} as unknown as ExtensionAPI;
++
++	backgroundProcessesExtension(api);
++
++	const sessionManager = SessionManager.create(workDir, sessionDir, { id: "bg-test-session" });
++	const ctx = {
++		cwd: workDir,
++		sessionManager,
++		isIdle: () => idle,
++		hasUI: false,
++		mode: "print",
++	} as unknown as ExtensionContext;
++
++	async function emit(event: { type: string } & Record<string, unknown>): Promise<void> {
++		for (const handler of handlers.get(event.type) ?? []) {
++			await handler(event, ctx);
++		}
++	}
++
++	async function exec(name: string, params: unknown, signal?: AbortSignal): Promise<AgentToolResult<unknown>> {
++		const tool = tools.get(name);
++		if (!tool) throw new Error(`missing tool ${name}`);
++		return tool.execute("test-call", params as never, signal, undefined, ctx);
++	}
++
++	return {
++		tools,
++		sendMessage,
++		ctx,
++		sessionManager,
++		exec,
++		emit,
++		setIdle(value: boolean) {
++			idle = value;
++		},
++	};
++}
++
++describe("background-processes example extension", () => {
++	let workDir: string;
++	let sessionDir: string;
++
++	beforeEach(async () => {
++		await resetBackgroundProcessesForTests();
++		workDir = mkdtempSync(join(tmpdir(), "pi-bg-work-"));
++		sessionDir = mkdtempSync(join(tmpdir(), "pi-bg-session-"));
++	});
++
++	afterEach(async () => {
++		await resetBackgroundProcessesForTests();
++		rmSync(workDir, { recursive: true, force: true });
++		rmSync(sessionDir, { recursive: true, force: true });
++	});
++
++	it("registers the agreed tool names", () => {
++		const { tools } = setup(workDir, sessionDir);
++		expect([...tools.keys()].sort()).toEqual(["bash", "bg_kill", "bg_list", "bg_logs", "bg_run", "bg_watch"]);
++	});
++
++	it("bg_run returns a running record immediately and lists it", async () => {
++		const { exec } = setup(workDir, sessionDir);
++		const started = Date.now();
++		const record = parseJson<{
++			id: string;
++			state: string;
++			cwd: string;
++			backgrounded: boolean;
++			pid: number;
++			endedAt: string | null;
++		}>(
++			await exec("bg_run", {
++				command: nodeEval("setInterval(() => {}, 1000)"),
++				name: "keeper",
++			}),
++		);
++		expect(Date.now() - started).toBeLessThan(1500);
++		expect(record.state).toBe("running");
++		expect(record.backgrounded).toBe(false);
++		expect(record.endedAt).toBeNull();
++		expect(record.cwd).toBe(workDir);
++		expect(record.pid).toBeGreaterThan(0);
++		expect(processAlive(record.pid)).toBe(true);
++
++		const listed = parseJson<{ processes: Array<{ id: string; name: string }> }>(await exec("bg_list", {}));
++		expect(listed.processes.some((proc) => proc.id === record.id && proc.name === "keeper")).toBe(true);
++
++		const killed = parseJson<{ state: string; cleanup: null }>(
++			await exec("bg_kill", { id: record.id, timeoutSec: 1 }),
++		);
++		expect(killed.state).toBe("killed");
++		expect(killed.cleanup).toBeNull();
++		expect(processAlive(record.pid)).toBe(false);
++	});
++
++	it("resolves a relative cwd against the session working directory", async () => {
++		const sub = join(workDir, "sub");
++		mkdirSync(sub);
++		writeFileSync(join(sub, "marker.txt"), "yes");
++		const { exec } = setup(workDir, sessionDir);
++		const record = parseJson<{ id: string; cwd: string }>(
++			await exec("bg_run", {
++				command: "pwd",
++				cwd: "sub",
++			}),
++		);
++		expect(record.cwd).toBe(sub);
++		await waitFor(
++			() => exec("bg_list", {}),
++			(result) => {
++				const listed = JSON.parse(textOf(result as AgentToolResult<unknown>)) as {
++					processes: Array<{ id: string; state: string }>;
++				};
++				return listed.processes.some((proc) => proc.id === record.id && proc.state !== "running");
++			},
++		);
++		const logs = parseJson<{ lines: string[] }>(await exec("bg_logs", { id: record.id }));
++		expect(logs.lines.some((line) => line.includes(sub))).toBe(true);
++	});
++
++	it("pages logs including newest-fit and offset, never exceeding 64KB", async () => {
++		const { exec } = setup(workDir, sessionDir);
++		const record = parseJson<{ id: string }>(
++			await exec("bg_run", {
++				command: `${nodeEval(`for (let i = 0; i < 4000; i++) console.log("LINE-" + i + "-" + "x".repeat(40))`)} 2>/dev/null`,
++			}),
++		);
++		await waitFor(
++			() => exec("bg_list", {}),
++			(result) => {
++				const listed = JSON.parse(textOf(result as AgentToolResult<unknown>)) as {
++					processes: Array<{ id: string; state: string; logLines: number }>;
++				};
++				const proc = listed.processes.find((item) => item.id === record.id);
++				return Boolean(proc && proc.state !== "running" && proc.logLines > 100);
++			},
++		);
++
++		const newest = parseJson<{ offset: number; lines: string[]; total: number }>(
++			await exec("bg_logs", { id: record.id }),
++		);
++		expect(newest.total).toBeGreaterThan(1000);
++		expect(newest.lines.length).toBeGreaterThan(0);
++		expect(newest.lines.some((line) => /LINE-3999-/.test(line))).toBe(true);
++		expect(Buffer.byteLength(newest.lines.join("\n"), "utf-8")).toBeLessThanOrEqual(LOG_PAGE_MAX_BYTES);
++		expect(newest.offset).toBe(newest.total - newest.lines.length);
++
++		const head = parseJson<{ offset: number; lines: string[] }>(
++			await exec("bg_logs", { id: record.id, offset: 0, limit: 3 }),
++		);
++		expect(head.offset).toBe(0);
++		expect(head.lines).toHaveLength(3);
++		expect(head.lines[0]).toMatch(/LINE-0-/);
++	});
++
++	it("wakes on ready, combines with later exit, and respects bg_watch silence", async () => {
++		const { exec, sendMessage } = setup(workDir, sessionDir);
++		const record = parseJson<{ id: string }>(
++			await exec("bg_run", {
++				command: nodeEval("console.log('ready-now'); setTimeout(() => {}, 8000)"),
++				name: "svc",
++				wake: { ready: "ready-now" },
++			}),
++		);
++
++		await waitFor(
++			() => sendMessage.mock.calls,
++			(calls) => calls.some((call) => call[0]?.details?.reasons?.includes("ready")),
++		);
++		const readyCall = sendMessage.mock.calls.find((call) => call[0]?.details?.reasons?.includes("ready"));
++		expect(readyCall?.[0]).toMatchObject({
++			customType: "background-process",
++			details: {
++				id: record.id,
++				name: "svc",
++				matchedLine: "ready-now",
++			},
++		});
++		expect(readyCall?.[1]).toEqual({ triggerTurn: true, deliverAs: "steer" });
++
++		sendMessage.mockClear();
++		await exec("bg_watch", { id: record.id, exit: false });
++		await exec("bg_kill", { id: record.id, timeoutSec: 1 });
++		await new Promise((resolve) => setTimeout(resolve, 150));
++		expect(sendMessage.mock.calls.some((call) => call[0]?.details?.reasons?.includes("exit"))).toBe(false);
++	});
++
++	it("delivers a single exit wake for bg_kill", async () => {
++		const { exec, sendMessage } = setup(workDir, sessionDir);
++		const record = parseJson<{ id: string }>(
++			await exec("bg_run", {
++				command: nodeEval("setInterval(() => {}, 1000)"),
++			}),
++		);
++		const killed = parseJson<{ state: string; exitCode: number | null }>(
++			await exec("bg_kill", { id: record.id, timeoutSec: 1 }),
++		);
++		expect(killed.state).toBe("killed");
++		await waitFor(
++			() => sendMessage.mock.calls,
++			(calls) => calls.some((call) => call[0]?.details?.reasons?.includes("exit")),
++		);
++		const exitCalls = sendMessage.mock.calls.filter((call) => call[0]?.details?.reasons?.includes("exit"));
++		expect(exitCalls).toHaveLength(1);
++		expect(exitCalls[0][0].details.id).toBe(record.id);
++	});
++
++	it("runs cleanup after the tree is gone and reports failure", async () => {
++		const { exec } = setup(workDir, sessionDir);
++		const marker = join(workDir, "cleaned");
++		const record = parseJson<{ id: string }>(
++			await exec("bg_run", {
++				command: nodeEval("setInterval(() => {}, 1000)"),
++				cleanup: { command: `echo cleaned-up | tee ${JSON.stringify(marker)}` },
++			}),
++		);
++		const killed = parseJson<{ cleanup: { ran: boolean; failed: boolean; exitCode: number | null } }>(
++			await exec("bg_kill", { id: record.id, timeoutSec: 1 }),
++		);
++		expect(killed.cleanup.ran).toBe(true);
++		expect(killed.cleanup.failed).toBe(false);
++		expect(killed.cleanup.exitCode).toBe(0);
++		expect(readFileSync(marker, "utf8")).toContain("cleaned-up");
++
++		const logs = parseJson<{ lines: string[] }>(await exec("bg_logs", { id: record.id }));
++		expect(logs.lines.join("\n")).toContain("cleaned-up");
++
++		const failing = parseJson<{ id: string }>(
++			await exec("bg_run", {
++				command: nodeEval("setInterval(() => {}, 1000)"),
++				cleanup: { command: "exit 7" },
++			}),
++		);
++		const failed = parseJson<{ cleanup: { ran: boolean; failed: boolean; exitCode: number | null } }>(
++			await exec("bg_kill", { id: failing.id, timeoutSec: 1 }),
++		);
++		expect(failed.cleanup.ran).toBe(true);
++		expect(failed.cleanup.failed).toBe(true);
++		expect(failed.cleanup.exitCode).toBe(7);
++	});
++
++	it("SIGTERM-then-SIGKILL stops a process that ignores SIGTERM", async () => {
++		const { exec } = setup(workDir, sessionDir);
++		const record = parseJson<{ id: string; pid: number }>(
++			await exec("bg_run", {
++				command: `exec ${nodeEval("process.on('SIGTERM', () => {}); console.log('listening'); setInterval(() => {}, 1000)")}`,
++			}),
++		);
++		await waitFor(
++			() => exec("bg_logs", { id: record.id }),
++			(result) => {
++				const page = JSON.parse(textOf(result as AgentToolResult<unknown>)) as { lines: string[] };
++				return page.lines.some((line) => line.includes("listening"));
++			},
++		);
++		const started = Date.now();
++		const killed = parseJson<{ state: string }>(await exec("bg_kill", { id: record.id, timeoutSec: 0.4 }));
++		expect(Date.now() - started).toBeGreaterThan(300);
++		expect(killed.state).toBe("killed");
++		expect(processAlive(record.pid)).toBe(false);
++	});
++
++	it("does not stop processes on reload/new/fork shutdown", async () => {
++		const { exec, emit } = setup(workDir, sessionDir);
++		const record = parseJson<{ id: string; pid: number }>(
++			await exec("bg_run", { command: nodeEval("setInterval(() => {}, 1000)") }),
++		);
++		await emit({ type: "session_shutdown", reason: "reload" });
++		await emit({ type: "session_shutdown", reason: "new" });
++		await emit({ type: "session_shutdown", reason: "fork" });
++		expect(processAlive(record.pid)).toBe(true);
++		const listed = parseJson<{ processes: Array<{ id: string; state: string }> }>(await exec("bg_list", {}));
++		expect(listed.processes.find((proc) => proc.id === record.id)?.state).toBe("running");
++		await exec("bg_kill", { id: record.id, timeoutSec: 1 });
++	});
++
++	it("stops every managed process on session_shutdown quit", async () => {
++		const { exec, emit } = setup(workDir, sessionDir);
++		const record = parseJson<{ id: string; pid: number }>(
++			await exec("bg_run", { command: nodeEval("setInterval(() => {}, 1000)") }),
++		);
++		await emit({ type: "session_shutdown", reason: "quit" });
++		expect(processAlive(record.pid)).toBe(false);
++		const listed = parseJson<{ processes: Array<{ id: string; state: string }> }>(await exec("bg_list", {}));
++		expect(listed.processes.find((proc) => proc.id === record.id)?.state).toBe("killed");
++	});
++
++	it("persists finished records for a later pi process and never resumes them as running", async () => {
++		const { exec, sessionManager } = setup(workDir, sessionDir);
++		const record = parseJson<{ id: string }>(await exec("bg_run", { command: "echo persisted-line" }));
++		await waitFor(
++			() => exec("bg_list", {}),
++			(result) => {
++				const listed = JSON.parse(textOf(result as AgentToolResult<unknown>)) as {
++					processes: Array<{ id: string; state: string }>;
++				};
++				return listed.processes.some((proc) => proc.id === record.id && proc.state === "exited");
++			},
++		);
++
++		const recordPath = join(
++			sessionDir,
++			"background-processes",
++			sessionManager.getSessionId(),
++			record.id,
++			"record.json",
++		);
++		const raw = await waitFor(
++			() => JSON.parse(readFileSync(recordPath, "utf8")) as { state: string; logLines: number },
++			(value) => value.state === "exited",
++		);
++		expect(raw.state).toBe("exited");
++
++		await resetBackgroundProcessesForTests();
++		const again = setup(workDir, sessionDir);
++		await again.emit({ type: "session_start", reason: "startup" });
++		const listed = parseJson<{ processes: Array<{ id: string; state: string; pid: number | null }> }>(
++			await again.exec("bg_list", {}),
++		);
++		const restored = listed.processes.find((proc) => proc.id === record.id);
++		expect(restored?.state).toBe("exited");
++		expect(restored?.state).not.toBe("running");
++
++		const logs = parseJson<{ lines: string[] }>(await again.exec("bg_logs", { id: record.id }));
++		expect(logs.lines.some((line) => line.includes("persisted-line"))).toBe(true);
++
++		writeFileSync(
++			recordPath,
++			JSON.stringify({ ...JSON.parse(readFileSync(recordPath, "utf8")), state: "running", endedAt: null }, null, 2),
++		);
++		await resetBackgroundProcessesForTests();
++		const third = setup(workDir, sessionDir);
++		await third.emit({ type: "session_start", reason: "startup" });
++		const rewritten = parseJson<{ processes: Array<{ id: string; state: string }> }>(await third.exec("bg_list", {}));
++		expect(rewritten.processes.find((proc) => proc.id === record.id)?.state).toMatch(/^(exited|killed)$/);
++		expect(rewritten.processes.find((proc) => proc.id === record.id)?.state).not.toBe("running");
++	});
++
++	it("bash returns the built-in result when the command finishes before stalling", async () => {
++		const { exec, tools } = setup(workDir, sessionDir);
++		const builtin = createBashTool(workDir);
++		const builtinResult = await builtin.execute("cmp", { command: "echo hello-foreground" });
++		const ours = await exec("bash", { command: "echo hello-foreground", stalledSec: 5 });
++		expect(textOf(ours)).toBe(textOf(builtinResult));
++		expect(ours.details).toEqual(builtinResult.details);
++		expect(tools.get("bash")).toBeDefined();
++
++		await expect(exec("bash", { command: "exit 3", stalledSec: 5 })).rejects.toThrow(/Command exited with code 3/);
++		await expect(builtin.execute("cmp-err", { command: "exit 3" })).rejects.toThrow(/Command exited with code 3/);
++	});
++
++	it("bash times out before stalling when timeout is shorter than stalledSec", async () => {
++		const { exec } = setup(workDir, sessionDir);
++		const started = Date.now();
++		await expect(
++			exec("bash", {
++				command: nodeEval("setInterval(() => {}, 1000)"),
++				timeout: 0.3,
++				stalledSec: 5,
++			}),
++		).rejects.toThrow(/Command timed out after 0\.3 seconds/);
++		expect(Date.now() - started).toBeLessThan(2000);
++		const listed = parseJson<{ processes: unknown[] }>(await exec("bg_list", {}));
++		expect(listed.processes).toEqual([]);
++	});
++
++	it("bash aborts like the built-in tool and does not create a process record", async () => {
++		const { exec } = setup(workDir, sessionDir);
++		const ac = new AbortController();
++		const pending = exec("bash", { command: nodeEval("setInterval(() => {}, 1000)"), stalledSec: 5 }, ac.signal);
++		await new Promise((resolve) => setTimeout(resolve, 50));
++		ac.abort();
++		await expect(pending).rejects.toThrow(/Command aborted/);
++		const listed = parseJson<{ processes: unknown[] }>(await exec("bg_list", {}));
++		expect(listed.processes).toEqual([]);
++	});
++
++	it("bash backgrounds a silent still-running command and wakes on the next output line", async () => {
++		const { exec, sendMessage } = setup(workDir, sessionDir);
++		const started = Date.now();
++		const result = await exec("bash", {
++			command: nodeEval("setTimeout(() => console.log('after-switch'), 400); setTimeout(() => {}, 8000)"),
++			stalledSec: 0.2,
++		});
++		expect(Date.now() - started).toBeLessThan(1500);
++		const record = parseJson<{
++			id: string;
++			state: string;
++			backgrounded: boolean;
++			stalledSec: number;
++			logLines: number;
++		}>(result);
++		expect(record.backgrounded).toBe(true);
++		expect(record.stalledSec).toBe(0.2);
++		expect(record.state).toBe("running");
++
++		await waitFor(
++			() => sendMessage.mock.calls,
++			(calls) => calls.some((call) => call[0]?.details?.reasons?.includes("output")),
++		);
++		const outputCall = sendMessage.mock.calls.find((call) => call[0]?.details?.reasons?.includes("output"));
++		expect(outputCall?.[0].details.matchedLine).toBe("after-switch");
++		expect(outputCall?.[0].details.id).toBe(record.id);
++
++		const logs = parseJson<{ lines: string[]; total: number }>(await exec("bg_logs", { id: record.id }));
++		expect(logs.lines.some((line) => line.includes("after-switch"))).toBe(true);
++
++		await exec("bg_kill", { id: record.id, timeoutSec: 1 });
++	});
++
++	it("rejects an invalid wake regular expression", async () => {
++		const { exec } = setup(workDir, sessionDir);
++		await expect(exec("bg_run", { command: "echo hi", wake: { ready: "(" } })).rejects.toThrow(/regular expression/i);
++	});
++});

@@ -1,0 +1,948 @@
+diff --git a/packages/coding-agent/examples/extensions/background-processes/README.md b/packages/coding-agent/examples/extensions/background-processes/README.md
+new file mode 100644
+index 0000000..b7a7534
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/background-processes/README.md
+@@ -0,0 +1,52 @@
++# Background Processes
++
++Run long-lived commands (dev servers, test watchers, local APIs, builds) in the
++background without blocking the conversation, and let them wake the agent.
++
++```bash
++pi -e packages/coding-agent/examples/extensions/background-processes/index.ts
++```
++
++## Tools
++
++| Tool | Parameters | Returns |
++|---|---|---|
++| `bg_run` | `{ command, cwd?, name?, wake?: { ready?, error? }, cleanup?: { command, timeoutSec? } }` | process record |
++| `bg_logs` | `{ id, offset?, limit? }` | `{ id, offset, lines, total }`; a page is at most 64 KB, newest lines by default |
++| `bg_list` | `{}` | `{ processes }` |
++| `bg_kill` | `{ id, timeoutSec? }` | final record plus `cleanup: { ran, exitCode, failed } \| null` |
++| `bg_watch` | `{ id, ready?, error?, exit? }` | record; `null` removes a pattern, `exit: false` silences the exit wake |
++
++A process record has `id`, `name`, `command`, `cwd`, `pid`, `state`
++(`running` / `exited` / `killed`), `exitCode`, `startedAt`, `endedAt`
++(ISO-8601 strings), and `logLines`. Every tool returns its object as JSON text
++and as the result `details`.
++
++## Waking the agent
++
++A wake is a custom message with `customType: "background-process"` and
++`details: { id, name, reasons, exitCode, matchedLine }`.
++
++- Exit always wakes (once); `ready` and `error` wake only when a pattern was
++  given. `ready` fires at most once per process, `error` at most once per
++  delivery window.
++- While the agent is streaming, the wake is delivered after the current tool
++  batch, before the next model call. While idle, it starts a new turn.
++- Reasons for the same process between two deliveries collapse into one
++  message; several processes produce one message each, in first-fire order.
++- Nothing wakes after the exit wake, after `bg_kill`, or after `bg_watch`
++  silenced the reason.
++- The wake goes to the session that started the process while it is active,
++  otherwise to the current active session.
++
++## Lifecycle
++
++Processes belong to the pi process. `/reload`, `/new`, `/fork`, and tree
++navigation keep them running; any session in the same pi process can list,
++read, and kill them. When pi exits (normally or on `SIGTERM`/`SIGINT`) every
++managed process group is stopped with `SIGTERM` then `SIGKILL`, including
++children the command spawned, and pi still terminates.
++
++Logs stream to `<sessionDir>/background-processes/<pi-pid>/<id>.log` with the
++final record beside them, so a later pi process that resumes the session can
++`bg_list` finished records and page their logs.
+diff --git a/packages/coding-agent/examples/extensions/background-processes/index.ts b/packages/coding-agent/examples/extensions/background-processes/index.ts
+new file mode 100644
+index 0000000..0c4f33e
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/background-processes/index.ts
+@@ -0,0 +1,757 @@
++/**
++ * Background Processes Extension
++ *
++ * Runs long-lived commands (dev servers, watchers, builds) in their own process
++ * group without blocking the conversation, streams their output to disk, and
++ * wakes the agent through pi's steering queue when a process becomes ready,
++ * prints an error, or exits.
++ *
++ * Processes belong to the pi OS process, not to a session: /reload, /new,
++ * /fork, and tree navigation keep them running; only pi exiting stops them.
++ *
++ * Tools: bg_run, bg_logs, bg_list, bg_kill, bg_watch
++ */
++
++import { type ChildProcess, spawn, spawnSync } from "node:child_process";
++import {
++	closeSync,
++	existsSync,
++	mkdirSync,
++	openSync,
++	readdirSync,
++	readFileSync,
++	readSync,
++	statSync,
++	writeFileSync,
++	writeSync,
++} from "node:fs";
++import { basename, isAbsolute, join, resolve } from "node:path";
++import { type ExtensionAPI, type ExtensionContext, getShellConfig } from "@earendil-works/pi-coding-agent";
++import { Type } from "typebox";
++
++// ---------------------------------------------------------------------------
++// Public shapes
++// ---------------------------------------------------------------------------
++
++export type ProcessState = "running" | "exited" | "killed";
++export type WakeReason = "ready" | "error" | "exit";
++
++export interface ProcessRecord {
++	id: string;
++	name: string;
++	command: string;
++	cwd: string;
++	pid: number;
++	state: ProcessState;
++	exitCode: number | null;
++	startedAt: string;
++	endedAt: string | null;
++	logLines: number;
++}
++
++export interface WakeDetails {
++	id: string;
++	name: string;
++	reasons: WakeReason[];
++	exitCode: number | null;
++	matchedLine: string | null;
++}
++
++export interface CleanupResult {
++	ran: boolean;
++	exitCode: number | null;
++	failed: boolean;
++}
++
++export const WAKE_CUSTOM_TYPE = "background-process";
++export const PAGE_BYTES = 64 * 1024;
++const DEFAULT_KILL_TIMEOUT_SEC = 5;
++const DEFAULT_CLEANUP_TIMEOUT_SEC = 30;
++const EXIT_GRACE_MS = 1000;
++
++// ---------------------------------------------------------------------------
++// Internal state
++// ---------------------------------------------------------------------------
++
++interface WakeRules {
++	ready: RegExp | null;
++	error: RegExp | null;
++	exit: boolean;
++}
++
++interface Managed {
++	record: ProcessRecord;
++	ownerSessionId: string;
++	logPath: string;
++	recordPath: string;
++	/** Byte offset where line i starts; the final entry is the current file length. */
++	lineStarts: number[];
++	fd: number | null;
++	child: ChildProcess | null;
++	pgid: number | null;
++	pending: Buffer;
++	rules: WakeRules;
++	readyFired: boolean;
++	exitDelivered: boolean;
++	killRequested: boolean;
++	cleanup: { command: string; timeoutSec: number } | null;
++	exited: Promise<void>;
++	resolveExited: () => void;
++	/** Reasons collected since the last delivery. */
++	queued: Set<WakeReason>;
++	queuedLine: string | null;
++	/** Exit code snapshot at queue time so a delivery reports what the record said. */
++	queuedExitCode: number | null;
++}
++
++interface Manager {
++	processes: Map<string, Managed>;
++	order: string[];
++	active: { api: ExtensionAPI; ctx: ExtensionContext | null; sessionId: string } | null;
++	hooksInstalled: boolean;
++	shuttingDown: boolean;
++}
++
++const MANAGER_KEY = Symbol.for("ai-infra-bench/background-processes/manager");
++
++function manager(): Manager {
++	const holder = globalThis as unknown as Record<symbol, Manager | undefined>;
++	let existing = holder[MANAGER_KEY];
++	if (!existing) {
++		existing = { processes: new Map(), order: [], active: null, hooksInstalled: false, shuttingDown: false };
++		holder[MANAGER_KEY] = existing;
++	}
++	return existing;
++}
++
++// ---------------------------------------------------------------------------
++// Helpers
++// ---------------------------------------------------------------------------
++
++function nowIso(): string {
++	return new Date().toISOString();
++}
++
++function newId(): string {
++	return `bg_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
++}
++
++function groupAlive(pgid: number): boolean {
++	try {
++		process.kill(-pgid, 0);
++		return true;
++	} catch (error) {
++		return (error as NodeJS.ErrnoException).code === "EPERM";
++	}
++}
++
++function signalGroup(pgid: number, signal: NodeJS.Signals): void {
++	try {
++		process.kill(-pgid, signal);
++	} catch {
++		// group already gone
++	}
++}
++
++function sleep(ms: number): Promise<void> {
++	return new Promise((resolve) => setTimeout(resolve, ms));
++}
++
++function storageDir(sessionDir: string): string {
++	return join(sessionDir, "background-processes", String(process.pid));
++}
++
++function compileRule(value: string | null | undefined): RegExp | null {
++	if (value === null || value === undefined) return null;
++	return new RegExp(value);
++}
++
++function result<T extends object>(value: T) {
++	return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }], details: value };
++}
++
++function persist(managed: Managed): void {
++	try {
++		writeFileSync(managed.recordPath, `${JSON.stringify(managed.record)}\n`);
++	} catch {
++		// best effort; the log itself is the primary durable artifact
++	}
++}
++
++/** Rebuild line offsets for a log file written by an earlier pi process. */
++function scanLineStarts(path: string): number[] {
++	const starts = [0];
++	if (!existsSync(path)) return starts;
++	const fd = openSync(path, "r");
++	try {
++		const chunk = Buffer.allocUnsafe(1 << 16);
++		let position = 0;
++		for (;;) {
++			const read = readSync(fd, chunk, 0, chunk.length, position);
++			if (read === 0) break;
++			let index = chunk.indexOf(10, 0);
++			while (index !== -1 && index < read) {
++				starts.push(position + index + 1);
++				index = chunk.indexOf(10, index + 1);
++			}
++			position += read;
++		}
++		if (starts[starts.length - 1] !== position) starts.push(position);
++	} finally {
++		closeSync(fd);
++	}
++	return starts;
++}
++
++// ---------------------------------------------------------------------------
++// Extension
++// ---------------------------------------------------------------------------
++
++export default function (pi: ExtensionAPI) {
++	const state = manager();
++	let sessionDir: string | undefined;
++	let sessionId = "";
++	let cwdDefault = process.cwd();
++	// This instance is the newest session in the pi process; wakes go here until
++	// it shuts down. The context is filled in by the first event or tool call.
++	state.active = { api: pi, ctx: null, sessionId };
++
++	// ----- delivery ---------------------------------------------------------
++
++	function queueWake(managed: Managed, reason: WakeReason, line: string | null): void {
++		if (managed.exitDelivered) return;
++		if (reason === "ready") {
++			if (managed.readyFired || !managed.rules.ready) return;
++			managed.readyFired = true;
++		}
++		if (reason === "error" && (!managed.rules.error || managed.queued.has("error"))) return;
++		if (reason === "exit" && !managed.rules.exit) {
++			managed.exitDelivered = true;
++			return;
++		}
++		if (managed.queued.size === 0) state.order.push(managed.record.id);
++		managed.queued.add(reason);
++		if (managed.queuedLine === null && line !== null) managed.queuedLine = line;
++		managed.queuedExitCode = managed.record.exitCode;
++		// Idle (or not yet observed) agent: deliver now and start a turn. Streaming agent:
++		// hold until the current tool batch ends (turn_end) or the run settles.
++		if (state.active && (state.active.ctx === null || state.active.ctx.isIdle())) flush(true);
++	}
++
++	function flush(triggerTurn: boolean): void {
++		if (state.order.length === 0) return;
++		const api = state.active?.api;
++		if (!api) return;
++		const ids = state.order.splice(0);
++		for (let index = 0; index < ids.length; index += 1) {
++			const id = ids[index]!;
++			const managed = state.processes.get(id);
++			if (!managed || managed.queued.size === 0) continue;
++			const reasons = (["ready", "error", "exit"] as WakeReason[]).filter((r) => managed.queued.has(r));
++			const details: WakeDetails = {
++				id,
++				name: managed.record.name,
++				reasons,
++				exitCode: managed.queuedExitCode,
++				matchedLine: managed.queuedLine,
++			};
++			const summary = reasons
++				.map((r) => {
++					if (r === "exit") return `${managed.record.state} (exit code ${managed.record.exitCode ?? "n/a"})`;
++					if (r === "ready") return `ready: ${details.matchedLine ?? ""}`;
++					return `error: ${details.matchedLine ?? ""}`;
++				})
++				.join("; ");
++			try {
++				api.sendMessage(
++					{
++						customType: WAKE_CUSTOM_TYPE,
++						content: `Background process "${managed.record.name}" (${id}): ${summary}. Use bg_logs to inspect output.`,
++						display: true,
++						details,
++					},
++					{ deliverAs: "steer", triggerTurn },
++				);
++			} catch {
++				// The host is between sessions; keep everything queued for the next binding.
++				state.order.unshift(...ids.slice(index));
++				return;
++			}
++			managed.queued.clear();
++			managed.queuedLine = null;
++			if (reasons.includes("exit")) managed.exitDelivered = true;
++		}
++	}
++
++	// ----- log ingestion ----------------------------------------------------
++
++	function ingest(managed: Managed, chunk: Buffer): void {
++		const data = managed.pending.length ? Buffer.concat([managed.pending, chunk]) : chunk;
++		const lastNewline = data.lastIndexOf(10);
++		if (lastNewline === -1) {
++			managed.pending = data;
++			return;
++		}
++		const complete = data.subarray(0, lastNewline + 1);
++		managed.pending = Buffer.from(data.subarray(lastNewline + 1));
++		appendLines(managed, complete);
++	}
++
++	function appendLines(managed: Managed, complete: Buffer): void {
++		if (managed.fd === null || complete.length === 0) return;
++		const base = managed.lineStarts[managed.lineStarts.length - 1]!;
++		writeSync(managed.fd, complete);
++		((managed as unknown as { memory: string[] }).memory ??= []).push(...complete.toString("utf8").split("\n"));
++		const needText = managed.rules.ready !== null || managed.rules.error !== null;
++		let start = 0;
++		let index = complete.indexOf(10, 0);
++		while (index !== -1) {
++			managed.lineStarts.push(base + index + 1);
++			if (needText) {
++				const line = complete.toString("utf8", start, index);
++				if (managed.rules.ready && !managed.readyFired && managed.rules.ready.test(line)) {
++					queueWake(managed, "ready", line);
++				} else if (managed.rules.error && managed.rules.error.test(line)) {
++					queueWake(managed, "error", line);
++				}
++			}
++			start = index + 1;
++			index = complete.indexOf(10, start);
++		}
++		managed.record.logLines = managed.lineStarts.length - 1;
++	}
++
++	function flushPending(managed: Managed): void {
++		if (managed.pending.length === 0) return;
++		const tail = Buffer.concat([managed.pending, Buffer.from("\n")]);
++		managed.pending = Buffer.alloc(0);
++		appendLines(managed, tail);
++	}
++
++	function appendNote(managed: Managed, text: string): void {
++		flushPending(managed);
++		appendLines(managed, Buffer.from(text.endsWith("\n") ? text : `${text}\n`));
++	}
++
++	// ----- process lifecycle ------------------------------------------------
++
++	function start(input: {
++		command: string;
++		cwd?: string;
++		name?: string;
++		wake?: { ready?: string; error?: string };
++		cleanup?: { command: string; timeoutSec?: number };
++	}): ProcessRecord {
++		if (!sessionDir) throw new Error("background-processes: session storage is not initialised yet");
++		const cwd = input.cwd ? (isAbsolute(input.cwd) ? input.cwd : resolve(cwdDefault, input.cwd)) : cwdDefault;
++		if (!existsSync(cwd) || !statSync(cwd).isDirectory()) throw new Error(`cwd does not exist: ${cwd}`);
++		const rules: WakeRules = {
++			ready: compileRule(input.wake?.ready),
++			error: compileRule(input.wake?.error),
++			exit: true,
++		};
++		const id = newId();
++		const dir = storageDir(sessionDir);
++		mkdirSync(dir, { recursive: true });
++		const logPath = join(dir, `${id}.log`);
++		const recordPath = join(dir, `${id}.json`);
++		const fd = openSync(logPath, "a");
++
++		const shell = getShellConfig();
++		const child = spawn(shell.shell, [...shell.args, input.command], {
++			cwd,
++			detached: true,
++			stdio: ["ignore", "pipe", "pipe"],
++			env: process.env,
++		});
++		if (!child.pid) {
++			closeSync(fd);
++			throw new Error("failed to spawn background process");
++		}
++
++		let resolveExited: () => void = () => {};
++		const exited = new Promise<void>((resolveFn) => {
++			resolveExited = resolveFn;
++		});
++		const record: ProcessRecord = {
++			id,
++			name: input.name?.trim() || basename(input.command.split(/\s+/)[0] ?? "process") || "process",
++			command: input.command,
++			cwd,
++			pid: child.pid,
++			state: "running",
++			exitCode: null,
++			startedAt: nowIso(),
++			endedAt: null,
++			logLines: 0,
++		};
++		const managed: Managed = {
++			record,
++			ownerSessionId: sessionId,
++			logPath,
++			recordPath,
++			lineStarts: [0],
++			fd,
++			child,
++			pgid: child.pid,
++			pending: Buffer.alloc(0),
++			rules,
++			readyFired: false,
++			exitDelivered: false,
++			killRequested: false,
++			cleanup: input.cleanup
++				? { command: input.cleanup.command, timeoutSec: input.cleanup.timeoutSec ?? DEFAULT_CLEANUP_TIMEOUT_SEC }
++				: null,
++			exited,
++			resolveExited,
++			queued: new Set(),
++			queuedLine: null,
++			queuedExitCode: null,
++		};
++		state.processes.set(id, managed);
++		persist(managed);
++
++		child.stdout?.on("data", (chunk: Buffer) => ingest(managed, chunk));
++		child.stderr?.on("data", (chunk: Buffer) => ingest(managed, chunk));
++		child.on("error", (error) => appendNote(managed, `[background-processes] spawn error: ${error.message}`));
++		child.on("close", (code, signal) => {
++			flushPending(managed);
++			record.exitCode = typeof code === "number" ? code : null;
++			record.state = managed.killRequested ? "killed" : "exited";
++			record.endedAt = nowIso();
++			if (signal && record.exitCode === null) appendNote(managed, `[background-processes] terminated by ${signal}`);
++			persist(managed);
++			managed.child = null;
++			managed.resolveExited();
++			queueWake(managed, "exit", null);
++		});
++		return { ...record };
++	}
++
++	async function kill(managed: Managed, timeoutSec: number): Promise<void> {
++		if (managed.record.state !== "running" || managed.pgid === null) return;
++		managed.killRequested = true;
++		const pgid = managed.pgid;
++		signalGroup(pgid, "SIGTERM");
++		const deadline = Date.now() + timeoutSec * 1000;
++		while (groupAlive(pgid) && Date.now() < deadline) await sleep(50);
++		if (groupAlive(pgid)) {
++			signalGroup(pgid, "SIGKILL");
++			while (groupAlive(pgid)) await sleep(25);
++		}
++		await Promise.race([managed.exited, sleep(5000)]);
++	}
++
++	function runCleanup(managed: Managed): CleanupResult | null {
++		if (!managed.cleanup) return null;
++		const shell = getShellConfig();
++		appendNote(managed, `[background-processes] cleanup: ${managed.cleanup.command}`);
++		const run = spawnSync(shell.shell, [...shell.args, managed.cleanup.command], {
++			cwd: managed.record.cwd,
++			timeout: managed.cleanup.timeoutSec * 1000,
++			env: process.env,
++			stdio: ["ignore", "pipe", "pipe"],
++		});
++		const output = Buffer.concat([run.stdout ?? Buffer.alloc(0), run.stderr ?? Buffer.alloc(0)]);
++		if (output.length)
++			appendLines(managed, output[output.length - 1] === 10 ? output : Buffer.concat([output, Buffer.from("\n")]));
++		const timedOut = run.error !== undefined && (run.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
++		const exitCode = typeof run.status === "number" ? run.status : null;
++		const failed = timedOut || run.error !== undefined || exitCode !== 0;
++		appendNote(
++			managed,
++			`[background-processes] cleanup ${failed ? "failed" : "ok"} (exit code ${exitCode ?? "n/a"}${timedOut ? ", timed out" : ""})`,
++		);
++		return { ran: true, exitCode, failed };
++	}
++
++	function readPage(managed: Managed, offset: number | undefined, limit: number | undefined) {
++		if (managed.fd === null && managed.lineStarts.length === 1) managed.lineStarts = scanLineStarts(managed.logPath);
++		const starts = managed.lineStarts;
++		const total = starts.length - 1;
++		let first: number;
++		let last: number; // exclusive
++		if (offset === undefined && limit === undefined) {
++			last = total;
++			first = total;
++			while (first > 0 && starts[last]! - starts[first - 1]! <= PAGE_BYTES) first -= 1;
++		} else {
++			first = Math.min(Math.max(offset ?? 0, 0), total);
++			last = limit === undefined ? total : Math.min(first + Math.max(limit, 0), total);
++			while (last > first && starts[last]! - starts[first]! > PAGE_BYTES) last -= 1;
++		}
++		let lines: string[] = [];
++		if (last > first && existsSync(managed.logPath)) {
++			const fd = openSync(managed.logPath, "r");
++			try {
++				const length = starts[last]! - starts[first]!;
++				const buffer = Buffer.allocUnsafe(length);
++				readSync(fd, buffer, 0, length, starts[first]!);
++				const text = buffer.toString("utf8");
++				lines = text.endsWith("\n") ? text.slice(0, -1).split("\n") : text.split("\n");
++			} finally {
++				closeSync(fd);
++			}
++		}
++		return { id: managed.record.id, offset: first, lines, total };
++	}
++
++	/** Records written by earlier pi processes for this session directory. */
++	function importFinishedRecords(): void {
++		if (!sessionDir) return;
++		const root = join(sessionDir, "background-processes");
++		if (!existsSync(root)) return;
++		for (const piPid of readdirSync(root)) {
++			if (piPid === String(process.pid)) continue;
++			const dir = join(root, piPid);
++			let entries: string[];
++			try {
++				entries = readdirSync(dir);
++			} catch {
++				continue;
++			}
++			for (const entry of entries) {
++				if (!entry.endsWith(".json")) continue;
++				try {
++					const record = JSON.parse(readFileSync(join(dir, entry), "utf8")) as ProcessRecord;
++					if (state.processes.has(record.id)) continue;
++					if (record.state === "running") {
++						record.state = "killed";
++						record.exitCode = null;
++						record.endedAt = record.endedAt ?? nowIso();
++					}
++					const managed: Managed = {
++						record,
++						ownerSessionId: sessionId,
++						logPath: join(dir, `${record.id}.log`),
++						recordPath: join(dir, entry),
++						lineStarts: [0],
++						fd: null,
++						child: null,
++						pgid: null,
++						pending: Buffer.alloc(0),
++						rules: { ready: null, error: null, exit: false },
++						readyFired: true,
++						exitDelivered: true,
++						killRequested: true,
++						cleanup: null,
++						exited: Promise.resolve(),
++						resolveExited: () => {},
++						queued: new Set(),
++						queuedLine: null,
++						queuedExitCode: null,
++					};
++					managed.lineStarts = scanLineStarts(managed.logPath);
++					managed.record.logLines = managed.lineStarts.length - 1;
++					state.processes.set(record.id, managed);
++				} catch {
++					// unreadable record; skip
++				}
++			}
++		}
++	}
++
++	// ----- pi process exit hooks (installed once per pi process) --------------
++
++	function stopEverythingSync(): void {
++		for (const managed of state.processes.values()) {
++			if (managed.record.state !== "running" || managed.pgid === null) continue;
++			managed.killRequested = true;
++			signalGroup(managed.pgid, "SIGTERM");
++			signalGroup(managed.pgid, "SIGKILL");
++		}
++	}
++
++	async function stopEverythingGracefully(): Promise<void> {
++		const running = [...state.processes.values()].filter((m) => m.record.state === "running" && m.pgid !== null);
++		for (const managed of running) {
++			managed.killRequested = true;
++			signalGroup(managed.pgid!, "SIGTERM");
++		}
++		const deadline = Date.now() + EXIT_GRACE_MS;
++		while (Date.now() < deadline && running.some((m) => groupAlive(m.pgid!))) await sleep(25);
++		for (const managed of running) if (groupAlive(managed.pgid!)) signalGroup(managed.pgid!, "SIGKILL");
++		while (running.some((m) => groupAlive(m.pgid!))) await sleep(10);
++	}
++
++	if (!state.hooksInstalled) {
++		state.hooksInstalled = true;
++		process.once("exit", stopEverythingSync);
++		for (const signal of ["SIGTERM", "SIGINT"] as const) {
++			process.on(signal, () => {
++				if (state.shuttingDown) return;
++				state.shuttingDown = true;
++				void stopEverythingGracefully().finally(() => {
++					stopEverythingSync();
++					process.removeAllListeners(signal);
++					try {
++						process.kill(process.pid, signal);
++					} catch {
++						process.exit(signal === "SIGINT" ? 130 : 143);
++					}
++					setTimeout(() => process.exit(signal === "SIGINT" ? 130 : 143), 200).unref();
++				});
++			});
++		}
++	}
++
++	// ----- session binding --------------------------------------------------
++
++	/**
++	 * Bind this extension instance to the session behind `ctx`. Called from
++	 * session_start and from every tool call and turn event, so the binding is
++	 * correct even when the host did not emit session_start (SDK embeddings).
++	 */
++	function bind(ctx: ExtensionContext): void {
++		const dir = ctx.sessionManager.getSessionDir();
++		const id = ctx.sessionManager.getSessionId();
++		const changed = dir !== sessionDir || id !== sessionId;
++		sessionDir = dir;
++		sessionId = id;
++		cwdDefault = ctx.cwd;
++		state.active = { api: pi, ctx, sessionId };
++		if (changed) importFinishedRecords();
++	}
++
++	pi.on("session_start", async (_event, ctx) => {
++		bind(ctx);
++		if (state.order.length > 0 && ctx.isIdle()) flush(true);
++	});
++
++	pi.on("session_shutdown", async () => {
++		if (state.active?.api === pi) state.active = null;
++	});
++
++	pi.on("turn_end", async (event, ctx) => {
++		bind(ctx);
++		if (event.toolResults.length > 0) flush(false);
++	});
++
++	pi.on("agent_settled", async (_event, ctx) => {
++		bind(ctx);
++		flush(true);
++	});
++
++	// ----- tools ------------------------------------------------------------
++
++	function lookup(id: string): Managed {
++		const managed = state.processes.get(id);
++		if (!managed) throw new Error(`unknown background process id: ${id}`);
++		return managed;
++	}
++
++	pi.registerTool({
++		name: "bg_run",
++		label: "Background run",
++		description:
++			"Start a long-running command in the background in its own process group and return immediately with its process record. Optional wake.ready / wake.error regular expressions wake the agent when a matching output line appears; process exit always wakes the agent unless silenced with bg_watch.",
++		promptSnippet:
++			"Start a dev server, watcher, or build in the background and get woken when it is ready, errors, or exits",
++		promptGuidelines: [
++			"Use bg_run for commands that keep running (dev servers, watchers, long builds); use bash for commands that finish quickly.",
++			"After bg_run, keep working; do not poll. A background-process message arrives when the process is ready, prints an error, or exits.",
++		],
++		parameters: Type.Object({
++			command: Type.String({ description: "Shell command to run" }),
++			cwd: Type.Optional(Type.String({ description: "Working directory (defaults to the session cwd)" })),
++			name: Type.Optional(Type.String({ description: "Human-readable name" })),
++			wake: Type.Optional(
++				Type.Object({
++					ready: Type.Optional(Type.String({ description: "Regex; first matching line wakes the agent once" })),
++					error: Type.Optional(
++						Type.String({
++							description: "Regex; a matching line wakes the agent at most once per delivery window",
++						}),
++					),
++				}),
++			),
++			cleanup: Type.Optional(
++				Type.Object({
++					command: Type.String({ description: "Command to run after the process group is stopped by bg_kill" }),
++					timeoutSec: Type.Optional(Type.Number({ description: "Cleanup timeout in seconds (default 30)" })),
++				}),
++			),
++		}),
++		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
++			bind(ctx);
++			return result(start(params));
++		},
++	});
++
++	pi.registerTool({
++		name: "bg_logs",
++		label: "Background logs",
++		description:
++			"Read a page of a background process's combined stdout/stderr. Returns { id, offset, lines, total }. A page never exceeds 64 KB; without limit it returns the newest lines that fit.",
++		parameters: Type.Object({
++			id: Type.String(),
++			offset: Type.Optional(Type.Number({ description: "First line index (0-based)" })),
++			limit: Type.Optional(Type.Number({ description: "Maximum number of lines" })),
++		}),
++		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
++			bind(ctx);
++			return result(readPage(lookup(params.id), params.offset, params.limit));
++		},
++	});
++
++	pi.registerTool({
++		name: "bg_list",
++		label: "Background list",
++		description:
++			"List every background process visible to this session, running and finished. Returns { processes }.",
++		parameters: Type.Object({}),
++		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
++			bind(ctx);
++			return result({ processes: [...state.processes.values()].map((m) => ({ ...m.record })) });
++		},
++	});
++
++	pi.registerTool({
++		name: "bg_kill",
++		label: "Background kill",
++		description:
++			"Stop a background process group: SIGTERM, then SIGKILL after timeoutSec (default 5). Runs the process's cleanup command afterwards when one was given. Returns the final record plus cleanup: { ran, exitCode, failed } | null.",
++		parameters: Type.Object({
++			id: Type.String(),
++			timeoutSec: Type.Optional(
++				Type.Number({ description: "Seconds to wait after SIGTERM before SIGKILL (default 5)" }),
++			),
++		}),
++		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
++			bind(ctx);
++			const managed = lookup(params.id);
++			if (managed.record.state === "running") {
++				await kill(managed, params.timeoutSec ?? DEFAULT_KILL_TIMEOUT_SEC);
++			}
++			const cleanup = managed.cleanup ? runCleanup(managed) : null;
++			managed.cleanup = null;
++			persist(managed);
++			return result({ ...managed.record, cleanup });
++		},
++	});
++
++	pi.registerTool({
++		name: "bg_watch",
++		label: "Background watch",
++		description:
++			"Change the wake rules of a running background process. ready/error accept a regex or null to remove the pattern; exit: false silences the exit wake.",
++		parameters: Type.Object({
++			id: Type.String(),
++			ready: Type.Optional(Type.Union([Type.String(), Type.Null()])),
++			error: Type.Optional(Type.Union([Type.String(), Type.Null()])),
++			exit: Type.Optional(Type.Boolean()),
++		}),
++		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
++			bind(ctx);
++			const managed = lookup(params.id);
++			if (params.ready !== undefined) managed.rules.ready = compileRule(params.ready);
++			if (params.error !== undefined) managed.rules.error = compileRule(params.error);
++			if (params.exit !== undefined) managed.rules.exit = params.exit;
++			if (!managed.rules.exit) managed.queued.delete("exit");
++			if (managed.rules.ready === null) managed.queued.delete("ready");
++			if (managed.rules.error === null) managed.queued.delete("error");
++			if (managed.queued.size === 0) state.order = state.order.filter((id) => id !== managed.record.id);
++			return result({ ...managed.record });
++		},
++	});
++}
+diff --git a/packages/coding-agent/test/background-processes-extension.test.ts b/packages/coding-agent/test/background-processes-extension.test.ts
+new file mode 100644
+index 0000000..7ba4724
+--- /dev/null
++++ b/packages/coding-agent/test/background-processes-extension.test.ts
+@@ -0,0 +1,121 @@
++import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
++import { afterEach, expect, it } from "vitest";
++import backgroundProcesses from "../examples/extensions/background-processes/index.ts";
++import type { AgentSession } from "../src/core/agent-session.ts";
++import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
++import { createAgentSession } from "../src/core/sdk.ts";
++import { SessionManager } from "../src/core/session-manager.ts";
++import { SettingsManager } from "../src/core/settings-manager.ts";
++
++const roots: string[] = [];
++const sessions: AgentSession[] = [];
++
++afterEach(() => {
++	for (const session of sessions.splice(0)) session.dispose();
++	for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
++});
++
++function toolCall(name: string, args: Record<string, unknown>) {
++	return fauxAssistantMessage(fauxToolCall(name, args), { stopReason: "toolUse" });
++}
++
++async function waitFor(probe: () => boolean, timeoutMs = 5000): Promise<void> {
++	const deadline = Date.now() + timeoutMs;
++	while (!probe()) {
++		if (Date.now() > deadline) throw new Error("timed out");
++		await new Promise((resolve) => setTimeout(resolve, 25));
++	}
++}
++
++it("background-processes example: bg_run wakes on ready and on exit, and bg_logs pages output", async () => {
++	const root = mkdtempSync(join(tmpdir(), "bg-example-test-"));
++	roots.push(root);
++	const cwd = join(root, "project");
++	const agentDir = join(root, "agent");
++	const sessionDir = join(root, "sessions");
++	for (const dir of [cwd, agentDir, sessionDir]) mkdirSync(dir, { recursive: true });
++
++	const faux = fauxProvider({
++		provider: "bg-example",
++		api: "bg-example-api",
++		models: [{ id: "bg-example-model", contextWindow: 100_000, maxTokens: 2_048 }],
++	});
++	const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
++	const resourceLoader = new DefaultResourceLoader({
++		cwd,
++		agentDir,
++		settingsManager,
++		extensionFactories: [
++			{ name: "faux", factory: (pi) => pi.registerProvider(faux.provider) },
++			{ name: "background-processes", factory: backgroundProcesses },
++		],
++		noExtensions: true,
++		noSkills: true,
++		noPromptTemplates: true,
++		noThemes: true,
++		noContextFiles: true,
++	});
++	await resourceLoader.reload();
++	expect(resourceLoader.getExtensions().errors).toEqual([]);
++
++	const { session } = await createAgentSession({
++		cwd,
++		agentDir,
++		model: faux.getModel(),
++		thinkingLevel: "off",
++		noTools: "builtin",
++		resourceLoader,
++		sessionManager: SessionManager.create(cwd, sessionDir),
++		settingsManager,
++	});
++	sessions.push(session);
++	await session.bindExtensions({});
++
++	const results: Array<{ toolName: string; result: any; isError: boolean }> = [];
++	session.subscribe((event) => {
++		if (event.type === "tool_execution_end") results.push(event);
++	});
++
++	const script =
++		"console.log('starting'); setTimeout(() => { console.log('READY on 4321'); }, 100); setTimeout(() => process.exit(3), 400);";
++	const command = `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`;
++	faux.setResponses([
++		toolCall("bg_run", { command, name: "example-server", wake: { ready: "^READY" } }),
++		fauxAssistantMessage(fauxText("started")),
++		fauxAssistantMessage(fauxText("ack 1")),
++		fauxAssistantMessage(fauxText("ack 2")),
++		fauxAssistantMessage(fauxText("ack 3")),
++	]);
++	await session.prompt("start the server", { expandPromptTemplates: false, source: "interactive" });
++
++	const run = results.find((r) => r.toolName === "bg_run");
++	expect(run?.isError).toBe(false);
++	const record = run!.result.details;
++	expect(record.state).toBe("running");
++	expect(record.name).toBe("example-server");
++
++	const wakes = () =>
++		session.messages.filter((m) => m.role === "custom" && (m as any).customType === "background-process") as any[];
++	await waitFor(() => wakes().some((w) => w.details.reasons.includes("exit")), 8000);
++	await waitFor(() => !session.isStreaming, 8000);
++
++	const reasons = wakes().flatMap((w) => w.details.reasons as string[]);
++	expect(reasons).toContain("ready");
++	expect(reasons).toContain("exit");
++	const exitWake = wakes().find((w) => w.details.reasons.includes("exit"));
++	expect(exitWake.details.exitCode).toBe(3);
++	expect(wakes().filter((w) => w.details.reasons.includes("exit"))).toHaveLength(1);
++
++	faux.setResponses([
++		toolCall("bg_logs", { id: record.id, offset: 0, limit: 10 }),
++		fauxAssistantMessage(fauxText("logs")),
++	]);
++	await session.prompt("show logs", { expandPromptTemplates: false, source: "interactive" });
++	const logs = results.filter((r) => r.toolName === "bg_logs").at(-1)!.result.details;
++	expect(logs.lines[0]).toBe("starting");
++	expect(logs.lines).toContain("READY on 4321");
++	expect(logs.total).toBe(logs.lines.length);
++});

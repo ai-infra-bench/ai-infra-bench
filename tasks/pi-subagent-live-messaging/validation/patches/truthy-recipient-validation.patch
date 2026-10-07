@@ -1,0 +1,13 @@
+--- a/packages/coding-agent/examples/extensions/subagent/team-worker.ts
++++ b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
+@@ -33,9 +33,7 @@
+ 			if (!args.message || Buffer.byteLength(args.message, "utf8") > 1024 * 1024) {
+ 				throw new Error("message must be nonempty and no larger than 1 MiB");
+ 			}
+-			const hasTo = Object.hasOwn(args, "to");
+-			const hasBroadcast = Object.hasOwn(args, "broadcast");
+-			if (hasTo === hasBroadcast || (hasBroadcast && args.broadcast !== true) || (hasTo && !args.to)) {
++			if ((args.broadcast === true) === (typeof args.to === "string" && args.to.length > 0)) {
+ 				throw new Error("Specify exactly one recipient or broadcast: true");
+ 			}
+ 			const result = await locked(directory, () => {

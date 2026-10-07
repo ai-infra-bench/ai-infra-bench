@@ -1,0 +1,685 @@
+diff --git a/packages/coding-agent/examples/extensions/agent-trace/README.md b/packages/coding-agent/examples/extensions/agent-trace/README.md
+new file mode 100644
+index 0000000..971f963
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/agent-trace/README.md
+@@ -0,0 +1,31 @@
++# Agent Trace
++
++Exports the agent loop as an OpenTelemetry trace, written as OTLP/JSON lines
++so a collector (`otlpjsonfile` receiver) or any OTLP-aware viewer can load it.
++
++```bash
++pi -e examples/extensions/agent-trace/index.ts
++```
++
++## File
++
++`<sessionDir>/traces/<sessionId>.otlp.jsonl`, or `PI_AGENT_TRACE_FILE`. Every
++line is one `ExportTraceServiceRequest` holding one span; resource attributes
++carry `service.name`, `service.version`, `pi.session.id` and `process.pid`.
++Spans are appended in end order once their attributes are known (chat and
++tool spans wait for `turn_end`, when pi has persisted their session entries),
++never rewritten; `/reload` and later processes append to the same file with
++the same trace id (derived from the session id).
++
++## Spans
++
++| name | kind | parent | attributes |
++|---|---|---|---|
++| `pi.run` | INTERNAL | root | `pi.run.trigger` (`prompt` / `wakeup` / `continuation`), `pi.run.turn_count`, `pi.session.entry_id` |
++| `pi.turn` | INTERNAL | run | `pi.turn.index`, `pi.turn.stop_reason`, `pi.turn.tool_call_count` |
++| `chat <model>` | CLIENT | turn | `gen_ai.operation.name`, `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `pi.usage.cache_read_tokens`, `pi.usage.cache_write_tokens`, `gen_ai.response.finish_reasons`, `pi.session.entry_id` |
++| `execute_tool <name>` | INTERNAL | turn | `gen_ai.operation.name`, `gen_ai.tool.name`, `gen_ai.tool.call.id`, `pi.tool.is_error`, `pi.session.entry_id` |
++| `pi.compaction` | INTERNAL | root | `pi.compaction.reason`, `pi.compaction.will_retry`, `pi.compaction.tokens_before`, `pi.session.entry_id` |
++
++Status is ERROR (with a message) for failed tool results, error or aborted
++assistant messages and the turns that contain them, and failed compactions.
+diff --git a/packages/coding-agent/examples/extensions/agent-trace/index.ts b/packages/coding-agent/examples/extensions/agent-trace/index.ts
+new file mode 100644
+index 0000000..bd68057
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/agent-trace/index.ts
+@@ -0,0 +1,512 @@
++/**
++ * Agent Trace Extension
++ *
++ * Exports the agent loop as an OpenTelemetry trace: one span per run, turn,
++ * provider request (`chat <model>`), tool execution and compaction, written
++ * as OTLP/JSON lines to `<sessionDir>/traces/<sessionId>.otlp.jsonl` (or
++ * `PI_AGENT_TRACE_FILE`). Every line is a complete ExportTraceServiceRequest
++ * holding one span, so a collector or any OTLP-aware viewer can load the file.
++ *
++ * Every span is written twice so the file updates live: a start line (no end
++ * time, no status, attribute pi.span.phase = "start") at the event that starts
++ * it, and an end line as soon as its attributes are known. Readers that
++ * de-duplicate by spanId, last line wins, hold the current state.
++ * End lines are written in end-time order as soon as their attributes are known.
++ * pi persists a message after extensions have seen its `message_end`, so the
++ * chat span (which carries the assistant entry id) is written at the first
++ * `tool_execution_start` of its turn, or at `turn_end` when the turn calls no
++ * tool; tool spans and the turn are written at `turn_end`; the run at
++ * `agent_end`. A crash therefore loses only spans whose entries pi had not
++ * persisted. On `session_shutdown` every open span is closed with status
++ * ERROR "shutdown". A write failure never reaches the agent: it is reported
++ * once per process as an `agent-trace` custom message.
++ */
++
++import { createHash, randomBytes } from "node:crypto";
++import { appendFileSync, mkdirSync } from "node:fs";
++import { dirname, join } from "node:path";
++import { type ExtensionAPI, type ExtensionContext, type SessionEntry, VERSION } from "@earendil-works/pi-coding-agent";
++
++type ReadonlySessionManager = ExtensionContext["sessionManager"];
++type AgentMessage = Extract<SessionEntry, { type: "message" }>["message"];
++type AssistantMessage = Extract<AgentMessage, { role: "assistant" }>;
++
++export const SCOPE_NAME = "pi.agent-trace";
++/** Cross-process context propagation: `<traceId>-<spanId>` of the tool that spawned this pi process. */
++export const TRACE_PARENT_ENV = "PI_AGENT_TRACE_PARENT";
++export const SCOPE_VERSION = "1";
++const KIND_INTERNAL = 1;
++const KIND_CLIENT = 3;
++const STATUS_OK = 1;
++const STATUS_ERROR = 2;
++
++// ---------------------------------------------------------------------------
++// OTLP/JSON encoding
++// ---------------------------------------------------------------------------
++
++type AttributeValue = string | number | boolean | string[];
++
++interface Span {
++	traceId: string;
++	spanId: string;
++	parentSpanId?: string;
++	name: string;
++	kind: number;
++	startTimeUnixNano: string;
++	endTimeUnixNano?: string;
++	attributes: Map<string, AttributeValue>;
++	status: { code: number; message?: string };
++}
++
++function encodeValue(value: AttributeValue): Record<string, unknown> {
++	if (typeof value === "string") return { stringValue: value };
++	if (typeof value === "boolean") return { boolValue: value };
++	if (typeof value === "number") return { intValue: String(Math.trunc(value)) };
++	return { arrayValue: { values: value.map((item) => ({ stringValue: item })) } };
++}
++
++function encodeAttributes(attributes: Map<string, AttributeValue>): Array<{ key: string; value: unknown }> {
++	return [...attributes.entries()].map(([key, value]) => ({ key, value: encodeValue(value) }));
++}
++
++export function nanos(millis: number): string {
++	return `${Math.trunc(millis)}000000`;
++}
++
++/** The trace id of a session: 16 bytes derived from the session id, so every process of the session shares it. */
++export function traceIdFor(sessionId: string): string {
++	return createHash("sha256").update(`${SCOPE_NAME}:${sessionId}`).digest("hex").slice(0, 32);
++}
++
++function newSpanId(): string {
++	return randomBytes(8).toString("hex");
++}
++
++function traceFile(sessionManager: ReadonlySessionManager): string {
++	const override = process.env.PI_AGENT_TRACE_FILE;
++	if (override) return override;
++	return join(sessionManager.getSessionDir(), "traces", `${sessionManager.getSessionId()}.otlp.jsonl`);
++}
++
++// ---------------------------------------------------------------------------
++// Entry resolution: the branch after turn_end holds the turn's messages
++// ---------------------------------------------------------------------------
++
++function lastAssistantEntryIndex(branch: SessionEntry[]): number {
++	for (let i = branch.length - 1; i >= 0; i--) {
++		const entry = branch[i];
++		if (entry.type === "message" && entry.message.role === "assistant") return i;
++	}
++	return -1;
++}
++
++function toolResultEntryId(branch: SessionEntry[], from: number, toolCallId: string): string | undefined {
++	for (let i = from + 1; i < branch.length; i++) {
++		const entry = branch[i];
++		if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolCallId === toolCallId) {
++			return entry.id;
++		}
++	}
++	return undefined;
++}
++
++function runEntryId(branch: SessionEntry[], before: number, trigger: string): string | undefined {
++	for (let i = before - 1; i >= 0; i--) {
++		const entry = branch[i];
++		if (trigger === "prompt") {
++			if (entry.type === "message" && entry.message.role === "user") return entry.id;
++		} else if (entry.type === "custom_message") {
++			return entry.id;
++		}
++	}
++	return undefined;
++}
++
++// ---------------------------------------------------------------------------
++// Extension
++// ---------------------------------------------------------------------------
++
++export default function (pi: ExtensionAPI) {
++	let traceId: string | undefined;
++	let file: string | undefined;
++	let resourceAttributes: Map<string, AttributeValue> | undefined;
++	/** The span every root span of this session hangs under when a parent pi spawned this process. */
++	let rootParentSpanId: string | undefined;
++	/** The value of the propagation variable this process started with (restored whenever no tool runs). */
++	const inheritedTraceParent = process.env[TRACE_PARENT_ENV];
++
++	/** Bind to the session lazily: a reloaded runtime may see its first event without a session_start. */
++	function bind(sessionManager: ReadonlySessionManager) {
++		if (traceId && resourceAttributes?.get("pi.session.id") === sessionManager.getSessionId()) return;
++		const parent = inheritedTraceParent?.match(/^([0-9a-f]{32})-([0-9a-f]{16})$/);
++		traceId = parent ? parent[1] : traceIdFor(sessionManager.getSessionId());
++		rootParentSpanId = parent ? parent[2] : undefined;
++		file = traceFile(sessionManager);
++		resourceAttributes = new Map<string, AttributeValue>([
++			["service.name", "pi"],
++			["service.version", VERSION],
++			["pi.session.id", sessionManager.getSessionId()],
++			["process.pid", process.pid],
++		]);
++	}
++
++	function start(
++		name: string,
++		kind: number,
++		parent: Span | undefined,
++		startMillis: number,
++		known: Array<[string, AttributeValue]> = [],
++	): Span {
++		if (!traceId) throw new Error("agent-trace: span started before the session was bound");
++		const span: Span = {
++			traceId,
++			spanId: newSpanId(),
++			parentSpanId: parent?.spanId ?? rootParentSpanId,
++			name,
++			kind,
++			startTimeUnixNano: nanos(startMillis),
++			attributes: new Map(known),
++			status: { code: STATUS_OK },
++		};
++		write(span, "start");
++		return span;
++	}
++
++	function end(span: Span, endMillis = Date.now()): Span {
++		if (!span.endTimeUnixNano) span.endTimeUnixNano = nanos(endMillis);
++		return span;
++	}
++
++	function fail(span: Span, message: string) {
++		span.status = { code: STATUS_ERROR, message };
++	}
++
++	let writeFailureReported = false;
++
++	function write(span: Span, phase: "start" | "end" = "end") {
++		if (!file || !resourceAttributes) return;
++		try {
++			writeLine(span, phase);
++		} catch (error) {
++			if (writeFailureReported) return;
++			writeFailureReported = true;
++			const reason = error instanceof Error ? error.message : String(error);
++			pi.sendMessage(
++				{ customType: "agent-trace", content: `agent-trace: cannot write ${file}: ${reason}`, display: true },
++				{ triggerTurn: false },
++			);
++		}
++	}
++
++	function writeLine(span: Span, phase: "start" | "end") {
++		if (!file || !resourceAttributes) return;
++		const attributes = new Map(span.attributes);
++		if (phase === "start") attributes.set("pi.span.phase", "start");
++		const encoded: Record<string, unknown> = {
++			traceId: span.traceId,
++			spanId: span.spanId,
++			name: span.name,
++			kind: span.kind,
++			startTimeUnixNano: span.startTimeUnixNano,
++			attributes: encodeAttributes(attributes),
++		};
++		if (phase === "end") {
++			encoded.endTimeUnixNano = span.endTimeUnixNano ?? span.startTimeUnixNano;
++			encoded.status = span.status;
++		}
++		if (span.parentSpanId) encoded.parentSpanId = span.parentSpanId;
++		const line = {
++			resourceSpans: [
++				{
++					resource: { attributes: encodeAttributes(resourceAttributes) },
++					scopeSpans: [{ scope: { name: SCOPE_NAME, version: SCOPE_VERSION }, spans: [encoded] }],
++				},
++			],
++		};
++		mkdirSync(dirname(file), { recursive: true });
++		appendFileSync(file, `${JSON.stringify(line)}\n`);
++	}
++
++	// ----- run state ---------------------------------------------------------
++
++	let run: Span | undefined;
++	let runTrigger = "wakeup";
++	let runEntryResolved = false;
++	let turnCount = 0;
++	/** The run's first user/custom message is its trigger; later ones are steering or follow-up messages. */
++	let runMessagesSeen = 0;
++	let steerThisTurn = 0;
++	let steerEntryIds: string[] = [];
++	let previousAssistantIndex = -1;
++	let sawBeforeAgentStart = false;
++	let previousRunSettled = true;
++
++	let turn: Span | undefined;
++	let chat: Span | undefined;
++	let chatMessage: AssistantMessage | undefined;
++	let turnChats: Span[] = [];
++	const tools = new Map<string, Span>();
++	let turnTools: Array<{ span: Span; toolCallId: string }> = [];
++
++	let compaction: Span | undefined;
++	/** Set by an overflow compaction that pi retries: the next run is that retry and has no message of its own. */
++	let retryAfterCompaction: string | undefined;
++	/** Running tool spans in start order, for the propagation variable. */
++	const runningTools: string[] = [];
++
++	function publishTraceParent() {
++		const current = runningTools[runningTools.length - 1];
++		if (current && traceId) process.env[TRACE_PARENT_ENV] = `${traceId}-${current}`;
++		else if (inheritedTraceParent !== undefined) process.env[TRACE_PARENT_ENV] = inheritedTraceParent;
++		else delete process.env[TRACE_PARENT_ENV];
++	}
++
++	pi.on("session_start", async (_event, ctx) => {
++		bind(ctx.sessionManager);
++	});
++
++	pi.on("before_agent_start", async () => {
++		sawBeforeAgentStart = true;
++	});
++
++	pi.on("agent_start", async (_event, ctx) => {
++		bind(ctx.sessionManager);
++		const now = Date.now();
++		runTrigger = sawBeforeAgentStart ? "prompt" : previousRunSettled ? "wakeup" : "continuation";
++		sawBeforeAgentStart = false;
++		previousRunSettled = false;
++		const known: Array<[string, AttributeValue]> = [["pi.run.trigger", runTrigger]];
++		if (retryAfterCompaction) known.push(["pi.run.after_compaction", retryAfterCompaction]);
++		run = start("pi.run", KIND_INTERNAL, undefined, now, known);
++		// An overflow retry resumes the existing context: no message of its own, no entry id.
++		runEntryResolved = retryAfterCompaction !== undefined;
++		retryAfterCompaction = undefined;
++		turnCount = 0;
++		runMessagesSeen = 0;
++		steerThisTurn = 0;
++		steerEntryIds = [];
++		previousAssistantIndex = -1;
++	});
++
++	pi.on("agent_settled", async () => {
++		previousRunSettled = true;
++	});
++
++	pi.on("turn_start", async (event) => {
++		turn = start("pi.turn", KIND_INTERNAL, run, event.timestamp, [["pi.turn.index", event.turnIndex]]);
++		turnChats = [];
++		turnTools = [];
++		tools.clear();
++	});
++
++	pi.on("message_start", async (event) => {
++		if (event.message.role === "user" || event.message.role === "custom") {
++			// Messages the agent loop consumes: the first one of a run is its trigger, later ones steer it.
++			if (run) {
++				runMessagesSeen += 1;
++				if (runMessagesSeen > 1) steerThisTurn += 1;
++			}
++			return;
++		}
++		if (event.message.role !== "assistant") return;
++		chat = start(`chat ${event.message.model}`, KIND_CLIENT, turn, Date.now(), [
++			["gen_ai.operation.name", "chat"],
++			["gen_ai.system", event.message.provider],
++			["gen_ai.request.model", event.message.model],
++		]);
++		chatMessage = event.message;
++	});
++
++	/** Write ended chat spans once pi has persisted their assistant entry (the last assistant entry on the branch). */
++	function flushChats(ctx: ExtensionContext) {
++		if (turnChats.length === 0) return;
++		const branch = ctx.sessionManager.getBranch();
++		const assistantIndex = lastAssistantEntryIndex(branch);
++		for (const span of turnChats) {
++			if (assistantIndex >= 0) span.attributes.set("pi.session.entry_id", branch[assistantIndex].id);
++			write(span);
++		}
++		turnChats = [];
++	}
++
++	pi.on("message_end", async (event) => {
++		if (event.message.role !== "assistant" || !chat) return;
++		const message = event.message;
++		const usage = message.usage;
++		chat.name = `chat ${message.model}`;
++		chat.attributes.set("gen_ai.operation.name", "chat");
++		chat.attributes.set("gen_ai.system", message.provider);
++		chat.attributes.set("gen_ai.request.model", message.model);
++		chat.attributes.set("gen_ai.usage.input_tokens", usage.input);
++		chat.attributes.set("gen_ai.usage.output_tokens", usage.output);
++		chat.attributes.set("pi.usage.cache_read_tokens", usage.cacheRead);
++		chat.attributes.set("pi.usage.cache_write_tokens", usage.cacheWrite);
++		chat.attributes.set("gen_ai.response.finish_reasons", [message.stopReason]);
++		if (message.stopReason === "error") fail(chat, message.errorMessage ?? "error");
++		else if (message.stopReason === "aborted") fail(chat, message.errorMessage ?? "aborted");
++		end(chat);
++		turnChats.push(chat);
++		chatMessage = message;
++		chat = undefined;
++	});
++
++	pi.on("tool_execution_start", async (event, ctx) => {
++		flushChats(ctx);
++		const span = start(`execute_tool ${event.toolName}`, KIND_INTERNAL, turn, Date.now(), [
++			["gen_ai.operation.name", "execute_tool"],
++			["gen_ai.tool.name", event.toolName],
++			["gen_ai.tool.call.id", event.toolCallId],
++		]);
++		tools.clear();
++		tools.set(event.toolCallId, span);
++		runningTools.push(span.spanId);
++		publishTraceParent();
++	});
++
++	pi.on("tool_execution_end", async (event) => {
++		const span = tools.get(event.toolCallId);
++		if (!span) return;
++		tools.delete(event.toolCallId);
++		const at = runningTools.indexOf(span.spanId);
++		if (at >= 0) runningTools.splice(at, 1);
++		publishTraceParent();
++		span.attributes.set("pi.tool.is_error", event.isError);
++		if (event.isError) fail(span, resultText(event.result));
++		end(span);
++		turnTools.push({ span, toolCallId: event.toolCallId });
++	});
++
++	pi.on("turn_end", async (event, ctx) => {
++		if (!turn) return;
++		const branch = ctx.sessionManager.getBranch();
++		const assistantIndex = lastAssistantEntryIndex(branch);
++		const assistantEntry = assistantIndex >= 0 ? branch[assistantIndex] : undefined;
++		const message = event.message.role === "assistant" ? event.message : chatMessage;
++		const chatFailed = turnChats.some((span) => span.status.code === STATUS_ERROR);
++
++		flushChats(ctx);
++		for (const { span, toolCallId } of turnTools) {
++			const entryId = toolResultEntryId(branch, assistantIndex, toolCallId);
++			if (entryId) span.attributes.set("pi.session.entry_id", entryId);
++			write(span);
++		}
++
++		if (steerThisTurn > 0 && assistantIndex >= 0) {
++			// The steering messages of this turn are the last ones between the previous assistant entry and this one
++			// (context-only custom messages pi flushed at the previous turn_end come before them).
++			const candidates: string[] = [];
++			for (let i = previousAssistantIndex + 1; i < assistantIndex; i++) {
++				const entry = branch[i];
++				if ((entry.type === "message" && entry.message.role === "user") || entry.type === "custom_message") {
++					candidates.push(entry.id);
++				}
++			}
++			steerEntryIds.push(...candidates.slice(-steerThisTurn));
++		}
++		steerThisTurn = 0;
++		previousAssistantIndex = assistantIndex;
++
++		turn.attributes.set("pi.turn.stop_reason", message?.stopReason ?? "unknown");
++		turn.attributes.set("pi.turn.tool_call_count", turnTools.length);
++		if (chatFailed || message?.stopReason === "error" || message?.stopReason === "aborted") {
++			fail(turn, message?.errorMessage ?? (message?.stopReason === "aborted" ? "aborted" : "error"));
++		}
++		write(end(turn));
++		turnCount += 1;
++
++		if (run && !runEntryResolved && assistantIndex >= 0) {
++			const entryId = runEntryId(branch, assistantIndex, runTrigger);
++			if (entryId) run.attributes.set("pi.session.entry_id", entryId);
++			runEntryResolved = true;
++		}
++		turn = undefined;
++		turnChats = [];
++		turnTools = [];
++	});
++
++	pi.on("agent_end", async () => {
++		if (!run) return;
++		run.attributes.set("pi.run.turn_count", turnCount);
++		run.attributes.set("pi.run.steer_count", steerEntryIds.length);
++		run.attributes.set("pi.run.steer_entry_ids", [...steerEntryIds]);
++		write(end(run));
++		run = undefined;
++	});
++
++	pi.on("session_before_compact", async (event, ctx) => {
++		bind(ctx.sessionManager);
++		compaction = start("pi.compaction", KIND_INTERNAL, undefined, Date.now(), [
++			["pi.compaction.reason", event.reason],
++			["pi.compaction.will_retry", event.willRetry],
++		]);
++	});
++
++	pi.on("session_compact", async (event) => {
++		if (!compaction) return;
++		compaction.attributes.set("pi.compaction.tokens_before", event.compactionEntry.tokensBefore);
++		compaction.attributes.set("pi.compaction.first_kept_entry_id", event.compactionEntry.firstKeptEntryId);
++		const usage = event.compactionEntry.usage;
++		if (usage) {
++			compaction.attributes.set("gen_ai.usage.input_tokens", usage.input);
++			compaction.attributes.set("gen_ai.usage.output_tokens", usage.output);
++		}
++		compaction.attributes.set("pi.session.entry_id", event.compactionEntry.id);
++		write(end(compaction));
++		compaction = undefined;
++		if (event.willRetry) retryAfterCompaction = event.compactionEntry.id;
++	});
++
++	pi.on("session_compact_failed", async (event) => {
++		if (!compaction) return;
++		fail(compaction, event.errorMessage ?? "aborted");
++		write(end(compaction));
++		compaction = undefined;
++	});
++
++	// pi's quit path can shut the runtime down while a run is still streaming:
++	// close whatever is open so the trace ends with an explicit reason.
++	pi.on("session_shutdown", async (_event, ctx) => {
++		const now = Date.now();
++		if (run && !runEntryResolved) {
++			const branch = ctx.sessionManager.getBranch();
++			const entryId = runEntryId(branch, branch.length, runTrigger);
++			if (entryId) run.attributes.set("pi.session.entry_id", entryId);
++			runEntryResolved = true;
++		}
++		const closing: Span[] = [];
++		if (chat) closing.push(chat);
++		closing.push(...turnChats);
++		for (const span of tools.values()) closing.push(span);
++		closing.push(...turnTools.map((t) => t.span));
++		if (turn) closing.push(turn);
++		if (compaction) closing.push(compaction);
++		if (run) {
++			run.attributes.set("pi.run.turn_count", turnCount + (turn ? 1 : 0));
++			run.attributes.set("pi.run.steer_count", steerEntryIds.length);
++			run.attributes.set("pi.run.steer_entry_ids", [...steerEntryIds]);
++			closing.push(run);
++		}
++		for (const span of closing) {
++			fail(span, "shutdown");
++			write(end(span, now));
++		}
++		chat = undefined;
++		turnChats = [];
++		tools.clear();
++		runningTools.length = 0;
++		publishTraceParent();
++		turnTools = [];
++		turn = undefined;
++		compaction = undefined;
++		run = undefined;
++	});
++}
++
++function resultText(result: unknown): string {
++	const content = (result as { content?: unknown })?.content;
++	if (typeof content === "string") return content;
++	if (!Array.isArray(content)) return "error";
++	return content
++		.flatMap((block) => (block && typeof block === "object" && "text" in block ? [String(block.text)] : []))
++		.join("\n");
++}
+diff --git a/packages/coding-agent/test/agent-trace-extension.test.ts b/packages/coding-agent/test/agent-trace-extension.test.ts
+new file mode 100644
+index 0000000..465f6e0
+--- /dev/null
++++ b/packages/coding-agent/test/agent-trace-extension.test.ts
+@@ -0,0 +1,124 @@
++import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
++import { Type } from "typebox";
++import { afterEach, expect, it } from "vitest";
++import { nanos, traceIdFor } from "../examples/extensions/agent-trace/index.ts";
++import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
++import { createAgentSession } from "../src/core/sdk.ts";
++import { SessionManager } from "../src/core/session-manager.ts";
++import { SettingsManager } from "../src/core/settings-manager.ts";
++
++const roots: string[] = [];
++afterEach(() => {
++	for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
++});
++
++it("agent-trace example: encodes ids and times", () => {
++	expect(traceIdFor("abc")).toMatch(/^[0-9a-f]{32}$/);
++	expect(traceIdFor("abc")).toBe(traceIdFor("abc"));
++	expect(nanos(1_700_000_000_123)).toBe("1700000000123000000");
++});
++
++it("agent-trace example: writes run, turn, chat and tool spans as OTLP/JSON lines", async () => {
++	const root = mkdtempSync(join(tmpdir(), "pi-agent-trace-"));
++	roots.push(root);
++	const cwd = join(root, "project");
++	const sessionDir = join(root, "sessions");
++	const faux = fauxProvider({
++		provider: "trace-faux",
++		api: "trace-faux-api",
++		models: [{ id: "trace-model", contextWindow: 200_000, maxTokens: 8_192 }],
++	});
++	const settingsManager = SettingsManager.inMemory({ retry: { enabled: false } });
++	const loader = new DefaultResourceLoader({
++		cwd,
++		agentDir: join(root, "agent"),
++		settingsManager,
++		additionalExtensionPaths: [join(import.meta.dirname, "../examples/extensions/agent-trace/index.ts")],
++		extensionFactories: [
++			{
++				name: "trace-test",
++				factory: (pi) => {
++					pi.registerProvider(faux.provider);
++					pi.registerTool({
++						name: "echo",
++						label: "Echo",
++						description: "echo",
++						parameters: Type.Object({ text: Type.String() }),
++						async execute(_id, params: { text: string }) {
++							return { content: [{ type: "text", text: params.text }], details: {} };
++						},
++					});
++				},
++			},
++		],
++		noExtensions: true,
++		noSkills: true,
++		noPromptTemplates: true,
++		noThemes: true,
++		noContextFiles: true,
++		systemPrompt: "test",
++	});
++	await loader.reload();
++	const sessionManager = SessionManager.create(cwd, sessionDir);
++	const { session } = await createAgentSession({
++		cwd,
++		agentDir: join(root, "agent"),
++		model: faux.getModel(),
++		thinkingLevel: "off",
++		noTools: "builtin",
++		resourceLoader: loader,
++		sessionManager,
++		settingsManager,
++	});
++	await session.bindExtensions({});
++	faux.setResponses([
++		fauxAssistantMessage(fauxToolCall("echo", { text: "hi" }), { stopReason: "toolUse" }),
++		fauxAssistantMessage(fauxText("done")),
++	]);
++	await session.prompt("go", { expandPromptTemplates: false, source: "interactive" });
++	session.dispose();
++
++	const file = join(sessionDir, "traces", `${sessionManager.getSessionId()}.otlp.jsonl`);
++	expect(existsSync(file)).toBe(true);
++	const lines = readFileSync(file, "utf8")
++		.trimEnd()
++		.split("\n")
++		.map((line) => JSON.parse(line));
++	const all = lines.map((line) => line.resourceSpans[0].scopeSpans[0].spans[0]);
++	// Start lines (no end time) make the file live; the end lines describe the finished spans.
++	const starts = all.filter((span) => !("endTimeUnixNano" in span));
++	const spans = all.filter((span) => "endTimeUnixNano" in span);
++	expect(starts.map((span) => span.name)).toEqual([
++		"pi.run",
++		"pi.turn",
++		"chat trace-model",
++		"execute_tool echo",
++		"pi.turn",
++		"chat trace-model",
++	]);
++	expect(new Set(starts.map((span) => span.spanId))).toEqual(new Set(spans.map((span) => span.spanId)));
++	expect(spans.map((span) => span.name)).toEqual([
++		"chat trace-model",
++		"execute_tool echo",
++		"pi.turn",
++		"chat trace-model",
++		"pi.turn",
++		"pi.run",
++	]);
++	const run = spans[5];
++	expect(run.parentSpanId).toBeUndefined();
++	expect(run.traceId).toBe(traceIdFor(sessionManager.getSessionId()));
++	expect(spans[2].parentSpanId).toBe(run.spanId);
++	expect(spans[0].parentSpanId).toBe(spans[2].spanId);
++	const attrs = Object.fromEntries(run.attributes.map((a: any) => [a.key, a.value]));
++	expect(attrs["pi.run.trigger"]).toEqual({ stringValue: "prompt" });
++	expect(attrs["pi.run.turn_count"]).toEqual({ intValue: "2" });
++	const entryIds = new Set(sessionManager.getBranch().map((entry) => entry.id));
++	for (const span of spans) {
++		const id = span.attributes.find((a: any) => a.key === "pi.session.entry_id");
++		if (span.name !== "pi.turn") expect(entryIds.has(id?.value.stringValue)).toBe(true);
++	}
++});
