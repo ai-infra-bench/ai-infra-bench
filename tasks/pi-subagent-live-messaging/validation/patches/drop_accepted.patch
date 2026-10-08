@@ -1,8 +1,7 @@
 diff --git a/packages/coding-agent/examples/extensions/subagent/README.md b/packages/coding-agent/examples/extensions/subagent/README.md
-index da74f3266..95d29c99f 100644
 --- a/packages/coding-agent/examples/extensions/subagent/README.md
 +++ b/packages/coding-agent/examples/extensions/subagent/README.md
-@@ -175,3 +175,17 @@ Project agents override user agents with the same name when `agentScope: "both"`
+@@ -175,3 +175,17 @@
  - Parallel model-visible output is capped at 50 KB per task; full results remain in tool details
  - Agents discovered fresh on each invocation (allows editing mid-session)
  - Parallel mode limited to 8 tasks, 4 concurrent
@@ -21,10 +20,9 @@ index da74f3266..95d29c99f 100644
 +messages. Cancellation cleans up the team's temporary mailboxes after children stop.
 +This implementation uses local temporary storage and does not recover from host crashes.
 diff --git a/packages/coding-agent/examples/extensions/subagent/index.ts b/packages/coding-agent/examples/extensions/subagent/index.ts
-index 71b1a33dc..d301f7b01 100644
 --- a/packages/coding-agent/examples/extensions/subagent/index.ts
 +++ b/packages/coding-agent/examples/extensions/subagent/index.ts
-@@ -29,6 +29,7 @@ import {
+@@ -29,6 +29,7 @@
  import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
  import { Type } from "typebox";
  import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
@@ -32,7 +30,7 @@ index 71b1a33dc..d301f7b01 100644
  
  const MAX_PARALLEL_TASKS = 8;
  const MAX_CONCURRENCY = 4;
-@@ -232,7 +233,9 @@ async function mapWithConcurrencyLimit<TIn, TOut>(
+@@ -232,7 +233,9 @@
  			results[current] = await fn(items[current], current);
  		}
  	});
@@ -43,7 +41,7 @@ index 71b1a33dc..d301f7b01 100644
  	return results;
  }
  
-@@ -280,6 +283,7 @@ async function runSingleAgent(
+@@ -280,6 +283,7 @@
  	signal: AbortSignal | undefined,
  	onUpdate: OnUpdateCallback | undefined,
  	makeDetails: (results: SingleResult[]) => SubagentDetails,
@@ -51,7 +49,7 @@ index 71b1a33dc..d301f7b01 100644
  ): Promise<SingleResult> {
  	const agent = agents.find((a) => a.name === agentName);
  
-@@ -298,6 +302,7 @@ async function runSingleAgent(
+@@ -298,6 +302,7 @@
  	}
  
  	const args: string[] = ["--mode", "json", "-p", "--no-session"];
@@ -59,7 +57,7 @@ index 71b1a33dc..d301f7b01 100644
  	const inheritsDispatchConfig = !agent.model;
  	const model = agent.model ?? dispatchDefaults.model;
  	if (model) args.push("--model", model);
-@@ -347,6 +352,7 @@ async function runSingleAgent(
+@@ -347,6 +352,7 @@
  				cwd: cwd ?? defaultCwd,
  				shell: false,
  				stdio: ["ignore", "pipe", "pipe"],
@@ -67,7 +65,7 @@ index 71b1a33dc..d301f7b01 100644
  			});
  			let buffer = "";
  
-@@ -412,7 +418,7 @@ async function runSingleAgent(
+@@ -412,7 +418,7 @@
  					wasAborted = true;
  					proc.kill("SIGTERM");
  					setTimeout(() => {
@@ -76,7 +74,7 @@ index 71b1a33dc..d301f7b01 100644
  					}, 5000);
  				};
  				if (signal.aborted) killProc();
-@@ -440,6 +446,7 @@ async function runSingleAgent(
+@@ -440,6 +446,7 @@
  }
  
  const TaskItem = Type.Object({
@@ -84,7 +82,7 @@ index 71b1a33dc..d301f7b01 100644
  	agent: Type.String({ description: "Name of the agent to invoke" }),
  	task: Type.String({ description: "Task to delegate to the agent" }),
  	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
-@@ -457,6 +464,7 @@ const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {
+@@ -457,6 +464,7 @@
  });
  
  const SubagentParams = Type.Object({
@@ -92,7 +90,7 @@ index 71b1a33dc..d301f7b01 100644
  	agent: Type.Optional(Type.String({ description: "Name of the agent to invoke (for single mode)" })),
  	task: Type.Optional(Type.String({ description: "Task to delegate (for single mode)" })),
  	tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
-@@ -494,6 +502,7 @@ export default function (pi: ExtensionAPI) {
+@@ -494,6 +502,7 @@
  			const hasTasks = (params.tasks?.length ?? 0) > 0;
  			const hasSingle = Boolean(params.agent && params.task);
  			const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle);
@@ -100,7 +98,7 @@ index 71b1a33dc..d301f7b01 100644
  
  			const makeDetails =
  				(mode: "single" | "parallel" | "chain") =>
-@@ -642,29 +651,41 @@ export default function (pi: ExtensionAPI) {
+@@ -642,29 +651,41 @@
  					}
  				};
  
@@ -167,10 +165,9 @@ index 71b1a33dc..d301f7b01 100644
  				const summaries = results.map((r) => {
 diff --git a/packages/coding-agent/examples/extensions/subagent/team-worker.ts b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
 new file mode 100644
-index 000000000..3a0296746
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,95 @@
 +import { randomUUID } from "node:crypto";
 +import * as fs from "node:fs";
 +import * as path from "node:path";
@@ -196,7 +193,7 @@ index 000000000..3a0296746
 +	pi.registerTool({
 +		name: "team_send",
 +		label: "Share a finding",
-+		description: "Send a finding to an instance ID, or broadcast it to every teammate; teammates that are not running are reported as failed.",
++		description: "Send a finding to an instance ID or broadcast to current live teammates.",
 +		parameters: Type.Object({
 +			to: Type.Optional(Type.String()),
 +			broadcast: Type.Optional(Type.Boolean()),
@@ -206,15 +203,15 @@ index 000000000..3a0296746
 +			if (!args.message || Buffer.byteLength(args.message, "utf8") > 1024 * 1024) {
 +				throw new Error("message must be nonempty and no larger than 1 MiB");
 +			}
-+			const hasTo = Object.hasOwn(args, "to");
-+			const hasBroadcast = Object.hasOwn(args, "broadcast");
-+			if (hasTo === hasBroadcast || (hasBroadcast && args.broadcast !== true) || (hasTo && !args.to)) {
++			if (args.broadcast === true
++				? Object.prototype.hasOwnProperty.call(args, "to")
++				: typeof args.to !== "string" || args.to.length === 0) {
 +				throw new Error("Specify exactly one recipient or broadcast: true");
 +			}
 +			const result = await locked(directory, () => {
 +				const members = readMembers(directory);
 +				const targets = args.broadcast
-+					? members.filter((member) => member.id !== self).map((member) => member.id)
++					? members.filter((member) => member.state === "running" && member.id !== self).map((member) => member.id)
 +					: [args.to!];
 +				const accepted: string[] = [];
 +				const failed: { id: string; reason: string }[] = [];
@@ -237,16 +234,15 @@ index 000000000..3a0296746
 +			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
 +		},
 +	});
-+	let aborted = false;
-+	let continuationSettled: (() => void) | undefined;
-+	const receive = async (settled = false) => {
++	pi.on("turn_end", async (event) => {
 +		const messages = await locked(directory, () => {
 +			const mailbox = inbox(directory, self);
 +			const files = fs.readdirSync(mailbox).filter((file) => file.endsWith(".json"));
 +			const queued = files.map((file) => JSON.parse(fs.readFileSync(path.join(mailbox, file), "utf8")) as Envelope);
 +			queued.sort((a, b) => a.from.localeCompare(b.from) || a.sequence - b.sequence);
 +			for (const file of files) fs.unlinkSync(path.join(mailbox, file));
-+			if (settled && (queued.length === 0 || aborted)) {
++			const terminal = event.message.role === "assistant" && event.message.stopReason !== "toolUse";
++			if (queued.length === 0 && terminal) {
 +				const members = readMembers(directory);
 +				const member = members.find((entry) => entry.id === self);
 +				if (member) member.state = "finished";
@@ -254,8 +250,7 @@ index 000000000..3a0296746
 +			}
 +			return queued;
 +		});
-+		if (messages.length > 0 && !aborted) {
-+			const done = settled ? new Promise<void>((resolve) => { continuationSettled = resolve; }) : undefined;
++		if (messages.length > 0) {
 +			pi.sendMessage(
 +				{
 +					customType: "team_findings",
@@ -265,25 +260,11 @@ index 000000000..3a0296746
 +				},
 +				{ deliverAs: "steer", triggerTurn: true },
 +			);
-+			await done;
 +		}
-+	};
-+	pi.on("turn_end", async (event) => {
-+		aborted = event.message.role === "assistant" && event.message.stopReason === "aborted";
-+		await receive();
-+	});
-+	// turn_end and agent_end can precede automatic retry or compaction. Only
-+	// this event means the Pi run has no remaining automatic continuation.
-+	pi.on("agent_settled", async () => {
-+		const complete = continuationSettled;
-+		continuationSettled = undefined;
-+		try { await receive(true); } finally { complete?.(); }
 +	});
 +}
-
 diff --git a/packages/coding-agent/examples/extensions/subagent/team.ts b/packages/coding-agent/examples/extensions/subagent/team.ts
 new file mode 100644
-index 000000000..ff9c8fe2b
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/subagent/team.ts
 @@ -0,0 +1,97 @@

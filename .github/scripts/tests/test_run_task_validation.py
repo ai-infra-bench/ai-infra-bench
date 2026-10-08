@@ -76,18 +76,41 @@ elif name == "docker":
 elif name == "harbor":
     task_dir = Path(args[args.index("--path") + 1])
     config = tomllib.loads((task_dir / "task.toml").read_text())
+    if os.environ['TASK_NAME'] == 'pi-context-management':
+        assert '--extra-docker-compose' in args
+        profile = Path(args[args.index('--extra-docker-compose') + 1])
+        assert profile.is_absolute() and profile.read_bytes() == b'services:\n  main:\n    network_mode: none\n'
+    else:
+        assert '--extra-docker-compose' not in args
     assert config["artifacts"] == [], "CI must not download full checkout snapshots"
     with open(os.environ["MOCK_LOG"], "a") as stream:
         stream.write(json.dumps(["prepared_image", config["environment"]["docker_image"]]) + "\n")
-    if os.environ["MOCK_HARBOR_FAIL"] == "true":
-        sys.exit(1)
     job = Path(args[args.index("--jobs-dir") + 1]) / args[args.index("--job-name") + 1]
     job.mkdir(parents=True)
+    diagnostic = os.environ.get("MOCK_DIAGNOSTIC", "")
+    if diagnostic:
+        verifier = job / "trial" / "verifier"
+        verifier.mkdir(parents=True)
+        (verifier / "test-stdout.txt").write_text("VERIFIER_FAILURE_MARKER\n")
+        if diagnostic == "missing":
+            sys.exit(0)
+        if diagnostic == "none":
+            (job / "result.json").write_text(json.dumps({"stats": {
+                "n_completed_trials": 0, "n_errored_trials": 1,
+                "evals": {"test": {"reward_stats": None, "metrics": None}},
+            }}))
+            sys.exit(0)
+        if diagnostic == "harbor-fail":
+            sys.exit(23)
+    if os.environ["MOCK_HARBOR_FAIL"] == "true":
+        sys.exit(1)
     reward = "0.0" if args[args.index("--agent") + 1] == "nop" else "1.0"
     (job / "result.json").write_text(json.dumps({"stats": {
         "n_completed_trials": 1, "n_errored_trials": 0,
         "evals": {"test": {"reward_stats": {"reward": {reward: ["trial"]}}}},
     }}))
+    if diagnostic == "harbor-fail-success":
+        sys.exit(23)
 elif name == "sleep":
     pass
 else:
@@ -121,6 +144,8 @@ class ValidationImageTests(unittest.TestCase):
         self, *, gpus, cache_hit, publish, harbor_fail=False,
         build_failures=0, build_error="", expect_failure=False,
         reviewed=False, local_image=False, case_filter=None,
+        task_name="example-task", missing_network_profile=False, declared_control=False,
+        diagnostic="",
     ):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -133,7 +158,9 @@ class ValidationImageTests(unittest.TestCase):
             for name in ("normalize_image_manifests.py", "normalize_task_configs.py", "sync_collect_hooks.py"):
                 shutil.copy2(GITHUB_DIR.parent / "tools" / name, helpers / name)
             shutil.copy2(GITHUB_DIR / "runner-classes.json", scripts.parent)
-            task = root / "tasks/example-task"
+            if not missing_network_profile:
+                shutil.copy2(GITHUB_DIR.parent / "tools/pi-context-validation-network.yaml", helpers)
+            task = root / "tasks" / task_name
             (task / "environment/lock").mkdir(parents=True)
             base = "a" * 40
             cutoff = "2026-01-01T00:00:00Z"
@@ -152,6 +179,12 @@ class ValidationImageTests(unittest.TestCase):
             manifest = {
                 "schema_version": "ai_infra_bench_validation_cases.v2", "cases": [],
             }
+            if declared_control:
+                patch = "diff --git a/control.txt b/control.txt\nnew file mode 100644\n--- /dev/null\n+++ b/control.txt\n@@ -0,0 +1 @@\n+control\n"
+                (task / "validation/patches").mkdir()
+                (task / "validation/patches/alternative.patch").write_text(patch)
+                manifest["cases"] = [{"name": "alternative", "patch": "patches/alternative.patch",
+                    "patch_sha256": hashlib.sha256(patch.encode()).hexdigest(), "expected_reward": 1}]
             if reviewed:
                 (task / 'validation/tools').mkdir()
                 def reference(name, content):
@@ -171,7 +204,7 @@ class ValidationImageTests(unittest.TestCase):
                     (task / folder / name).write_text(content)
             config = (
                 'schema_version = "1.4"\nartifacts = ["/workspace/repo"]\n'
-                '[task]\nname = "ai-infra-bench/example-task"\nversion = "1.0.0"\n'
+                f'[task]\nname = "ai-infra-bench/{task_name}"\nversion = "1.0.0"\n'
                 'description = "Implement the example behavior."\nkeywords = ["vllm", "example"]\n'
                 '[metadata]\ndomain = "inference"\ntask_type = "bugfix"\n'
                 f'base_commit = "{base}"\ndependency_cutoff = "{cutoff}"\n'
@@ -194,7 +227,7 @@ class ValidationImageTests(unittest.TestCase):
                 result = subprocess.run([
                     sys.executable, "-c",
                     "from pathlib import Path; import json, task_ci; "
-                    f"print(json.dumps(task_ci.matrix_entry(Path('tasks/example-task'), '{mode}')))",
+                    f"print(json.dumps(task_ci.matrix_entry(Path('tasks/{task_name}'), '{mode}')))",
                 ], cwd=root, env=dict(os.environ, PYTHONPATH=str(scripts)),
                     check=True, capture_output=True, text=True)
                 self.assertEqual(json.loads(result.stdout)["gpus"], gpus)
@@ -215,7 +248,7 @@ class ValidationImageTests(unittest.TestCase):
                 "PATH": f"{bin_dir}:{os.environ['PATH']}",
                 "http_proxy": "http://127.0.0.1:7892",
                 "https_proxy": "http://127.0.0.1:7892",
-                "TASK_NAME": "example-task", "TARGET_PLATFORM": "linux/amd64",
+                "TASK_NAME": task_name, "TARGET_PLATFORM": "linux/amd64",
                 "PUBLISH_IMAGE": str(publish).lower(),
                 "HARBOR_JOBS_DIR": str(root / "jobs"), "RUNNER_TEMP": str(root),
                 "AI_INFRA_GPU_POOL_CONFIG": str(root / "pool.json"),
@@ -227,6 +260,7 @@ class ValidationImageTests(unittest.TestCase):
                 "MOCK_EXPECT_PROXY": "http://127.0.0.1:7892",
                 "MOCK_CACHE_HIT": str(cache_hit).lower(),
                 "MOCK_HARBOR_FAIL": str(harbor_fail).lower(),
+                "MOCK_DIAGNOSTIC": diagnostic,
                 "MOCK_REGISTRY": REGISTRY, "MOCK_DIGEST": DIGEST,
             })
             if not gpus:
@@ -241,8 +275,20 @@ class ValidationImageTests(unittest.TestCase):
                 ["bash", str(scripts / "run_task_validation.sh")],
                 cwd=root, env=env, capture_output=True, text=True, timeout=20,
             )
-            commands = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()]
-            summary = root / "jobs/example-task/ci-summary.json"
+            commands = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()] if (root / "commands.jsonl").exists() else []
+            summary = root / "jobs" / task_name / "ci-summary.json"
+            if diagnostic:
+                self.assertEqual(result.returncode, 23 if diagnostic.startswith("harbor-fail") else 2,
+                                 result.stdout + result.stderr)
+                self.assertFalse(summary.exists())
+                self.assertFalse(any(cmd[:2] == ["docker", "push"] for cmd in commands))
+                self.assertEqual(list((root / "jobs").rglob("reward.txt")), [])
+                self.assertIn("VERIFIER_FAILURE_MARKER", result.stdout + result.stderr)
+                if diagnostic == "none":
+                    self.assertIn("metrics is not a list", result.stderr)
+                if diagnostic == "missing":
+                    self.assertIn("No such file", result.stderr)
+                return None, commands
             if harbor_fail or expect_failure:
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(summary.exists())
@@ -259,7 +305,7 @@ class ValidationImageTests(unittest.TestCase):
                 self.assertEqual(builds[0][builds[0].index("--tag") + 1], summary["image"])
                 self.assertIn("--load", builds[0])
             harbor = [cmd for cmd in commands if cmd[0] == "harbor"]
-            self.assertEqual(len(harbor), len(case_filter.split(',')) if case_filter else 2)
+            self.assertEqual(len(harbor), len(case_filter.split(',')) if case_filter else 2 + int(declared_control))
             expected_env = "ci_gpu_docker:LeasedGpuDockerEnvironment" if gpus else "docker"
             self.assertTrue(all(cmd[cmd.index("--env") + 1] == expected_env for cmd in harbor))
             self.assertTrue(all(cmd[cmd.index("--cpus") + 1] == "limit" for cmd in harbor))
@@ -270,6 +316,31 @@ class ValidationImageTests(unittest.TestCase):
                 self.assertTrue(all(cmd[cmd.index("--override-cpus") + 1] == "4" for cmd in harbor))
             self.assertEqual(sum(cmd[0] == "gpu_pool" for cmd in commands), 2 if gpus else 0)
             return summary, commands
+
+    def test_context_base_and_oracle_receive_offline_profile(self):
+        _, commands = self.run_validation(gpus=0, cache_hit=True, publish=False,
+            task_name="pi-context-management")
+        harbor = [cmd for cmd in commands if cmd[0] == "harbor"]
+        self.assertEqual(len(harbor), 2)
+        self.assertTrue(all("--extra-docker-compose" in cmd for cmd in harbor))
+
+    def test_context_declared_control_receives_offline_profile(self):
+        _, commands = self.run_validation(gpus=0, cache_hit=True, publish=False,
+            task_name="pi-context-management", declared_control=True)
+        harbor = [cmd for cmd in commands if cmd[0] == "harbor"]
+        self.assertEqual(len(harbor), 3)
+        self.assertTrue(all("--extra-docker-compose" in cmd for cmd in harbor))
+
+    def test_context_missing_offline_profile_fails_before_harbor(self):
+        _, commands = self.run_validation(gpus=0, cache_hit=True, publish=False,
+            task_name="pi-context-management", missing_network_profile=True,
+            expect_failure=True)
+        self.assertFalse(any(cmd[0] == "harbor" for cmd in commands))
+
+    def test_context_reviewed_replay_cannot_bypass_offline_profile(self):
+        _, commands = self.run_validation(gpus=0, cache_hit=True, publish=False,
+            task_name="pi-context-management", reviewed=True, expect_failure=True)
+        self.assertFalse(any(cmd[0] == "harbor" for cmd in commands))
 
     def test_reviewed_profiles_use_real_ci_dispatch_and_explicit_local_subset(self):
         summary, commands = self.run_validation(gpus=0,cache_hit=False,publish=False,
@@ -320,6 +391,18 @@ class ValidationImageTests(unittest.TestCase):
                 self.assertEqual(summary["registry_digest"], DIGEST if cache_hit or should_publish else "")
                 runtime_image = f"{REGISTRY}@{DIGEST}" if cache_hit else image
                 self.assertEqual([cmd[1] for cmd in commands if cmd[0] == "prepared_image"], [runtime_image] * 2)
+
+    def test_harbor_nonzero_preserves_status_and_prints_verifier_logs(self):
+        self.run_validation(gpus=0, cache_hit=True, publish=True, diagnostic="harbor-fail")
+
+    def test_harbor_nonzero_cannot_be_overridden_by_success_result(self):
+        self.run_validation(gpus=0, cache_hit=True, publish=True, diagnostic="harbor-fail-success")
+
+    def test_none_result_contract_preserves_failure_and_prints_verifier_logs(self):
+        self.run_validation(gpus=0, cache_hit=True, publish=True, diagnostic="none")
+
+    def test_missing_result_preserves_failure_and_prints_verifier_logs(self):
+        self.run_validation(gpus=0, cache_hit=True, publish=True, diagnostic="missing")
 
     def test_failed_validation_never_publishes(self):
         for gpus in (0, 1):

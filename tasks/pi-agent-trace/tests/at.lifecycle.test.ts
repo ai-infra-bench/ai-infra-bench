@@ -119,12 +119,17 @@ it("a later pi process appends to the same trace with the same trace id and its 
 	expect(named(before.spans, "pi.run")).toHaveLength(2);
 	expect(named(before.spans, "pi.compaction")).toHaveLength(1);
 	expect(named(before.spans, "execute_tool")).toHaveLength(1);
-	for (const span of before.spans) expect(span.resource["process.pid"]).toBe(first.pid);
+	for (const span of before.all) {
+		expect(span.resource["process.pid"]).toBe(first.pid);
+		expect(span.resource["pi.session.id"]).toBe(first.sessionId);
+	}
+	const prefix = readFileSync(file);
 
 	const second = await runChild(box, "resume", first.sessionFile, "resume.json");
 	expect(second.sessionId).toBe(first.sessionId);
 	expect(second.pid).not.toBe(first.pid);
 	const after = readTrace(file);
+	expect(readFileSync(file).subarray(0, prefix.length).equals(prefix), "resuming process rewrote earlier trace bytes").toBe(true);
 	expect(traceProblems(after.spans, after.errors, branchEntries(second), second.sessionId)).toEqual([]);
 	expect(liveProblems(after.all)).toEqual([]);
 	// Everything the first process wrote is untouched; the second process appended its own run.
@@ -138,8 +143,9 @@ it("a later pi process appends to the same trace with the same trace id and its 
 		"pi.turn",
 		"pi.run",
 	]);
-	for (const span of added) {
+	for (const span of after.all.slice(before.all.length)) {
 		expect(span.resource["process.pid"]).toBe(second.pid);
+		expect(span.resource["pi.session.id"]).toBe(second.sessionId);
 		expect(span.traceId).toBe(before.spans[0].traceId);
 	}
 	expect(new Set(after.spans.map((s) => s.spanId)).size).toBe(after.spans.length);
@@ -152,6 +158,11 @@ it("a pi process killed during a tool execution leaves that turn's chat span on 
 	const file = join(first.sessionDir, "traces", `${first.sessionId}.otlp.jsonl`);
 	const before = readTrace(file);
 	expect(before.errors).toEqual([]);
+	for (const span of before.all) {
+		expect(span.resource["process.pid"]).toBe(first.pid);
+		expect(span.resource["pi.session.id"]).toBe(first.sessionId);
+	}
+	const prefix = readFileSync(file);
 
 	const marker = join(box.root, "slow.marker");
 	const child = spawnChild([
@@ -170,12 +181,17 @@ it("a pi process killed during a tool execution leaves that turn's chat span on 
 
 	const after = readTrace(file);
 	expect(after.errors).toEqual([]);
+	expect(readFileSync(file).subarray(0, prefix.length).equals(prefix), "crashed process rewrote earlier trace bytes").toBe(true);
 	expect(after.spans.slice(0, before.spans.length).map((s) => s.spanId)).toEqual(before.spans.map((s) => s.spanId));
 	const added = after.spans.slice(before.spans.length);
 	// Only the chat span of the interrupted turn ended; the run, the turn and the tool left start lines only.
 	expect(added.map((s) => s.name)).toEqual(["chat at-child-model"]);
 	const addedStarts = after.starts.slice(before.starts.length);
 	expect(addedStarts.map((s) => s.name)).toEqual(["pi.run", "pi.turn", "chat at-child-model", "execute_tool echo"]);
+	for (const span of after.all.slice(before.all.length)) {
+		expect(span.resource["process.pid"]).toBe(child.pid);
+		expect(span.resource["pi.session.id"]).toBe(first.sessionId);
+	}
 	expect(liveProblems(after.all)).toEqual([]);
 	expect(added[0].parentSpanId).toBe(addedStarts[1].spanId);
 	const session = readFileSync(first.sessionFile, "utf8")
@@ -189,7 +205,9 @@ it("a pi process killed during a tool execution leaves that turn's chat span on 
 	expect(after.spans.some((s) => s.spanId === added[0].parentSpanId)).toBe(false);
 
 	// The file is intact: a later process appends normally.
+	const crashPrefix = readFileSync(file);
 	const third = await runChild(box, "resume", first.sessionFile, "resume.json");
+	expect(readFileSync(file).subarray(0, crashPrefix.length).equals(crashPrefix), "resume rewrote the crash trace prefix").toBe(true);
 	const final = readTrace(file);
 	expect(final.errors).toEqual([]);
 	expect(final.spans.slice(0, after.spans.length).map((s) => s.spanId)).toEqual(after.spans.map((s) => s.spanId));
@@ -201,6 +219,10 @@ it("a pi process killed during a tool execution leaves that turn's chat span on 
 		"pi.turn",
 		"pi.run",
 	]);
+	for (const span of final.all.slice(after.all.length)) {
+		expect(span.resource["process.pid"]).toBe(third.pid);
+		expect(span.resource["pi.session.id"]).toBe(third.sessionId);
+	}
 	expect(third.pid).not.toBe(first.pid);
 });
 

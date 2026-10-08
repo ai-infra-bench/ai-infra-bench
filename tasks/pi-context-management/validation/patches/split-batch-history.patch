@@ -1,0 +1,17 @@
+diff --git a/packages/coding-agent/examples/extensions/context-management/index.ts b/packages/coding-agent/examples/extensions/context-management/index.ts
+--- a/packages/coding-agent/examples/extensions/context-management/index.ts
++++ b/packages/coding-agent/examples/extensions/context-management/index.ts
+@@ -22,6 +22,13 @@
+ 			note = (entry.data as { text: string }).text;
+ 		} else if (entry.type === "custom" && entry.customType === WINDOW) {
+ 			const boundary = entry.data as { window_id: string; carry_ids?: string[] };
++			// Deliberately misassign the completed outgoing batch results.
++			const batchResults = new Set<string>();
++			for (let index = current.length - 1; index >= 0; index--) {
++				if (current[index].message.role === "assistant") break;
++				if (current[index].message.role === "toolResult") batchResults.add(current[index].id);
++			}
++			for (const item of items) if (batchResults.has(item.item_id)) item.window_id = boundary.window_id;
+ 			windowId = boundary.window_id;
+ 			const carry = new Set(boundary.carry_ids ?? []);
+ 			current = current.filter((item) => carry.has(item.id));

@@ -17,6 +17,7 @@ import {
 	customTexts,
 	type Live,
 	liveProblems,
+	messageText,
 	ms,
 	named,
 	prompt,
@@ -171,7 +172,9 @@ describe("agent-trace contract", () => {
 		expect(atOrAfter(tool.start, chats[0].end)).toBe(true);
 
 		// A second prompt appends; nothing earlier is rewritten.
+		const prefix = readFileSync(file);
 		await prompt(s, [say("again")], "second");
+		expect(readFileSync(file).subarray(0, prefix.length).equals(prefix), "earlier trace bytes changed").toBe(true);
 		const again = trace(s);
 		expect(again.problems).toEqual([]);
 		expect(again.spans.slice(0, 6).map((x) => x.spanId)).toEqual(spans.map((x) => x.spanId));
@@ -332,15 +335,72 @@ describe("agent-trace contract", () => {
 		);
 	});
 
+	it("threshold compaction between turns stays live and root without splitting the active run", async () => {
+		const s = await live("interturn-compaction", { contextWindow: 30_000 });
+		// The last tool result is ~21k tokens and cannot itself be a cut point.
+		// Keep enough to walk back to its assistant tool call, a legal boundary.
+		s.settingsManager.applyOverrides({ compaction: { keepRecentTokens: 22_000 } });
+		await prompt(s, [say("remembered")], "remember this project");
+		const eventOffset = s.rec.events.length;
+		let release!: () => void;
+		const held = new Promise<void>((resolve) => { release = resolve; });
+		let summaryEntered = false;
+		s.faux.setResponses([
+			toolCall("echo", { text: "project notes ".repeat(6_000) }),
+			async () => { summaryEntered = true; await held; return say("summary of project notes"); },
+			say("turn prefix summary"), say("answer after compaction"), say("ack"),
+		]);
+		const running = s.session.prompt("read the notes then answer", { expandPromptTemplates: false, source: "interactive" });
+		try {
+			await waitFor(() => summaryEntered, { label: "real inter-turn summary request" });
+			const mid = readTrace(traceFileFor(s.sessionManager));
+			expect(mid.errors).toEqual([]);
+			expect(liveProblems(mid.all)).toEqual([]);
+			const compactions = named(mid.starts, "pi.compaction");
+			expect(compactions).toHaveLength(1);
+			expect(compactions[0].parentSpanId).toBeNull();
+			expect(compactions[0].attributes).toMatchObject({ "pi.compaction.reason": "threshold", "pi.compaction.will_retry": false });
+			expect(named(mid.spans, "pi.compaction")).toHaveLength(0);
+			const activeRun = named(mid.starts, "pi.run")[1];
+			expect(activeRun).toBeDefined();
+			expect(mid.spans.some((span) => span.spanId === activeRun.spanId)).toBe(false);
+			expect(s.rec.events.slice(eventOffset).filter((event) => event.type === "turn_start")).toHaveLength(1);
+		} finally {
+			release();
+			await running;
+		}
+		const { spans, problems } = trace(s);
+		expect(problems).toEqual([]);
+		const runs = named(spans, "pi.run");
+		expect(runs).toHaveLength(2);
+		const run = runs[1];
+		expect(run.attributes["pi.run.trigger"]).toBe("prompt");
+		expect(run.attributes["pi.run.after_compaction"]).toBeUndefined();
+		const turns = children(spans, run);
+		expect(turns).toHaveLength(2);
+		const [compaction] = named(spans, "pi.compaction");
+		expect(compaction.parentSpanId).toBeNull();
+		expect(compaction.attributes["pi.compaction.will_retry"]).toBe(false);
+		expect(compaction.status).toEqual({ code: 1 });
+		expect(atOrAfter(compaction.start, turns[0].end)).toBe(true);
+		expect(atOrAfter(turns[1].start, compaction.end)).toBe(true);
+		expect(s.rec.events.slice(eventOffset).filter((event) =>
+			["turn_start", "turn_end", "compaction_start", "compaction_end", "agent_end"].includes(event.type)).map((event) => event.type).slice(0, 7))
+			.toEqual(["turn_start", "turn_end", "compaction_start", "compaction_end", "turn_start", "turn_end", "agent_end"]);
+	});
+
 	it("reload appends to the same file with the same trace id and no duplicate spans", async () => {
 		const s = await live("reload");
 		await prompt(s, [toolCall("echo", { text: "x" }), say("one")], "first");
 		const first = trace(s);
 		expect(first.problems).toEqual([]);
+		const prefix = readFileSync(first.file);
 		await s.session.reload();
+		expect(readFileSync(first.file).equals(prefix), "reload rewrote the trace").toBe(true);
 		const afterReload = trace(s);
 		expect(afterReload.all.map((x) => [x.phase, x.spanId])).toEqual(first.all.map((x) => [x.phase, x.spanId]));
 		await prompt(s, [say("two")], "second");
+		expect(readFileSync(first.file).subarray(0, prefix.length).equals(prefix), "trace prefix changed after reload").toBe(true);
 		const { spans, problems } = trace(s);
 		expect(problems).toEqual([]);
 		expect(spans).toHaveLength(first.spans.length + 3);
@@ -571,6 +631,10 @@ describe("agent-trace contract", () => {
 		const reports = customTexts(s.sessionManager, "agent-trace");
 		expect(reports).toHaveLength(1);
 		expect(reports[0].startsWith(`agent-trace: cannot write ${override}`)).toBe(true);
+		// Pi converts custom messages to ordinary LLM messages before the provider.
+		// Match the actual report text (with this unique path), not a removed customType.
+		expect(s.requests.slice(1).some((request) => request.messages.some((message) =>
+			messageText(message).includes(reports[0]))), "write failure report never reached a later provider request").toBe(true);
 		expect(errors, JSON.stringify(errors).slice(0, 300)).toEqual([]);
 		expect(s.requests[0].systemPrompt).not.toContain("agent-trace");
 		expect(s.requests[s.requests.length - 1].systemPrompt).toBe(s.requests[0].systemPrompt);
@@ -586,6 +650,7 @@ describe("agent-trace contract", () => {
 		// Mid-execution: the run, the turn and the tool have started; the chat has already ended.
 		const mid = readTrace(traceFileFor(s.sessionManager));
 		expect(mid.errors).toEqual([]);
+		const prefix = readFileSync(traceFileFor(s.sessionManager));
 		expect(liveProblems(mid.all)).toEqual([]);
 		// Mid-execution: the run, the turn and the tool have started and the chat has ended, in any interleaving.
 		expect(mid.all.map((x) => `${x.phase}:${x.name.split(" ")[0]}`).sort()).toEqual(
@@ -606,6 +671,7 @@ describe("agent-trace contract", () => {
 
 		await running;
 		const done = trace(s);
+		expect(readFileSync(done.file).subarray(0, prefix.length).equals(prefix), "live trace prefix changed").toBe(true);
 		expect(done.problems).toEqual([]);
 		expect(done.all.slice(0, 5).map((x) => x.line)).toEqual(mid.all.map((x) => x.line));
 		expect(
@@ -799,6 +865,49 @@ describe("agent-trace contract", () => {
 		expect(runs[2].status).toEqual({ code: 1 });
 		const [retryChat] = children(spans, children(spans, runs[2])[0]);
 		expect(retryChat.status).toEqual({ code: 1 });
+	});
+
+	it("failed overflow compaction preserves its live retry intent without a compaction entry or retry run", async () => {
+		const s = await live("failed-overflow-intent");
+		await prompt(s, [say("remembered project context")], "remember");
+		let release!: () => void;
+		const held = new Promise<void>((resolve) => { release = resolve; });
+		let summaryEntered = false;
+		s.faux.setResponses([
+			fauxAssistantMessage(fauxText(""), { stopReason: "error", errorMessage: "prompt is too long: 250000 tokens > 200000 maximum" }),
+			async () => {
+				summaryEntered = true;
+				await held;
+				return fauxAssistantMessage(fauxText(""), { stopReason: "error", errorMessage: "summary failed after preparation" });
+			},
+		]);
+		const running = s.session.prompt("overflow now", { expandPromptTemplates: false, source: "interactive" });
+		try {
+			await waitFor(() => summaryEntered, { label: "real overflow summary request" });
+			const mid = readTrace(traceFileFor(s.sessionManager));
+			expect(mid.errors).toEqual([]);
+			expect(liveProblems(mid.all)).toEqual([]);
+			const starts = named(mid.starts, "pi.compaction");
+			expect(starts).toHaveLength(1);
+			expect(starts[0].attributes).toMatchObject({ "pi.compaction.reason": "overflow", "pi.compaction.will_retry": true });
+			expect(named(mid.spans, "pi.compaction")).toHaveLength(0);
+		} finally {
+			release();
+			await running;
+		}
+		await waitFor(() => s.rec.count("agent_settled") === 2, { label: "failed recovery settled" });
+		const { spans, problems } = trace(s);
+		expect(problems).toEqual([]);
+		const compactions = named(spans, "pi.compaction");
+		expect(compactions).toHaveLength(1);
+		expect(compactions[0].attributes).toMatchObject({ "pi.compaction.reason": "overflow", "pi.compaction.will_retry": true });
+		expect(compactions[0].status).toEqual({ code: 2, message: s.ext.state.compactFailures[0] });
+		expect(compactions[0].status.message).toContain("summary failed after preparation");
+		for (const key of ["pi.session.entry_id", "pi.compaction.first_kept_entry_id", "pi.compaction.tokens_before", "gen_ai.usage.input_tokens", "gen_ai.usage.output_tokens"])
+			expect(compactions[0].attributes[key]).toBeUndefined();
+		expect(entryOf(s, (entry) => entry.type === "compaction")).toEqual([]);
+		expect(named(spans, "pi.run").map((run) => run.attributes["pi.run.trigger"])).toEqual(["prompt", "prompt"]);
+		expect(named(spans, "pi.run").every((run) => !("pi.run.after_compaction" in run.attributes))).toBe(true);
 	});
 
 	it("a fresh user prompt after idle overflow compaction stays a prompt and references its own user entry", async () => {

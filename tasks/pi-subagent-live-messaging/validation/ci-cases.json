@@ -5,92 +5,221 @@
       "name": "drop_accepted",
       "patch": "patches/drop_accepted.patch",
       "expected_reward": 0,
-      "patch_sha256": "678cc0cad0b243024419bde2a94b7d6d5eaf9edc349ca161d1f9ec1e1e13e59f",
+      "patch_sha256": "7221d65d5c79f2fe8a2694a2a2adbd27ccbda927e20476ed7dc029ffae290ada",
       "reason": "Acknowledges sends without placing messages in recipient context."
     },
     {
       "name": "reverse_fifo",
       "patch": "patches/reverse_fifo.patch",
       "expected_reward": 0,
-      "patch_sha256": "0b577294aae5ee9ccdf60e077805f197aee39c7712e9ae42ba51cc416c208ad0",
-      "reason": "Reverses findings accepted from the same sender."
+      "patch_sha256": "f4ab5c662ad92b1101dbc2e7bfe290e200dedd217143886e3ea919c5fcc7195f",
+      "reason": "Reverses per-sender mailbox sequence on the current Oracle while preserving its context handoff; accepted prefill messages must precede a later broadcast.",
+      "apply_after": "oracle"
     },
     {
       "name": "duplicate_delivery",
       "patch": "patches/duplicate_delivery.patch",
       "expected_reward": 0,
-      "patch_sha256": "cf4de8acd22755e499b58700f7845d087da2ef093919ea715eeb9adddaa94854",
+      "patch_sha256": "b334aaf6f2c75c4f7c867bc1f42bf6d06a12034f59b528d3b8c0d82b31c50242",
       "reason": "Injects each incoming finding twice."
     },
     {
       "name": "alternative-spool",
       "patch": "patches/alternative-spool.patch",
       "expected_reward": 1,
-      "patch_sha256": "72880bd5b5847b1895a1ead638b6dbd337504c99fbf465d8af188402c8b10f73",
+      "patch_sha256": "ac48cbe51e626943f940ba26cda5e196f64153d1d1435b9c782246b29094db6f",
       "reason": "Uses a per-recipient append-only JSONL spool, drained under the team lock; no per-message files or receive-side sorting."
     },
     {
-      "name": "peer-only-roster",
-      "patch": "patches/peer-only-roster.patch",
+      "name": "public-interface-64k",
+      "patch": "patches/public-interface-64k.patch",
       "expected_reward": 1,
-      "patch_sha256": "859e2795a55684c2000ca1ff76e1b6bab7aa3119dfe905de4d8a8a5a43b2e944",
-      "reason": "Curator adaptation of the former free-interface-64k alternative to the pinned tool names, fields and 1 MiB limit; keeps its peer-only roster (team_members omits the caller and returns only {id}), which the instruction permits."
+      "patch_sha256": "8754656a9bd5c49faaab10ecda33a016d1d193e8271ee65c2322c565a0a77f7a",
+      "reason": "Canonical public interface with additive result fields, a peer-only roster and a 64 KiB size limit."
     },
     {
-      "name": "limit-64k",
-      "patch": "patches/limit-64k.patch",
+      "name": "early-success-exit",
+      "patch": "patches/early-success-exit.patch",
+      "patch_sha256": "21bdd5dd5e8d85fd6a2eb68d657a3cd15bfd6307cd716bf3ccac0584332de0dc",
       "apply_after": "oracle",
       "expected_reward": 0,
-      "patch_sha256": "3d20c9d73e734388d70424666ce2e1b66c3f3fb1619328bfda06870658a92b10",
-      "reason": "Rejects messages above 64 KiB instead of the pinned 1 MiB (1048576 UTF-8 byte) limit; size_below/size_at must fail."
+      "reason": "A worker exits with status zero before executing any communication behavior; process success must not count as completed checks."
     },
     {
-      "name": "broadcast-skips-finished",
-      "patch": "patches/broadcast-skips-finished.patch",
+      "name": "wrong-sender",
+      "patch": "patches/wrong-sender.patch",
+      "patch_sha256": "412e468c7b90976104ee760cc1bd1f8959102d70f67d342a6e28169037677de2",
       "apply_after": "oracle",
       "expected_reward": 0,
-      "patch_sha256": "6f956703a47d8facb05e15d7a83c999928556b26ba01aad3394147343a52caf7",
-      "reason": "Broadcast silently skips teammates that already finished instead of listing them in failed; broadcast_partial must fail."
+      "reason": "Delivers the complete finding with the recipient identity instead of its actual sender."
     },
     {
-      "name": "cancel-retains-mailbox",
-      "patch": "patches/cancel-retains-mailbox.patch",
+      "name": "late-duplicate",
+      "patch": "patches/late-duplicate.patch",
+      "patch_sha256": "dbc668a05de75cfb3101b245a33fd39f6ee3c5e06558c018e8fe37c72ae571f1",
       "apply_after": "oracle",
       "expected_reward": 0,
-      "patch_sha256": "278d2ee9bd32b5315412c9932cf01a127e6fc5a727287c089f8b032eec0bdd67",
-      "reason": "Keeps the team directory on cancellation, so an accepted undelivered finding stays on disk; cancel_queued's transport-agnostic scan must fail."
+      "reason": "Delivers once initially, then inserts another copy at a later model call."
+    },
+    {
+      "name": "steering-queue-only",
+      "patch": "patches/steering-queue-only.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Accepted findings wait behind unrelated ordinary steering and miss the recipient next model call; retained previous reference implementation.",
+      "patch_sha256": "024a50702015ae93638ca3908a1e349d8f0281d988f63cc7e711813971692e0b"
+    },
+    {
+      "name": "json-guidance",
+      "patch": "patches/json-guidance.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "patch_sha256": "956dbd4b329da26842d686c7afacbabba5a07c77758d4922090a6d3ca4f4d9ef",
+      "reason": "Complete sender and finding in JSON envelopes followed by normal guidance; message representation must not affect delivery correctness."
+    },
+    {
+      "name": "bounded-ipc",
+      "patch": "patches/bounded-ipc.patch",
+      "apply_after": "base",
+      "expected_reward": 1,
+      "reason": "Uses native child-process IPC and bounded per-recipient queues; public batch sends can cause a real partial broadcast failure.",
+      "patch_sha256": "3ef52dbde000448c4746594e19eb7c091ecdb4d779dc90a371c4e972ad453e4e"
+    },
+    {
+      "name": "false-broadcast-acceptance",
+      "patch": "patches/false-broadcast-acceptance.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "reason": "Reports a full recipient inbox as accepted only during broadcast, without enqueueing the message; successful recipients still receive it.",
+      "patch_sha256": "7767dcc7621a03692d1fd56b0d134b0d7a4e64198186ae6ae0ad133751b325d8"
+    },
+    {
+      "name": "backpressure-ipc",
+      "patch": "patches/backpressure-ipc.patch",
+      "apply_after": "base",
+      "expected_reward": 1,
+      "reason": "Direct sends wait for inbox capacity without waiting for a model reply; finite external work must allow the receiver to drain its queue.",
+      "patch_sha256": "0aa9fb2c4aaf076f33abd56e1da0ba2561a96dbb2d78d42221579dc84f09d60e"
+    },
+    {
+      "name": "split-sender",
+      "patch": "patches/split-sender.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "reason": "Places an explicit sender header and complete body in adjacent model-context entries, without changing delivery behavior.",
+      "patch_sha256": "aa462edfa4b8e604215bd9279ac7e28fa72d473fdb263e1e7b2752e6959aeea6"
+    },
+    {
+      "name": "sender-with-roster",
+      "patch": "patches/sender-with-roster.patch",
+      "patch_sha256": "4dbce445148acd7331282a87877f275ad174c4f1207630a6c731736645cd2b96",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "reason": "Includes a team roster alongside each correctly attributed finding; unrelated team IDs must not invalidate attribution."
+    },
+    {
+      "name": "wrong-sender-roster",
+      "patch": "patches/wrong-sender-roster.patch",
+      "patch_sha256": "b82e7c3e853c6d0999a799a2f0990e5da0bfa1902ffe92c232f7cf8b7d0f9118",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Lists team IDs alongside findings but attributes each finding to the recipient. Roster membership must not stand in for actual sender attribution."
+    },
+    {
+      "name": "alias-ids",
+      "patch": "patches/alias-ids.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "patch_sha256": "60e2778a2cf2345685bf0b11f9c3496951998a7208432233078a6975338619a9",
+      "reason": "Reports role aliases instead of actual task addresses; accepted results and sender identities must retain the public instance IDs."
+    },
+    {
+      "name": "always-enabled",
+      "patch": "patches/always-enabled.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "patch_sha256": "4fc184ae5ff9ef4724cb5c07a8337ea42935e7bd628022dd6b1e3261020b9887",
+      "reason": "Enables team communication when communication is omitted or false."
+    },
+    {
+      "name": "invalid-tool-error",
+      "patch": "patches/invalid-tool-error.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "patch_sha256": "a42e8abc2e0239d6c9dc2151e4f53f03c20c66b674e11c83335b0a156e62dc8f",
+      "reason": "Rejects self and unknown recipients through explicit native tool errors, which the public contract permits."
+    },
+    {
+      "name": "one-slot-backpressure",
+      "patch": "patches/one-slot-backpressure.patch",
+      "apply_after": "base",
+      "expected_reward": 1,
+      "patch_sha256": "2f62a8e2f16f40443c17dd3701d62beb68d3d8f173d0f445aa4c5d01aef86a55",
+      "reason": "Waits for capacity in a one-slot inbox; ordinary recipient work must be released independently of sender completion."
+    },
+    {
+      "name": "forged-observer",
+      "patch": "patches/forged-observer.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "patch_sha256": "536d33eeb08f612d73c0f95e325de62426403ee2b7c3b4665757390091938fec",
+      "reason": "Replaces the CLI with fabricated observer traffic and idle child processes; fake behavior reports must not substitute for real Pi execution."
+    },
+    {
+      "name": "registered-disabled",
+      "patch": "patches/registered-disabled.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "patch_sha256": "2f2eca5d9d9ea994175d953424b22da062180a3108456517f9486c7c03ea6c45",
+      "reason": "Keeps communication tools registered while disabled but explicitly rejects their use; tool presence alone is not enabled communication."
+    },
+    {
+      "name": "entry-wrapper",
+      "patch": "patches/entry-wrapper.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "patch_sha256": "0c1cbef2a4060777d3558935440cf487c342581f9a368e7eaa00d73be6cf5f2e",
+      "reason": "Preserves real Pi execution while wrapping the CLI and delegating the public prompt method to another method; instrumentation must permit legitimate implementation changes."
+    },
+    {
+      "name": "worker-report-forgery",
+      "patch": "patches/worker-report-forgery.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "patch_sha256": "6a405860c499e6752df36a9b970c5387d19c895aad879a41e52e4c13de741084",
+      "reason": "Runs a real Pi parent but replaces workers with report-generating processes that import Pi without running sessions; real worker execution is required."
+    },
+    {
+      "name": "leak-mailbox",
+      "patch": "patches/leak-mailbox.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "patch_sha256": "54869cfd88dfec92c5d5e561cde20a030061eb1a7de4854818586675d307b9d3",
+      "reason": "Stops workers but leaves queued message files behind after cancellation; process termination alone does not prove resource cleanup."
     },
     {
       "name": "premature-retry-finish",
       "patch": "patches/premature-retry-finish.patch",
       "apply_after": "oracle",
       "expected_reward": 0,
-      "reason": "Previous Oracle turn_end lifecycle closes the mailbox on a retryable provider error while the same Pi worker resumes.",
-      "patch_sha256": "34fa96e4850eeac8cb47bd25f48d4a24816b8b41a16d24f29d7a4342ec2a43b5"
+      "reason": "Marks a live worker finished at an error turn before Pi automatic retry has settled; the recovery send must still be accepted.",
+      "patch_sha256": "7a1160fd91482f179a61c7e662fceb05f2ffc6235e5025f4c02c0e53a803f94f"
     },
     {
       "name": "truthy-recipient-validation",
       "patch": "patches/truthy-recipient-validation.patch",
       "apply_after": "oracle",
       "expected_reward": 0,
-      "reason": "Repaired lifecycle but previous Oracle truthiness validation: to plus broadcast:false is accepted and delivered.",
-      "patch_sha256": "9330a5dea98ec46b836c6c1864e0ebf85ef0f2f0441f3ef63936b4de82be5920"
+      "reason": "Treats an explicitly present empty to plus broadcast:true as broadcast; this truly ambiguous selector must be rejected without delivery.",
+      "patch_sha256": "52b35cdae72cbb9c1d265b84327dff9223b824f47519c22d236ed3dcdb843a2b"
     },
     {
       "name": "rejected-but-delivered",
       "patch": "patches/rejected-but-delivered.patch",
       "apply_after": "oracle",
       "expected_reward": 0,
-      "reason": "Reports a rejection for both recipient fields after actually enqueueing the malformed finding; recipient model-input checks must reject it.",
-      "patch_sha256": "f24fdc28593a0eab43b557c9d7488e1a1823aca0e5bd4f90bf5d4726567751e9"
-    },
-    {
-      "name": "early-exit",
-      "patch": "patches/early-exit.patch",
-      "apply_after": "oracle",
-      "expected_reward": 0,
-      "reason": "The actual candidate extension import exits its Pi process successfully before required behavioral checks; independent scorer must reject incomplete execution.",
-      "patch_sha256": "7f45516d3752d691809873a8e20f50670641498db83a57bba4d1b7f9de8ed863"
+      "reason": "Delivers a truly invalid to plus broadcast:true request, then reports every recipient failed; explicit rejection cannot hide delivery to recipient context. No broadcast:false rejection rule is imposed.",
+      "patch_sha256": "8bad9e73ccf56989204a00d37ad987a3bbe72c032545fb92c63b53eae59dadb7"
     }
   ]
 }
