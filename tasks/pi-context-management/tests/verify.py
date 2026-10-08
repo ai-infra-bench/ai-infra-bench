@@ -1405,7 +1405,10 @@ def communicate_reminder_boundary(proc, scenario):
         assert first_end.wait(30), "Initial RPC turn did not reach idle"
         if "baseline" not in record:
             if not scenario.errors and not scenario.scoring_errors:
-                raise ScoringError("Reminder boundary fresh baseline was not observed")
+                # A candidate may abort the required prompt before any HTTP.
+                # Attribute this derived failure only after observer.finish(),
+                # so a real observation/startup fault still remains unscored.
+                raise AssertionError("Initial required prompt did not reach the provider")
         else:
             count = len(scenario.requests)
             send({"id": "boundary-idle", "type": "get_state"})

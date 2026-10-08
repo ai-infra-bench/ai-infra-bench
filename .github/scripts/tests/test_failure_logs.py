@@ -32,6 +32,40 @@ class FailureLogTests(unittest.TestCase):
             token = out.splitlines()[0].removeprefix("::stop-commands::")
             self.assertEqual(out.splitlines()[-1], f"::{token}::")
 
+    def test_scoring_error_and_stderr_survive_empty_or_missing_stdout(self):
+        for stdout_exists in (False, True):
+            with self.subTest(stdout_exists=stdout_exists), tempfile.TemporaryDirectory() as directory:
+                job = Path(directory) / "job"
+                verifier = job / "trial" / "verifier"
+                verifier.mkdir(parents=True)
+                if stdout_exists:
+                    (verifier / "test-stdout.txt").touch()
+                (verifier / "grading-status.json").write_text('{"status":"scoring_error","reason":"OBSERVER_FAILURE"}')
+                (verifier / "test-stderr.txt").write_text("TRACEBACK_DETAIL")
+                (verifier / "summary.json").write_text("UNRELATED_DATA")
+                out = self.render(job)
+                self.assertIn("OBSERVER_FAILURE", out)
+                self.assertIn("TRACEBACK_DETAIL", out)
+                self.assertNotIn("UNRELATED_DATA", out)
+
+    def test_each_diagnostic_path_rejects_symlinks_and_bounds_output(self):
+        for name in ("test-stdout.txt", "test-stderr.txt", "grading-status.json"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                job = root / "job"
+                verifier = job / "trial" / "verifier"
+                verifier.mkdir(parents=True)
+                secret = root / "secret"
+                secret.write_text("LINK_SECRET")
+                log = verifier / name
+                log.symlink_to(secret)
+                self.assertNotIn("LINK_SECRET", self.render(job))
+                log.unlink()
+                log.write_bytes(b"OMITTED_PREFIX" + b"x" * 65536 + b"LOG_END")
+                out = self.render(job)
+                self.assertNotIn("OMITTED_PREFIX", out)
+                self.assertIn("LOG_END", out)
+
     def test_symlinks_at_each_path_component_are_not_read(self):
         for component in ("ancestor", "job", "trial", "verifier", "test-stdout.txt"):
             with self.subTest(component=component), tempfile.TemporaryDirectory() as directory:

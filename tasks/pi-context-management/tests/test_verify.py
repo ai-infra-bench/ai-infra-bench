@@ -300,11 +300,13 @@ class ReminderBoundaryTests(unittest.TestCase):
                 classify_rpc_wait_errors(scenario)
                 self.assertEqual(scenario.errors, [])
 
-    def drive_public_protocol(self, *, idle_reply_success):
+    def drive_public_protocol(self, *, idle_reply_success, baseline=True, observer_error=None):
         scenario = self.incomplete()
         scenario.saved["capacity_boundary"].update(
             baseline={"actual_meter": 1000}, visible_errors=[], pending_prompt_sent=False, turn_settled=False)
-        scenario.requests = [{}, {}]
+        if not baseline:
+            scenario.saved["capacity_boundary"].pop("baseline")
+        scenario.requests = [{}, {}] if baseline else []
         scenario.observer = SimpleNamespace(mark_cancelled=lambda: None)
         # This peer supplies only the RPC input/output boundary. The real
         # production driver must distinguish a completed abort from a bad reply.
@@ -315,7 +317,7 @@ for line in sys.stdin:
         event={"type":"response","id":command["id"],"success":%s,"data":{"isStreaming":False}}
         print(json.dumps(event),flush=True)
     else:
-        if command["id"] == "boundary-pending":
+        if command["id"] in ("boundary-initial", "boundary-pending"):
             print(json.dumps({"type":"extension_error","error":"capacity abort"}),flush=True)
         print(json.dumps({"type":"agent_end"}),flush=True)
 ''' % repr(idle_reply_success)
@@ -323,6 +325,8 @@ for line in sys.stdin:
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               start_new_session=True) as process:
             communicate_reminder_boundary(process, scenario)
+        if observer_error:
+            scenario.scoring_errors.append(observer_error)
         classify_rpc_wait_errors(scenario)
         return scenario
 
@@ -333,6 +337,18 @@ for line in sys.stdin:
         self.assertEqual(scenario.errors, ["required_pending_turn_did_not_complete"])
         self.assertTrue(scenario.saved["capacity_boundary"]["turn_settled"])
         self.assertIsNone(scenario.saved["capacity_boundary"]["actual_meter"])
+
+    def test_initial_abort_is_candidate_failure_after_healthy_observation(self):
+        scenario = self.drive_public_protocol(idle_reply_success=True, baseline=False)
+        self.assertEqual(scenario.scoring_errors, [])
+        self.assertIn("Initial required prompt did not reach the provider", scenario.errors)
+        self.assertFalse(scenario.saved["capacity_boundary"]["pending_prompt_sent"])
+
+    def test_initial_abort_with_late_observer_fault_remains_unscored(self):
+        scenario = self.drive_public_protocol(idle_reply_success=True, baseline=False,
+                                             observer_error="Native observation failed")
+        self.assertEqual(scenario.scoring_errors, ["Native observation failed"])
+        self.assertEqual(scenario.errors, [])
 
     def test_failed_idle_reply_is_driver_error_without_candidate_failure(self):
         scenario = self.drive_public_protocol(idle_reply_success=False)

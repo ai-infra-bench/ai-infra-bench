@@ -862,17 +862,26 @@ def print_verifier_failure_logs(job_dir: Path) -> None:
                         trial_stack.callback(os.close, trial_fd)
                         verifier_fd = os.open("verifier", directory_flags, dir_fd=trial_fd)
                         trial_stack.callback(os.close, verifier_fd)
-                        log_fd = os.open("test-stdout.txt", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
-                                         dir_fd=verifier_fd)
-                        trial_stack.callback(os.close, log_fd)
-                        info = os.fstat(log_fd)
-                        if not stat.S_ISREG(info.st_mode):
-                            continue
-                        os.lseek(log_fd, max(0, info.st_size - 65536), os.SEEK_SET)
-                        data = os.read(log_fd, 65536)
-                        print(f"Verifier output (last 64 KiB): {trial}/verifier/test-stdout.txt")
-                        print(data.decode("utf-8", errors="replace"))
-                        found = True
+                        # A scorer can intentionally leave reward absent and
+                        # write its reason only to grading-status.json. Read
+                        # each fixed diagnostic independently of stdout.
+                        for name in ("test-stdout.txt", "test-stderr.txt", "grading-status.json"):
+                            try:
+                                log_fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                                                 dir_fd=verifier_fd)
+                                try:
+                                    info = os.fstat(log_fd)
+                                    if not stat.S_ISREG(info.st_mode):
+                                        continue
+                                    os.lseek(log_fd, max(0, info.st_size - 65536), os.SEEK_SET)
+                                    data = os.read(log_fd, 65536)
+                                finally:
+                                    os.close(log_fd)
+                                print(f"Verifier output (last 64 KiB): {trial}/verifier/{name}")
+                                print(data.decode("utf-8", errors="replace"))
+                                found = True
+                            except OSError:
+                                continue
                 except OSError:
                     # Missing files, links and unreadable entries are not logs.
                     continue
