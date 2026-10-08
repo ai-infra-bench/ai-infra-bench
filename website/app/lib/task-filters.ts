@@ -11,6 +11,7 @@ export const DOMAIN_LABELS: Record<TaskDomain, string> = {
 const PROJECT_DOMAINS: Readonly<Record<string, TaskDomain>> = {
   "vllm-project/vllm": "inference",
   "earendil-works/pi": "agent_harness",
+  "NVIDIA-NeMo/Gym": "training",
 };
 export function taskDomain(
   task: Pick<TaskSummary, "repository" | "domain">,
