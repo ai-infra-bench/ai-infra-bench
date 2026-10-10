@@ -1,0 +1,777 @@
+diff --git a/vllm/v1/attention/backends/flash_attn.py b/vllm/v1/attention/backends/flash_attn.py
+index ecd1b274c8..f914bb6b32 100755
+--- a/vllm/v1/attention/backends/flash_attn.py
++++ b/vllm/v1/attention/backends/flash_attn.py
+@@ -303,6 +303,15 @@ class FlashAttentionMetadataBuilder(AttentionMetadataBuilder[FlashAttentionMetad
+         self.cp_kv_cache_interleave_size = (
+             self.parallel_config.cp_kv_cache_interleave_size
+         )
++        self.dcp_context_kv_lens_buffer = (
++            torch.zeros(
++                vllm_config.scheduler_config.max_num_seqs,
++                dtype=torch.int32,
++                device=device,
++            )
++            if self.dcp_world_size > 1
++            else None
++        )
+ 
+         self.use_full_cuda_graph = (
+             self.compilation_config.cudagraph_mode.has_full_cudagraphs()
+@@ -436,6 +445,11 @@ class FlashAttentionMetadataBuilder(AttentionMetadataBuilder[FlashAttentionMetad
+                 self.dcp_rank,
+                 self.cp_kv_cache_interleave_size,
+             )
++            assert self.dcp_context_kv_lens_buffer is not None
++            assert dcp_context_kv_lens.numel() == num_reqs
++            self.dcp_context_kv_lens_buffer[:num_reqs].copy_(dcp_context_kv_lens)
++            self.dcp_context_kv_lens_buffer[num_reqs:].zero_()
++            dcp_context_kv_lens = self.dcp_context_kv_lens_buffer[:num_reqs]
+             # After DCP distribution, the maximum number of tokens for any rank is
+             # ceil(L / (N * I)) * I, where L is max_seq_len, N is dcp_world_size,
+             # and I is cp_kv_cache_interleave_size.
+diff --git a/vllm/v1/attention/backends/flashinfer.py b/vllm/v1/attention/backends/flashinfer.py
+index 26d372c113..1cd2051feb 100755
+--- a/vllm/v1/attention/backends/flashinfer.py
++++ b/vllm/v1/attention/backends/flashinfer.py
+@@ -541,14 +541,14 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+         try:
+             self.dcp_world_size = get_dcp_group().world_size
+             self.dcp_rank = get_dcp_group().rank_in_group
+-            self.dcp_kv_cache_interleave_size = (
+-                vllm_config.parallel_config.dcp_kv_cache_interleave_size
++            self.cp_kv_cache_interleave_size = (
++                vllm_config.parallel_config.cp_kv_cache_interleave_size
+             )
+         except AssertionError:
+             # DCP might not be initialized in testing
+             self.dcp_world_size = 1
+             self.dcp_rank = 0
+-            self.dcp_kv_cache_interleave_size = 1
++            self.cp_kv_cache_interleave_size = 1
+         self.use_dcp = self.dcp_world_size > 1
+ 
+         self.num_qo_heads = self.model_config.get_num_attention_heads(
+@@ -920,16 +920,15 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+         # and can be expensive to retrieve in async mode.
+         needs_seq_lens_cpu = self.use_dcp or use_cascade or not is_only_trtllm_decode
+         seq_lens_cpu = common_attn_metadata.seq_lens_cpu if needs_seq_lens_cpu else None
+-        seq_lens_np = seq_lens_cpu.numpy() if seq_lens_cpu is not None else None
+-        num_blocks_np = (
+-            (seq_lens_np + (page_size - 1)) // page_size
+-            if seq_lens_np is not None
+-            else None
+-        )
+ 
+-        # Adjust seq_lens_cpu for DCP
++        # Adjust seq_lens_cpu for DCP before deriving page metadata. DCP
++        # partitions the KV cache across ranks, so block counts and last-page
++        # lengths must be based on the local sequence lengths.
+         if self.use_dcp:
+             assert seq_lens_cpu is not None
++            # Avoid mutating the cached CPU tensor on CommonAttentionMetadata;
++            # the same metadata can be reused across KV-cache groups or builds.
++            seq_lens_cpu = seq_lens_cpu.clone()
+             if num_prefills > 0:
+                 qo_indptr_prefill_cpu = (
+                     qo_indptr_cpu[num_decodes:] - qo_indptr_cpu[num_decodes]
+@@ -945,9 +944,16 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+                 seq_lens_cpu,
+                 self.dcp_world_size,
+                 self.dcp_rank,
+-                self.dcp_kv_cache_interleave_size,
++                self.cp_kv_cache_interleave_size,
+             )
+ 
++        seq_lens_np = seq_lens_cpu.numpy() if seq_lens_cpu is not None else None
++        num_blocks_np = (
++            (seq_lens_np + (page_size - 1)) // page_size
++            if seq_lens_np is not None
++            else None
++        )
++
+         # Adjust num_block_np for cascade attention
+         if use_cascade:
+             assert num_blocks_np is not None
+diff --git a/vllm/v1/worker/gpu/attn_utils.py b/vllm/v1/worker/gpu/attn_utils.py
+index 8a08fba1e4..3e89ecefd2 100644
+--- a/vllm/v1/worker/gpu/attn_utils.py
++++ b/vllm/v1/worker/gpu/attn_utils.py
+@@ -17,6 +17,7 @@ from vllm.v1.kv_cache_interface import (
+     KVCacheConfig,
+     KVCacheSpec,
+ )
++from vllm.v1.attention.backends.utils import get_dcp_local_seq_lens
+ from vllm.v1.worker.utils import bind_kv_cache
+ 
+ 
+@@ -143,6 +144,33 @@ def build_slot_mappings_by_layer(
+     return slot_mappings_by_layer
+ 
+ 
++def update_dcp_local_seq_lens(
++    dcp_local_seq_lens: torch.Tensor,
++    seq_lens: torch.Tensor,
++    num_reqs: int,
++    dcp_world_size: int,
++    dcp_rank: int,
++    cp_kv_cache_interleave_size: int,
++    num_reqs_padded: int | None = None,
++) -> torch.Tensor | None:
++    if dcp_world_size <= 1:
++        return None
++    if num_reqs_padded is None:
++        num_reqs_padded = num_reqs
++    assert num_reqs <= num_reqs_padded <= dcp_local_seq_lens.numel()
++    assert seq_lens.numel() == num_reqs
++    dcp_local_seq_lens[:num_reqs].copy_(
++        get_dcp_local_seq_lens(
++            seq_lens,
++            dcp_world_size,
++            dcp_rank,
++            cp_kv_cache_interleave_size,
++        )
++    )
++    dcp_local_seq_lens[num_reqs:num_reqs_padded].zero_()
++    return dcp_local_seq_lens
++
++
+ def build_attn_metadata(
+     attn_metadata_builders: list[AttentionMetadataBuilder],
+     num_reqs: int,
+@@ -155,8 +183,28 @@ def build_attn_metadata(
+     block_tables: Sequence[torch.Tensor],
+     slot_mappings: torch.Tensor,
+     kv_cache_config: KVCacheConfig,
++    dcp_local_seq_lens: torch.Tensor | None = None,
++    dcp_local_seq_lens_cpu: torch.Tensor | None = None,
+ ) -> dict[str, Any]:
+-    seq_lens = seq_lens[:num_reqs]
++    if seq_lens.shape[0] > num_reqs:
++        seq_lens = seq_lens[:num_reqs]
++    else:
++        assert seq_lens.shape[0] == num_reqs
++
++    def _slice_attn_metadata(
++        tensor: torch.Tensor | None, size: int
++    ) -> torch.Tensor | None:
++        if tensor is None:
++            return None
++        if tensor.shape[0] > size:
++            return tensor[:size]
++        assert tensor.shape[0] == size
++        return tensor
++
++    dcp_local_seq_lens = _slice_attn_metadata(dcp_local_seq_lens, num_reqs)
++    dcp_local_seq_lens_cpu = _slice_attn_metadata(
++        dcp_local_seq_lens_cpu, num_reqs
++    )
+ 
+     attn_metadata: dict[str, Any] = {}
+     kv_cache_groups = kv_cache_config.kv_cache_groups
+@@ -175,6 +223,8 @@ def build_attn_metadata(
+             block_table_tensor=block_table,
+             slot_mapping=slot_mapping,
+             causal=True,
++            dcp_local_seq_lens=dcp_local_seq_lens,
++            dcp_local_seq_lens_cpu=dcp_local_seq_lens_cpu,
+         )
+ 
+         attn_metadata_builder = attn_metadata_builders[i]
+diff --git a/vllm/v1/worker/gpu/block_table.py b/vllm/v1/worker/gpu/block_table.py
+index 3f54fa56e7..b81e148b0a 100644
+--- a/vllm/v1/worker/gpu/block_table.py
++++ b/vllm/v1/worker/gpu/block_table.py
+@@ -18,19 +18,27 @@ class BlockTables:
+         max_num_batched_tokens: int,
+         max_model_len: int,
+         device: torch.device,
++        total_cp_world_size: int = 1,
++        total_cp_rank: int = 0,
++        cp_kv_cache_interleave_size: int = 1,
+     ):
+         self.block_sizes = block_sizes
+         self.max_num_reqs = max_num_reqs
+         self.max_num_batched_tokens = max_num_batched_tokens
+         self.max_model_len = max_model_len
+         self.device = device
++        self.total_cp_world_size = total_cp_world_size
++        self.total_cp_rank = total_cp_rank
++        self.cp_kv_cache_interleave_size = cp_kv_cache_interleave_size
+ 
+         self.num_kv_cache_groups = len(self.block_sizes)
+         # num_kv_cache_groups x [max_num_reqs, max_num_blocks]
+         self.block_tables: list[StagedWriteTensor] = []
+         for i in range(self.num_kv_cache_groups):
+             block_size = self.block_sizes[i]
+-            max_num_blocks = cdiv(self.max_model_len, block_size)
++            max_num_blocks = cdiv(
++                self.max_model_len, block_size * self.total_cp_world_size
++            )
+             block_table = StagedWriteTensor(
+                 (self.max_num_reqs, max_num_blocks),
+                 dtype=torch.int32,
+@@ -94,10 +102,15 @@ class BlockTables:
+         self.num_blocks.copy_to_uva()
+ 
+     def gather_block_tables(
+-        self, idx_mapping: torch.Tensor
++        self,
++        idx_mapping: torch.Tensor,
++        num_reqs: int | None = None,
+     ) -> tuple[torch.Tensor, ...]:
+-        num_reqs = idx_mapping.shape[0]
+-        _gather_block_tables_kernel[(self.num_kv_cache_groups, num_reqs)](
++        num_actual_reqs = idx_mapping.shape[0]
++        if num_reqs is None:
++            num_reqs = num_actual_reqs
++        assert num_actual_reqs <= num_reqs <= self.max_num_reqs
++        _gather_block_tables_kernel[(self.num_kv_cache_groups, num_actual_reqs)](
+             idx_mapping,
+             self.block_table_ptrs,
+             self.input_block_table_ptrs,
+@@ -106,6 +119,9 @@ class BlockTables:
+             self.num_blocks.gpu.stride(0),
+             BLOCK_SIZE=1024,  # type: ignore
+         )
++        if num_reqs > num_actual_reqs:
++            for block_table in self.input_block_tables:
++                block_table[num_actual_reqs:num_reqs].fill_(-1)
+         return tuple(block_table[:num_reqs] for block_table in self.input_block_tables)
+ 
+     def get_dummy_block_tables(self, num_reqs: int) -> tuple[torch.Tensor, ...]:
+@@ -116,25 +132,49 @@ class BlockTables:
+         idx_mapping: torch.Tensor,
+         query_start_loc: torch.Tensor,
+         positions: torch.Tensor,
++        num_tokens_padded: int | None = None,
+     ) -> torch.Tensor:
+         num_reqs = idx_mapping.shape[0]
+         num_tokens = positions.shape[0]
++        if num_tokens_padded is None:
++            num_tokens_padded = num_tokens
++        assert num_tokens <= num_tokens_padded <= self.max_num_batched_tokens
+         num_groups = self.num_kv_cache_groups
+-        _compute_slot_mappings_kernel[(num_groups, num_reqs + 1)](
+-            num_tokens,
+-            self.max_num_batched_tokens,
+-            idx_mapping,
+-            query_start_loc,
+-            positions,
+-            self.block_table_ptrs,
+-            self.block_table_strides,
+-            self.block_sizes_tensor,
+-            self.slot_mappings,
+-            self.slot_mappings.stride(0),
+-            PAD_ID=PAD_SLOT_ID,
+-            TRITON_BLOCK_SIZE=1024,  # type: ignore
+-        )
+-        return self.slot_mappings[:, :num_tokens]
++        if self.total_cp_world_size > 1:
++            assert self.cp_kv_cache_interleave_size > 0
++            _compute_slot_mappings_dcp_kernel[(num_groups, num_reqs + 1)](
++                num_tokens,
++                self.max_num_batched_tokens,
++                idx_mapping,
++                query_start_loc,
++                positions,
++                self.block_table_ptrs,
++                self.block_table_strides,
++                self.block_sizes_tensor,
++                self.slot_mappings,
++                self.slot_mappings.stride(0),
++                self.total_cp_world_size,
++                self.total_cp_rank,
++                self.cp_kv_cache_interleave_size,
++                PAD_ID=PAD_SLOT_ID,
++                TRITON_BLOCK_SIZE=1024,  # type: ignore
++            )
++        else:
++            _compute_slot_mappings_kernel[(num_groups, num_reqs + 1)](
++                num_tokens,
++                self.max_num_batched_tokens,
++                idx_mapping,
++                query_start_loc,
++                positions,
++                self.block_table_ptrs,
++                self.block_table_strides,
++                self.block_sizes_tensor,
++                self.slot_mappings,
++                self.slot_mappings.stride(0),
++                PAD_ID=PAD_SLOT_ID,
++                TRITON_BLOCK_SIZE=1024,  # type: ignore
++            )
++        return self.slot_mappings[:, :num_tokens_padded]
+ 
+     def get_dummy_slot_mappings(self, num_tokens: int) -> torch.Tensor:
+         self.slot_mappings.fill_(PAD_SLOT_ID)
+@@ -216,6 +256,69 @@ def _compute_slot_mappings_kernel(
+         tl.store(slot_mapping_ptr + offset, slot_ids, mask=offset < end_idx)
+ 
+ 
++@triton.jit
++def _compute_slot_mappings_dcp_kernel(
++    num_tokens,
++    max_num_tokens,
++    idx_mapping,  # [num_reqs]
++    query_start_loc,  # [num_reqs + 1]
++    pos,  # [num_tokens]
++    block_table_ptrs,  # [num_kv_cache_groups]
++    block_table_strides,  # [num_kv_cache_groups]
++    block_sizes,  # [num_kv_cache_groups]
++    slot_mappings_ptr,  # [num_kv_cache_groups, max_num_tokens]
++    slot_mappings_stride,
++    total_cp_world_size,
++    total_cp_rank,
++    cp_kv_cache_interleave_size,
++    PAD_ID: tl.constexpr,
++    TRITON_BLOCK_SIZE: tl.constexpr,
++):
++    group_id = tl.program_id(0)
++    batch_idx = tl.program_id(1)
++    slot_mapping_ptr = slot_mappings_ptr + group_id * slot_mappings_stride
++
++    if batch_idx == tl.num_programs(1) - 1:
++        # Pad remaining slots to -1. This is needed for CUDA graphs.
++        for i in range(num_tokens, max_num_tokens, TRITON_BLOCK_SIZE):
++            offset = i + tl.arange(0, TRITON_BLOCK_SIZE)
++            tl.store(slot_mapping_ptr + offset, PAD_ID, mask=offset < max_num_tokens)
++        return
++
++    block_table_ptr = _load_ptr(block_table_ptrs + group_id, tl.int32)
++    block_table_stride = tl.load(block_table_strides + group_id)
++    block_size = tl.load(block_sizes + group_id)
++    virtual_block_size = block_size * total_cp_world_size
++
++    req_state_idx = tl.load(idx_mapping + batch_idx)
++    start_idx = tl.load(query_start_loc + batch_idx)
++    end_idx = tl.load(query_start_loc + batch_idx + 1)
++    for i in range(start_idx, end_idx, TRITON_BLOCK_SIZE):
++        offset = i + tl.arange(0, TRITON_BLOCK_SIZE)
++        positions = tl.load(pos + offset, mask=offset < end_idx, other=0)
++        block_indices = positions // virtual_block_size
++        block_numbers = tl.load(
++            block_table_ptr + req_state_idx * block_table_stride + block_indices
++        )
++        virtual_block_offsets = positions % virtual_block_size
++        local_mask = (
++            virtual_block_offsets // cp_kv_cache_interleave_size
++        ) % total_cp_world_size == total_cp_rank
++        block_offsets = (
++            virtual_block_offsets
++            // (total_cp_world_size * cp_kv_cache_interleave_size)
++            * cp_kv_cache_interleave_size
++            + virtual_block_offsets % cp_kv_cache_interleave_size
++        )
++        slot_ids = block_numbers * block_size + block_offsets
++        slot_ids = tl.where(local_mask, slot_ids, PAD_ID)
++        tl.store(
++            slot_mapping_ptr + offset,
++            slot_ids,
++            mask=offset < end_idx,
++        )
++
++
+ @triton.jit
+ def _load_ptr(ptr_to_ptr, elem_dtype):
+     ptr = tl.load(ptr_to_ptr)
+diff --git a/vllm/v1/worker/gpu/cudagraph_utils.py b/vllm/v1/worker/gpu/cudagraph_utils.py
+index d5a22d6a0d..96fbdd16dc 100644
+--- a/vllm/v1/worker/gpu/cudagraph_utils.py
++++ b/vllm/v1/worker/gpu/cudagraph_utils.py
+@@ -17,6 +17,7 @@ from vllm.v1.kv_cache_interface import KVCacheConfig
+ from vllm.v1.worker.gpu.attn_utils import (
+     build_attn_metadata,
+     build_slot_mappings_by_layer,
++    update_dcp_local_seq_lens,
+ )
+ from vllm.v1.worker.gpu.block_table import BlockTables
+ from vllm.v1.worker.gpu.dp_utils import make_num_tokens_across_dp
+@@ -75,6 +76,10 @@ class CudaGraphManager:
+         block_tables: BlockTables,
+         attn_metadata_builders: list[AttentionMetadataBuilder],
+         kv_cache_config: KVCacheConfig,
++        dcp_local_seq_lens: torch.Tensor | None = None,
++        dcp_world_size: int = 1,
++        dcp_rank: int = 0,
++        cp_kv_cache_interleave_size: int = 1,
+     ) -> None:
+         num_reqs = min(num_tokens, self.max_num_reqs)
+         input_ids = input_buffers.input_ids[:num_tokens]
+@@ -92,6 +97,10 @@ class CudaGraphManager:
+             attn_metadata_builders,
+             self.max_model_len,
+             kv_cache_config,
++            dcp_local_seq_lens=dcp_local_seq_lens,
++            dcp_world_size=dcp_world_size,
++            dcp_rank=dcp_rank,
++            cp_kv_cache_interleave_size=cp_kv_cache_interleave_size,
+         )
+         num_tokens_across_dp = make_num_tokens_across_dp(self.dp_size, num_tokens)
+ 
+@@ -144,6 +153,10 @@ class CudaGraphManager:
+         block_tables: BlockTables,
+         attn_metadata_builders: list[AttentionMetadataBuilder],
+         kv_cache_config: KVCacheConfig,
++        dcp_local_seq_lens: torch.Tensor | None = None,
++        dcp_world_size: int = 1,
++        dcp_rank: int = 0,
++        cp_kv_cache_interleave_size: int = 1,
+     ) -> None:
+         capture_graphs(
+             self.cudagraph_sizes,
+@@ -156,6 +169,10 @@ class CudaGraphManager:
+             block_tables=block_tables,
+             attn_metadata_builders=attn_metadata_builders,
+             kv_cache_config=kv_cache_config,
++            dcp_local_seq_lens=dcp_local_seq_lens,
++            dcp_world_size=dcp_world_size,
++            dcp_rank=dcp_rank,
++            cp_kv_cache_interleave_size=cp_kv_cache_interleave_size,
+         )
+ 
+     def run(self, num_tokens: int) -> torch.Tensor:
+@@ -242,6 +259,10 @@ def prepare_inputs_to_capture(
+     attn_metadata_builders: list[AttentionMetadataBuilder],
+     max_model_len: int,
+     kv_cache_config: KVCacheConfig,
++    dcp_local_seq_lens: torch.Tensor | None = None,
++    dcp_world_size: int = 1,
++    dcp_rank: int = 0,
++    cp_kv_cache_interleave_size: int = 1,
+ ) -> tuple[dict[str, Any], dict[str, torch.Tensor]]:
+     num_tokens_per_req = num_tokens // num_reqs
+ 
+@@ -263,6 +284,18 @@ def prepare_inputs_to_capture(
+         slot_mappings, kv_cache_config
+     )
+ 
++    dcp_local_seq_lens_arg = None
++    if dcp_world_size > 1:
++        assert dcp_local_seq_lens is not None
++        dcp_local_seq_lens_arg = update_dcp_local_seq_lens(
++            dcp_local_seq_lens,
++            input_buffers.seq_lens[:num_reqs],
++            num_reqs,
++            dcp_world_size,
++            dcp_rank,
++            cp_kv_cache_interleave_size,
++        )
++
+     attn_metadata = build_attn_metadata(
+         attn_metadata_builders=attn_metadata_builders,
+         num_reqs=num_reqs,
+@@ -275,5 +308,6 @@ def prepare_inputs_to_capture(
+         block_tables=input_block_tables,
+         slot_mappings=slot_mappings,
+         kv_cache_config=kv_cache_config,
++        dcp_local_seq_lens=dcp_local_seq_lens_arg,
+     )
+     return attn_metadata, slot_mappings_by_layer
+diff --git a/vllm/v1/worker/gpu/model_runner.py b/vllm/v1/worker/gpu/model_runner.py
+index 8cca3cb461..0e0e6042d7 100644
+--- a/vllm/v1/worker/gpu/model_runner.py
++++ b/vllm/v1/worker/gpu/model_runner.py
+@@ -11,6 +11,7 @@ import torch.nn as nn
+ from vllm.config import VllmConfig
+ from vllm.config.compilation import CUDAGraphMode
+ from vllm.distributed.parallel_state import (
++    get_dcp_group,
+     get_pp_group,
+     prepare_communication_buffer_for_model,
+ )
+@@ -24,6 +25,7 @@ from vllm.utils.torch_utils import STR_DTYPE_TO_TORCH_DTYPE
+ from vllm.v1.core.sched.output import GrammarOutput, SchedulerOutput
+ from vllm.v1.kv_cache_interface import KVCacheConfig
+ from vllm.v1.outputs import DraftTokenIds, ModelRunnerOutput
++from vllm.v1.worker.cp_utils import check_attention_cp_compatibility
+ from vllm.v1.worker.gpu.async_utils import AsyncOutput
+ from vllm.v1.worker.gpu.attn_utils import (
+     build_attn_metadata,
+@@ -31,6 +33,7 @@ from vllm.v1.worker.gpu.attn_utils import (
+     get_kv_cache_spec,
+     init_attn_backend,
+     init_kv_cache,
++    update_dcp_local_seq_lens,
+ )
+ from vllm.v1.worker.gpu.block_table import BlockTables
+ from vllm.v1.worker.gpu.buffer_utils import async_copy_to_gpu
+@@ -85,6 +88,26 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+         self.load_config = vllm_config.load_config
+         self.parallel_config = vllm_config.parallel_config
+         self.scheduler_config = vllm_config.scheduler_config
++
++        # Context parallelism. V2 currently supports DCP with PCP=1.
++        self.pcp_world_size = self.parallel_config.prefill_context_parallel_size
++        self.dcp_world_size = self.parallel_config.decode_context_parallel_size
++        assert self.pcp_world_size == 1, (
++            "PCP is not supported by Model Runner V2 yet."
++        )
++        self.total_cp_world_size = (
++            self.pcp_world_size * self.dcp_world_size
++        )
++        self.pcp_rank = 0
++        self.dcp_rank = (
++            get_dcp_group().rank_in_group if self.dcp_world_size > 1 else 0
++        )
++        self.total_cp_rank = (
++            self.pcp_rank * self.dcp_world_size + self.dcp_rank
++        )
++        self.cp_kv_cache_interleave_size = (
++            self.parallel_config.cp_kv_cache_interleave_size
++        )
+         self.speculative_config = vllm_config.speculative_config
+         self.observability_config = vllm_config.observability_config
+ 
+@@ -137,6 +160,11 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+             self.do_spec_decode = False
+             self.num_speculative_steps = 0
+             self.speculator = None
++        if self.do_spec_decode and self.total_cp_world_size > 1:
++            raise NotImplementedError(
++                "Speculative decoding with DCP is not supported by "
++                "Model Runner V2 yet."
++            )
+ 
+         self.req_states = RequestState(
+             max_num_reqs=self.max_num_reqs,
+@@ -151,6 +179,13 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+             max_num_tokens=self.max_num_tokens,
+             device=self.device,
+         )
++        self.dcp_local_seq_lens = (
++            torch.zeros(
++                self.max_num_reqs, dtype=torch.int32, device=self.device
++            )
++            if self.dcp_world_size > 1
++            else None
++        )
+         self.sampler = Sampler(
+             max_num_reqs=self.max_num_reqs,
+             vocab_size=self.vocab_size,
+@@ -235,6 +270,7 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+         return get_kv_cache_spec(self.vllm_config)
+ 
+     def initialize_kv_cache(self, kv_cache_config: KVCacheConfig) -> None:
++        check_attention_cp_compatibility(self.vllm_config)
+         kv_cache_config = deepcopy(kv_cache_config)
+         self.kv_cache_config = kv_cache_config
+         block_sizes = [
+@@ -248,6 +284,9 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+             max_num_batched_tokens=self.max_num_tokens,
+             max_model_len=self.max_model_len,
+             device=self.device,
++            total_cp_world_size=self.total_cp_world_size,
++            total_cp_rank=self.total_cp_rank,
++            cp_kv_cache_interleave_size=self.cp_kv_cache_interleave_size,
+         )
+ 
+         self.attn_backends, self.attn_metadata_builders = init_attn_backend(
+@@ -282,6 +321,18 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+         slot_mappings_by_layer = build_slot_mappings_by_layer(
+             slot_mappings, self.kv_cache_config
+         )
++
++        dcp_local_seq_lens = None
++        if self.dcp_world_size > 1:
++            assert self.dcp_local_seq_lens is not None
++            dcp_local_seq_lens = update_dcp_local_seq_lens(
++                self.dcp_local_seq_lens,
++                input_batch.seq_lens[: input_batch.num_reqs],
++                input_batch.num_reqs,
++                self.dcp_world_size,
++                self.dcp_rank,
++                self.cp_kv_cache_interleave_size,
++            )
+         attn_metadata = build_attn_metadata(
+             attn_metadata_builders=self.attn_metadata_builders,
+             num_reqs=input_batch.num_reqs,
+@@ -294,6 +345,7 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+             block_tables=block_tables,
+             slot_mappings=slot_mappings,
+             kv_cache_config=self.kv_cache_config,
++            dcp_local_seq_lens=dcp_local_seq_lens,
+         )
+         input_batch.attn_metadata = attn_metadata
+         input_batch.slot_mappings = slot_mappings_by_layer
+@@ -444,6 +496,10 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+                 block_tables=self.block_tables,
+                 attn_metadata_builders=self.attn_metadata_builders,
+                 kv_cache_config=self.kv_cache_config,
++                dcp_local_seq_lens=self.dcp_local_seq_lens,
++                dcp_world_size=self.dcp_world_size,
++                dcp_rank=self.dcp_rank,
++                cp_kv_cache_interleave_size=self.cp_kv_cache_interleave_size,
+             )
+             if self.do_spec_decode:
+                 self.speculator.capture_model()
+@@ -539,13 +595,31 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+                 )
+ 
+     def prepare_inputs(
+-        self, scheduler_output: SchedulerOutput, num_tokens_after_padding: int
++        self,
++        scheduler_output: SchedulerOutput,
++        num_tokens_after_padding: int,
++        use_cudagraph: bool = False,
+     ) -> InputBatch:
+         num_tokens = scheduler_output.total_num_scheduled_tokens
+         assert num_tokens > 0
+         num_tokens_per_req = scheduler_output.num_scheduled_tokens
+         num_reqs = len(num_tokens_per_req)
+ 
++        # DCP with full CUDA graphs requires attention metadata padded to the
++        # captured graph size. Other paths continue to use actual sizes.
++        use_dcp_cudagraph = self.dcp_world_size > 1 and use_cudagraph
++        num_reqs_attn = num_reqs
++        num_tokens_attn = num_tokens
++        if use_dcp_cudagraph:
++            # DCP attention metadata currently supports padding to a captured
++            # decode graph size only when that size is bounded by the number
++            # of supported request slots. Larger FULL graph sizes are handled
++            # by execute_model falling back to eager execution.
++            assert num_tokens_after_padding <= self.max_num_reqs
++            num_reqs_attn = num_tokens_after_padding
++            num_tokens_attn = num_tokens_after_padding
++            assert num_reqs <= num_reqs_attn <= self.max_num_reqs
++
+         # Decode first, then prefill.
+         # batch_idx -> req_id
+         req_ids = sorted(num_tokens_per_req, key=num_tokens_per_req.get)  # type: ignore[arg-type]
+@@ -590,20 +664,35 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+             )
+ 
+         # Block tables: num_kv_cache_groups x [num_reqs, max_num_blocks]
+-        block_tables = self.block_tables.gather_block_tables(idx_mapping)
++        block_tables = self.block_tables.gather_block_tables(
++            idx_mapping, num_reqs_attn if use_dcp_cudagraph else None
++        )
+ 
+         # Get query_start_loc.
+-        query_start_loc_np = np.empty(self.max_num_reqs + 1, dtype=np.int32)
+-        query_start_loc_np[0] = 0
+-        np.cumsum(num_scheduled_tokens, out=query_start_loc_np[1 : num_reqs + 1])
++        query_start_loc_np_full = np.empty(self.max_num_reqs + 1, dtype=np.int32)
++        query_start_loc_np_full[0] = 0
++        np.cumsum(
++            num_scheduled_tokens, out=query_start_loc_np_full[1 : num_reqs + 1]
++        )
+         # Pad for full CUDA graph mode.
+         # Some attention backends like FA3 require query_start_loc to be non-decreasing.
+-        query_start_loc_np[num_reqs + 1 :] = num_tokens
+-        async_copy_to_gpu(query_start_loc_np, out=self.input_buffers.query_start_loc)
++        query_start_loc_np_full[num_reqs + 1 :] = num_tokens
++        async_copy_to_gpu(
++            query_start_loc_np_full, out=self.input_buffers.query_start_loc
++        )
+ 
+-        query_start_loc_np = query_start_loc_np[: num_reqs + 1]
++        query_start_loc_np = query_start_loc_np_full[: num_reqs + 1]
+         query_start_loc_cpu = torch.from_numpy(query_start_loc_np)
+         query_start_loc = self.input_buffers.query_start_loc[: num_reqs + 1]
++        if use_dcp_cudagraph:
++            query_start_loc_np_attn = query_start_loc_np_full[: num_reqs_attn + 1]
++            query_start_loc_cpu_attn = torch.from_numpy(query_start_loc_np_attn)
++            query_start_loc_attn = self.input_buffers.query_start_loc[
++                : num_reqs_attn + 1
++            ]
++        else:
++            query_start_loc_attn = query_start_loc
++            query_start_loc_cpu_attn = query_start_loc_cpu
+         max_query_len = num_scheduled_tokens.max().item()
+ 
+         # Get prefill tokens.
+@@ -653,8 +742,9 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+         # Compute slot mappings: [num_kv_cache_groups, num_tokens]
+         slot_mappings = self.block_tables.compute_slot_mappings(
+             idx_mapping,
+-            query_start_loc,
++            query_start_loc_attn if use_dcp_cudagraph else query_start_loc,
+             self.input_buffers.positions[:num_tokens],
++            num_tokens_padded=num_tokens_attn if use_dcp_cudagraph else None,
+         )
+         # Layer name -> slot mapping.
+         slot_mappings_by_layer = build_slot_mappings_by_layer(
+@@ -662,18 +752,31 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+         )
+ 
+         # Layer name -> attention metadata.
++        dcp_local_seq_lens = None
++        if self.dcp_world_size > 1:
++            assert self.dcp_local_seq_lens is not None
++            dcp_local_seq_lens = update_dcp_local_seq_lens(
++                self.dcp_local_seq_lens,
++                seq_lens,
++                num_reqs,
++                self.dcp_world_size,
++                self.dcp_rank,
++                self.cp_kv_cache_interleave_size,
++                num_reqs_padded=num_reqs_attn,
++            )
+         attn_metadata = build_attn_metadata(
+             attn_metadata_builders=self.attn_metadata_builders,
+-            num_reqs=num_reqs,
+-            num_tokens=num_tokens,
+-            query_start_loc_gpu=query_start_loc,
+-            query_start_loc_cpu=query_start_loc_cpu,
++            num_reqs=num_reqs_attn,
++            num_tokens=num_tokens_attn,
++            query_start_loc_gpu=query_start_loc_attn,
++            query_start_loc_cpu=query_start_loc_cpu_attn,
+             max_query_len=max_query_len,
+             seq_lens=self.input_buffers.seq_lens,
+             max_seq_len=self.max_model_len,
+             block_tables=block_tables,
+             slot_mappings=slot_mappings,
+             kv_cache_config=self.kv_cache_config,
++            dcp_local_seq_lens=dcp_local_seq_lens,
+         )
+ 
+         input_ids = self.input_buffers.input_ids[:num_tokens_after_padding]
+@@ -861,6 +964,35 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+             scheduler_output.total_num_scheduled_tokens,
+             scheduler_output.num_scheduled_tokens.values(),
+         )
++        if (
++            cudagraph_size is not None
++            and self.dcp_world_size > 1
++            and any(
++                num_tokens > 1
++                for num_tokens in scheduler_output.num_scheduled_tokens.values()
++            )
++        ):
++            logger.warning_once(
++                'DCP does not support mixed prefill/decode CUDA graphs yet; '
++                'falling back to eager execution for this batch.'
++            )
++            cudagraph_size = None
++        if (
++            cudagraph_size is not None
++            and self.dcp_world_size > 1
++            and cudagraph_size > self.max_num_reqs
++        ):
++            # FULL CUDA graphs can capture sizes larger than max_num_reqs,
++            # where one captured graph token slot may represent multiple
++            # decode requests. DCP attention metadata cannot currently be
++            # padded correctly for those batched graph sizes, so keep them
++            # eager-only rather than replaying with inconsistent metadata.
++            logger.warning_once(
++                'DCP does not support full CUDA graph sizes larger than '
++                'max_num_reqs yet; falling back to eager execution for this '
++                'batch.'
++            )
++            cudagraph_size = None
+         use_cudagraph, num_tokens_after_padding, num_tokens_across_dp = (
+             get_cudagraph_and_dp_padding(
+                 scheduler_output.total_num_scheduled_tokens,
+@@ -878,7 +1010,9 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+             # Common case.
+             # Prepare all the inputs and copy to the input buffers.
+             input_batch = self.prepare_inputs(
+-                scheduler_output, num_tokens_after_padding
++                scheduler_output,
++                num_tokens_after_padding,
++                use_cudagraph=use_cudagraph,
+             )
+             if self.lora_config:
+                 # Activate LoRA adapters.
