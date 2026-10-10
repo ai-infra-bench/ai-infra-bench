@@ -1,0 +1,42 @@
+diff --git a/packages/coding-agent/examples/extensions/plan-mode/index.ts b/packages/coding-agent/examples/extensions/plan-mode/index.ts
+--- a/packages/coding-agent/examples/extensions/plan-mode/index.ts
++++ b/packages/coding-agent/examples/extensions/plan-mode/index.ts
+@@ -79,6 +79,7 @@
+ 	let toolsBeforePlanning: string[] = [];
+ 	let todos: TodoItem[] = [];
+ 	let reviewOpen = false;
++	let cancelReview: (() => void) | undefined;
+ 
+ 	function snapshot(): PlanState {
+ 		return { ...state, steps: [...state.steps] };
+@@ -171,10 +172,14 @@
+ 		if (!ctx.hasUI || reviewOpen || busy(ctx) || state.mode !== "planning" || state.revision === 0) return;
+ 		reviewOpen = true;
+ 		const displayed = snapshot();
++		const controller = new AbortController();
++		const cancelThisReview = () => controller.abort();
++		cancelReview = cancelThisReview;
+ 		try {
+ 			const choice = await ctx.ui.select(
+ 				`Plan ${displayed.planId}, revision ${displayed.revision}\n${displayed.steps.map((step, i) => `${i + 1}. ${step}`).join("\n")}\nWhat next?`,
+ 				["Execute the plan (track progress)", "Stay in plan mode", "Refine the plan"],
++				{ signal: controller.signal },
+ 			);
+ 			if (choice === "Execute the plan (track progress)" && displayed.planId) {
+ 				const error = approve(ctx, displayed.sessionId, displayed.planId, displayed.revision);
+@@ -187,6 +192,7 @@
+ 				}
+ 			}
+ 		} finally {
++			if (cancelReview === cancelThisReview) cancelReview = undefined;
+ 			reviewOpen = false;
+ 		}
+ 	}
+@@ -208,6 +214,7 @@
+ 				throw new Error("A plan must contain at least one step, and every step must be nonblank.");
+ 			}
+ 			if (state.revision === Number.MAX_SAFE_INTEGER) throw new Error("Plan revision limit reached.");
++			cancelReview?.();
+ 			state = { ...state, revision: state.revision + 1, steps: [...steps], approvedRevision: null };
+ 			todos = steps.map((text, i) => ({ step: i + 1, text, completed: false }));
+ 			persist();

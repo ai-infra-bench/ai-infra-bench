@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 from datetime import datetime
 import hashlib
 import json
@@ -838,31 +839,77 @@ def result_reward(result_path: Path) -> tuple[int, int, list[float]]:
 
 
 def print_verifier_failure_logs(job_dir: Path) -> None:
-    root = job_dir.resolve()
-    logs = [path for path in sorted(job_dir.glob("*/verifier/test-stdout.txt"))
-            if not path.is_symlink() and path.resolve().is_relative_to(root)]
-    if not logs:
-        return
     # Verifier output is diagnostic text, never GitHub Actions commands.
     token = uuid.uuid4().hex if os.environ.get("GITHUB_ACTIONS") == "true" else None
     if token:
         print(f"::stop-commands::{token}")
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    found = False
     try:
-        for path in logs:
-            print(f"Verifier output (last 64 KiB): {path.relative_to(job_dir)}")
-            try:
-                with path.open("rb") as stream:
-                    stream.seek(0, os.SEEK_END)
-                    stream.seek(max(0, stream.tell() - 65536))
-                    print(stream.read(65536).decode("utf-8", errors="replace"))
-            except OSError as exc:
-                print(f"Unable to read verifier output: {exc}")
+        with ExitStack() as root_stack:
+            # Reject symlinks in every component, including the job root itself.
+            root_fd = os.open("/" if job_dir.is_absolute() else ".", directory_flags)
+            root_stack.callback(os.close, root_fd)
+            for part in job_dir.parts:
+                if part in ("/", "."):
+                    continue
+                root_fd = os.open(part, directory_flags, dir_fd=root_fd)
+                root_stack.callback(os.close, root_fd)
+            for trial in sorted(os.listdir(root_fd)):
+                try:
+                    with ExitStack() as trial_stack:
+                        trial_fd = os.open(trial, directory_flags, dir_fd=root_fd)
+                        trial_stack.callback(os.close, trial_fd)
+                        verifier_fd = os.open("verifier", directory_flags, dir_fd=trial_fd)
+                        trial_stack.callback(os.close, verifier_fd)
+                        # A scorer can intentionally leave reward absent and
+                        # write its reason only to grading-status.json. Read
+                        # each fixed diagnostic independently of stdout.
+                        for name in ("test-stdout.txt", "test-stderr.txt", "grading-status.json"):
+                            try:
+                                log_fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                                                 dir_fd=verifier_fd)
+                                try:
+                                    info = os.fstat(log_fd)
+                                    if not stat.S_ISREG(info.st_mode):
+                                        continue
+                                    os.lseek(log_fd, max(0, info.st_size - 65536), os.SEEK_SET)
+                                    data = os.read(log_fd, 65536)
+                                finally:
+                                    os.close(log_fd)
+                                print(f"Verifier output (last 64 KiB): {trial}/verifier/{name}")
+                                print(data.decode("utf-8", errors="replace"))
+                                found = True
+                            except OSError:
+                                continue
+                except OSError:
+                    # Missing files, links and unreadable entries are not logs.
+                    continue
+    except OSError as exc:
+        print(f"Unable to inspect verifier output: {exc}")
     finally:
+        if not found:
+            print("No readable regular verifier output found")
         if token:
             print(f"::{token}::")
 
 
+def command_print_failure_logs(args: argparse.Namespace) -> None:
+    print_verifier_failure_logs(Path(args.job_dir))
+
+
 def command_check_result(args: argparse.Namespace) -> None:
+    try:
+        _check_result(args)
+    except (ContractError, OSError, json.JSONDecodeError):
+        try:
+            print_verifier_failure_logs(Path(args.result).parent)
+        except Exception as error:
+            print(f"Unable to print verifier diagnostics: {error}", file=sys.stderr)
+        raise
+
+
+def _check_result(args: argparse.Namespace) -> None:
     result_path = Path(args.result)
     # Harbor 0.22's OracleAgent records a nonzero solve.sh exit here without
     # raising a trial exception. The verifier can still grade unchanged Base
@@ -887,7 +934,6 @@ def command_check_result(args: argparse.Namespace) -> None:
     completed, errored, rewards = result_reward(result_path)
     expected = float(args.expected_reward)
     if completed != 1 or errored != 0 or rewards != [expected]:
-        print_verifier_failure_logs(Path(args.result).parent)
         raise ContractError(
             f"unexpected Harbor result: completed={completed}, errored={errored}, "
             f"rewards={rewards}, expected={[expected]}"
@@ -1095,6 +1141,10 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--case", required=True)
     prepare.add_argument("--output", required=True)
     prepare.set_defaults(func=command_prepare_case)
+
+    logs = subparsers.add_parser("print-failure-logs")
+    logs.add_argument("--job-dir", required=True)
+    logs.set_defaults(func=command_print_failure_logs)
 
     check = subparsers.add_parser("check-result")
     check.add_argument("--result", required=True)

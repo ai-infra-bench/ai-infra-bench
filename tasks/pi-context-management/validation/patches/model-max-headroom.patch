@@ -1,0 +1,12 @@
+diff --git a/packages/coding-agent/examples/extensions/context-management/index.ts b/packages/coding-agent/examples/extensions/context-management/index.ts
+--- a/packages/coding-agent/examples/extensions/context-management/index.ts
++++ b/packages/coding-agent/examples/extensions/context-management/index.ts
+@@ -90,7 +90,7 @@
+ 	}
+ 	function budget(ctx: ExtensionContext) {
+ 		const capacity = ctx.model?.contextWindow ?? 128_000;
+-		const headroom = positive("context-response-headroom", Math.max(ctx.model?.maxTokens ?? 4096, 4096));
++		const headroom = Math.max(ctx.model?.maxTokens ?? 4096, positive("context-response-headroom", 4096));
+ 		if (headroom >= capacity) throw new Error("Response headroom leaves no input capacity");
+ 		const rollover = positive("context-rollover-tokens", Math.floor((capacity - headroom) * 0.9));
+ 		const reminder = positive("context-reminder-tokens", Math.floor(rollover * 0.75));

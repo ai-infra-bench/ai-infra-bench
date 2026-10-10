@@ -1,0 +1,30 @@
+diff --git a/packages/coding-agent/examples/extensions/context-management/index.ts b/packages/coding-agent/examples/extensions/context-management/index.ts
+--- a/packages/coding-agent/examples/extensions/context-management/index.ts
++++ b/packages/coding-agent/examples/extensions/context-management/index.ts
+@@ -141,7 +141,7 @@
+ 			}
+ 			const limits = budget(ctx);
+ 			let outgoing = messages();
+-			const used = estimate(ctx, outgoing);
++			const used = estimate(ctx, outgoing) - Math.ceil((state.note?.length ?? 0) / 4);
+ 			let roll = used >= limits.rollover;
+ 			let remind = false;
+ 			if (!roll && used >= limits.reminder && !state.reminded) {
+@@ -149,7 +149,7 @@
+ 					role: "custom", customType: "context_capacity_reminder", display: false, timestamp: 0,
+ 					content: JSON.stringify({ remaining_tokens: Math.max(0, limits.rollover - used), message: "Save working notes before the next context reset." }),
+ 				}];
+-				roll = estimate(ctx, outgoing) >= limits.rollover;
++				roll = estimate(ctx, outgoing) - Math.ceil((state.note?.length ?? 0) / 4) >= limits.rollover;
+ 				remind = !roll;
+ 			}
+ 			if (roll) {
+@@ -161,7 +161,7 @@
+ 			} else if (remind) {
+ 				pi.appendEntry(REMINDED, { window_id: state.windowId });
+ 			}
+-			if (estimate(ctx, outgoing) >= limits.inputLimit) {
++			if (estimate(ctx, outgoing) - Math.ceil((state.note?.length ?? 0) / 4) >= limits.inputLimit) {
+ 				throw new Error(
+ 					"System setup, notes or pending input exceed available model input capacity; shorten them or choose a larger model",
+ 				);

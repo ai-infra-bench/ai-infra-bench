@@ -78,6 +78,10 @@ def build(task_dir: Path, platform: str | None) -> None:
     run("python3", str(TEMPLATE_DIR / "generate.py"), "--check", str(task_dir))
 
     platform_args = ["--platform", platform] if platform else []
+    # Explicit opt-in only. BuildKit reads the value from the invoking environment;
+    # neither the token nor an authorization header enters the command arguments.
+    secret_args = (["--secret", "id=github_token,env=PI_GITHUB_TOKEN"]
+                   if os.environ.get("PI_GITHUB_TOKEN") else [])
     # A host proxy (HTTPS_PROXY/HTTP_PROXY in the environment) is forwarded to the build
     # steps as the predefined proxy build args; BuildKit keeps those out of the image
     # configuration and history. 127.0.0.1/localhost become host.docker.internal.
@@ -99,6 +103,7 @@ def build(task_dir: Path, platform: str | None) -> None:
             "--progress=plain",
             *platform_args,
             *proxy_args,
+            *secret_args,
             "--tag",
             tag,
             "--file",

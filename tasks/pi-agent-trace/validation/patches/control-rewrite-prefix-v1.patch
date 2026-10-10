@@ -1,0 +1,24 @@
+diff --git a/packages/coding-agent/examples/extensions/agent-trace/index.ts b/packages/coding-agent/examples/extensions/agent-trace/index.ts
+--- a/packages/coding-agent/examples/extensions/agent-trace/index.ts
++++ b/packages/coding-agent/examples/extensions/agent-trace/index.ts
+@@ -23,7 +23,7 @@
+  */
+ 
+ import { createHash, randomBytes } from "node:crypto";
+-import { appendFileSync, mkdirSync } from "node:fs";
++import { appendFileSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+ import { dirname, join } from "node:path";
+ import { type ExtensionAPI, type ExtensionContext, type SessionEntry, VERSION } from "@earendil-works/pi-coding-agent";
+ 
+@@ -230,6 +230,11 @@
+ 				},
+ 			],
+ 		};
++		if (phase === "start" && span.name === "pi.run" && existsSync(file)) {
++			const old = readFileSync(file, "utf8");
++			// Semantically equivalent JSON whitespace still violates byte append-only.
++			writeFileSync(file, old.split("\n").map((part) => part ? ` ${part}` : part).join("\n"));
++		}
+ 		mkdirSync(dirname(file), { recursive: true });
+ 		appendFileSync(file, `${JSON.stringify(line)}\n`);
+ 	}

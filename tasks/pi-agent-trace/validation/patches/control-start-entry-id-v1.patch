@@ -1,0 +1,14 @@
+diff --git a/packages/coding-agent/examples/extensions/agent-trace/index.ts b/packages/coding-agent/examples/extensions/agent-trace/index.ts
+--- a/packages/coding-agent/examples/extensions/agent-trace/index.ts
++++ b/packages/coding-agent/examples/extensions/agent-trace/index.ts
+@@ -295,9 +295,8 @@
+ 		sawBeforeAgentStart = false;
+ 		previousRunSettled = false;
+ 		const known: Array<[string, AttributeValue]> = [["pi.run.trigger", runTrigger]];
++		if (isOverflowRetry) known.push(["pi.run.after_compaction", retryAfterCompaction!]);
+ 		run = start("pi.run", KIND_INTERNAL, undefined, now, known);
+-		// Entry references belong only to the end record; start() already wrote the live line.
+-		if (isOverflowRetry) run.attributes.set("pi.run.after_compaction", retryAfterCompaction!);
+ 		// An overflow retry resumes the existing context: no message of its own, no entry id.
+ 		runEntryResolved = isOverflowRetry;
+ 		retryAfterCompaction = undefined;
