@@ -1,0 +1,378 @@
+{
+  "status": "validated-local",
+  "recorded_at": "2026-09-19T05:15:19.705369+00:00",
+  "source_pr": {
+    "url": "https://github.com/ai-infra-bench/ai-infra-bench/pull/64",
+    "reviewed_head": "dd91f8bebc19752307707bd8c388cca3df11522d"
+  },
+  "task_version": "1.3.0",
+  "base_commit": "737bfa3a43ce386bd1894792f3302d9f3f9d73fa",
+  "base_tree": "f1ee5dc01c843ebb52d20e1714a93f96ec07cb96",
+  "dependency_cutoff": "2026-05-18T11:54:00Z",
+  "image_id": "sha256:a3f919b1b68a25af5b1947dd8e089d90b3503992f14c50ae98351bf885bfcfa4",
+  "image_tag": "ai-infra-bench/vllm-mamba-full-cg-decoding:base-737bfa3a43ce-r3",
+  "image_publication": "local only; not published by this work",
+  "skill_provenance": {
+    "workspace_head": "d3b0557d8c22902f6c045cb86f1403de8cd52fd6",
+    "sha256": {
+      "SKILL.md": "8fe577cbbf18cabee73dd49f510a9f2aa102bd07b5b4bb99e0c4327da666410b",
+      "references/review-rubric.md": "db7cfadedac4df9b796fc2fa390080a68587cfc4ab6d1b237a2dd308602a8721",
+      "references/validation-playbook.md": "f43a6c1055bfe70a6ad9a8c79ab1ce166e90a1ba56101f498be50e06ea4615f8",
+      "scripts/audit_task_artifacts.py": "8c942753482607dd9ab7eadbaebfb00c35461e136b873504c07224c068e84a8f"
+    }
+  },
+  "hardware": {
+    "gpu": "NVIDIA A100-SXM4-40GB",
+    "gpu_count_per_trial": 1,
+    "driver": "580.126.20",
+    "cpus": 4,
+    "memory_mib": 24576,
+    "network": "none"
+  },
+  "tools": {
+    "harbor": "0.22.0",
+    "docker_compose": "5.5.1",
+    "torch": "2.11.0+cu130"
+  },
+  "semantic_boundary": "LLM.generate -> production scheduler/runner/backend -> Mamba recurrent state consumption/update and CUDA graph replay -> multi-step tokens and full distributions.",
+  "substitution": "Local chunked prefill creates prior-state continuations; NIXL transport, tokenizer and downloads are omitted. Immutable Base non-speculative eager serving supplies independent reference outputs. Supported hybrid Mamba2 exercises speculative state accounting; pure Mamba2 speculative accounting is not used as an authority.",
+  "reward": "Independent root scorer compares every token and logprob vector with private Base non-speculative eager results. A separate protected tracer supplies successful CUDA graph-call evidence; candidate stdout and profiler counts cannot grant reward.",
+  "matrix": {
+    "trials": 27,
+    "matched_expected": 27,
+    "errored_trials": 0,
+    "passing_trials": 6,
+    "failing_trials": 21,
+    "correct_alternatives": 4,
+    "oracle_trials": 2,
+    "records": "results/matrix-results.json",
+    "raw_bundle": "results/harbor-matrix-r6.zip"
+  },
+  "final_harbor_oracle": {
+    "case": "oracle-repeat",
+    "expected_reward": 1,
+    "rewards": [
+      1
+    ],
+    "errors": 0,
+    "completed": 1,
+    "seconds": 482.83,
+    "process_exit": 0,
+    "job_result": "/data/pr64-review-20260919/matrix-r6-jobs/oracle-repeat/result.json",
+    "gpu": "GPU-a6a45da0-8978-3ea7-4fa0-1786ea9f3329",
+    "passed": true,
+    "job_id": "68b6b46c-a697-4828-ab6a-56bd61929968",
+    "trial_id": "f8ee3139-8ad4-4390-b465-327e4f1e2d39",
+    "trial_name": "oracle-repeat__re62n8d",
+    "task_checksum_before_evidence_update": "556341a8ef4c8cd620be150a742034fb197050301b4c20bdcc6616d8f992830b",
+    "started_at": "2026-09-19T05:06:43.142358Z",
+    "finished_at": "2026-09-19T05:14:38.594172Z",
+    "verifier": {
+      "started_at": "2026-09-19T05:07:02.846814Z",
+      "finished_at": "2026-09-19T05:14:38.593841Z"
+    },
+    "verifier_environment_mode": "separate",
+    "artifact_transfer": [
+      {
+        "source": "/logs/artifacts",
+        "destination": "artifacts/logs/artifacts",
+        "type": "directory",
+        "status": "empty",
+        "service": null
+      },
+      {
+        "source": "/workspace/repo/vllm",
+        "destination": "artifacts/workspace/repo/vllm",
+        "type": "directory",
+        "status": "ok",
+        "service": null
+      }
+    ],
+    "diagnostics": {
+      "reward": 1,
+      "cases": [
+        {
+          "case": "mamba1-full",
+          "vectors": 120,
+          "max_error": 9.5367431640625e-07,
+          "seconds": 72.22,
+          "exit_code": 0,
+          "graph_launches": 59,
+          "accepted_tokens": null,
+          "cached_tokens": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "case": "mamba1-eager",
+          "vectors": 120,
+          "max_error": 9.5367431640625e-07,
+          "seconds": 20.2,
+          "exit_code": 0,
+          "graph_launches": 0,
+          "accepted_tokens": null,
+          "cached_tokens": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "case": "mamba2-full",
+          "vectors": 56,
+          "max_error": 0.005106925964355469,
+          "seconds": 181.89,
+          "exit_code": 0,
+          "graph_launches": 29,
+          "accepted_tokens": null,
+          "cached_tokens": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "case": "mamba2-eager",
+          "vectors": 56,
+          "max_error": 4.57763671875e-05,
+          "seconds": 20.24,
+          "exit_code": 0,
+          "graph_launches": 0,
+          "accepted_tokens": null,
+          "cached_tokens": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "case": "hybrid-spec-none",
+          "vectors": 192,
+          "max_error": 1.9073486328125e-06,
+          "seconds": 72.0,
+          "exit_code": 0,
+          "graph_launches": 3,
+          "accepted_tokens": 7,
+          "cached_tokens": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "case": "hybrid-spec-eager",
+          "vectors": 192,
+          "max_error": 1.9073486328125e-06,
+          "seconds": 22.3,
+          "exit_code": 0,
+          "graph_launches": 0,
+          "accepted_tokens": 7,
+          "cached_tokens": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "case": "hybrid-spec-all",
+          "vectors": 96,
+          "max_error": 1.9073486328125e-06,
+          "seconds": 39.34,
+          "exit_code": 0,
+          "graph_launches": 3,
+          "accepted_tokens": 7,
+          "cached_tokens": [
+            0,
+            32,
+            32,
+            32
+          ]
+        }
+      ],
+      "reference": "frozen Base non-speculative eager GPU serving in a root-only reference process"
+    },
+    "independent_observations": {
+      "mamba1-full-observation.json": {
+        "child_exit": 0,
+        "armed": 1,
+        "finished": 1,
+        "graph_launches": 59,
+        "failed_graph_launches": 0
+      },
+      "mamba1-eager-observation.json": {
+        "child_exit": 0,
+        "armed": 1,
+        "finished": 1,
+        "graph_launches": 0,
+        "failed_graph_launches": 0
+      },
+      "mamba2-full-observation.json": {
+        "child_exit": 0,
+        "armed": 1,
+        "finished": 1,
+        "graph_launches": 29,
+        "failed_graph_launches": 0
+      },
+      "mamba2-eager-observation.json": {
+        "child_exit": 0,
+        "armed": 1,
+        "finished": 1,
+        "graph_launches": 0,
+        "failed_graph_launches": 0
+      },
+      "hybrid-spec-none-observation.json": {
+        "child_exit": 0,
+        "armed": 1,
+        "finished": 1,
+        "graph_launches": 3,
+        "failed_graph_launches": 0
+      },
+      "hybrid-spec-eager-observation.json": {
+        "child_exit": 0,
+        "armed": 1,
+        "finished": 1,
+        "graph_launches": 0,
+        "failed_graph_launches": 0
+      },
+      "hybrid-spec-all-observation.json": {
+        "child_exit": 0,
+        "armed": 1,
+        "finished": 1,
+        "graph_launches": 3,
+        "failed_graph_launches": 0
+      }
+    },
+    "patch_sha256": "ca47f7ebc83f4d52a643844c2c094414c1d0376cef492ef0a667a02bfc178bdd"
+  },
+  "checksum_note": "Harbor task checksums precede final evidence writes. Scoring code, instruction, runtime configuration, Docker build inputs, Oracle and control patches are unchanged. Only validation records and image validation status were updated afterward. Executable hashes were matched to all 27 run snapshots.",
+  "history": {
+    "incoming_evidence": "archive/",
+    "earlier_smoke": "diagnostic only; exposed reward JSON schema mismatch, then fixed",
+    "matrix_r3": "diagnostic matrix exposed missing state reuse in the workload; incomplete control received 1 before the workload was extended",
+    "matrix_r2": "infrastructure failure due missing read-only tests mount, restored before r3",
+    "host_load_interruption": "diagnostic run stalled before Python import; host recovered without terminating unrelated work",
+    "prior_model_agent_pass_rates": "not recertified; no claims about clean-environment solve rates"
+  },
+  "static_audit": {
+    "status": "passed",
+    "final_evidence": {
+      "checks": 4,
+      "errors": 0,
+      "warnings": 0
+    },
+    "image_and_25_patches": {
+      "checks": 5,
+      "errors": 0,
+      "warnings": 0
+    },
+    "repository_validator": "passed",
+    "git_diff_check": "passed",
+    "log_sha256": "5d475df39795cbf3a4e6ea390bbad59580156c2b19d8f9f9a633f4d7d10eb601",
+    "log_path": "/data/pr64-review-20260919/audit-r6-final.log"
+  },
+  "diagnostic_exclusions": {
+    "pure_mamba2_speculation": "Base maintains accepted-state accounting for hybrid models; supported hybrid Mamba2 is used for speculative tests.",
+    "short_cache_suffix": "Two-token cached suffix differs even in Base non-speculative eager. The graded eight-token suffix passes the Base eager cache baseline.",
+    "initial_padding_probe": "An ID-namespace mismatch produced zero collected rows; corrected before grading.",
+    "matrix_r5": "Source mirror ownership prevented Oracle/control edits; all final r6 artifacts were applied and transferred."
+  },
+  "limitations": [
+    "No actual NIXL network transfer or multi-GPU hybrid-model benchmark was run.",
+    "Behavioral numerical checks do not prove resistance to arbitrary hostile rewrites of the Python runtime.",
+    "No new model-agent difficulty calibration was run.",
+    "Successful driver calls establish graph execution, not a proof against arbitrary native-runtime or whole-program rewrites.",
+    "The selected all-cache case has a passing Base eager baseline. A shorter suffix exposes an unrelated pre-existing Base eager cache discrepancy and is excluded."
+  ],
+  "open_behavior_items": [],
+  "worktree": "/tmp/ai-infra-pr64-review-20260919",
+  "branch": "codex/pr64-behavior-hardening",
+  "git_state_at_validation": "current v1.3 changes uncommitted; previous delivery is 9c2509a",
+  "delivery_target": {
+    "pr": "https://github.com/ai-infra-bench/ai-infra-bench/pull/64",
+    "repository": "xuanzhengdu-eng/ai-infra-bench",
+    "branch": "task/add-vllm-mamba-full-cg-decoding"
+  },
+  "artifacts": {
+    "files": {
+      ".dockerignore": "cf9143fdfce145f9234e589317912e7c9fad341276064294f22da3946d23758e",
+      "README.md": "bf4583638ca4622f2d6c558e555b60c1af553917ed04dab554f15b5c8b99a2f9",
+      "environment/Dockerfile": "edfaf8bd9200dc2947df7e9514b4731c7f92cb0ec6c4b3e89e9e7168dc035cae",
+      "environment/docker-compose.yaml": "2a8ebdb1c56b1d74ce13762d408a6efac3cd46c9b4277c669dbac6580db3b523",
+      "environment/image-manifest.json": "804721c486963d613089eaa225fc1206602e44f660a628f6b310f18029d2e03b",
+      "environment/lock/README.md": "9cb8fd97893b181f790367d725b98a24218dbfb44d4e3d4fe5d15dcece4a4cf3",
+      "environment/lock/manifest.json": "a04538a377bf6c54707fbcaf0c99804eccd2608cf66ac843452046e468a44715",
+      "environment/lock/native-donor.json": "c46029adf79f6910908ca129a70084ea6c934e4bc6930606aeff554920b6ebc5",
+      "environment/lock/requirements.txt": "cb3b63dd4ccb3861651fb63081183ffaf801162ccf99830a8e71179c1fdb88cb",
+      "instruction.md": "f36f3a7a89d7a8a6aad78922f9b7ffcf11f5dbd978261e458cc367fc4faa3284",
+      "solution/oracle.patch": "ca47f7ebc83f4d52a643844c2c094414c1d0376cef492ef0a667a02bfc178bdd",
+      "solution/solve.sh": "d87049bbe7f08c33ad34919492650f4c5d42c50acb3c5e20c25e1189d437fd16",
+      "task.toml": "24b77a49739906b0b32de265941383dded4717eeb9a5b404e1ad8c4881c32062",
+      "tests/docker-compose.yaml": "a9d9fcaba73ad5f197f132eecc30dd3d2783b69bb5799652fce2d8cb2635d1ee",
+      "tests/observe_cuda_graph.c": "5d65f38342a76174e9d56d35ce55a75cc5b587161e301b683613e132d2b457b0",
+      "tests/supervise_verifier.py": "dc1666a493d45254cbb807d5666bab857fa1c485c01d712dfeaa967c02d0f1f7",
+      "tests/test.sh": "6c43e3ac6debba7e22c7f81b9ef713c778452c9e11da316ea3743b712821ea54",
+      "tests/verify_mamba_full_cg.py": "19985ba3926d94180d70c0b5ed3cf547d1081e43be4de62e1651299627d1741a",
+      "validation/LOCAL-VALIDATION.md": "f7841ed7af832419caefd3f32076188dc4adf788ee25884d129b052f2bed7853",
+      "validation/alternative-agent-implementation.patch": "603a068dc19157aa494db02abe344394ba1c911b1a0cf8babb1a55a51c91fb87",
+      "validation/alternative-host-preparation.patch": "d0eded8763a55fde7b09d20489af0c391c1a454a1dd883d117fbd31d2989e2c8",
+      "validation/alternative-production-builders.patch": "15af6561c3cfd8fe1a12af878a77e7d5b83ea8012bdd077e4a5cbcfb4532b5dd",
+      "validation/alternative-runner-inputs.patch": "6f83056e4336ed18aeba398bd6844974e4803145ddb3cfdcc6cf0574fcdc959d",
+      "validation/broken-eager.patch": "386a9733edc825ce9f44437a574b90e715592e8ba91f30cc27d5af9ea542a1bf",
+      "validation/broken-spec-decode.patch": "57341a336c14267e7a97735a3294f32b14f34590fd4f9e63b276a2e77dab4bd8",
+      "validation/ci-cases.json": "14f030ecae7d418e81051a549a298c23763c37b6d16adca2eaf4170ae147f335",
+      "validation/copy-private-reference.patch": "3a0a00685c58361d1610fadce2c891582c56070ee5d00485ef254a9b3b788a97",
+      "validation/disable-cuda-graphs.patch": "8291c5c866f449f72fe9c012ff208bdf363a0716024e7b64b406c4f7147e14c4",
+      "validation/docker-build.md": "317a59a5b0034ce89b5697b72b170cc04e6b02ab731cc0a136806c8cf4a6ad5d",
+      "validation/early-exit-os-exit.patch": "7e8264005f8d1cbc83bbe2fe6d9195e6ff06c117600fa08b5d41c620294c4d46",
+      "validation/early-exit-systemexit.patch": "80f7fd0dce410eb62373fa96daeb380acaf16d0de85b03872956c1a0e142a2fe",
+      "validation/forged-complete-results.patch": "c503c89844fc6ebe47f3d4533933275d05a52567d4315494ea5d2b5446f8aba6",
+      "validation/forged-graph-observation.patch": "de36ca85a4546061036db1786490a096e99b5860b2474fceb0dfea6e6771c55a",
+      "validation/forged-success-report.patch": "3cc325256381721eef79b211fe22c988f0c9a0602d75204812485d1b28766379",
+      "validation/historical-oracle.patch": "f35c8ffec10d22dfb416cc0bd1084d1cdd8ecd44f93146d4c4e699a32f3ed0e9",
+      "validation/incomplete-agent-implementation.patch": "d0deec66b2338e2173a06959fc9efffca448ce1bbc3e5a2cb2de344272c92827",
+      "validation/invalid-driver-graph-launch.patch": "8d15a08bae51d974ac2a32e637e4423f0911755a6f6a0423f83a3b7454b2ba89",
+      "validation/local_harbor.py": "dcbaffd5b9486ff0a976da93af3cc5ea8daab0576ede616fcb1e51895d0031b3",
+      "validation/mamba1-only-fix.patch": "2ef3af7af7008ba59ab4a08504cdd86075172811ec252664914fc2c5b2428cb5",
+      "validation/metadata-counts-only.patch": "e2911c897a3397c2b6e466224c336a0c76875d612f7071a8eddd07741a1832dc",
+      "validation/missing-multitoken-prefill-guard.patch": "679461f92f0c260ff3721d022e5a09a1e4a1e5f7e786e40e2187725138568219",
+      "validation/missing-padding-cleanup.patch": "8c9bbfb9a2148ff818864f96edb4eeb23f5071d6bf268eb40e1c9cae3af3fa99",
+      "validation/missing-zero-draft-offset.patch": "4c3de8911343269831c52b38070476258b96a2d23ad482cce466b44a5ff3c87b",
+      "validation/previous-oracle.patch": "6a586866a9b38028f13000036b40c6619b27d203014dcd2db4fb5af98a1c5cde",
+      "validation/remediation-matrix.md": "8aab152d35175fb87bbe52c3c668925c0f28e9218c185af22b6e89636e90c2a5",
+      "validation/results/harbor-matrix-r4.zip": "e310d2b73517ca6eb97c9eae8a399833805ee1c95a6ed55d1b1994d5c9208512",
+      "validation/results/harbor-matrix-r6.zip": "22f9f9a4e575c9d2fe089a10ee55ff275b1f92d87d970375ba0f42f254a73654",
+      "validation/results/https-apt-check.txt": "72b81169c4e46ba55e59756b00e5b27639752c158f13381a67e9a799511c3941",
+      "validation/results/matrix-results.json": "1c3245eb22bef0263993ba79e5263d5a42dc226c97dfe91fedce33e49f6a3134",
+      "validation/zero-mamba2-state-addresses.patch": "97c3aac983301553fcbbf9af6a735326688ae9e0f4bd910396014674e5d95ad3",
+      "validation/zero-state-addresses.patch": "daf8554a7a068757dbf39567bf7a2b44f768b1ef81348eb155e9f31d7c83051d"
+    }
+  }
+}
