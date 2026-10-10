@@ -1,0 +1,68 @@
+{
+  "schema_version": "ai_infra_bench_validation_cases.v1",
+  "cases": [
+    {
+      "name": "discard-client-state",
+      "patch": "discard-client-state.patch",
+      "patch_sha256": "947dffcb0c2c64cad326802b886f82df2a8762992a57b42196419e2017cebe81",
+      "expected_reward": 0,
+      "purpose": "Expose both endpoints but restart decoding for each chunk, losing cross-call state."
+    },
+    {
+      "name": "plain-text-only",
+      "patch": "plain-text-only.patch",
+      "patch_sha256": "7f2771aa0faac4536fc028705db8525c9738eaa8e7fe484e346aedcc82a7804d",
+      "expected_reward": 0,
+      "purpose": "Keep native decoding but bypass non-streaming reasoning and tool parsing."
+    },
+    {
+      "name": "discard-logprobs",
+      "patch": "discard-logprobs.patch",
+      "patch_sha256": "6d0a430954ff42ebb701c63f41615daa4de0ba6a40391798265917016816065a",
+      "expected_reward": 0,
+      "purpose": "Return empty logprob entries while ordinary response text remains valid."
+    },
+    {
+      "name": "ignore-prompt-usage",
+      "patch": "ignore-prompt-usage.patch",
+      "patch_sha256": "14313f94ba59998a13cf5d7971c35c904c4930da022889d43c4f4f9eca3b6569",
+      "expected_reward": 0,
+      "purpose": "Drop caller-supplied prompt accounting in non-streaming chat responses."
+    },
+    {
+      "name": "alternative-native-decoder-replay",
+      "patch": "alternative-native-decoder-replay.patch",
+      "patch_sha256": "25ac30663a2267ec6184078916e91f5d7af55b58cee0ea7e2ee640fe909c7fcb",
+      "expected_reward": 1,
+      "purpose": "Use full token history and native decoder replay instead of the Oracle's retained decode window."
+    },
+    {
+      "name": "omit-terminal-flush",
+      "patch": "omit-terminal-flush.patch",
+      "patch_sha256": "17b047d156df22fda09dae1575a9e93979e38184e045cd243b917b64bf2eb523",
+      "expected_reward": 0,
+      "purpose": "Leave buffered terminal text unflushed, reproducing the reviewed Oracle failure."
+    },
+    {
+      "name": "reject-long-returned-state",
+      "patch": "reject-long-returned-state.patch",
+      "patch_sha256": "c80f259ce93067f8680d0ef996b098c983d1fb363b7509811e25f59db69ad1ab",
+      "expected_reward": 0,
+      "purpose": "Reject the decoder's own valid returned state after a long deferred-text chunk."
+    },
+    {
+      "name": "reject-null-stream-delta",
+      "patch": "reject-null-stream-delta.patch",
+      "patch_sha256": "2ae2bd5e60e1aab4f26b7a1db22b8f86b2d869dc4c14963e6d6406138dce330a",
+      "expected_reward": 0,
+      "purpose": "Reject explicit null deltas while accepting omitted and empty token arrays."
+    },
+    {
+      "name": "python-forwarding",
+      "patch": "python-forwarding.patch",
+      "patch_sha256": "91a4c8a7a857662483e62d8d69e9718c9a9cde7c822ea6e2ecb2a8bc45b680d0",
+      "expected_reward": 0,
+      "purpose": "Delegate the Base Rust render entry point to the installed Python implementation; the native runtime must reject it."
+    }
+  ]
+}
