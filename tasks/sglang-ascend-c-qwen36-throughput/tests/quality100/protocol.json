@@ -1,0 +1,42 @@
+{
+  "case_count": 100,
+  "counts": {
+    "code": 40,
+    "math": 35,
+    "instruction_following": 25
+  },
+  "sources": {
+    "code": {
+      "MBPP_sanitized": 19,
+      "HumanEval": 21
+    },
+    "math": {
+      "GSM8K": 25,
+      "BBH_multistep_arithmetic": 10
+    },
+    "instruction_following": {
+      "IFEval": 25
+    }
+  },
+  "max_new_tokens": 1024,
+  "scoring": {
+    "code": "Execute all original and added tests in an isolated CPU sandbox; all must pass. Do not run model-generated code in the controller.",
+    "math": "Allow reasoning; parse the explicit FINAL_ANSWER numeric line and compare numerically. Report format errors separately.",
+    "instruction_following": "Unmodified official prompt-level strict scorer; raw response, all declared constraints must pass. No universal answer wrapper.",
+    "truncation": "finish_reason=length => TRUNCATED, distinct from wrong answer. Keep it in the denominator, never silently discard."
+  },
+  "scope_limits": [
+    "This is a small frozen regression subset, not an official benchmark score or proof over all inputs.",
+    "IFEval checks the declared constraints, not factual accuracy or prose quality.",
+    "Primarily original English prompts. Chinese language quality and long-context correctness are not established by this subset.",
+    "Native-image validation is separate from the historical subset selection; no native pass is implied by selecting these cases."
+  ],
+  "selection_bias": "Preserve all 72 historical regression cases byte-for-byte as records, then add 28 public benchmark cases selected by explicit contracts and coverage before running these new cases. The inherited 72 were selected after baseline outcomes; this mixed suite is not an unbiased benchmark.",
+  "official_verifier": "../vendor",
+  "source_versions": "sources.json",
+  "language_detection": {
+    "seed": 0,
+    "initialize_before_parallel_grading": true,
+    "official_checker_source_unchanged": true
+  }
+}

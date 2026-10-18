@@ -1,0 +1,11 @@
+# Evaluation data and verifier provenance
+
+Exact source revisions, source URLs and original file hashes are recorded in `quality100/sources.json`. The 100-case suite preserves 72 cases selected after baseline observations and adds 28 cases selected before their model evaluation; it is a regression suite, not an official score for any of the following benchmarks. Prompt wrappers, subset selection and additional code checks are task adaptations. Original and additional code assertions remain separately identified in `quality100/oracles.json`.
+
+- HumanEval: 21 cases from [OpenAI HumanEval](https://github.com/openai/human-eval/tree/6d43fb980f9fee3c892a914eda09951f772ad10d). The upstream MIT notice is retained in `licenses/HumanEval-MIT.txt`.
+- GSM8K: 25 cases from [OpenAI grade-school-math](https://github.com/openai/grade-school-math/tree/3101c7d5072418e28b9008a6636bde82a006892c). The upstream MIT notice is retained in `licenses/GSM8K-MIT.txt`.
+- BIG-Bench Hard: 10 multistep arithmetic cases from [Suzgun et al., BIG-Bench-Hard](https://github.com/suzgunmirac/BIG-Bench-Hard/tree/9ee07bd481feebf959a6b59d61ea57bdcf30964d). The upstream MIT notice is retained in `licenses/BBH-MIT.txt`.
+- MBPP sanitized: 19 cases from [Google Research, Austin et al. (2021)](https://github.com/google-research/google-research/tree/3ef52111c1fabc301880818f5a547570e926a76b/mbpp), distributed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) as stated in the [Google Research dataset card](https://huggingface.co/datasets/google-research-datasets/mbpp). The subset uses prompt formatting and additional assertions for regression checking.
+- IFEval: 25 cases and the unmodified strict verifier from [Google Research](https://github.com/google-research/google-research/tree/3ef52111c1fabc301880818f5a547570e926a76b/instruction_following_eval). Vendored files retain their Google Research Authors copyright and Apache-2.0 headers; see the [upstream license](https://github.com/google-research/google-research/blob/3ef52111c1fabc301880818f5a547570e926a76b/LICENSE). The four verifier source hashes are checked before import.
+
+The model weights are not distributed with this task. Their source is [Qwen/Qwen3.6-27B](https://huggingface.co/Qwen/Qwen3.6-27B); the asset manifest identifies the evaluated bytes.
