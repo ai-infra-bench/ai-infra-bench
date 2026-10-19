@@ -1,6 +1,6 @@
 # Evaluation data and verifier provenance
 
-Exact source revisions, source URLs and original file hashes are recorded in `quality100/sources.json`. The 100-case suite preserves 72 cases selected after baseline observations and adds 28 cases selected before their model evaluation; it is a regression suite, not an official score for any of the following benchmarks. Prompt wrappers, subset selection and additional code checks are task adaptations. Original and additional code assertions remain separately identified in `quality100/oracles.json`.
+Exact source revisions, source URLs and original file hashes are recorded in `quality100/sources.json`. Revision v2 of the 100-case suite retains 71 historical cases and 28 original additions, and replaces the baseline-truncated C26 (HumanEval/10) with HumanEval/19. Replacement selection is informed by baseline results; it is a regression suite, not an official score for any of the following benchmarks. Prompt wrappers, subset selection and additional code checks are task adaptations. Original and additional code assertions remain separately identified in `quality100/oracles.json`.
 
 - HumanEval: 21 cases from [OpenAI HumanEval](https://github.com/openai/human-eval/tree/6d43fb980f9fee3c892a914eda09951f772ad10d). The upstream MIT notice is retained in `licenses/HumanEval-MIT.txt`.
 - GSM8K: 25 cases from [OpenAI grade-school-math](https://github.com/openai/grade-school-math/tree/3101c7d5072418e28b9008a6636bde82a006892c). The upstream MIT notice is retained in `licenses/GSM8K-MIT.txt`.

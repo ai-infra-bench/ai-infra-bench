@@ -305,10 +305,12 @@ class VerifierTests(unittest.TestCase):
         self.assertEqual(len({(c['source']['repository'], c['source']['original_id'])
                               for c in suite['cases']}), 100)
         selection = json.loads((ROOT / 'tests/quality100/selection.json').read_text())
-        self.assertEqual(len(selection['preserved_ids']), 72)
+        self.assertEqual(len(selection['preserved_ids']), 71)
         self.assertEqual(len(selection['added_ids']), 28)
         self.assertFalse(set(selection['preserved_ids']) & set(selection['added_ids']))
-        self.assertEqual(set(selection['preserved_ids'] + selection['added_ids']), set(oracles))
+        self.assertEqual(selection['replacement_ids'], ['C26'])
+        self.assertFalse(set(selection['replacement_ids']) & set(selection['preserved_ids'] + selection['added_ids']))
+        self.assertEqual(set(selection['preserved_ids'] + selection['added_ids'] + selection['replacement_ids']), set(oracles))
 
     def test_parallel_language_checks_are_repeatable(self):
         suite_root = ROOT / 'tests/quality100'
