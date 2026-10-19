@@ -206,7 +206,7 @@ def run(args, api, emit=True):
                     'runner_sha256': api.sha(Path(__file__)), 'metrics': 'pooled-tokens-over-batch-wall-v1'}
         result.update(contract=contract, server_info=observed, compile_monitoring=bool(caches),
                       compilation_clean_verified=bool(caches),
-                      limitation=None if caches else 'Warmup performed; target compilation activity was not observed.')
+                      limitation=('Monitoring covers supplied Triton metadata only; an empty cache is valid for native/precompiled implementations and does not prove absence of other compiler activity.' if caches else 'Warmup performed; target compilation activity was not observed.'))
         baseline = api.baseline_section(args.baseline, 'performance')
         validate_baseline(baseline, args.model, contract)
         for index, length in enumerate(config['input_lengths']):
@@ -232,7 +232,6 @@ def run(args, api, emit=True):
                           'compile_changes': changes if caches else None}
                 api.save(root / f'{length}-attempt-{attempt}.json', record)
                 metrics = summarize(rows, elapsed)  # Failed requests invalidate the round; never drop them.
-                api.require(not caches or after, 'No target kernel metadata observed in the supplied compile cache')
                 if accepted:
                     case['rounds'].append(metrics)
                     selected_rows.extend(rows)

@@ -246,12 +246,14 @@ def run_quality(args, emit=True):
         require(bool(re.fullmatch(r'sha256:[0-9a-f]{64}', args.code_image)), 'Use a pinned local Docker image ID')
         # Fail before inference if code grading cannot run in its sandbox.
         probe = grading.code_test('def sandbox_probe(): return 42', {
-            'test_imports': [], 'original_tests': ['assert sandbox_probe() == 42'], 'extra_tests': []}, args.code_image)
+            'entrypoint': 'sandbox_probe', 'test_imports': [], 'original_tests': ['assert sandbox_probe() == 42'], 'extra_tests': []}, args.code_image)
         require(probe.get('passed') is True, 'Code sandbox preflight failed')
         contract = {
             'cases_sha256': sha(args.suite / 'cases.json'), 'oracles_sha256': sha(args.suite / 'oracles.json'),
             'protocol_sha256': sha(args.suite / 'protocol.json'), 'language_detection_seed': 0,
             'grader_sha256': sha(Path(grading.__file__)), 'runner_sha256': sha(Path(__file__)),
+            'code_protocol_sha256': sha(Path(grading.code_protocol.__file__)),
+            'code_worker_sha256': sha(Path(grading.__file__).with_name('code_worker.py')),
             'verifier_sha256': verifier_hashes, 'code_image': args.code_image, 'decoding': DECODING,
         }
         report = replay(args, suite, oracles) if args.responses else None

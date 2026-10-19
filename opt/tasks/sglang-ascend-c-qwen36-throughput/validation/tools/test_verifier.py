@@ -9,6 +9,10 @@ import unittest
 import tempfile
 import json
 import subprocess
+from unittest.mock import patch
+from types import SimpleNamespace
+import time
+import hashlib
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tests'))
@@ -38,6 +42,13 @@ def reports():
     return quality, perf
 
 
+def baseline_report(q, p, env):
+    value = score.initial_result('baseline')
+    value.update(valid=True, score=1.0, improvement_pct=0.0, status='BASELINE_VALIDATED',
+                 quality=q, performance=p, environment=env)
+    return value
+
+
 class VerifierTests(unittest.TestCase):
     def test_model_asset_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -61,7 +72,7 @@ class VerifierTests(unittest.TestCase):
         q, p = reports()
         env = {'packages': {}, 'model': q['model'], 'model_config_sha256': 'config',
                'weights_index_sha256': 'weights', 'physical_devices': '0,1'}
-        base = {'quality': q, 'performance': p, 'environment': {**env, 'physical_devices': '2,3'}}
+        base = baseline_report(q, p, {**env, 'physical_devices': '2,3'})
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             values = {'quality': q, 'performance': p, 'environment': env, 'source': {}, 'baseline': base}
@@ -70,8 +81,9 @@ class VerifierTests(unittest.TestCase):
                 path = root / (key + '.json');path.write_text(json.dumps(value));cmd.extend(['--' + key, str(path)])
             proc = subprocess.run(cmd, capture_output=True, text=True)
             self.assertEqual(proc.returncode, 1)
-            self.assertEqual(json.loads((root / 'output/summary.json').read_text())['status'], 'ERROR')
-            self.assertEqual((root / 'output/reward.txt').read_text(), '0\n')
+            self.assertEqual(json.loads((root / 'output/summary.json').read_text())['status'], 'INVALID')
+            self.assertIsNone(json.loads((root / 'output/summary.json').read_text())['score'])
+            self.assertFalse((root / 'output/reward.txt').exists())
 
     def test_baseline_protocol(self):
         q, p = reports(); score.validate(q, p)
@@ -105,18 +117,20 @@ class VerifierTests(unittest.TestCase):
                 for k in ['total_throughput_tok_s', 'output_throughput_tok_s', 'request_throughput_req_s']:row[k] *= 1.1
         self.assertAlmostEqual(score.compare(q, candidate, q, p)['score'], 1.1)
 
-    def test_cli_reward_requires_improvement_and_quality(self):
+    def test_cli_preserves_continuous_scores_and_quality_gate(self):
         q, p = reports()
         env = {'packages': {}, 'model': q['model'], 'model_config_sha256': 'config',
                'weights_index_sha256': 'weights', 'physical_devices': '0,1'}
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             base = root / 'baseline.json'
-            base.write_text(json.dumps({'quality': q, 'performance': p, 'environment': env}))
+            base.write_text(json.dumps(baseline_report(q, p, env)))
             for name, speed, good_quality, status, reward in [
-                    ('noop', 1.0, True, 'NO_IMPROVEMENT', 0),
-                    ('faster', 1.1, True, 'PASSED', 1),
-                    ('incorrect', 1.1, False, 'ERROR', 0)]:
+                    ('noop', 1.0, True, 'VALID', 1.0),
+                    ('regressed', 0.95, True, 'VALID', 0.95),
+                    ('small-gain', 1.02, True, 'VALID', 1.02),
+                    ('faster', 1.5, True, 'VALID', 1.5),
+                    ('incorrect', 1.1, False, 'INVALID', None)]:
                 candidate, quality = copy.deepcopy(p), copy.deepcopy(q)
                 for case in candidate['cases']:
                     for row in [*case['rounds'], case['pooled']]:
@@ -131,9 +145,13 @@ class VerifierTests(unittest.TestCase):
                     path = root / (name + '-' + key + '.json')
                     path.write_text(json.dumps(value));cmd.extend(['--' + key, str(path)])
                 proc = subprocess.run(cmd, capture_output=True, text=True)
-                self.assertEqual(proc.returncode, 0 if reward else 1)
+                self.assertEqual(proc.returncode, 0 if reward is not None else 1)
                 self.assertEqual(json.loads((out / 'summary.json').read_text())['status'], status)
-                self.assertEqual((out / 'reward.txt').read_text(), str(reward) + '\n')
+                record = json.loads((out / 'summary.json').read_text())
+                if reward is None:self.assertIsNone(record['score'])
+                else:self.assertAlmostEqual(record['score'], reward)
+                self.assertEqual(record['valid'], reward is not None)
+                self.assertFalse((out / 'reward.txt').exists())
 
     def test_different_quality_cases(self):
         q, p = reports();other = copy.deepcopy(q);other["results"][0]["id"] = "foreign"
@@ -169,8 +187,9 @@ class VerifierTests(unittest.TestCase):
                     cmd.extend(['--' + key, str(root / 'not-read.json')])
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 1)
-                self.assertEqual(json.loads((out / 'summary.json').read_text())['status'], 'ERROR')
-                self.assertEqual((out / 'reward.txt').read_text(), '0\n')
+                self.assertEqual(json.loads((out / 'summary.json').read_text())['status'], 'INVALID')
+                self.assertIsNone(json.loads((out / 'summary.json').read_text())['score'])
+                self.assertFalse((out / 'reward.txt').exists())
 
     def test_smoke_cannot_score(self):
         q, p = reports();p['contract']['workload']['requests'] = 1
@@ -234,6 +253,49 @@ class VerifierTests(unittest.TestCase):
                     with self.assertRaises(ValueError):verify.validate_raw_measurements(root, p)
             path.write_text(json.dumps(original));path.unlink()
             with self.assertRaises(ValueError):verify.validate_raw_measurements(root, p)
+
+    def test_empty_compiler_cache_is_not_a_failure(self):
+        # Accounting-only control, not a substitute for a native performance run.
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);cache=root/'cache';cache.mkdir()
+            args=SimpleNamespace(output=root/'output',base_url='http://localhost:30000/v1',model='Qwen3.6-27B',
+                                 responses=None,baseline=None,max_throughput_drop_pct=0,timeout=10,
+                                 api_key_env=None,compile_cache=[cache])
+            info={'model_path':'/models/Qwen3.6-27B','served_model_name':'Qwen3.6-27B',
+                  'tp_size':2,'disable_radix_cache':True,'disable_cuda_graph':False,
+                  'speculative_algorithm':None,'dtype':'bfloat16','context_length':67584}
+            def batch(url,inputs,config,timeout,key):
+                return ([{'index':i,'status':'SUCCEEDED','input_tokens':len(ids),
+                          'output_tokens':1024,'ttft_ms':1.0,'tpot_ms':2.0} for i,ids in enumerate(inputs)],10.0)
+            with patch.object(performance,'DEFAULTS',{**performance.DEFAULTS,'input_lengths':[1024]}), patch.object(performance,'server_info',return_value=info), patch.object(performance,'batch',side_effect=batch):
+                self.assertEqual(performance.run(args,evaluate,emit=False),0)
+            self.assertEqual(len(json.loads((root/'output/summary.json').read_text())['cases'][0]['rounds']),3)
+
+    def test_timed_score_requires_matching_trial(self):
+        q,p=reports();env={'packages':{},'model':q['model'],'model_config_sha256':'c',
+                           'weights_index_sha256':'w','physical_devices':'0,1','started_at':time.time()-3}
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);base=root/'base.json';base.write_text(json.dumps(baseline_report(q,p,env)))
+            values={'quality':q,'performance':p,'environment':env,'source':{}}
+            common=[]
+            for key,value in values.items():
+                path=root/(key+'.json');path.write_text(json.dumps(value));common+=['--'+key,str(path)]
+            fingerprint={'source':{},'config':None,'launcher_sha256':None}
+            trial={'schema_version':'infra-bench-opt.trial.v1','task_id':score.TASK_ID,
+                   'trial_id':'a'*32,'campaign_id':'b'*32,'baseline_sha256':score.digest(base),
+                   'source_sha256':hashlib.sha256(json.dumps(fingerprint,sort_keys=True).encode()).hexdigest(),
+                   'started_at':time.time()-5,'deadline':time.time()+120}
+            trial.update(budget_seconds=14400,campaign_started_at=trial['deadline']-14400)
+            for name,change,expected in [('valid',{},'VALID'),('wrong-source',{'source_sha256':'0'*64},'INVALID'),
+                                         ('historical-replay',{'started_at':time.time()-1},'INVALID'),
+                                         ('late',{'started_at':time.time()-20,'deadline':time.time()-10,'campaign_started_at':time.time()-10-14400},'LATE')]:
+                receipt=root/(name+'-trial.json');receipt.write_text(json.dumps({**trial,**change}))
+                out=root/name
+                proc=subprocess.run([sys.executable,str(ROOT/'tests/score.py'),*common,'--baseline',str(base),
+                                     '--trial',str(receipt),'--output',str(out)],capture_output=True,text=True)
+                value=json.loads((out/'summary.json').read_text());self.assertEqual(value['status'],expected)
+                self.assertEqual(proc.returncode,0 if expected=='VALID' else 1)
+                if expected!='VALID':self.assertIsNone(value['score'])
 
     def test_failed_request_not_dropped(self):
         with self.assertRaises(ValueError):performance.summarize([{'status': 'FAILED'}], 1)
