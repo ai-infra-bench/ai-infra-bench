@@ -151,12 +151,12 @@ def main():
                 raise ValueError('Different trial deadline')
             if (not re.fullmatch(r'[0-9a-f]{32}', str(trial.get('trial_id','')))
                     or not re.fullmatch(r'[0-9a-f]{32}', str(trial.get('campaign_id','')))
-                    or trial.get('budget_seconds') != 14400
+                    or trial.get('budget_seconds') != 28800
                     or type(trial.get('campaign_started_at')) not in (float,int)
                     or not math.isfinite(trial['campaign_started_at'])
                     or not 0 < trial['campaign_started_at'] <= trial['started_at']
-                    or not math.isclose(trial['deadline']-trial['campaign_started_at'],14400,abs_tol=1e-6)):
-                raise ValueError('This task requires a registered four-hour campaign')
+                    or not math.isclose(trial['deadline']-trial['campaign_started_at'],28800,abs_tol=1e-6)):
+                raise ValueError('This task requires a registered eight-hour campaign')
             collected_at = environment.get('started_at')
             if (type(collected_at) not in (int, float) or not math.isfinite(collected_at)
                     or not trial['started_at'] <= collected_at <= time.time()):

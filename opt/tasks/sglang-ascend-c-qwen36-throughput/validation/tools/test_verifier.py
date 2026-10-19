@@ -285,10 +285,11 @@ class VerifierTests(unittest.TestCase):
                    'trial_id':'a'*32,'campaign_id':'b'*32,'baseline_sha256':score.digest(base),
                    'source_sha256':hashlib.sha256(json.dumps(fingerprint,sort_keys=True).encode()).hexdigest(),
                    'started_at':time.time()-5,'deadline':time.time()+120}
-            trial.update(budget_seconds=14400,campaign_started_at=trial['deadline']-14400)
+            trial.update(budget_seconds=28800,campaign_started_at=trial['deadline']-28800)
             for name,change,expected in [('valid',{},'VALID'),('wrong-source',{'source_sha256':'0'*64},'INVALID'),
                                          ('historical-replay',{'started_at':time.time()-1},'INVALID'),
-                                         ('late',{'started_at':time.time()-20,'deadline':time.time()-10,'campaign_started_at':time.time()-10-14400},'LATE')]:
+                                         ('old-four-hour-budget',{'budget_seconds':14400,'campaign_started_at':trial['deadline']-14400},'INVALID'),
+                                         ('late',{'started_at':time.time()-20,'deadline':time.time()-10,'campaign_started_at':time.time()-10-28800},'LATE')]:
                 receipt=root/(name+'-trial.json');receipt.write_text(json.dumps({**trial,**change}))
                 out=root/name
                 proc=subprocess.run([sys.executable,str(ROOT/'tests/score.py'),*common,'--baseline',str(base),
