@@ -37,7 +37,8 @@ def run(name):
  cmd=['bash',str(task/'tests/test.sh'),'--collection',str(collection),'--output',str(out/'graded'),'--code-image',args.code_image]
  p=subprocess.run(cmd,env=env,capture_output=True,text=True,timeout=240)
  (out/'command.log').write_text(p.stdout+p.stderr)
- record=json.loads((out/'graded/summary.json').read_text());assert p.returncode!=0 and record['valid'] is False and record['score'] is None,(name,p.returncode,record['score'])
+ record=json.loads((out/'graded/summary.json').read_text());assert p.returncode!=0 and record['valid'] is False and record['score'] == 0.0,(name,p.returncode,record['score'])
+ assert float((out/'graded/reward.txt').read_text())==0.0
  if expected:
   s=json.loads((out/'graded/quality/summary.json').read_text());failed=[(v['id'],v['status']) for v in s['results'] if not v['passed']]
   assert s['status']=='FAILED' and s['passed']==99 and expected in failed,(name,s['status'],failed)

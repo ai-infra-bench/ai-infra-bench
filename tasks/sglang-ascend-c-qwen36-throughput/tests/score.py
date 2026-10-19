@@ -2,7 +2,6 @@
 """Trusted host-side validation of complete quality and performance reports."""
 import argparse
 import hashlib
-import re
 import json
 import math
 from pathlib import Path
@@ -85,8 +84,7 @@ def compare(quality, perf, base_quality, base_perf):
             'regressed_lengths': [int(k) for k, v in ratios.items() if v < 1]}
 
 
-TASK_ID = 'infra-bench-opt/sglang-ascend-c-qwen36-throughput'
-SCHEMA = 'infra-bench-opt.result.v1'
+TASK_ID = 'sglang-ascend-c-qwen36-throughput'
 
 
 def digest(path):
@@ -94,8 +92,8 @@ def digest(path):
 
 
 def initial_result(kind='candidate', deadline=None, baseline=None):
-    return {'schema_version': SCHEMA, 'benchmark': 'infra-bench-opt', 'task_id': TASK_ID,
-            'kind': kind, 'status': 'ERROR', 'valid': False, 'score': None,
+    return {'task_id': TASK_ID,
+            'kind': kind, 'status': 'ERROR', 'valid': False, 'score': 0.0,
             'improvement_pct': None, 'improved': None, 'timed': deadline is not None,
             'deadline': deadline if deadline is not None and math.isfinite(deadline) else None,
             'baseline_sha256': digest(baseline) if baseline and Path(baseline).is_file() else None,
@@ -103,9 +101,19 @@ def initial_result(kind='candidate', deadline=None, baseline=None):
 
 
 def write_result(root, result):
+    # Keep the ordinary task reward interface, with continuous floating-point values.
+    value = result['score']
+    if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+        raise ValueError('Score must be a finite nonnegative number')
+    if not result['valid'] and value != 0:
+        raise ValueError('Invalid results must score zero')
+    result['score'] = float(value)
     temporary = root / 'summary.json.tmp'
     temporary.write_text(json.dumps(result, indent=2, allow_nan=False) + '\n')
     temporary.replace(root / 'summary.json')
+    reward = root / 'reward.txt.tmp'
+    reward.write_text(repr(result['score']) + '\n')
+    reward.replace(root / 'reward.txt')
 
 
 def main():
@@ -116,8 +124,7 @@ def main():
     p.add_argument('--source', type=Path, required=True)
     p.add_argument('--baseline', type=Path)
     p.add_argument('--output', type=Path, required=True)
-    p.add_argument('--deadline', type=float, help='Must match the trusted trial receipt')
-    p.add_argument('--trial', type=Path, help='Trusted controller trial receipt created before measurement')
+    p.add_argument('--deadline', type=float, help='Optional UNIX deadline on this verifier host; never a remote timestamp')
     a = p.parse_args()
     a.output.mkdir(parents=True, exist_ok=False)
     result = initial_result('candidate' if a.baseline else 'baseline', a.deadline, a.baseline)
@@ -125,8 +132,6 @@ def main():
     try:
         if a.deadline is not None and (not math.isfinite(a.deadline) or a.deadline <= 0):
             raise ValueError('Deadline must be a positive finite UNIX timestamp')
-        if a.deadline is not None and not a.trial:
-            raise ValueError('Timed candidates require a registered trial receipt')
         quality, perf = json.loads(a.quality.read_text()), json.loads(a.performance.read_text())
         environment = json.loads(a.environment.read_text())
         source = json.loads(a.source.read_text())
@@ -136,41 +141,13 @@ def main():
         result.update(status='BASELINE_VALIDATED', valid=True, score=1.0, improvement_pct=0.0, improved=False,
                       quality=quality, performance=perf, environment=environment, source=source,
                       source_sha256=hashlib.sha256(json.dumps(fingerprint, sort_keys=True, allow_nan=False).encode()).hexdigest())
-        if a.trial:
-            if not a.baseline:raise ValueError('A timed trial requires a frozen baseline')
-            trial = json.loads(a.trial.read_text())
-            if (trial.get('schema_version') != 'infra-bench-opt.trial.v1' or trial.get('task_id') != TASK_ID
-                    or trial.get('baseline_sha256') != result['baseline_sha256']
-                    or trial.get('source_sha256') != result['source_sha256']):
-                raise ValueError('Trial receipt does not match this candidate and baseline')
-            if (type(trial.get('deadline')) not in (int,float) or not math.isfinite(trial['deadline'])
-                    or type(trial.get('started_at')) not in (int,float) or not math.isfinite(trial['started_at'])
-                    or not 0 < trial['started_at'] < trial['deadline'] or trial['started_at'] > time.time()):
-                raise ValueError('Invalid trial timing')
-            if a.deadline is not None and a.deadline != trial['deadline']:
-                raise ValueError('Different trial deadline')
-            if (not re.fullmatch(r'[0-9a-f]{32}', str(trial.get('trial_id','')))
-                    or not re.fullmatch(r'[0-9a-f]{32}', str(trial.get('campaign_id','')))
-                    or trial.get('budget_seconds') != 28800
-                    or type(trial.get('campaign_started_at')) not in (float,int)
-                    or not math.isfinite(trial['campaign_started_at'])
-                    or not 0 < trial['campaign_started_at'] <= trial['started_at']
-                    or not math.isclose(trial['deadline']-trial['campaign_started_at'],28800,abs_tol=1e-6)):
-                raise ValueError('This task requires a registered eight-hour campaign')
-            collected_at = environment.get('started_at')
-            if (type(collected_at) not in (int, float) or not math.isfinite(collected_at)
-                    or not trial['started_at'] <= collected_at <= time.time()):
-                raise ValueError('Measurement must start after registration; historical replay is untimed only')
-            a.deadline = trial['deadline']
-            result.update(timed=True,deadline=a.deadline,trial_id=trial['trial_id'],campaign_id=trial['campaign_id'])
         if a.baseline:
             baseline = json.loads(a.baseline.read_text())
-            if (baseline.get('schema_version') != SCHEMA or baseline.get('benchmark') != 'infra-bench-opt'
-                    or baseline.get('status') != 'BASELINE_VALIDATED' or baseline.get('kind') != 'baseline'
+            if (baseline.get('status') != 'BASELINE_VALIDATED' or baseline.get('kind') != 'baseline'
                     or type(baseline.get('score')) not in (int,float)
                     or baseline.get('valid') is not True or baseline.get('score') != 1
                     or baseline.get('task_id') != TASK_ID):
-                raise ValueError('A validated optimization-track baseline is required; regrade legacy records')
+                raise ValueError('A validated baseline for this task is required; regrade legacy records')
             for key in ['packages', 'model', 'model_config_sha256', 'weights_index_sha256', 'physical_devices']:
                 if environment[key] != baseline['environment'][key]:
                     raise ValueError('Different baseline environment: ' + key)
@@ -178,12 +155,12 @@ def main():
             result.update(status='VALID', improvement_pct=(result['score'] - 1) * 100,
                           improved=result['score'] > 1)
     except (ValueError, KeyError, TypeError, ZeroDivisionError) as error:
-        result.update(status='INVALID', valid=False, score=None, improvement_pct=None, improved=None, error=str(error))
+        result.update(status='INVALID', valid=False, score=0.0, improvement_pct=None, improved=None, error=str(error))
     except OSError as error:
-        result.update(status='ERROR', valid=False, score=None, improvement_pct=None, improved=None, error=type(error).__name__)
+        result.update(status='ERROR', valid=False, score=0.0, improvement_pct=None, improved=None, error=type(error).__name__)
     result['completed_at'] = time.time()
     if a.deadline is not None and math.isfinite(a.deadline) and a.deadline > 0 and result['completed_at'] > a.deadline:
-        result.update(status='LATE', valid=False, score=None, improvement_pct=None, improved=None)
+        result.update(status='LATE', valid=False, score=0.0, improvement_pct=None, improved=None)
     write_result(a.output, result)
     print(json.dumps({k: v for k, v in result.items() if k not in ['quality', 'performance', 'environment', 'source']}, allow_nan=False))
     return 0 if result['valid'] else 1

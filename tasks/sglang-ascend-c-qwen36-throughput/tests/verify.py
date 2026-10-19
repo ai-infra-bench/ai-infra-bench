@@ -67,8 +67,7 @@ def main():
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--code-image', required=True, help='Pinned local CPU Python container image ID')
     p.add_argument('--baseline', type=Path)
-    p.add_argument('--deadline', type=float)
-    p.add_argument('--trial', type=Path)
+    p.add_argument('--deadline', type=float, help='Optional UNIX deadline on this verifier host')
     p.add_argument('--smoke', action='store_true', help='Deployment check only; no optimization credit')
     a = p.parse_args()
     a.collection = a.collection.resolve(); a.output = a.output.resolve()
@@ -77,27 +76,11 @@ def main():
     scoring.write_result(a.output, result)
     here = Path(__file__).resolve().parent
     try:
-        if a.trial:
-            trial = json.loads(a.trial.read_text())
-            if trial.get('schema_version') != 'infra-bench-opt.trial.v1' or trial.get('task_id') != scoring.TASK_ID:
-                raise ValueError('Different trial task or protocol')
-            if trial.get('baseline_sha256') != result['baseline_sha256']:
-                raise ValueError('Different trial baseline')
-            if a.deadline is not None and a.deadline != trial['deadline']:
-                raise ValueError('Different trial deadline')
-            a.deadline = trial['deadline']
-            result.update(timed=True, deadline=a.deadline, trial_id=trial['trial_id'],
-                          campaign_id=trial['campaign_id'], source_sha256=trial['source_sha256'])
+        if a.deadline is not None and (not math.isfinite(a.deadline) or a.deadline <= 0):
+            raise ValueError('Deadline must be a positive finite UNIX timestamp')
         receipt = json.loads((a.collection / 'collection.json').read_text())
         if receipt.get('status') != 'COLLECTED' or receipt.get('mode') != ('smoke' if a.smoke else 'full'):
             raise ValueError('Collection did not complete in the requested mode')
-        if a.trial:
-            environment = json.loads((a.collection / 'environment.json').read_text())
-            started, finished = environment.get('started_at'), receipt.get('finished_at')
-            if (any(type(value) not in (int, float) or not math.isfinite(value)
-                    for value in (started, finished, trial.get('started_at')))
-                    or not 0 < trial['started_at'] <= started <= finished <= scoring.time.time()):
-                raise ValueError('Collection must complete after trial registration and before verification')
         rc = subprocess.call([sys.executable, str(here / 'evaluate.py'), '--suite', str(here / 'quality100'),
                               '--responses', str(a.collection / 'quality/responses.json'),
                               '--output', str(a.output / 'quality'), '--code-image', a.code_image])
@@ -111,7 +94,7 @@ def main():
             scoring.write_result(a.output, result)
             return rc
         if a.smoke:
-            if a.baseline or a.deadline is not None or a.trial:
+            if a.baseline or a.deadline is not None:
                 raise ValueError('Smoke cannot be compared or counted toward a timed score')
             perf = json.loads((a.collection / 'performance/summary.json').read_text())
             if (perf['status'] != 'MEASURED' or not perf['compilation_clean_verified']
@@ -134,14 +117,15 @@ def main():
                '--environment', str(a.collection / 'environment.json'), '--source', str(a.collection / 'source.json')]
         if a.baseline: cmd.extend(['--baseline', str(a.baseline.resolve())])
         if a.deadline is not None: cmd.extend(['--deadline', str(a.deadline)])
-        if a.trial: cmd.extend(['--trial', str(a.trial.resolve())])
         rc = subprocess.call(cmd)
         scoring.write_result(a.output, json.loads((a.output / 'score/summary.json').read_text()))
         return rc
     except Exception as error:
         result.update(status='INVALID' if isinstance(error, (ValueError, KeyError, TypeError)) else 'ERROR',
-                      valid=False, score=None, improvement_pct=None, error_type=type(error).__name__,
+                      valid=False, score=0.0, improvement_pct=None, error_type=type(error).__name__, error=str(error),
                       completed_at=scoring.time.time())
+        if a.deadline is not None and math.isfinite(a.deadline) and a.deadline > 0 and result['completed_at'] > a.deadline:
+            result.update(status='LATE')
         scoring.write_result(a.output, result)
         return 1
 

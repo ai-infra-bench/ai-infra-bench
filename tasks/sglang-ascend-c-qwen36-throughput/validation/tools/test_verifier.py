@@ -82,8 +82,8 @@ class VerifierTests(unittest.TestCase):
             proc = subprocess.run(cmd, capture_output=True, text=True)
             self.assertEqual(proc.returncode, 1)
             self.assertEqual(json.loads((root / 'output/summary.json').read_text())['status'], 'INVALID')
-            self.assertIsNone(json.loads((root / 'output/summary.json').read_text())['score'])
-            self.assertFalse((root / 'output/reward.txt').exists())
+            self.assertEqual(json.loads((root / 'output/summary.json').read_text())['score'], 0.0)
+            self.assertEqual(float((root / 'output/reward.txt').read_text()), 0.0)
 
     def test_baseline_protocol(self):
         q, p = reports(); score.validate(q, p)
@@ -148,10 +148,10 @@ class VerifierTests(unittest.TestCase):
                 self.assertEqual(proc.returncode, 0 if reward is not None else 1)
                 self.assertEqual(json.loads((out / 'summary.json').read_text())['status'], status)
                 record = json.loads((out / 'summary.json').read_text())
-                if reward is None:self.assertIsNone(record['score'])
+                if reward is None:self.assertEqual(record['score'], 0.0)
                 else:self.assertAlmostEqual(record['score'], reward)
                 self.assertEqual(record['valid'], reward is not None)
-                self.assertFalse((out / 'reward.txt').exists())
+                self.assertEqual(float((out / 'reward.txt').read_text()), json.loads((out / 'summary.json').read_text())['score'])
 
     def test_different_quality_cases(self):
         q, p = reports();other = copy.deepcopy(q);other["results"][0]["id"] = "foreign"
@@ -188,8 +188,8 @@ class VerifierTests(unittest.TestCase):
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 1)
                 self.assertEqual(json.loads((out / 'summary.json').read_text())['status'], 'INVALID')
-                self.assertIsNone(json.loads((out / 'summary.json').read_text())['score'])
-                self.assertFalse((out / 'reward.txt').exists())
+                self.assertEqual(json.loads((out / 'summary.json').read_text())['score'], 0.0)
+                self.assertEqual(float((out / 'reward.txt').read_text()), json.loads((out / 'summary.json').read_text())['score'])
 
     def test_smoke_cannot_score(self):
         q, p = reports();p['contract']['workload']['requests'] = 1
@@ -271,32 +271,27 @@ class VerifierTests(unittest.TestCase):
                 self.assertEqual(performance.run(args,evaluate,emit=False),0)
             self.assertEqual(len(json.loads((root/'output/summary.json').read_text())['cases'][0]['rounds']),3)
 
-    def test_timed_score_requires_matching_trial(self):
-        q,p=reports();env={'packages':{},'model':q['model'],'model_config_sha256':'c',
-                           'weights_index_sha256':'w','physical_devices':'0,1','started_at':time.time()-3}
+    def test_local_deadline_does_not_compare_remote_clock(self):
+        q,p=reports()
+        env={'packages':{},'model':q['model'],'model_config_sha256':'c',
+             'weights_index_sha256':'w','physical_devices':'0,1'}
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);base=root/'base.json';base.write_text(json.dumps(baseline_report(q,p,env)))
-            values={'quality':q,'performance':p,'environment':env,'source':{}}
-            common=[]
-            for key,value in values.items():
-                path=root/(key+'.json');path.write_text(json.dumps(value));common+=['--'+key,str(path)]
-            fingerprint={'source':{},'config':None,'launcher_sha256':None}
-            trial={'schema_version':'infra-bench-opt.trial.v1','task_id':score.TASK_ID,
-                   'trial_id':'a'*32,'campaign_id':'b'*32,'baseline_sha256':score.digest(base),
-                   'source_sha256':hashlib.sha256(json.dumps(fingerprint,sort_keys=True).encode()).hexdigest(),
-                   'started_at':time.time()-5,'deadline':time.time()+120}
-            trial.update(budget_seconds=28800,campaign_started_at=trial['deadline']-28800)
-            for name,change,expected in [('valid',{},'VALID'),('wrong-source',{'source_sha256':'0'*64},'INVALID'),
-                                         ('historical-replay',{'started_at':time.time()-1},'INVALID'),
-                                         ('old-four-hour-budget',{'budget_seconds':14400,'campaign_started_at':trial['deadline']-14400},'INVALID'),
-                                         ('late',{'started_at':time.time()-20,'deadline':time.time()-10,'campaign_started_at':time.time()-10-28800},'LATE')]:
-                receipt=root/(name+'-trial.json');receipt.write_text(json.dumps({**trial,**change}))
-                out=root/name
-                proc=subprocess.run([sys.executable,str(ROOT/'tests/score.py'),*common,'--baseline',str(base),
-                                     '--trial',str(receipt),'--output',str(out)],capture_output=True,text=True)
-                value=json.loads((out/'summary.json').read_text());self.assertEqual(value['status'],expected)
-                self.assertEqual(proc.returncode,0 if expected=='VALID' else 1)
-                if expected!='VALID':self.assertIsNone(value['score'])
+            for name,offset,seconds,status in [('remote-ahead',86400,120,'VALID'),
+                                              ('remote-behind',-86400,120,'VALID'),
+                                              ('local-expired',86400,-1,'LATE')]:
+                values={'quality':q,'performance':p,'environment':{**env,'started_at':time.time()+offset},'source':{}}
+                cmd=[sys.executable,str(ROOT/'tests/score.py'),'--baseline',str(base),
+                     '--deadline',str(time.time()+seconds),'--output',str(root/name)]
+                for key,value in values.items():
+                    path=root/(name+'-'+key+'.json');path.write_text(json.dumps(value));cmd+=['--'+key,str(path)]
+                proc=subprocess.run(cmd,capture_output=True,text=True)
+                value=json.loads((root/name/'summary.json').read_text())
+                self.assertEqual(proc.returncode,0 if status=='VALID' else 1)
+                self.assertEqual(value['status'],status)
+                self.assertIsInstance(value['score'],float)
+                self.assertEqual(value['score'],1.0 if status=='VALID' else 0.0)
+                self.assertEqual(float((root/name/'reward.txt').read_text()),value['score'])
 
     def test_failed_request_not_dropped(self):
         with self.assertRaises(ValueError):performance.summarize([{'status': 'FAILED'}], 1)
