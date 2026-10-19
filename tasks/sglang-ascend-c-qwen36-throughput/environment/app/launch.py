@@ -29,8 +29,8 @@ def command(model, port, config):
             '--tp-size', '2', '--device', 'npu', '--attention-backend', 'ascend',
             '--dtype', 'bfloat16', '--kv-cache-dtype', 'bfloat16', '--mamba-ssm-dtype', 'bfloat16',
             '--context-length', '67584', '--max-running-requests', '64', '--random-seed', '20260904',
-            '--disable-radix-cache', '--disable-custom-all-reduce', '--disable-piecewise-cuda-graph',
-            '--cuda-graph-bs', '1', '2', '4', '8', '16', '24', '32', '40', '48', '56', '64',
+            '--disable-radix-cache', '--disable-custom-all-reduce', '--cuda-graph-backend-decode', 'full',
+            '--cuda-graph-bs-decode', '1', '2', '4', '8', '16', '24', '32', '40', '48', '56', '64',
             '--skip-server-warmup']
     for key, value in c.items():
         args.extend(['--' + key.replace('_', '-'), str(value)])

@@ -48,8 +48,7 @@ def main():
         env.pop(key, None)
     cache = Path(env['TRITON_CACHE_DIR']); cache.mkdir()
     packages = {d.metadata['Name'].lower().replace('_', '-'): d.version for d in metadata.distributions()}
-    expected = {'sglang': '0.5.12', 'torch': '2.8.0+cpu', 'torch-npu': '2.8.0.post2',
-                'triton-ascend': '3.2.0', 'sgl-kernel-npu': '2026.5.1'}
+    expected = json.loads((Path(__file__).with_name('runtime-lock.json')).read_text())
     for key, value in expected.items():
         if packages.get(key) != value:
             raise ValueError(f'Runtime mismatch: {key}')
@@ -69,7 +68,7 @@ def main():
     })
     # Reapply the vendor's environment after choosing the native source path:
     # graph compilation imports CANN's tbe modules from PYTHONPATH.
-    command = ['bash', '-c', 'source /usr/local/Ascend/ascend-toolkit/set_env.sh; exec "$@"',
+    command = ['bash', '-c', 'source /usr/local/Ascend/ascend-toolkit/set_env.sh; source /usr/local/Ascend/cann-9.1.0/share/info/ascendnpu-ir/bin/set_env.sh; source /usr/local/Ascend/nnal/atb/set_env.sh --cxx_abi=1; exec "$@"',
                'native-service', sys.executable, str(a.launcher.resolve()), '--model-path', a.model_path,
                '--port', str(a.port), '--config', str(a.config.resolve())]
     evaluate.save(a.output / 'environment.json', {

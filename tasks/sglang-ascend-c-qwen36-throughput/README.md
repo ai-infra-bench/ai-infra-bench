@@ -8,7 +8,7 @@ The image contains native SGLang, its official Ascend kernels, PyTorch and the v
 
 The benchmark is intended to measure further improvement over a well-optimized native deployment. Select a recent official Ascend release with its complete matched runtime stack, apply applicable documented optimizations within the task's fixed BF16/workload contract, and validate correctness and stable throughput before freezing the baseline. A newer version number alone does not prove a strong baseline. Freeze the exact image digest, source commit, launcher and configuration; changing any of them requires a new baseline and separate comparison group. Existing optimizations must not be disabled merely to inflate the measured gain.
 
-The currently checked-in 0.5.12/CANN 8.5.0 image is the validated construction environment, not yet the final qualified baseline for this objective. Upgrading and qualifying the reference deployment remains a prerequisite to a formal optimization run. Do not silently relabel historical measurements as a baseline for a newer stack.
+The task now pins the official SGLang 0.5.22/CANN 9.1 image and matched runtime stack. The editable source preserves the official NPU packaging changes. Collect and qualify a fresh full baseline from the built task image before each new comparison group; older 0.5.12 results and intermediate runtime probes are not the baseline of this task image.
 
 ## Build and collect
 
@@ -16,7 +16,7 @@ This README and the task repository are operator inputs, not an agent workspace.
 
 Follow the same visibility boundary as the repository's other tasks: private tests are supplied only after the agent phase. Stop the agent and its background processes and save its final workspace before beginning verification. The `/tests:ro` mount in the example below belongs exclusively to that verification phase. Run the CPU grader from a trusted operator environment. Never return that verification container to an agent; remove its private mounts/files and use a fresh development container for another attempt. Model inputs necessarily reach the serving process during inference; the boundary prevents advance access by the optimization agent, not a claim that candidate model code cannot observe its own requests.
 
-Build on the matching arm64 Ascend host. The host driver must support CANN 8.5.0. Prepare the official Qwen3.6-27B weights and retain their file hashes before evaluation. Do not fetch weights during a timed task.
+Build on the matching arm64 Ascend host. The host driver must support CANN 9.1.0. Prepare the official Qwen3.6-27B weights and retain their file hashes before evaluation. Do not fetch weights during a timed task.
 
 ```bash
 docker build -t sglang-ascend-c-task:local environment
