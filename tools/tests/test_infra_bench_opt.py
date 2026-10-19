@@ -2,6 +2,8 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -18,6 +20,19 @@ def result(kind='baseline', score=1.0):
 
 
 class OptTests(unittest.TestCase):
+    def test_cli_defaults_to_eight_hours(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);baseline=root/'base.json';baseline.write_text(json.dumps(result()))
+            output=subprocess.check_output([sys.executable,str(TOOL),'start',
+                '--campaign',str(root/'campaign'),'--task','example',
+                '--method','fixture-v1','--baseline',str(baseline)],text=True)
+            state=json.loads(output)
+            self.assertEqual(state['budget_seconds'],28800)
+            self.assertEqual(state['deadline']-state['started_at'],28800)
+            receipt=opt.begin(root/'campaign','a'*64)
+            self.assertEqual(receipt['budget_seconds'],28800)
+            self.assertEqual(receipt['deadline'],state['deadline'])
+
     def test_continuous_scores_not_binary(self):
         for score in (.95,1,1.02,1.5,2.1):self.assertEqual(opt.validate(result('candidate',score))['score'],score)
 

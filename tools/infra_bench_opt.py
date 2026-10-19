@@ -69,7 +69,7 @@ def locked(root):
         yield
 
 
-def start(root, task, baseline, budget=14400, method=None):
+def start(root, task, baseline, budget=28800, method=None):
     if not isinstance(method,str) or not method.strip():raise ValueError('A frozen method/version ID is required')
     value = validate(json.loads(baseline.read_text()))
     if value['kind'] != 'baseline' or not value['valid'] or value['task_id'] != task:
@@ -210,7 +210,7 @@ def main():
     parser.add_argument('--method')
     parser.add_argument('--task')
     parser.add_argument('--baseline', type=Path)
-    parser.add_argument('--budget-seconds', type=int, default=14400)
+    parser.add_argument('--budget-seconds', type=int, default=28800)
     parser.add_argument('--result', type=Path)
     parser.add_argument('--source-sha256')
     args = parser.parse_args()
