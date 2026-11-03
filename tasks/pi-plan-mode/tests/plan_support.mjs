@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { stripVTControlCharacters } from "node:util";
 import { Type } from "typebox";
+import xterm from "@xterm/headless";
 import { Container, Text, TuiMainScreen } from "@earendil-works/pi-tui";
 import { fauxProvider, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { createAgentSession, CustomMessageComponent, DefaultResourceLoader, SessionManager, SettingsManager, initTheme } from "@earendil-works/pi-coding-agent";
@@ -13,21 +14,8 @@ import { createAgentSession, CustomMessageComponent, DefaultResourceLoader, Sess
 import { KeybindingsManager } from "../../src/core/keybindings.ts";
 import { ToolExecutionComponent } from "../../src/modes/interactive/components/tool-execution.ts";
 
-// UI text and the choice of public UI primitive are not part of the task's
-// wire contract. A reviewer may bind visible actions, independently of the
-// candidate's behavior, without changing the assertions or candidate code.
-const bindingPath = process.env.PI_TRUSTED_TESTS && join(process.env.PI_TRUSTED_TESTS, "ui-actions.json");
-const uiActions = bindingPath && existsSync(bindingPath) ? JSON.parse(readFileSync(bindingPath, "utf8")) : {};
-function selectAction(choices, kind) {
-  const label = uiActions.select?.[kind];
-  if (label !== undefined) {
-    if (typeof label !== "string" || !label.length) throw new Error(`Invalid UI binding for ${kind}`);
-    const choice = choices.find((value) => value === label);
-    if (choice === undefined) throw new Error(`Unbound public UI action ${kind}: ${JSON.stringify(choices)}`);
-    return choice;
-  }
-  throw new Error(`Missing reviewed UI binding for ${kind}`);
-}
+import { ExtensionSelectorComponent } from "../../src/modes/interactive/components/extension-selector.ts";
+import { navigateReview, readReview } from "./ui_review_driver.mjs";
 
 export const WORKSPACE = process.env.PI_WORKSPACE ?? "/workspace/pi";
 export const EXTENSION = join(WORKSPACE, "packages/coding-agent/examples/extensions/plan-mode/index.ts");
@@ -124,89 +112,171 @@ export async function start(options = {}) {
   // Only the physical terminal is substituted. Public widget factories receive
   // the real TUI and Theme, and their own components determine rendered text.
   let terminalInput;
+  const screen = new xterm.Terminal({ cols: 120, rows: 40, allowProposedApi: true });
+  let screenFlushed = Promise.resolve();
+  const writeTerminal = (data) => {
+    showText(data);
+    screenFlushed = new Promise((resolve) => screen.write(data, resolve));
+  };
   const terminal = {
     columns: 120, rows: 40, kittyProtocolActive: false,
-    start(onInput) { terminalInput = onInput; }, stop() {}, async drainInput() {}, write: showText,
+    start(onInput) { terminalInput = onInput; }, stop() {}, async drainInput() {}, write: writeTerminal,
     moveBy() {}, hideCursor() {}, showCursor() {}, clearLine() {},
     clearFromCursor() {}, clearScreen() {}, setTitle() {}, setProgress() {},
   };
   const widgetTui = new TuiMainScreen(terminal);
-  const widgets = new Map();
+  const widgets = new Map(), surfaces = [], terminalSubscriptions = new Set();
+  const editorComponent = new Text("", 0, 0);
+  widgetTui.addChild(editorComponent);
+  widgetTui.setFocus(editorComponent);
+  widgetTui.start();
+  let editorText = "", closing = false, autoChoosing = false;
+  const pause = () => new Promise((resolve) => setTimeout(resolve, 0));
+  function surfaceFor(component, active, width = () => terminal.columns, height = () => terminal.rows, bounds = () => undefined) {
+    const surface = {
+      read() {
+        widgetTui.renderNow(true);
+        if (!active()) return undefined;
+        const observed = readReview(component.render(width()));
+        if (!observed) return undefined;
+        // Confirm the selected line on the actual composed terminal viewport.
+        // Component output alone is insufficient: it may be clipped, covered,
+        // hidden, or outside the screen. xterm interprets cursor movement and
+        // erasures, so old transcript output is never used as current UI.
+        const rectangle = bounds();
+        const viewport = Array.from({ length: rectangle?.height ?? screen.rows }, (_, n) => {
+          const row = screen.buffer.active.viewportY + (rectangle?.row ?? 0) + n;
+          return screen.buffer.active.getLine(row)?.translateToString(true, rectangle?.col ?? 0,
+            rectangle ? rectangle.col + rectangle.width : screen.cols) ?? "";
+        });
+        if (!viewport.some((line) => line.trim() === observed.selectionLine.trim())) return undefined;
+        const componentLines = new Set(observed.text.split("\n").map((line) => line.trim()));
+        const visibleLines = viewport.filter((line) => componentLines.has(line.trim()));
+        return { ...observed, text: visibleLines.join("\n") };
+      },
+      async key(key) {
+        if (!active()) throw new Error("UI observer: refusing input to an inactive review");
+        const before = surface.read();
+        terminalInput(key);
+        widgetTui.renderNow(true);
+        await screenFlushed;
+        await pause();
+        if (key !== "\r") {
+          // Rendering may be scheduled asynchronously by a custom component.
+          // Wait under the same UI timeout used to open a review. An unchanged
+          // selection at that limit is a clamp boundary, not an assumed sync
+          // update. The navigation driver will try the opposite direction.
+          const until = Date.now() + 6000;
+          while (Date.now() < until && active()) {
+            await screenFlushed;
+            const after = surface.read();
+            if (after && after.selected !== before?.selected) break;
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+        }
+      },
+      async choose(kind, checkpoint) {
+        await navigateReview(surface, kind, checkpoint);
+        await surface.key("\r");
+      },
+    };
+    surfaces.push(surface);
+    return surface;
+  }
   function setWidget(key, content) {
     const old = widgets.get(key);
-    if (old) { old.dispose?.(); widgetTui.removeChild(old); widgets.delete(key); }
+    if (old) { old.component.dispose?.(); widgetTui.removeChild(old.component); widgets.delete(key); }
     if (content !== undefined) {
       let component;
       if (Array.isArray(content)) {
         component = new Container();
         for (const line of content) component.addChild(new Text(line, 1, 0));
       } else component = content(widgetTui, baseUI.theme);
-      widgets.set(key, component); widgetTui.addChild(component);
+      const entry = { component };
+      widgets.set(key, entry); widgetTui.addChild(component);
+      // Updating one public widget slot is a redraw, not a new dialog. Keep
+      // navigation on that slot while its candidate component is replaced.
+      entry.surface = old?.surface ?? surfaceFor({ render: (width) => widgets.get(key)?.component.render(width) ?? [] },
+        () => widgets.has(key) && !widgetTui.hasOverlay() && widgetTui.getFocusedComponent() === editorComponent);
     }
     widgetTui.renderNow(true);
+  }
+  let modal;
+  function attachDialog(component, answer, cleanup, displayOptions = {}) {
+    let settled = false, overlay;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      cleanup?.();
+      if (overlay) overlay.hide();
+      else if (modal?.component === component) {
+        widgetTui.removeChild(component); modal = undefined; widgetTui.setFocus(editorComponent);
+      }
+      component.dispose?.(); widgetTui.renderNow(true); answer.resolve(value);
+    };
+    if (displayOptions.overlay) {
+      overlay = widgetTui.showOverlay(component, typeof displayOptions.overlayOptions === "function" ? displayOptions.overlayOptions() : displayOptions.overlayOptions);
+      displayOptions.onHandle?.(overlay);
+    } else {
+      if (modal) { widgetTui.removeChild(modal.component); modal.component.dispose?.(); }
+      modal = { component }; widgetTui.addChild(component); widgetTui.setFocus(component);
+    }
+    const surface = surfaceFor(component,
+      () => !settled && (overlay ? !overlay.isHidden() && overlay.isFocused() : modal?.component === component && !widgetTui.hasOverlay() && widgetTui.getFocusedComponent() === component),
+      () => overlay?.getBounds()?.width ?? terminal.columns,
+      () => overlay?.getBounds()?.height ?? terminal.rows,
+      () => overlay?.getBounds());
+    const dialog = { ...surface, cancel: () => finish(undefined), answer };
+    dialogs.push(dialog);
+    widgetTui.renderNow(true);
+    return { finish, dialog };
   }
   const ui = { ...baseUI,
     notify: (message, type) => { notices.push({ message, type }); showText(message); },
     setStatus: (_key, text) => showText(text),
     setWidget,
-    select: async (title, choices) => {
-      showText(title); choices.forEach(showText);
+    onTerminalInput(handler) {
+      const unsubscribe = widgetTui.addInputListener(handler);
+      terminalSubscriptions.add(unsubscribe);
+      return () => { unsubscribe(); terminalSubscriptions.delete(unsubscribe); };
+    },
+    setEditorText(text) { editorText = text; },
+    getEditorText: () => editorText,
+    select: async (title, choices, opts = {}) => {
+      if (opts.signal?.aborted) return undefined;
       const answer = deferred();
-      const dialog = { title, choices, answer, hasAction: (kind) => selectAction(choices, kind) !== undefined, choose: (kind) => {
-        const choice = selectAction(choices, kind);
-        if (choice === undefined) throw new Error(`Unbound public UI action ${kind}: ${JSON.stringify(choices)}. Review visible labels and supply ui-actions.json before interpreting this as a candidate failure.`);
-        answer.resolve(choice);
-      }};
-      dialogs.push(dialog);
-      if (!options.deferUI) {
-        const stay = selectAction(choices, "stay");
-        answer.resolve(stay);
-      }
+      let host;
+      const component = new ExtensionSelectorComponent(title, choices,
+        (choice) => host.finish(choice), () => host.finish(undefined), { tui: widgetTui, timeout: opts.timeout });
+      const abort = () => host.finish(undefined);
+      host = attachDialog(component, answer, () => opts.signal?.removeEventListener("abort", abort));
+      opts.signal?.addEventListener("abort", abort, { once: true });
       return answer.promise;
     },
     custom: async (factory, displayOptions = {}) => {
       const answer = deferred();
-      let component, overlay, settled = false;
-      const finish = (value) => {
-        if (settled) return;
-        settled = true;
-        if (component) {
-          if (overlay) overlay.hide(); else widgetTui.removeChild(component);
-          component.dispose?.(); widgetTui.renderNow(true);
-        }
-        answer.resolve(value);
-      };
-      component = await factory(widgetTui, baseUI.theme, new KeybindingsManager(), finish);
-      if (settled) { component.dispose?.(); return answer.promise; }
-      if (displayOptions.overlay) {
-        overlay = widgetTui.showOverlay(component, typeof displayOptions.overlayOptions === "function" ? displayOptions.overlayOptions() : displayOptions.overlayOptions);
-        displayOptions.onHandle?.(overlay);
-      } else { widgetTui.addChild(component); widgetTui.setFocus(component); }
-      widgetTui.start();
-      const rendered = () => component.render(terminal.columns).map(stripVTControlCharacters).join("\n");
-      const hasAction = (kind) => {
-        const binding = uiActions.custom?.[kind];
-        return !overlay?.isHidden() && typeof binding?.label === "string" && binding.label.length > 0 && rendered().includes(binding.label)
-          && Array.isArray(binding.keys) && binding.keys.length > 0 && binding.keys.length <= 64 && binding.keys.every((key) => typeof key === "string");
-      };
-      const dialog = { answer, cancel: () => finish(undefined), hasAction, choose: (kind) => {
-        if (settled) return;
-        if (!hasAction(kind)) throw new Error(`Unbound public custom UI action ${kind}. Bind its visible label and user keystrokes in ui-actions.json; do not infer action meaning from candidate state changes.`);
-        if (typeof terminalInput !== "function") throw new Error("Custom UI input was not attached to the terminal");
-        for (const key of uiActions.custom[kind].keys) {
-          terminalInput(key);
-          widgetTui.renderNow(true);
-        }
-      }};
-      widgetTui.renderNow(true);
-      showText(rendered());
-      dialogs.push(dialog);
-      if (!options.deferUI) dialog.choose("stay");
+      let host, early = false, earlyValue;
+      const component = await factory(widgetTui, baseUI.theme, new KeybindingsManager(), (value) => {
+        if (host) host.finish(value); else { early = true; earlyValue = value; }
+      });
+      if (early) { component?.dispose?.(); return earlyValue; }
+      host = attachDialog(component, answer, undefined, displayOptions);
       return answer.promise;
     },
     input: async () => options.refinement ?? "Refine without executing",
     editor: async () => options.refinement ?? "Refine without executing",
   };
+  const activeReview = () => [...surfaces].reverse().find((surface) => surface.read());
+  // Ordinary non-UI cases dismiss review through the same public keyboard
+  // path; a candidate never receives a host-invented answer string.
+  const autoTimer = options.ui && !options.deferUI ? setInterval(async () => {
+    if (closing || autoChoosing) return;
+    const surface = activeReview();
+    if (!surface) return;
+    autoChoosing = true;
+    try { await surface.choose("stay"); } catch (error) { errors.push(error); }
+    finally { autoChoosing = false; }
+  }, 10) : undefined;
   const renderedTools = new Map();
   session.subscribe((event) => {
     events.push(event);
@@ -241,7 +311,7 @@ export async function start(options = {}) {
   const bind = { mode: options.ui ? "tui" : "rpc", onError: (error) => errors.push(error) };
   if (options.ui) bind.uiContext = ui;
   await session.bindExtensions(bind);
-  const live = { box, session, sessionManager, faux, requests, events, errors, dialogs, notices, uiOutput, api,
+  const live = { box, session, sessionManager, faux, requests, events, errors, dialogs, notices, uiOutput, api, activeReview,
     waitStarted: started.promise, release: gate.resolve,
     tools: () => session.getActiveToolNames(),
     responses(steps = []) {
@@ -286,14 +356,17 @@ export async function start(options = {}) {
       return event;
     },
     async close(remove = true) {
+      closing = true; clearInterval(autoTimer);
       gate.resolve();
       for (const dialog of dialogs) { if (dialog.cancel) dialog.cancel(); else dialog.answer.resolve(undefined); }
       await session.abort();
       await session.agent.waitForIdle();
       await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
       session.dispose();
-      for (const widget of widgets.values()) widget.dispose?.();
+      for (const widget of widgets.values()) widget.component.dispose?.();
+      for (const unsubscribe of terminalSubscriptions) unsubscribe();
       widgets.clear(); widgetTui.clear(); widgetTui.stop();
+      await screenFlushed; screen.dispose();
       if (remove) rmSync(box.root, { recursive: true, force: true });
     }
   };

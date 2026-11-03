@@ -1,0 +1,22 @@
+diff --git a/packages/coding-agent/examples/extensions/context-management/index.ts b/packages/coding-agent/examples/extensions/context-management/index.ts
+--- a/packages/coding-agent/examples/extensions/context-management/index.ts
++++ b/packages/coding-agent/examples/extensions/context-management/index.ts
+@@ -219,7 +219,7 @@
+ 		parameters: Type.Object({ query: Type.String() }),
+ 		async execute(_id, args, _signal, _update, ctx) {
+ 			const items = snapshot(ctx)
+-				.items.filter((item) => item.text.includes(args.query))
++				.items.filter((item) => JSON.stringify(item.text).includes(args.query))
+ 				.map(({ text, original: _original, ...item }) => {
+ 					const index = text.indexOf(args.query);
+ 					const offset = Array.from(text.slice(0, index)).length;
+@@ -245,8 +245,7 @@
+ 				(entry) => entry.window_id === args.window_id && entry.item_id === args.item_id,
+ 			);
+ 			if (!item) throw new Error("Record not found in this session");
+-			const { original, ...metadata } = item;
+-			return output({ ...metadata, text: JSON.stringify(original) });
++			return output({ ...item, text: JSON.stringify({ role: item.role, original: item.original }) });
+ 		},
+ 	});
+ }

@@ -1,53 +1,13 @@
+diff --git a/packages/coding-agent/examples/extensions/subagent/team-worker.ts b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
 --- a/packages/coding-agent/examples/extensions/subagent/team-worker.ts
 +++ b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
-@@ -62,16 +62,15 @@
- 			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
- 		},
- 	});
--	let aborted = false;
--	let continuationSettled: (() => void) | undefined;
--	const receive = async (settled = false) => {
-+	pi.on("turn_end", async (event) => {
- 		const messages = await locked(directory, () => {
- 			const mailbox = inbox(directory, self);
- 			const files = fs.readdirSync(mailbox).filter((file) => file.endsWith(".json"));
- 			const queued = files.map((file) => JSON.parse(fs.readFileSync(path.join(mailbox, file), "utf8")) as Envelope);
- 			queued.sort((a, b) => a.from.localeCompare(b.from) || a.sequence - b.sequence);
- 			for (const file of files) fs.unlinkSync(path.join(mailbox, file));
--			if (settled && (queued.length === 0 || aborted)) {
-+			const terminal = event.message.role === "assistant" && event.message.stopReason !== "toolUse";
-+			if (queued.length === 0 && terminal) {
- 				const members = readMembers(directory);
- 				const member = members.find((entry) => entry.id === self);
- 				if (member) member.state = "finished";
-@@ -79,10 +78,7 @@
- 			}
- 			return queued;
- 		});
--		if (messages.length > 0 && !aborted) {
--			// At agent_settled the original prompt is about to return. Await a
--			// continuation accepted during post-run work before print mode exits.
--			const done = settled ? new Promise<void>((resolve) => { continuationSettled = resolve; }) : undefined;
-+		if (messages.length > 0) {
- 			pi.sendMessage(
- 				{
- 					customType: "team_findings",
-@@ -92,18 +88,6 @@
- 				},
- 				{ deliverAs: "steer", triggerTurn: true },
- 			);
--			await done;
- 		}
--	};
--	pi.on("turn_end", async (event) => {
--		aborted = event.message.role === "assistant" && event.message.stopReason === "aborted";
+@@ -111,7 +111,8 @@
+ 	};
+ 	pi.on("turn_end", async (event) => {
+ 		aborted = event.message.role === "assistant" && event.message.stopReason === "aborted";
 -		await receive();
--	});
--	// turn_end and agent_end can precede automatic retry or compaction. Only
--	// this event means the Pi run has no remaining automatic continuation.
--	pi.on("agent_settled", async () => {
--		const complete = continuationSettled;
--		continuationSettled = undefined;
--		try { await receive(true); } finally { complete?.(); }
++		const terminal = event.message.role === "assistant" && event.message.stopReason !== "toolUse";
++		await receive(terminal);
  	});
- }
+ 	// Error turns may still be followed by Pi's automatic retries/compaction.
+ 	// Only agent_settled closes acceptance; drain and close share the team lock.

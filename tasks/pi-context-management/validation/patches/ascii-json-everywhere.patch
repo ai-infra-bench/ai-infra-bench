@@ -1,0 +1,21 @@
+diff --git a/packages/coding-agent/examples/extensions/context-management/index.ts b/packages/coding-agent/examples/extensions/context-management/index.ts
+--- a/packages/coding-agent/examples/extensions/context-management/index.ts
++++ b/packages/coding-agent/examples/extensions/context-management/index.ts
+@@ -75,7 +75,7 @@
+ }
+ 
+ function output(data: unknown) {
+-	return { content: [{ type: "text" as const, text: JSON.stringify(data) }], details: {} };
++	return { content: [{ type: "text" as const, text: JSON.stringify(data).replace(/[\u007f-\uffff]/g, (char) => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0")) }], details: {} };
+ }
+ 
+ export default function contextManagement(pi: ExtensionAPI) {
+@@ -132,7 +132,7 @@
+ 					content: [
+ 						{
+ 							type: "text",
+-							text: `${hint}${state.note !== undefined ? `\n\nWorking notes:\n${state.note}` : ""}`,
++							text: `${hint}${state.note !== undefined ? `\n\nWorking notes:\n${JSON.stringify(state.note).replace(/[\u007f-\uffff]/g, (char) => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"))}` : ""}`,
+ 						},
+ 					],
+ 					timestamp: 0,

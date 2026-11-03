@@ -1,9 +1,9 @@
 diff --git a/packages/coding-agent/examples/extensions/agent-trace/README.md b/packages/coding-agent/examples/extensions/agent-trace/README.md
 new file mode 100644
-index 0000000..4654700
+index 0000000..4bef374
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/agent-trace/README.md
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,88 @@
 +# Agent Trace
 +
 +Exports the agent loop as an OpenTelemetry trace, written as OTLP/JSON lines
@@ -20,7 +20,8 @@ index 0000000..4654700
 +carry `service.name`, `service.version`, `pi.session.id` and `process.pid`.
 +Every span has a start line immediately and an end line once its attributes
 +are known. Chat end lines are flushed at the first tool start (or `turn_end`
-+without tools); tool end lines wait for persisted entries at `turn_end`.
++without tools); completed tool end lines flush once their entries are persisted,
++at the next tool start or at `turn_end`.
 +End lines follow end-time order and are never rewritten; `/reload` and later processes append to the same file with
 +the same trace id (derived from the session id).
 +
@@ -77,12 +78,39 @@ index 0000000..4654700
 +tools. The runtime owns event subscriptions and removes them on reload.
 +
 +Run the offline regression tests with `npm test -w packages/coding-agent`.
++
++## Callable child environment
++
++Import `childEnvironment` from `child-context.mjs` and call it during the spawning
++tool with `{ pi, toolCallId, env, context, extensionPath }`. `env` is a copy of the
++environment for Node's `spawn`, `context` is the tool execution context, and
++`extensionPath` is the absolute path to this extension's `index.ts`. Await its
++result and pass that environment to the child. This module delegates to the
++documented integration without instantiating another tracing runtime.
++
++`pi.compaction.will_retry` records the intent at preparation time and remains
++unchanged if the summary fails. Compaction can occur between two turns of an
++active run without closing that run. Session entry references appear on end
++records only, including `pi.run.after_compaction`.
+diff --git a/packages/coding-agent/examples/extensions/agent-trace/child-context.mjs b/packages/coding-agent/examples/extensions/agent-trace/child-context.mjs
+new file mode 100644
+index 0000000..c82cbd0
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/agent-trace/child-context.mjs
+@@ -0,0 +1,7 @@
++// Public entrypoint for a cooperating tool. The tracing extension owns all context.
++export async function childEnvironment({ pi, toolCallId, env }) {
++  let childEnv;
++  pi.events.emit("agent-trace:child-env", { toolCallId, env, reply(value) { childEnv = value; } });
++  if (!childEnv) throw new Error("No active trace context for this tool call");
++  return childEnv;
++}
 diff --git a/packages/coding-agent/examples/extensions/agent-trace/index.ts b/packages/coding-agent/examples/extensions/agent-trace/index.ts
 new file mode 100644
-index 0000000..4797856
+index 0000000..2c1d7ff
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/agent-trace/index.ts
-@@ -0,0 +1,555 @@
+@@ -0,0 +1,557 @@
 +/**
 + * Agent Trace Extension
 + *
@@ -100,7 +128,8 @@ index 0000000..4797856
 + * pi persists a message after extensions have seen its `message_end`, so the
 + * chat span (which carries the assistant entry id) is written at the first
 + * `tool_execution_start` of its turn, or at `turn_end` when the turn calls no
-+ * tool; tool spans and the turn are written at `turn_end`; the run at
++ * tool. Completed tool spans flush at the next tool start once their entries
++ * exist, or at `turn_end`; the turn ends at `turn_end`; the run at
 + * `agent_end`. A crash therefore loses only spans whose entries pi had not
 + * persisted. On `session_shutdown` every open span is closed with status
 + * ERROR "shutdown". A write failure never reaches the agent: it is reported
@@ -380,8 +409,9 @@ index 0000000..4797856
 +		sawBeforeAgentStart = false;
 +		previousRunSettled = false;
 +		const known: Array<[string, AttributeValue]> = [["pi.run.trigger", runTrigger]];
-+		if (isOverflowRetry) known.push(["pi.run.after_compaction", retryAfterCompaction!]);
 +		run = start("pi.run", KIND_INTERNAL, undefined, now, known);
++		// Entry references belong only to the end record; start() already wrote the live line.
++		if (isOverflowRetry) run.attributes.set("pi.run.after_compaction", retryAfterCompaction!);
 +		// An overflow retry resumes the existing context: no message of its own, no entry id.
 +		runEntryResolved = isOverflowRetry;
 +		retryAfterCompaction = undefined;

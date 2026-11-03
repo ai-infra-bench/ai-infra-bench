@@ -64,6 +64,27 @@ with the task's `tests/baseline-pins.json` `allowed_failures`: a platform may
 show an environmental failure the pin does not list yet, and the fix is to
 extend the pin.
 
+## Optional authenticated GitHub source fetch
+
+Anonymous source fetch remains the default. If GitHub requires authentication
+for the frozen source commit, explicitly supply a nonempty `PI_GITHUB_TOKEN` in
+the builder process environment through your credential manager, then run the
+same `build.py` command. The builder does not discover `GH_TOKEN`, `GITHUB_TOKEN`
+or a `gh` login automatically.
+
+`build.py` adds only `--secret id=github_token,env=PI_GITHUB_TOKEN`. BuildKit mounts
+that optional secret for the pinned-source `RUN`; only the `git fetch` subshell
+sets a GitHub-HTTPS-scoped Basic authorization header through Git's environment
+configuration. The token/header is not a build argument, Docker `ARG`/`ENV`, Git
+configuration file, image label or provenance field. The secret mount is not
+copied into the image. An absent or empty secret keeps the anonymous path.
+This requires BuildKit (already used by `docker buildx build`).
+
+Authentication changes access to the same pinned source, not its SHA, cutoff,
+lock or history-cleanup checks. Keep the existing source-stage audits after
+fetch. Regeneration changes the Dockerfile input hash; retain old manifests
+until a real successful build writes a newly verified image identity.
+
 ## Agent user and toolchain ownership
 
 By default, the rendered image leaves the checkout owned by the `node` user and the installed toolchain (`node_modules`, `node`, `python3`, `bash`) owned by root and read-only for others; tasks set `[agent].user = "node"` so the agent cannot rewrite the test runner the verifier (root) executes. vite's transient config bundles go to `node_modules/.vite-temp` and `.vite`, which belong to the selected agent user; verifiers remove them before running. Root's git is configured with `safe.directory /workspace/pi`. Pair this with a verifier-side check that the submission did not change pi source or the build/test toolchain (see the pi task `tests/test.sh` scope check).
@@ -81,7 +102,8 @@ can preserve both with `environment/pi-template.json`:
 }
 ```
 
-These are the only accepted keys. Missing keys retain the Node 22.19.0 / `node`
+These keys and the optional `strace_version` below are the only accepted keys.
+Missing keys retain the Node 22.19.0 / `node`
 defaults, both boolean options set to `false`, and `workspace_mode: "prebuilt"`;
 no configuration file preserves the existing generated Dockerfile
 bytes. `node_image` accepts only the two reviewed, digest-pinned Node images in
@@ -114,6 +136,15 @@ dependencies or change the lock. `lock.py` records the same install policy in
 the manifest's `resolver` field. Both options require JSON booleans; strings and
 numbers are rejected. With either option omitted or `false`, its generated
 Dockerfile content remains unchanged.
+
+`strace_version: "6.1-0.1"` optionally installs the reviewed Debian Bookworm
+strace package, with an exact package-version check during the image build.
+No other value is accepted. Omitting the key preserves the generated Dockerfile
+bytes and does not install strace. This is general syscall observation tooling;
+it adds no task-specific fixture, candidate restriction, or tracing privilege.
+Only `pi-subagent-live-messaging` currently enables it. The verifier must still
+check tracing permissions in the actual runtime; installation alone does not
+prove that observation works under Harbor's process and container settings.
 
 ## Source workspace mode
 

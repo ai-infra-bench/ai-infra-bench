@@ -1,0 +1,70 @@
+diff --git a/packages/coding-agent/examples/extensions/context-management/index.ts b/packages/coding-agent/examples/extensions/context-management/index.ts
+--- a/packages/coding-agent/examples/extensions/context-management/index.ts
++++ b/packages/coding-agent/examples/extensions/context-management/index.ts
+@@ -105,6 +105,7 @@
+ 		return estimateTokens(setup) + messages.reduce((sum, message) => sum + estimateTokens(message), 0);
+ 	}
+ 	let pending: { session: string; window_id: string } | undefined;
++	const searches = new Map<string, { session: string; query: string; items: Record<string, unknown>[]; position: number; emittedEmpty: boolean }>();
+ 	pi.on("session_start", async () => {
+ 		pending = undefined;
+ 	});
+@@ -216,22 +217,43 @@
+ 		label: "Search original history",
+ 		description:
+ 			"Search original messages and tool results in this session by literal substring. Copy a returned window_id/item_id pair into history_read to retrieve that record. Previews show text around the match.",
+-		parameters: Type.Object({ query: Type.String() }),
++		parameters: Type.Object({ query: Type.String(), cursor: Type.Optional(Type.Unknown()) }),
+ 		async execute(_id, args, _signal, _update, ctx) {
+-			const items = snapshot(ctx)
+-				.items.filter((item) => item.text.includes(args.query))
+-				.map(({ text, original: _original, ...item }) => {
+-					const index = text.indexOf(args.query);
+-					const offset = Array.from(text.slice(0, index)).length;
+-					const chars = Array.from(text);
+-					return {
+-						...item,
+-						preview: chars.slice(Math.max(0, offset - 80), offset + 240).join(""),
+-						match_offset: offset,
+-						total_chars: chars.length,
+-					};
+-				});
+-			return output({ items, next_cursor: null });
++			const supplied = args.cursor as unknown;
++			const token = supplied && typeof supplied === "object" && "search" in supplied
++				? String((supplied as { search: unknown }).search)
++				: randomUUID();
++			let state = searches.get(token);
++			if (!state) {
++				if (supplied !== undefined) throw new Error("Unknown search cursor");
++				const items = snapshot(ctx)
++					.items.filter((item) => item.text.includes(args.query))
++					.map(({ text, original: _original, ...item }) => {
++						const index = text.indexOf(args.query);
++						const offset = Array.from(text.slice(0, index)).length;
++						const chars = Array.from(text);
++						return {
++							...item,
++							preview: chars.slice(Math.max(0, offset - 80), offset + 240).join(""),
++							match_offset: offset,
++							total_chars: chars.length,
++						};
++					});
++				state = { session: ctx.sessionManager.getSessionId(), query: args.query, items, position: 0, emittedEmpty: false };
++				searches.set(token, state);
++			}
++			if (state.session !== ctx.sessionManager.getSessionId()) throw new Error("Search cursor belongs to another session");
++			if (state.query !== args.query) throw new Error("Cursor query mismatch");
++			const cursor = { search: token };
++			if (state.position > 0 && !state.emittedEmpty) {
++				state.emittedEmpty = true;
++				return output({ items: [], next_cursor: cursor });
++			}
++			const page = state.items.slice(state.position, state.position + 1);
++			state.position += page.length;
++			if (state.position < state.items.length) return output({ items: page, next_cursor: cursor });
++			searches.delete(token);
++			return output({ items: page, next_cursor: null });
+ 		},
+ 	});
+ 	pi.registerTool({

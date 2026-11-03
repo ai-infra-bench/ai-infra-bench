@@ -12,17 +12,12 @@ def inspect(path, expected):
     names = [case.get("name", "").split(" > ")[-1] for case in cases]
     totals = {key: sum(int(s.get(key, "0")) for s in suites) for key in ("tests", "errors", "failures", "skipped")}
     failed = [name for name, case in zip(names, cases) if any(case.find(tag) is not None for tag in ("skipped", "failure", "error"))]
-    integration_needed = any(
-        marker in ((failure.text or "") + failure.get("message", ""))
-        for failure in root.findall(".//failure") + root.findall(".//error")
-        for marker in ("Unbound public UI action", "Unbound public custom UI action", "Missing reviewed UI binding")
-    )
     problems = []
     if not suites or totals["tests"] != len(expected) or len(cases) != len(expected): problems.append("incomplete or inflated case count")
     if len(names) != len(set(names)): problems.append("duplicate testcase names")
     if set(names) != set(expected): problems.append("case inventory mismatch")
     if failed or any(totals[k] for k in ("errors", "failures", "skipped")): problems.append("not all required cases passed")
-    return {"integration_needed": integration_needed, "passed": not problems, "problems": problems, "totals": totals, "failed": failed, "missing": sorted(set(expected) - set(names))}
+    return {"passed": not problems, "problems": problems, "totals": totals, "failed": failed, "missing": sorted(set(expected) - set(names))}
 
 def main():
     path = Path(sys.argv[1])

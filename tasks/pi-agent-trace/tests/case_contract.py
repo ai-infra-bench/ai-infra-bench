@@ -1,6 +1,8 @@
 """Verifier-owned case inventory; contains no candidate imports."""
 
 CONTRACT_CASES = {
+    "threshold compaction between turns stays live and root without splitting the active run",
+    "failed overflow compaction preserves its live retry intent without a compaction entry or retry run",
     "a fresh user prompt after idle overflow compaction stays a prompt and references its own user entry",
     "a user follow-up queued at agent_end opens a continuation run referencing its user entry",
     "an error response without errorMessage uses aborted for chat and turn status",

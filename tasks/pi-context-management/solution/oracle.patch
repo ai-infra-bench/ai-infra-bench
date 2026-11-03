@@ -2,7 +2,7 @@ diff --git a/packages/coding-agent/examples/extensions/context-management/README
 new file mode 100644
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/context-management/README.md
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,77 @@
 +# Model-managed context
 +
 +Enable with `pi -e packages/coding-agent/examples/extensions/context-management/index.ts`.
@@ -14,63 +14,151 @@ new file mode 100644
 +`new_context({})` to continue in a fresh working context. The switch waits for
 +all tools in that batch; notes written later in the batch are carried forward.
 +It does not generate a summary, change the session, or undo workspace changes.
-+System instructions and user messages remain available. Later assistant/tool
-+messages accumulate normally in the new window.
++System instructions remain available. Previously presented user messages and
++the outgoing assistant/tool conversation leave active context. Save the goal,
++relevant instructions and corrections, progress, evidence references and next
++steps in notes; the model decides what to write. New, not-yet-presented input
++survives and follows Pi's normal steering/follow-up queue rules. Later messages
++accumulate normally in the new window. Saving notes is optional: both explicit
++and automatic resets work before a first write and after `notes_write({text:""})`.
 +
 +Use `history_search({query: "a distinctive clue"})` to find original messages,
-+assistant tool calls, and tool results. Search returns matching records with
++assistant visible text, reasoning, tool calls, and tool results. Search returns matching records with
 +stable `window_id` and `item_id` pairs and previews around each match.
-+`history_read({window_id, item_id})` returns a lossless JSON message, including reasoning; it
-+never reloads the whole archive. No cursor or offset arguments are required.
++`history_read({window_id, item_id})` returns lossless JSON of one complete original message, including reasoning; it
++never reloads the whole archive. A complete response has `next_cursor: null`. Paginated implementations use the public `cursor` argument and `next_cursor` result.
++Matching is case-sensitive and literal. An empty query returns all browsable
++records. This implementation imposes no result cap or pagination. Tool outputs
++are JSON text; reads include the entire text, not a summary or a shortened preview.
++
++## Capacity configuration
++
++While enabled, the extension checks capacity before each otherwise required
++model request. It never creates a request merely to check or remind. An explicit
++`new_context` does request continuation, including when notes are empty. Pi's
++automatic summarizing compaction is cancelled; manual `/compact` remains an
++explicit user operation.
++
++Configure optional positive integer CLI flags through Pi's extension flag system:
++
++| Flag | Default |
++| --- | --- |
++| `--context-rollover-tokens` | 90% of model capacity after response headroom |
++| `--context-reminder-tokens` | 75% of the rollover threshold |
++| `--context-response-headroom` | 4096, or the model's maximum output tokens if larger |
++
++For example: `pi -e packages/coding-agent/examples/extensions/context-management/index.ts --context-reminder-tokens 40000 --context-rollover-tokens 150000`.
++Reminder must be below rollover. Full model capacity minus response headroom
++caps the effective rollover. Invalid values are rejected.
++
++Count full current-window input using Pi's existing `estimateTokens`: sum the
++current messages, then add one user-text estimate for the effective system prompt,
++a newline and JSON of active tool definitions (`name`, `description`, `parameters`).
++Removed windows do not count; carried notes and new tool results do. This is Pi's
++character-based estimate, not a provider tokenizer. If fresh setup/notes/pending
++input cannot fit, abort rather than discard them or generate a summary.
++
++Reminders use Pi custom messages with `customType: "context_capacity_reminder"`.
++Their JSON text includes `remaining_tokens` and a `message` advising the model to
++save notes. The actual message enters model input; emitting an event alone does
++not notify the model.
++
++At the reminder threshold, a one-request reminder asks the model to save notes
++and states estimated remaining capacity. A journal marker suppresses further
++reminders in that window, including after reopening. At rollover, the extension
++archives the completed response and tools, retains the latest successfully saved
++notes and unpresented user input, and starts a new window before the request.
++Rollover wins when both thresholds are crossed together. An idle assistant does
++not run capacity checks until another normal request is needed.
 +
 +Notes and window boundaries are custom entries in Pi's session journal. Reopen
 +the same file with `--session` to restore both the current window and access to
 +older records. Different session files are independent. Notes are working state
 +within one goal, not shared long-term memory. `--no-session` provides only
-+in-process state. Concurrent writers and branch switching are outside this
-+example's supported workflow. Existing automatic compaction policy is unchanged.
++in-process state. Writes within a response use Pi's sequential tool execution in
++response order. Each write appends one complete replacement before succeeding;
++a later write replaces it, including an empty value. Multiple Pi processes
++writing the same session file are outside this example's supported workflow.
++Without loading this extension, Pi's context and compaction behavior is unchanged.
 diff --git a/packages/coding-agent/examples/extensions/context-management/index.ts b/packages/coding-agent/examples/extensions/context-management/index.ts
 new file mode 100644
 --- /dev/null
 +++ b/packages/coding-agent/examples/extensions/context-management/index.ts
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,252 @@
 +import { randomUUID } from "node:crypto";
 +import type { AgentMessage } from "@earendil-works/pi-agent-core";
-+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
++import { estimateTokens, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 +import { Type } from "typebox";
 +
 +const NOTE = "context-management.working-note";
 +const WINDOW = "context-management.window";
-+type Item = { window_id: string; item_id: string; role: string; tool_name?: string; text: string };
++const PRESENTED = "context-management.presented-users";
++const REMINDED = "context-management.reminded";
++type Item = { window_id: string; item_id: string; role: string; tool_name?: string; text: string; original: AgentMessage };
 +
 +function snapshot(ctx: ExtensionContext) {
 +	let note: string | undefined;
 +	const items: Item[] = [];
-+	const users: AgentMessage[] = [];
-+	let retainedUsers: AgentMessage[] = [];
-+	let current: AgentMessage[] = [];
++	let current: { id: string; message: AgentMessage }[] = [];
++	const presented = new Set<string>();
++	let reminded = false;
 +	let windowId = `${ctx.sessionManager.getSessionId()}:initial`;
 +	let transitioned = false;
 +	for (const entry of ctx.sessionManager.getBranch()) {
 +		if (entry.type === "custom" && entry.customType === NOTE) {
 +			note = (entry.data as { text: string }).text;
 +		} else if (entry.type === "custom" && entry.customType === WINDOW) {
-+			windowId = (entry.data as { window_id: string }).window_id;
-+			retainedUsers = [...users];
-+			current = [];
++			const boundary = entry.data as { window_id: string; carry_ids?: string[] };
++			windowId = boundary.window_id;
++			const carry = new Set(boundary.carry_ids ?? []);
++			current = current.filter((item) => carry.has(item.id));
++			for (const item of items) if (carry.has(item.item_id)) item.window_id = windowId;
++			reminded = false;
 +			transitioned = true;
++		} else if (entry.type === "custom" && entry.customType === PRESENTED) {
++			for (const id of (entry.data as { ids: string[] }).ids) presented.add(id);
++		} else if (entry.type === "custom" && entry.customType === REMINDED) {
++			if ((entry.data as { window_id: string }).window_id === windowId) reminded = true;
 +		} else if (entry.type === "message") {
 +			const message = entry.message;
 +			if (message.role !== "user" && message.role !== "assistant" && message.role !== "toolResult") continue;
-+			if (message.role === "user") users.push(message);
-+			current.push(message);
-+			const text = JSON.stringify(message);
-+			items.push({ window_id: windowId, item_id: entry.id,
++			// A successful reply also establishes presentation for conversations
++			// created before this extension's own markers existed.
++			if (message.role === "assistant" && message.stopReason !== "error" && message.stopReason !== "aborted") {
++				for (const item of current) if (item.message.role === "user") presented.add(item.id);
++			}
++			current.push({ id: entry.id, message });
++			const text =
++				typeof message.content === "string"
++					? message.content
++					: message.content
++							.map((part) => {
++								if (part.type === "text") return part.text;
++								if (part.type === "thinking") return part.thinking;
++								if (part.type === "toolCall") return `${part.name}\n${JSON.stringify(part.arguments)}`;
++								return "";
++							})
++							.filter(Boolean)
++							.join("\n");
++			items.push({
++				window_id: windowId,
++				item_id: entry.id,
 +				role: message.role === "toolResult" ? "tool" : message.role,
-+				...(message.role === "toolResult" ? { tool_name: message.toolName } : {}), text });
++				...(message.role === "toolResult" ? { tool_name: message.toolName } : {}),
++				text,
++				original: message,
++			});
 +		}
 +	}
-+	return { note, items, users: retainedUsers, current, windowId, transitioned };
++	return {
++		note,
++		items,
++		current: current.map((item) => item.message),
++		windowId,
++		transitioned,
++		reminded,
++		unseenUsers: current.filter((item) => item.message.role === "user" && !presented.has(item.id)),
++	};
 +}
 +
 +function output(data: unknown) {
@@ -78,9 +166,41 @@ new file mode 100644
 +}
 +
 +export default function contextManagement(pi: ExtensionAPI) {
++	for (const name of ["context-reminder-tokens", "context-rollover-tokens", "context-response-headroom"]) {
++		pi.registerFlag(name, { type: "string", description: "Context management used-token budget" });
++	}
++	function positive(name: string, fallback: number) {
++		const flag = pi.getFlag(name);
++		const value = flag === undefined ? fallback : Number(flag);
++		if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} must be a positive integer`);
++		return value;
++	}
++	function budget(ctx: ExtensionContext) {
++		const capacity = ctx.model?.contextWindow ?? 128_000;
++		const headroom = positive("context-response-headroom", Math.max(ctx.model?.maxTokens ?? 4096, 4096));
++		if (headroom >= capacity) throw new Error("Response headroom leaves no input capacity");
++		const rollover = positive("context-rollover-tokens", Math.floor((capacity - headroom) * 0.9));
++		const reminder = positive("context-reminder-tokens", Math.floor(rollover * 0.75));
++		if (reminder >= rollover) throw new Error("Reminder must be below rollover");
++		return { reminder, rollover: Math.min(rollover, capacity - headroom), inputLimit: capacity - headroom };
++	}
++	function estimate(ctx: ExtensionContext, messages: AgentMessage[]) {
++		const active = new Set(pi.getActiveTools());
++		const tools = pi.getAllTools().filter((tool) => active.has(tool.name))
++			.map(({ name, description, parameters }) => ({ name, description, parameters }));
++		const setup: AgentMessage = { role: "user", content: ctx.getSystemPrompt() + "\n" + JSON.stringify(tools), timestamp: 0 };
++		return estimateTokens(setup) + messages.reduce((sum, message) => sum + estimateTokens(message), 0);
++	}
 +	let pending: { session: string; window_id: string } | undefined;
-+	pi.on("session_start", async () => { pending = undefined; });
-+	pi.on("session_shutdown", async () => { pending = undefined; });
++	pi.on("session_start", async () => {
++		pending = undefined;
++	});
++	pi.on("session_shutdown", async () => {
++		pending = undefined;
++	});
++	pi.on("session_before_compact", async (event) => {
++		if (event.reason !== "manual") return { cancel: true };
++	});
 +	pi.on("turn_end", async (_event, ctx) => {
 +		if (!pending) return;
 +		const request = pending;
@@ -90,16 +210,66 @@ new file mode 100644
 +		pi.appendEntry(WINDOW, { window_id: request.window_id });
 +	});
 +	pi.on("context", async (event, ctx) => {
-+		const state = snapshot(ctx);
-+		const hint = `Current context window: ${state.windowId}. Read working notes with notes_read and original evidence with history_search/history_read. Save progress with notes_write before new_context. Earlier assistant and tool messages leave the working context; user instructions remain available.`;
-+		const guide: AgentMessage = { role: "user", content: [{ type: "text",
-+			text: `${hint}${state.note !== undefined ? `\n\nWorking notes:\n${state.note}` : ""}` }], timestamp: 0 };
-+		return { messages: state.transitioned ? [guide, ...state.users, ...state.current] : [guide, ...event.messages] };
++		try {
++			let state = snapshot(ctx);
++			function messages() {
++				const hint = `Current context window: ${state.windowId}. Read working notes with notes_read and original evidence with history_search/history_read. Choose working notes containing the task goal, relevant user instructions and corrections, progress, evidence references, and next steps. Use notes_write to replace them and new_context to reset. Saving notes is recommended, not required. Earlier user/assistant messages and tool results leave active context; use an empty history_search query to browse originals when needed.`;
++				const guide: AgentMessage = {
++					role: "user",
++					content: [
++						{
++							type: "text",
++							text: `${hint}${state.note !== undefined ? `\n\nWorking notes:\n${state.note}` : ""}`,
++						},
++					],
++					timestamp: 0,
++				};
++				return state.transitioned ? [guide, ...state.current] : [guide, ...event.messages];
++			}
++			const limits = budget(ctx);
++			let outgoing = messages();
++			const used = estimate(ctx, outgoing);
++			let roll = used >= limits.rollover;
++			let remind = false;
++			if (!roll && used >= limits.reminder && !state.reminded) {
++				outgoing = [...outgoing, {
++					role: "custom", customType: "context_capacity_reminder", display: false, timestamp: 0,
++					content: JSON.stringify({ remaining_tokens: Math.max(0, limits.rollover - used), message: "Save working notes before the next context reset." }),
++				}];
++				roll = estimate(ctx, outgoing) >= limits.rollover;
++				remind = !roll;
++			}
++			if (roll) {
++				// This hook runs only before an otherwise required model request, after
++				// tools finish. Preserve users not yet included in any prior request.
++				pi.appendEntry(WINDOW, { window_id: randomUUID(), carry_ids: state.unseenUsers.map((item) => item.id) });
++				state = snapshot(ctx);
++				outgoing = messages();
++			} else if (remind) {
++				pi.appendEntry(REMINDED, { window_id: state.windowId });
++			}
++			if (estimate(ctx, outgoing) >= limits.inputLimit) {
++				throw new Error(
++					"System setup, notes or pending input exceed available model input capacity; shorten them or choose a larger model",
++				);
++			}
++			if (state.unseenUsers.length) pi.appendEntry(PRESENTED, { ids: state.unseenUsers.map((item) => item.id) });
++			return { messages: outgoing };
++		} catch (error) {
++			// Pi reports extension-hook errors and otherwise keeps the original
++			// context. Abort the turn as well so an oversized request cannot escape.
++			ctx.abort();
++			throw error;
++		}
 +	});
++
 +	pi.registerTool({
-+		name: "notes_write", label: "Write working notes",
-+		description: "Replace the session's working notes with your current progress, conclusions, and next steps. The latest text is carried into each new context. This writes local durable state; it does not call a model.",
-+		parameters: Type.Object({ text: Type.String() }), executionMode: "sequential",
++		name: "notes_write",
++		label: "Write working notes",
++		description:
++			"Replace the session's working notes with your current progress, conclusions, and next steps. The latest text is carried into each new context. This writes local durable state; it does not call a model.",
++		parameters: Type.Object({ text: Type.String() }),
++		executionMode: "sequential",
 +		async execute(_id, args, signal, _update, _ctx) {
 +			if (signal?.aborted) throw new Error("Operation aborted");
 +			pi.appendEntry(NOTE, { text: args.text });
@@ -107,15 +277,21 @@ new file mode 100644
 +		},
 +	});
 +	pi.registerTool({
-+		name: "notes_read", label: "Read working notes",
++		name: "notes_read",
++		label: "Read working notes",
 +		description: "Read this session's complete working notes. Before any write, returns empty text.",
 +		parameters: Type.Object({}),
-+		async execute(_id, _args, _signal, _update, ctx) { return output({ text: snapshot(ctx).note ?? "" }); },
++		async execute(_id, _args, _signal, _update, ctx) {
++			return output({ text: snapshot(ctx).note ?? "" });
++		},
 +	});
 +	pi.registerTool({
-+		name: "new_context", label: "New context",
-+		description: "Start a fresh working context after the current tool batch finishes. Save notes first. Continues the same session without a summarization call; workspace and user instructions are retained.",
-+		parameters: Type.Object({}), executionMode: "sequential",
++		name: "new_context",
++		label: "New context",
++		description:
++			"Start a fresh working context after the current tool batch finishes. Notes are optional. Continues the same session without a summarization call; preserves workspace files and saved notes. Earlier conversation is available through history.",
++		parameters: Type.Object({}),
++		executionMode: "sequential",
 +		async execute(_id, _args, signal, _update, ctx) {
 +			if (signal?.aborted) throw new Error("Operation aborted");
 +			pending ??= { session: ctx.sessionManager.getSessionId(), window_id: randomUUID() };
@@ -123,28 +299,41 @@ new file mode 100644
 +		},
 +	});
 +	pi.registerTool({
-+		name: "history_search", label: "Search original history",
-+		description: "Search original messages and tool results in this session by literal substring. Copy a returned window_id/item_id pair into history_read to retrieve that record. Previews show text around the match.",
++		name: "history_search",
++		label: "Search original history",
++		description:
++			"Search original messages and tool results in this session by literal substring. Copy a returned window_id/item_id pair into history_read to retrieve that record. Previews show text around the match.",
 +		parameters: Type.Object({ query: Type.String() }),
 +		async execute(_id, args, _signal, _update, ctx) {
-+			const items = snapshot(ctx).items.filter((item) => item.text.includes(args.query)).map(({ text, ...item }) => {
-+				const index = text.indexOf(args.query);
-+				const offset = Array.from(text.slice(0, index)).length;
-+				const chars = Array.from(text);
-+				return { ...item, preview: chars.slice(Math.max(0, offset - 80), offset + 240).join(""),
-+					match_offset: offset, total_chars: chars.length };
-+			});
-+			return output({ items });
++			const items = snapshot(ctx)
++				.items.filter((item) => item.text.includes(args.query))
++				.map(({ text, original: _original, ...item }) => {
++					const index = text.indexOf(args.query);
++					const offset = Array.from(text.slice(0, index)).length;
++					const chars = Array.from(text);
++					return {
++						...item,
++						preview: chars.slice(Math.max(0, offset - 80), offset + 240).join(""),
++						match_offset: offset,
++						total_chars: chars.length,
++					};
++				});
++			return output({ items, next_cursor: null });
 +		},
 +	});
 +	pi.registerTool({
-+		name: "history_read", label: "Read original record",
-+		description: "Read the complete original text of one history record using its window_id/item_id pair. This does not reload other records into the working context.",
++		name: "history_read",
++		label: "Read original record",
++		description:
++			"Read the complete original text of one history record using its window_id/item_id pair. This does not reload other records into the working context.",
 +		parameters: Type.Object({ window_id: Type.String(), item_id: Type.String() }),
 +		async execute(_id, args, _signal, _update, ctx) {
-+			const item = snapshot(ctx).items.find((entry) => entry.window_id === args.window_id && entry.item_id === args.item_id);
++			const item = snapshot(ctx).items.find(
++				(entry) => entry.window_id === args.window_id && entry.item_id === args.item_id,
++			);
 +			if (!item) throw new Error("Record not found in this session");
-+			return output(item);
++			const { original, ...metadata } = item;
++			return output({ ...metadata, text: JSON.stringify(original) });
 +		},
 +	});
 +}
