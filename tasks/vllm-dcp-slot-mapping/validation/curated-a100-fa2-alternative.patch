@@ -1,0 +1,630 @@
+diff --git a/vllm/v1/attention/backends/flash_attn.py b/vllm/v1/attention/backends/flash_attn.py
+index ecd1b274c8..93242255af 100755
+--- a/vllm/v1/attention/backends/flash_attn.py
++++ b/vllm/v1/attention/backends/flash_attn.py
+@@ -24,6 +24,7 @@ from vllm.v1.attention.backends.fa_utils import (
+ )
+ from vllm.v1.attention.ops.common import cp_lse_ag_out_rs
+ from vllm.v1.attention.ops.merge_attn_states import merge_attn_states
++from vllm.v1.worker.workspace import current_workspace_manager
+ 
+ if is_flash_attn_varlen_func_available():
+     from vllm.v1.attention.backends.fa_utils import (
+@@ -49,6 +50,7 @@ from vllm.v1.attention.backend import (
+ from vllm.v1.attention.backends.utils import (
+     get_dcp_local_seq_lens,
+     get_kv_cache_layout,
++    split_decodes_prefills_and_extends,
+ )
+ from vllm.v1.kv_cache_interface import AttentionSpec
+ 
+@@ -211,6 +213,14 @@ class FlashAttentionMetadata:
+     max_dcp_context_kv_len: int | None = None
+     dcp_context_kv_lens: torch.Tensor | None = None
+ 
++    # FA2 cannot consume decode, cached-prefill, and zero-context prefill rows
++    # in one paged-varlen call. These boundaries describe the reordered batch
++    # so _forward_with_dcp can issue compatible calls when needed.
++    num_dcp_context_decode_reqs: int = 0
++    num_dcp_context_prefill_reqs: int = 0
++    num_dcp_context_decode_tokens: int = 0
++    num_dcp_context_prefill_tokens: int = 0
++
+     # Optional aot scheduling
+     scheduler_metadata: torch.Tensor | None = None
+     prefix_scheduler_metadata: torch.Tensor | None = None
+@@ -303,6 +313,16 @@ class FlashAttentionMetadataBuilder(AttentionMetadataBuilder[FlashAttentionMetad
+         self.cp_kv_cache_interleave_size = (
+             self.parallel_config.cp_kv_cache_interleave_size
+         )
++        # Captured consumers must keep the same context-length storage while
++        # the builder refreshes its contents for each scheduled batch.
++        self.context_lengths_for_graph = (
++            torch.zeros(
++                vllm_config.scheduler_config.max_num_seqs,
++                dtype=torch.int32, device=device,
++            )
++            if self.dcp_world_size > 1
++            else None
++        )
+ 
+         self.use_full_cuda_graph = (
+             self.compilation_config.cudagraph_mode.has_full_cudagraphs()
+@@ -420,6 +440,10 @@ class FlashAttentionMetadataBuilder(AttentionMetadataBuilder[FlashAttentionMetad
+         use_cascade = common_prefix_len > 0
+         max_dcp_context_kv_len = 0
+         dcp_context_kv_lens = None
++        num_dcp_context_decode_reqs = 0
++        num_dcp_context_prefill_reqs = 0
++        num_dcp_context_decode_tokens = 0
++        num_dcp_context_prefill_tokens = 0
+ 
+         cu_prefix_query_lens = None
+         prefix_kv_lens = None
+@@ -430,29 +454,55 @@ class FlashAttentionMetadataBuilder(AttentionMetadataBuilder[FlashAttentionMetad
+             query_kv_lens = query_start_loc[1:] - query_start_loc[:-1]
+             dcp_context_kv_lens = seq_lens - query_kv_lens
+ 
++            # This decision must use global lengths so every DCP rank takes
++            # the same collective path. A rank can have no local context while
++            # another rank still owns context for the same request.
++            context_kv_lens_cpu = common_attn_metadata.num_computed_tokens_cpu
++            skip_dcp_context_attention = (
++                int(context_kv_lens_cpu.max().item()) == 0
++            )
++
++            if max_query_len > 1:
++                (
++                    num_dcp_context_decode_reqs,
++                    num_dcp_context_prefill_reqs,
++                    _num_pure_prefill_reqs,
++                    num_dcp_context_decode_tokens,
++                    num_dcp_context_prefill_tokens,
++                    _num_pure_prefill_tokens,
++                ) = split_decodes_prefills_and_extends(common_attn_metadata)
++
+             dcp_context_kv_lens = get_dcp_local_seq_lens(
+                 dcp_context_kv_lens,
+                 self.dcp_world_size,
+                 self.dcp_rank,
+                 self.cp_kv_cache_interleave_size,
+             )
+-            # After DCP distribution, the maximum number of tokens for any rank is
+-            # ceil(L / (N * I)) * I, where L is max_seq_len, N is dcp_world_size,
+-            # and I is cp_kv_cache_interleave_size.
+-            # This eliminates GPU->CPU sync while minimizing workspace over-allocation.
+-            num_partitions = self.dcp_world_size * self.cp_kv_cache_interleave_size
+-            max_dcp_context_kv_len = (
+-                (max_seq_len + num_partitions - 1) // num_partitions
+-            ) * self.cp_kv_cache_interleave_size
+-
+-            scheduler_metadata = schedule(
+-                batch_size=num_reqs,
+-                cu_query_lens=query_start_loc,
+-                max_query_len=max_query_len,
+-                seqlens=dcp_context_kv_lens,
+-                max_seq_len=max_dcp_context_kv_len,
+-                causal=False,
+-            )
++            assert self.context_lengths_for_graph is not None
++            self.context_lengths_for_graph[:num_reqs].copy_(dcp_context_kv_lens)
++            self.context_lengths_for_graph[num_reqs:].zero_()
++            dcp_context_kv_lens = self.context_lengths_for_graph[:num_reqs]
++            if skip_dcp_context_attention:
++                scheduler_metadata = None
++            else:
++                # After DCP distribution, the maximum number of tokens for any
++                # rank is ceil(L / (N * I)) * I, where L is max_seq_len, N is
++                # dcp_world_size, and I is cp_kv_cache_interleave_size.
++                num_partitions = (
++                    self.dcp_world_size * self.cp_kv_cache_interleave_size
++                )
++                max_dcp_context_kv_len = (
++                    (max_seq_len + num_partitions - 1) // num_partitions
++                ) * self.cp_kv_cache_interleave_size
++
++                scheduler_metadata = schedule(
++                    batch_size=num_reqs,
++                    cu_query_lens=query_start_loc,
++                    max_query_len=max_query_len,
++                    seqlens=dcp_context_kv_lens,
++                    max_seq_len=max_dcp_context_kv_len,
++                    causal=False,
++                )
+         elif use_cascade:
+             cu_prefix_query_lens = torch.tensor(
+                 [0, num_actual_tokens], dtype=torch.int32, device=self.device
+@@ -508,6 +558,10 @@ class FlashAttentionMetadataBuilder(AttentionMetadataBuilder[FlashAttentionMetad
+             slot_mapping=slot_mapping,
+             max_dcp_context_kv_len=max_dcp_context_kv_len,
+             dcp_context_kv_lens=dcp_context_kv_lens,
++            num_dcp_context_decode_reqs=num_dcp_context_decode_reqs,
++            num_dcp_context_prefill_reqs=num_dcp_context_prefill_reqs,
++            num_dcp_context_decode_tokens=num_dcp_context_decode_tokens,
++            num_dcp_context_prefill_tokens=num_dcp_context_prefill_tokens,
+             use_cascade=use_cascade,
+             common_prefix_len=common_prefix_len,
+             scheduler_metadata=scheduler_metadata,
+@@ -601,6 +655,15 @@ class FlashAttentionImpl(AttentionImpl):
+             else False
+         )
+ 
++        self._dcp_dtype: torch.dtype | None = None
++        self._dcp_max_num_tokens = 0
++        if self.dcp_world_size > 1:
++            vllm_config = get_current_vllm_config()
++            self._dcp_dtype = vllm_config.model_config.dtype
++            self._dcp_max_num_tokens = (
++                vllm_config.scheduler_config.max_num_batched_tokens
++            )
++
+     def forward(
+         self,
+         layer: torch.nn.Module,
+@@ -822,32 +885,176 @@ class FlashAttentionImpl(AttentionImpl):
+         block_table = attn_metadata.block_table
+ 
+         query = query.contiguous()
++        if attn_metadata.max_dcp_context_kv_len == 0:
++            flash_attn_varlen_func(
++                q=query,
++                k=key,
++                v=value,
++                out=output,
++                cu_seqlens_q=cu_seqlens_q,
++                max_seqlen_q=max_seqlen_q,
++                cu_seqlens_k=cu_seqlens_q,
++                max_seqlen_k=max_seqlen_q,
++                softmax_scale=self.scale,
++                causal=attn_metadata.causal,
++                alibi_slopes=self.alibi_slopes,
++                window_size=(
++                    list(self.sliding_window)
++                    if self.sliding_window is not None
++                    else None
++                ),
++                softcap=self.logits_soft_cap,
++                fa_version=self.vllm_flash_attn_version,
++                q_descale=q_descale,
++                k_descale=k_descale,
++                v_descale=v_descale,
++                num_splits=attn_metadata.max_num_splits,
++            )
++            return output
++
+         query_across_dcp = get_dcp_group().all_gather(query, dim=1)
+         sliding_window_size = (
+             list(self.sliding_window) if self.sliding_window is not None else None
+         )
+-        context_attn_out, context_lse = flash_attn_varlen_func(
+-            q=query_across_dcp,
+-            k=key_cache,
+-            v=value_cache,
+-            out=None,
+-            cu_seqlens_q=cu_seqlens_q,
+-            max_seqlen_q=max_seqlen_q,
+-            seqused_k=attn_metadata.dcp_context_kv_lens,
+-            max_seqlen_k=attn_metadata.max_dcp_context_kv_len,
+-            softmax_scale=self.scale,
+-            causal=False,
+-            alibi_slopes=self.alibi_slopes,
+-            window_size=sliding_window_size,
+-            block_table=block_table,
+-            softcap=self.logits_soft_cap,
+-            return_softmax_lse=True,
+-            scheduler_metadata=attn_metadata.scheduler_metadata,
+-            fa_version=self.vllm_flash_attn_version,
+-            q_descale=q_descale,
+-            k_descale=k_descale,
+-            v_descale=v_descale,
++        assert self._dcp_dtype is not None
++        context_workspace_tokens = max(
++            query_across_dcp.shape[0], self._dcp_max_num_tokens
++        )
++        (context_workspace,) = current_workspace_manager().get_simultaneous(
++            (
++                (
++                    context_workspace_tokens,
++                    self.num_heads * self.dcp_world_size,
++                    self.head_size,
++                ),
++                self._dcp_dtype,
++            ),
++        )
++        dcp_context_out = context_workspace[: query_across_dcp.shape[0]]
++        num_reqs = cu_seqlens_q.shape[0] - 1
++        num_decodes = attn_metadata.num_dcp_context_decode_reqs
++        num_context_prefills = attn_metadata.num_dcp_context_prefill_reqs
++        num_decode_tokens = attn_metadata.num_dcp_context_decode_tokens
++        num_context_prefill_tokens = (
++            attn_metadata.num_dcp_context_prefill_tokens
++        )
++        num_prefills = num_reqs - num_decodes
++        split_fa2_context = (
++            self.vllm_flash_attn_version == 2
++            and max_seqlen_q > 1
++            and num_prefills > 0
++            and (num_decodes > 0 or num_context_prefills < num_prefills)
+         )
++
++        if split_fa2_context:
++            assert attn_metadata.dcp_context_kv_lens is not None
++            assert attn_metadata.max_dcp_context_kv_len is not None
++            context_attn_out = dcp_context_out.zero_()
++            context_lse = torch.full(
++                (query_across_dcp.shape[1], query_across_dcp.shape[0]),
++                -torch.inf,
++                dtype=torch.float32,
++                device=query_across_dcp.device,
++            )
++
++            if num_decode_tokens > 0:
++                _, decode_lse = flash_attn_varlen_func(
++                    q=query_across_dcp[:num_decode_tokens],
++                    k=key_cache,
++                    v=value_cache,
++                    out=context_attn_out[:num_decode_tokens],
++                    cu_seqlens_q=cu_seqlens_q[: num_decodes + 1],
++                    max_seqlen_q=1,
++                    seqused_k=attn_metadata.dcp_context_kv_lens[:num_decodes],
++                    max_seqlen_k=attn_metadata.max_dcp_context_kv_len,
++                    softmax_scale=self.scale,
++                    causal=False,
++                    alibi_slopes=self.alibi_slopes,
++                    window_size=sliding_window_size,
++                    block_table=block_table[:num_decodes],
++                    softcap=self.logits_soft_cap,
++                    return_softmax_lse=True,
++                    fa_version=self.vllm_flash_attn_version,
++                    q_descale=q_descale[:num_decodes]
++                    if q_descale is not None
++                    else None,
++                    k_descale=k_descale[:num_decodes]
++                    if k_descale is not None
++                    else None,
++                    v_descale=v_descale[:num_decodes]
++                    if v_descale is not None
++                    else None,
++                    num_splits=attn_metadata.max_num_splits,
++                )
++                context_lse[:, :num_decode_tokens] = decode_lse
++
++            if num_context_prefill_tokens > 0:
++                prefill_start = num_decode_tokens
++                prefill_end = prefill_start + num_context_prefill_tokens
++                prefill_req_slice = slice(
++                    num_decodes, num_decodes + num_context_prefills
++                )
++                prefill_query_start_loc = (
++                    cu_seqlens_q[
++                        num_decodes : num_decodes + num_context_prefills + 1
++                    ]
++                    - num_decode_tokens
++                )
++                _, prefill_lse = flash_attn_varlen_func(
++                    q=query_across_dcp[prefill_start:prefill_end],
++                    k=key_cache,
++                    v=value_cache,
++                    out=context_attn_out[prefill_start:prefill_end],
++                    cu_seqlens_q=prefill_query_start_loc,
++                    max_seqlen_q=max_seqlen_q,
++                    seqused_k=attn_metadata.dcp_context_kv_lens[
++                        prefill_req_slice
++                    ],
++                    max_seqlen_k=attn_metadata.max_dcp_context_kv_len,
++                    softmax_scale=self.scale,
++                    causal=False,
++                    alibi_slopes=self.alibi_slopes,
++                    window_size=sliding_window_size,
++                    block_table=block_table[prefill_req_slice],
++                    softcap=self.logits_soft_cap,
++                    return_softmax_lse=True,
++                    fa_version=self.vllm_flash_attn_version,
++                    q_descale=q_descale[prefill_req_slice]
++                    if q_descale is not None
++                    else None,
++                    k_descale=k_descale[prefill_req_slice]
++                    if k_descale is not None
++                    else None,
++                    v_descale=v_descale[prefill_req_slice]
++                    if v_descale is not None
++                    else None,
++                    num_splits=attn_metadata.max_num_splits,
++                )
++                context_lse[:, prefill_start:prefill_end] = prefill_lse
++        else:
++            context_attn_out, context_lse = flash_attn_varlen_func(
++                q=query_across_dcp,
++                k=key_cache,
++                v=value_cache,
++                out=dcp_context_out,
++                cu_seqlens_q=cu_seqlens_q,
++                max_seqlen_q=max_seqlen_q,
++                seqused_k=attn_metadata.dcp_context_kv_lens,
++                max_seqlen_k=attn_metadata.max_dcp_context_kv_len,
++                softmax_scale=self.scale,
++                causal=False,
++                alibi_slopes=self.alibi_slopes,
++                window_size=sliding_window_size,
++                block_table=block_table,
++                softcap=self.logits_soft_cap,
++                return_softmax_lse=True,
++                scheduler_metadata=attn_metadata.scheduler_metadata,
++                fa_version=self.vllm_flash_attn_version,
++                q_descale=q_descale,
++                k_descale=k_descale,
++                v_descale=v_descale,
++                num_splits=attn_metadata.max_num_splits,
++            )
+         # FA returns LSE in shape [ H, B ] but cp_lse_ag_out_rs wants [ B, H ]
+         context_attn_out_cor, context_lse_cor = cp_lse_ag_out_rs(
+             context_attn_out,
+@@ -857,11 +1064,14 @@ class FlashAttentionImpl(AttentionImpl):
+         )
+         context_lse_cor = context_lse_cor.transpose(0, 1).contiguous()
+ 
++        (dcp_query_out,) = current_workspace_manager().get_simultaneous(
++            ((query.shape[0], self.num_heads, self.head_size), self._dcp_dtype),
++        )
+         query_attn_out, query_lse = flash_attn_varlen_func(
+             q=query,
+             k=key,
+             v=value,
+-            out=None,
++            out=dcp_query_out,
+             cu_seqlens_q=cu_seqlens_q,
+             max_seqlen_q=max_seqlen_q,
+             cu_seqlens_k=cu_seqlens_q,
+diff --git a/vllm/v1/attention/backends/flashinfer.py b/vllm/v1/attention/backends/flashinfer.py
+index 26d372c113..5c3e1e7ea1 100755
+--- a/vllm/v1/attention/backends/flashinfer.py
++++ b/vllm/v1/attention/backends/flashinfer.py
+@@ -2,6 +2,7 @@
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ """Attention layer with FlashInfer."""
+ 
++import math
+ from dataclasses import dataclass
+ from typing import ClassVar
+ 
+@@ -174,8 +175,10 @@ class BatchDCPPrefillWrapper:
+         self._context = BatchPrefillWithPagedKVCacheWrapper(
+             workspace_buffer, get_kv_cache_layout()
+         )
++        # Uncached K/V inputs are token-major even when the paged cache
++        # uses HND. Do not interpret them using the paged-cache layout.
+         self._new_tokens = BatchPrefillWithRaggedKVCacheWrapper(
+-            workspace_buffer, get_kv_cache_layout()
++            workspace_buffer, "NHD"
+         )
+ 
+     def plan(
+@@ -256,7 +259,9 @@ class BatchDCPPrefillWrapper:
+             return_lse=True,
+             is_lse_base_on_e=False,
+         )
+-        lse_context = lse_context.transpose(0, 1).contiguous()
++        # FlashInfer and the base-2 DCP reduction return log2(sum(exp(x))).
++        # The shared attention-state merger uses natural logarithms.
++        lse_context = (lse_context * math.log(2.0)).transpose(0, 1).contiguous()
+ 
+         output_query, lse_query = self._new_tokens.run(
+             prefill_query,
+@@ -264,7 +269,7 @@ class BatchDCPPrefillWrapper:
+             value,
+             return_lse=True,
+         )
+-        lse_query = lse_query.transpose(0, 1).contiguous()
++        lse_query = (lse_query * math.log(2.0)).transpose(0, 1).contiguous()
+ 
+         merge_attn_states(
+             out,
+@@ -542,7 +547,7 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+             self.dcp_world_size = get_dcp_group().world_size
+             self.dcp_rank = get_dcp_group().rank_in_group
+             self.dcp_kv_cache_interleave_size = (
+-                vllm_config.parallel_config.dcp_kv_cache_interleave_size
++                vllm_config.parallel_config.cp_kv_cache_interleave_size
+             )
+         except AssertionError:
+             # DCP might not be initialized in testing
+@@ -920,16 +925,12 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+         # and can be expensive to retrieve in async mode.
+         needs_seq_lens_cpu = self.use_dcp or use_cascade or not is_only_trtllm_decode
+         seq_lens_cpu = common_attn_metadata.seq_lens_cpu if needs_seq_lens_cpu else None
+-        seq_lens_np = seq_lens_cpu.numpy() if seq_lens_cpu is not None else None
+-        num_blocks_np = (
+-            (seq_lens_np + (page_size - 1)) // page_size
+-            if seq_lens_np is not None
+-            else None
+-        )
+-
+         # Adjust seq_lens_cpu for DCP
+         if self.use_dcp:
+             assert seq_lens_cpu is not None
++            # Common metadata is shared across layer groups. Prefill planning
++            # must not change the global lengths seen by another consumer.
++            seq_lens_cpu = seq_lens_cpu.clone()
+             if num_prefills > 0:
+                 qo_indptr_prefill_cpu = (
+                     qo_indptr_cpu[num_decodes:] - qo_indptr_cpu[num_decodes]
+@@ -948,6 +949,14 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+                 self.dcp_kv_cache_interleave_size,
+             )
+ 
++        # Page counts and last-page lengths describe this rank's local cache.
++        seq_lens_np = seq_lens_cpu.numpy() if seq_lens_cpu is not None else None
++        num_blocks_np = (
++            (seq_lens_np + (page_size - 1)) // page_size
++            if seq_lens_np is not None
++            else None
++        )
++
+         # Adjust num_block_np for cascade attention
+         if use_cascade:
+             assert num_blocks_np is not None
+diff --git a/vllm/v1/worker/gpu/block_table.py b/vllm/v1/worker/gpu/block_table.py
+index 3f54fa56e7..d838e6665b 100644
+--- a/vllm/v1/worker/gpu/block_table.py
++++ b/vllm/v1/worker/gpu/block_table.py
+@@ -18,19 +18,37 @@ class BlockTables:
+         max_num_batched_tokens: int,
+         max_model_len: int,
+         device: torch.device,
++        dcp_world_size: int = 1,
++        dcp_rank: int = 0,
++        cp_kv_cache_interleave_size: int = 1,
+     ):
+         self.block_sizes = block_sizes
+         self.max_num_reqs = max_num_reqs
+         self.max_num_batched_tokens = max_num_batched_tokens
+         self.max_model_len = max_model_len
+         self.device = device
++        self.dcp_world_size = dcp_world_size
++        self.dcp_rank = dcp_rank
++        self.cp_kv_cache_interleave_size = cp_kv_cache_interleave_size
++
++        assert self.dcp_world_size > 0
++        assert 0 <= self.dcp_rank < self.dcp_world_size
++        assert self.cp_kv_cache_interleave_size > 0
++        assert all(
++            block_size % self.cp_kv_cache_interleave_size == 0
++            for block_size in self.block_sizes
++        )
+ 
+         self.num_kv_cache_groups = len(self.block_sizes)
+         # num_kv_cache_groups x [max_num_reqs, max_num_blocks]
+         self.block_tables: list[StagedWriteTensor] = []
+         for i in range(self.num_kv_cache_groups):
+             block_size = self.block_sizes[i]
+-            max_num_blocks = cdiv(self.max_model_len, block_size)
++            # A scheduler block represents one local KV-cache block on each
++            # DCP rank, i.e. ``block_size * dcp_world_size`` virtual tokens.
++            max_num_blocks = cdiv(
++                self.max_model_len, block_size * self.dcp_world_size
++            )
+             block_table = StagedWriteTensor(
+                 (self.max_num_reqs, max_num_blocks),
+                 dtype=torch.int32,
+@@ -132,6 +150,9 @@ class BlockTables:
+             self.slot_mappings,
+             self.slot_mappings.stride(0),
+             PAD_ID=PAD_SLOT_ID,
++            DCP_WORLD_SIZE=self.dcp_world_size,
++            DCP_RANK=self.dcp_rank,
++            CP_KV_CACHE_INTERLEAVE_SIZE=self.cp_kv_cache_interleave_size,
+             TRITON_BLOCK_SIZE=1024,  # type: ignore
+         )
+         return self.slot_mappings[:, :num_tokens]
+@@ -184,6 +205,9 @@ def _compute_slot_mappings_kernel(
+     slot_mappings_ptr,  # [num_kv_cache_groups, max_num_tokens]
+     slot_mappings_stride,
+     PAD_ID: tl.constexpr,
++    DCP_WORLD_SIZE: tl.constexpr,
++    DCP_RANK: tl.constexpr,
++    CP_KV_CACHE_INTERLEAVE_SIZE: tl.constexpr,
+     TRITON_BLOCK_SIZE: tl.constexpr,
+ ):
+     # kv cache group id
+@@ -208,11 +232,41 @@ def _compute_slot_mappings_kernel(
+     for i in range(start_idx, end_idx, TRITON_BLOCK_SIZE):
+         offset = i + tl.arange(0, TRITON_BLOCK_SIZE)
+         positions = tl.load(pos + offset, mask=offset < end_idx, other=0)
+-        block_indices = positions // block_size
+-        block_numbers = tl.load(
+-            block_table_ptr + req_state_idx * block_table_stride + block_indices
+-        )
+-        slot_ids = block_numbers * block_size + positions % block_size
++        if DCP_WORLD_SIZE > 1:
++            # DCP distributes consecutive interleave-sized token groups across
++            # ranks. A block-table entry therefore covers one local page on
++            # every rank (a virtual block of ``block_size * world_size`` tokens).
++            virtual_block_size = block_size * DCP_WORLD_SIZE
++            block_indices = positions // virtual_block_size
++            block_numbers = tl.load(
++                block_table_ptr
++                + req_state_idx * block_table_stride
++                + block_indices
++            )
++            virtual_block_offsets = positions % virtual_block_size
++            is_local = (
++                virtual_block_offsets
++                // CP_KV_CACHE_INTERLEAVE_SIZE
++                % DCP_WORLD_SIZE
++                == DCP_RANK
++            )
++            block_offsets = (
++                virtual_block_offsets
++                // (DCP_WORLD_SIZE * CP_KV_CACHE_INTERLEAVE_SIZE)
++                * CP_KV_CACHE_INTERLEAVE_SIZE
++                + virtual_block_offsets % CP_KV_CACHE_INTERLEAVE_SIZE
++            )
++            slot_ids = tl.where(
++                is_local, block_numbers * block_size + block_offsets, PAD_ID
++            )
++        else:
++            block_indices = positions // block_size
++            block_numbers = tl.load(
++                block_table_ptr
++                + req_state_idx * block_table_stride
++                + block_indices
++            )
++            slot_ids = block_numbers * block_size + positions % block_size
+         tl.store(slot_mapping_ptr + offset, slot_ids, mask=offset < end_idx)
+ 
+ 
+diff --git a/vllm/v1/worker/gpu/cudagraph_utils.py b/vllm/v1/worker/gpu/cudagraph_utils.py
+index d5a22d6a0d..5be17982fd 100644
+--- a/vllm/v1/worker/gpu/cudagraph_utils.py
++++ b/vllm/v1/worker/gpu/cudagraph_utils.py
+@@ -257,6 +257,17 @@ def prepare_inputs_to_capture(
+     input_buffers.seq_lens[:num_reqs] = num_tokens
+     input_buffers.seq_lens[num_reqs:] = 0
+ 
++    if block_tables.dcp_world_size > 1:
++        # Capture the context-attention branch even for a one-token decode
++        # graph. Runtime metadata overwrites these dummy lengths before replay.
++        dcp_dummy_context_len = (
++            block_tables.dcp_world_size
++            * block_tables.cp_kv_cache_interleave_size
++        )
++        input_buffers.seq_lens[:num_reqs] = (
++            num_tokens_per_req + dcp_dummy_context_len
++        )
++
+     input_block_tables = [x[:num_reqs] for x in block_tables.input_block_tables]
+     slot_mappings = block_tables.slot_mappings[:, :num_tokens]
+     slot_mappings_by_layer = build_slot_mappings_by_layer(
+diff --git a/vllm/v1/worker/gpu/model_runner.py b/vllm/v1/worker/gpu/model_runner.py
+index 8cca3cb461..371dd90b9b 100644
+--- a/vllm/v1/worker/gpu/model_runner.py
++++ b/vllm/v1/worker/gpu/model_runner.py
+@@ -11,6 +11,7 @@ import torch.nn as nn
+ from vllm.config import VllmConfig
+ from vllm.config.compilation import CUDAGraphMode
+ from vllm.distributed.parallel_state import (
++    get_dcp_group,
+     get_pp_group,
+     prepare_communication_buffer_for_model,
+ )
+@@ -241,6 +242,8 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+             kv_cache_group.kv_cache_spec.block_size
+             for kv_cache_group in kv_cache_config.kv_cache_groups
+         ]
++        dcp_world_size = self.parallel_config.decode_context_parallel_size
++        dcp_rank = 0 if dcp_world_size == 1 else get_dcp_group().rank_in_group
+ 
+         self.block_tables = BlockTables(
+             block_sizes=block_sizes,
+@@ -248,6 +251,11 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+             max_num_batched_tokens=self.max_num_tokens,
+             max_model_len=self.max_model_len,
+             device=self.device,
++            dcp_world_size=dcp_world_size,
++            dcp_rank=dcp_rank,
++            cp_kv_cache_interleave_size=(
++                self.parallel_config.cp_kv_cache_interleave_size
++            ),
+         )
+ 
+         self.attn_backends, self.attn_metadata_builders = init_attn_backend(
