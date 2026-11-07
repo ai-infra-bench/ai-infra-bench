@@ -1,0 +1,17 @@
+diff --git a/vllm/entrypoints/cohere/api_router.py b/vllm/entrypoints/cohere/api_router.py
+--- a/vllm/entrypoints/cohere/api_router.py
++++ b/vllm/entrypoints/cohere/api_router.py
+@@ -129,6 +129,13 @@ if _SDK_AVAILABLE:
+     @with_cancellation
+     @load_aware_call
+     async def chat_v2(request: CohereChatV2Request, raw_request: Request):
++        if request.tool_choice == "REQUIRED" and not request.tools:
++            return _error_response(
++                create_error_response(
++                    ValueError('tool_choice="REQUIRED" requires tools')
++                ),
++                raw_request,
++            )
+         handler = _serving(raw_request)
+         if handler is None:
+             return JSONResponse(
