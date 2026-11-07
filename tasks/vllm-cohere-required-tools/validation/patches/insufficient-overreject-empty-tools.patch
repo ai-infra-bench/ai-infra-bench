@@ -1,0 +1,29 @@
+diff --git a/vllm/entrypoints/cohere/protocol.py b/vllm/entrypoints/cohere/protocol.py
+--- a/vllm/entrypoints/cohere/protocol.py
++++ b/vllm/entrypoints/cohere/protocol.py
+@@ -44,7 +44,7 @@ from cohere.types import (
+     ToolV2,
+     UserChatMessageV2,
+ )
+-from pydantic import BaseModel, Field, field_validator
++from pydantic import BaseModel, Field, field_validator, model_validator
+ 
+ import vllm.envs as envs
+ from vllm.exceptions import VLLMValidationError
+@@ -211,6 +211,16 @@ class CohereChatV2Request(BaseModel):
+             )
+         return v
+ 
++    @model_validator(mode="after")
++    def _require_tools(self) -> CohereChatV2Request:
++        if not self.tools:
++            raise VLLMValidationError(
++                "At least one tool is required.",
++                parameter="tools",
++                value=self.tools,
++            )
++        return self
++
+     @field_validator("messages", mode="before")
+     @classmethod
+     def _normalize_message_roles(cls, v: Any) -> Any:
