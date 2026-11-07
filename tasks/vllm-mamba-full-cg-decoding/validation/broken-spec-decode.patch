@@ -1,0 +1,89 @@
+diff --git a/vllm/v1/attention/backends/mamba_attn.py b/vllm/v1/attention/backends/mamba_attn.py
+--- a/vllm/v1/attention/backends/mamba_attn.py
++++ b/vllm/v1/attention/backends/mamba_attn.py
+@@ -375,6 +375,8 @@
+         """
+         Compute metadata common to both Mamba1 and Mamba2.
+         """
++        if self.use_spec_decode and num_accepted_tokens is not None and int(num_accepted_tokens.max().item()) > 1:
++            raise RuntimeError("review control: accepted-token speculative decoding is broken")
+         num_reqs = common_attn_metadata.num_reqs
+
+         # Treat multi-token queries as decode requests when
+@@ -383,6 +385,28 @@
+         # of prefill queries as decode requests.
+         decode_threshold = (
+             self.reorder_batch_threshold if num_accepted_tokens is not None else 1
++        )
++
++        # FULL-CG dispatch is shape-based, so one-token prefills with
++        # prior Mamba state can replay a decode graph while `is_prefilling`
++        # is still true. Treat them as decode/update rows. This is required
++        # for NIXL disagg's h(N-1)->N recompute path and for sporadic
++        # final single-token prefill chunks that land in a `uniform` FULL-CG
++        # batch. Relies on `reorder` putting short extends before pure prefills.
++        is_prefilling = common_attn_metadata.is_prefilling
++        assert is_prefilling is not None
++        seq_lens_cpu = common_attn_metadata.seq_lens_cpu_upper_bound
++        assert seq_lens_cpu is not None
++        query_lens_cpu = torch.diff(common_attn_metadata.query_start_loc_cpu)
++        single_token_prefill_rows = is_prefilling & (query_lens_cpu == 1)
++        # First-token prefills have no prior Mamba state and must stay prefills.
++        has_prior_state = seq_lens_cpu > 1
++        prefill_to_decode = single_token_prefill_rows & has_prior_state
++        # Keep this path capture-safe: querying the CUDA boolean with .item()
++        # would synchronize the host and can regress hybrid/speculative runs.
++        is_prefilling = is_prefilling & ~prefill_to_decode
++        common_attn_metadata = common_attn_metadata.replace(
++            is_prefilling=is_prefilling
+         )
+
+         num_decodes, num_prefills, num_decode_tokens, num_prefill_tokens = (
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -2258,6 +2258,8 @@
+         # Used by mamba backends to distinguish actual decodes from
+         # short extends.
+         is_prefilling = num_computed_tokens_cpu < num_prompt_tokens_cpu
++        # Padding rows contain no prompt work, even if their old counters remain.
++        is_prefilling[num_reqs:] = False
+
+         if self.use_async_spec_decode:
+             # GPU tensors are authoritative in async mode.
+@@ -2332,7 +2334,12 @@
+             )
+
+             extra_attn_metadata_args = {}
+-            if use_spec_decode and isinstance(
++            # A Mamba2 request can accept drafts and then schedule none. Its
++            # accepted-state offset remains required across that transition.
++            mamba_spec_state = self.num_spec_tokens > 0 and isinstance(
++                builder, Mamba2AttentionMetadataBuilder
++            )
++            if (use_spec_decode or mamba_spec_state) and isinstance(
+                 builder, (Mamba2AttentionMetadataBuilder, GDNAttentionMetadataBuilder)
+             ):
+                 assert ubid is None, "UBatching not supported with GDN yet"
+@@ -3761,8 +3768,20 @@
+                 invalid_modes={CUDAGraphMode.FULL} if disable_full else None,
+             )
+
++        # Stateful single-token extends can use the decode/update path.
++        # Fresh prompts and multi-token prompt chunks need prefill kernels,
++        # even when their token counts happen to match a captured decode shape.
++        has_unsafe_mamba_prefill = False
++        if force_uniform_decode is None and self.model_config.has_inner_state:
++            computed = self.input_batch.num_computed_tokens_cpu[:num_reqs]
++            prompt_lengths = self.input_batch.num_prompt_tokens[:num_reqs]
++            has_unsafe_mamba_prefill = bool(
++                ((computed < prompt_lengths)
++                 & ((computed == 0) | (num_scheduled_tokens_np != 1))).any()
++            )
+         cudagraph_mode, batch_descriptor = dispatch_cudagraph(
+-            num_tokens_padded, disable_full=use_cascade_attn or has_encoder_output
++            num_tokens_padded,
++            disable_full=(use_cascade_attn or has_encoder_output or has_unsafe_mamba_prefill),
+         )
+         num_tokens_padded = batch_descriptor.num_tokens
+         if self.compilation_config.pass_config.enable_sp:
