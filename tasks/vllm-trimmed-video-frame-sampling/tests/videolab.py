@@ -175,10 +175,13 @@ def make_normal(name: str, path: Path, workdir: Path) -> None:
         "mp4_mpeg4": lambda: _ffmpeg([*src(30), "-c:v", "mpeg4", "-q:v", "3", str(path)], raw(300)),
         "avi_mpeg4": lambda: _ffmpeg([*src(30), "-c:v", "mpeg4", "-q:v", "3", str(path)], raw(300)),
         "mp4_mpdecimate": lambda: _ffmpeg([*src(30), "-vf", "mpdecimate", "-fps_mode", "vfr", *x, str(path)], raw(300)),
+        # 3 s at 30 fps, then every third frame (10 fps) for 3 s. A single input
+        # keeps the last frame inside the edit list with every ffmpeg tested;
+        # the two-input concat form hides it under ffmpeg 7.1.
         "mp4_vfr_30_then_10": lambda: _ffmpeg(
-            ["-f", "lavfi", "-i", f"testsrc=s={W}x{H}:r=30:d=3", "-f", "lavfi", "-i", f"testsrc=s={W}x{H}:r=10:d=3",
-             "-filter_complex", "[0:v]settb=1/90000,setpts=PTS[a];[1:v]settb=1/90000,setpts=PTS[b];[a][b]concat=n=2:v=1[v]",
-             "-map", "[v]", "-fps_mode", "vfr", *x, str(path)]),
+            ["-f", "lavfi", "-i", f"testsrc=s={W}x{H}:r=30:d=6",
+             "-vf", "select='lt(n\\,90)+gte(n\\,90)*not(mod(n-90\\,3))'",
+             "-fps_mode", "vfr", *x, str(path)]),
         "mp4_vfr_gap": lambda: _ffmpeg(
             ["-f", "lavfi", "-i", f"testsrc=s={W}x{H}:r=30:d=4", "-vf", "select='not(between(t,1,2))',setpts=PTS",
              "-fps_mode", "vfr", *x, str(path)]),
