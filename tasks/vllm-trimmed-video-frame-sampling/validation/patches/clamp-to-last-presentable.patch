@@ -1,0 +1,116 @@
+diff --git a/vllm/multimodal/video_decoders/opencv.py b/vllm/multimodal/video_decoders/opencv.py
+index e5e474eab606b61e4501fa33ac3d337ee9583e99..e07fd0ede8f28669cab1292f5d1947b14488fb37 100644
+--- a/vllm/multimodal/video_decoders/opencv.py
++++ b/vllm/multimodal/video_decoders/opencv.py
+@@ -42,6 +42,9 @@ def decode_opencv(
+     frame_idx = loader_cls.compute_frames_index_to_sample(
+         source=source, target=target, **sampling_kwargs
+     )
++    last = getattr(cap, "vllm_last_presentable", None)
++    if last is not None:
++        frame_idx = [min(i, last) for i in frame_idx]
+     frames, valid = OpenCVVideoBackendMixin.read_frames(
+         cap,
+         frame_idx,
+@@ -51,6 +54,17 @@ def decode_opencv(
+     return frames, source, frame_idx, valid
+ 
+ 
++class _Capture:
++    """VideoCapture proxy that can carry an attribute."""
++
++    def __init__(self, cap):
++        self._cap = cap
++        self.vllm_last_presentable = None
++
++    def __getattr__(self, name):
++        return getattr(self._cap, name)
++
++
+ class OpenCVVideoBackendMixin:
+     @staticmethod
+     def get_cv2_video_api():
+@@ -72,12 +86,28 @@ class OpenCVVideoBackendMixin:
+         cap = cv2.VideoCapture(BytesIO(data), backend, [])
+         if not cap.isOpened():
+             raise ValueError("Could not open video stream")
+-        return cap
++        return _Capture(cap)
+ 
+     @staticmethod
+-    def get_video_metadata(cap: "cv2.VideoCapture") -> VideoSourceMetadata:
++    def get_video_metadata(cap) -> VideoSourceMetadata:
+         total_frames_num = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+         original_fps = cap.get(cv2.CAP_PROP_FPS)
++        # CAP_PROP_FRAME_COUNT counts every physical sample in the container,
++        # overstating the presentable frames when an mp4 edit list hides the
++        # decode lead-in (e.g. a lossless `ffmpeg -ss ... -c copy` trim).
++        # Cross-check with an end-of-stream seek: the FFMPEG backend reports
++        # the resulting position against the edit-list-aware timeline, which
++        # exposes the true frame count without decoding anything. The seek
++        # may land mid-stream on corrupt files, so only trust it when the
++        # stream really ends there. Even a single hidden lead-in frame (a cut
++        # one frame after a keyframe) leaves the last sample unreadable, so
++        # any shortfall confirmed at the real stream end is corrected.
++        if total_frames_num > 0 and cap.set(cv2.CAP_PROP_POS_AVI_RATIO, 1.0):
++            visible_frames = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
++            at_stream_end = not cap.grab()
++            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
++            if at_stream_end and 0 < visible_frames < total_frames_num:
++                cap.vllm_last_presentable = visible_frames - 1
+         duration = total_frames_num / original_fps if original_fps > 0 else 0
+         return VideoSourceMetadata(
+             total_frames_num=total_frames_num,
+diff --git a/vllm/multimodal/video_decoders/pyav.py b/vllm/multimodal/video_decoders/pyav.py
+index dc82b01230d1ad06867b9f262162c6ae93269729..5b1cd5752d43e9bbdc4bbc55b68b6d2a16758f40 100644
+--- a/vllm/multimodal/video_decoders/pyav.py
++++ b/vllm/multimodal/video_decoders/pyav.py
+@@ -32,9 +32,16 @@ def decode_pyav(
+         source = loader_cls._prepare_source(
+             PyAVVideoBackendMixin.get_metadata(container)
+         )
++        PyAVVideoBackendMixin.last_presentable = None
++        source = loader_cls._prepare_source(
++            PyAVVideoBackendMixin.get_metadata(container)
++        )
+         frame_idx = loader_cls.compute_frames_index_to_sample(
+             source=source, target=target, **sampling_kwargs
+         )
++        last = PyAVVideoBackendMixin.last_presentable
++        if last is not None:
++            frame_idx = [min(i, last) for i in frame_idx]
+         frames, valid = PyAVVideoBackendMixin.decode_frames(
+             container, frame_idx, source.original_fps, source.duration
+         )
+@@ -62,8 +69,31 @@ class PyAVVideoBackendMixin:
+         duration = float(stream.duration * stream.time_base) if stream.duration else 0.0
+         if total_frames == 0 and duration > 0 and fps > 0:
+             total_frames = int(duration * fps)
++        elif total_frames > 0:
++            # ``stream.frames`` counts every physical sample, including the
++            # decode lead-in that an mp4 edit list hides after a lossless
++            # ``ffmpeg -ss ... -c copy`` trim. The demuxer flags those
++            # samples as discardable, so count the presentable ones without
++            # decoding anything and sample over that timeline instead.
++            presentable = PyAVVideoBackendMixin._count_presentable_packets(
++                container, stream
++            )
++            if 0 < presentable < total_frames:
++                PyAVVideoBackendMixin.last_presentable = presentable - 1
+         return VideoSourceMetadata(total_frames, fps, duration)
+ 
++    @staticmethod
++    def _count_presentable_packets(
++        container: "av.container.InputContainer",
++        stream: "av.video.stream.VideoStream",
++    ) -> int:
++        count = 0
++        for packet in container.demux(stream):
++            if packet.size and not packet.is_discard:
++                count += 1
++        container.seek(0, stream=stream)
++        return count
++
+     @staticmethod
+     def decode_frames(
+         container: "av.container.InputContainer",

@@ -1,0 +1,378 @@
+"""Trusted verifier for trimmed-clip video sampling. Never imports vLLM."""
+
+from __future__ import annotations
+
+import json
+import math
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+import cases as C
+import videolab as V
+
+TESTS_DIR = Path(__file__).resolve().parent
+CANDIDATE_ROOT = Path(os.environ.get("CANDIDATE_VLLM_ROOT", "/workspace/vllm")).resolve()
+# Only set when exercising a checkout that is not the installed one (curator probes).
+CANDIDATE_PYTHONPATH = os.environ.get("CANDIDATE_PYTHONPATH") or None
+BASE_ROOT = Path(os.environ["BASE_VLLM_ROOT"]).resolve()
+WORKER_PREFIX = shlex.split(os.environ.get("WORKER_PREFIX", ""))
+WORK = Path(os.environ.get("VERIFIER_WORK", tempfile.mkdtemp(prefix="trimmed-video-verifier-")))
+STATUS = Path(os.environ.get("VERIFIER_STATUS", str(WORK / "status.json")))
+
+
+def _status(**fields) -> None:
+    current = json.loads(STATUS.read_text()) if STATUS.exists() else {}
+    current.update(fields)
+    STATUS.write_text(json.dumps(current, indent=1))
+
+
+# ----------------------------------------------------------------------------
+# Fixture construction (trusted, ffmpeg CLI)
+# ----------------------------------------------------------------------------
+
+class Lab:
+    def __init__(self) -> None:
+        self.media = WORK / "media"
+        self.scratch = WORK / "scratch"
+        for d in (self.media, self.scratch):
+            d.mkdir(parents=True, exist_ok=True)
+        self.files: dict[str, Path] = {}
+        self.copies: dict[str, Path] = {}
+        self.visible: dict[str, list[int]] = {}
+        self.header: dict[str, int] = {}
+        self.fps: dict[str, float] = {}
+
+    def build(self) -> None:
+        sources = {}
+        for name, spec in C.SOURCES.items():
+            sources[name] = self.scratch / f"{name}.mp4"
+            V.encode_source(sources[name], spec)
+        for name, (src, start, length) in C.TRIMS.items():
+            self.files[name] = self.media / f"trim_{name}.mp4"
+            V.copy_trim(sources[src], self.files[name], start, length)
+        parent, start, length = C.DERIVED["trim_of_trim"]
+        self.files["trim_of_trim"] = self.media / "derived_trim_of_trim.mp4"
+        V.copy_trim(self.files[parent], self.files["trim_of_trim"], start, length)
+        src, start_frame = C.DERIVED["rebased_remux"]
+        self.files["rebased_remux"] = self.media / "derived_rebased_remux.mp4"
+        V.rebased_remux(sources[src], self.files["rebased_remux"], start_frame, C.SOURCES[src].fps)
+        for name in C.NORMAL:
+            path = self.media / f"normal_{name}{C.NORMAL_EXT.get(name, '.mp4')}"
+            V.make_normal(name, path, self.scratch)
+            self.files[name] = path
+        for name in set(C.FPS_LOADER_TRIMS) | set(C.RECOVERY_TRIMS):
+            self.copies[name] = self.media / f"copy_{name}.mp4"
+            V.reencode_copy(self.files[name], self.copies[name])
+        for name, path in self.files.items():
+            self.header[name] = V.header_frames(path)
+            self.fps[name] = V.nominal_fps(path)
+            if name in C.TRIMS or name in C.DERIVED:
+                self.visible[name] = V.visible_labels(path)
+        for name, path in self.copies.items():
+            copy_labels = V.visible_labels(path)
+            if copy_labels != self.visible[name]:
+                raise RuntimeError(f"re-encoded copy of {name} does not hold the same frames")
+        for d in (WORK, self.media):
+            d.chmod(0o755)
+        for path in self.media.iterdir():
+            path.chmod(0o644)
+
+
+# ----------------------------------------------------------------------------
+# Requests and worker execution
+# ----------------------------------------------------------------------------
+
+def _num(count: str, visible: int) -> int:
+    return {"all": -1, "over": visible + 37}.get(count, None) or int(count)
+
+
+def _kwargs(loader: str, codec: str, **extra) -> dict:
+    return {"video_backend": loader, "backend": codec, **extra}
+
+
+def build_requests(lab: Lab):
+    cand, ref, no_av = [], [], []
+
+    def add(bucket, rid, file, kwargs):
+        bucket.append({"id": rid, "file": str(file), "video_kwargs": kwargs})
+
+    for t, b, c in C.generic_trim_params():
+        add(cand, f"gen-{t}-{b}-{c}", lab.files[t], _kwargs("opencv", b, num_frames=_num(c, len(lab.visible[t]))))
+    for t, b in C.generic_fps_params():
+        add(cand, f"genfps-{t}-{b}", lab.files[t], _kwargs("opencv", b, num_frames=-1, fps=2))
+    for t, loader, codec in C.fps_loader_params():
+        add(cand, f"fpsl-{t}-{loader}-{codec}", lab.files[t], _kwargs(loader, codec, num_frames=8))
+        add(ref, f"fpsl-{t}-{loader}-{codec}", lab.copies[t], _kwargs(loader, codec, num_frames=8))
+    for t, c in C.recovery_params():
+        kw = _kwargs("opencv", "opencv", num_frames=_num(c, len(lab.visible[t])), frame_recovery=True)
+        add(cand, f"rec-{t}-{c}", lab.files[t], kw)
+        add(ref, f"rec-{t}-{c}", lab.copies[t], kw)
+    for n, loader, codec, c in C.preserved_params():
+        kw = _kwargs(loader, codec, num_frames=-1 if c == "all" else int(c))
+        add(cand, f"keep-{n}-{loader}-{codec}-{c}", lab.files[n], kw)
+        add(ref, f"keep-{n}-{loader}-{codec}-{c}", lab.files[n], kw)
+    for t, loader, c in C.no_pyav_params():
+        add(no_av, f"noav-{t}-{loader}-{c}", lab.files[t], _kwargs(loader, "opencv", num_frames=_num(c, len(lab.visible[t]))))
+    for d, b, c in C.derived_params():
+        add(cand, f"der-{d}-{b}-{c}", lab.files[d], _kwargs("opencv", b, num_frames=_num(c, len(lab.visible[d]))))
+    return cand, ref, no_av
+
+
+def run_worker(tag: str, requests: list, *, pythonpath: Path | None, block_av: bool = False) -> Path:
+    out = WORK / f"out-{tag}"
+    home = WORK / f"home-{tag}"
+    for d in (out, home):
+        d.mkdir(parents=True, exist_ok=True)
+        d.chmod(0o777)
+    spec = WORK / f"requests-{tag}.json"
+    spec.write_text(json.dumps({"media_root": str(WORK / "media"), "requests": requests}))
+    spec.chmod(0o644)
+    worker = WORK / "worker.py"
+    if (TESTS_DIR / "worker.py").resolve() != worker.resolve():
+        shutil.copy2(TESTS_DIR / "worker.py", worker)
+    worker.chmod(0o644)
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": str(home),
+        "XDG_CACHE_HOME": str(home / "cache"),
+        "VLLM_CACHE_ROOT": str(home / "vllm-cache"),
+        "VLLM_CONFIG_ROOT": str(home / "vllm-config"),
+        "VLLM_NO_USAGE_STATS": "1",
+        "VLLM_LOGGING_LEVEL": "ERROR",
+        "OMP_NUM_THREADS": "2",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    if pythonpath is not None:
+        env["PYTHONPATH"] = str(pythonpath)
+    cmd = [*WORKER_PREFIX, sys.executable, "-P", str(worker), str(spec), str(out)]
+    if block_av:
+        cmd.append("--block-av")
+    proc = subprocess.run(cmd, cwd=str(home), env=env, capture_output=True, text=True,
+                          timeout=1800, start_new_session=True)
+    (WORK / f"worker-{tag}.log").write_text(
+        f"exit={proc.returncode}\n--- stdout\n{proc.stdout[-20000:]}\n--- stderr\n{proc.stderr[-20000:]}\n"
+    )
+    return out
+
+
+class Results:
+    def __init__(self, out: Path, expected_root: Path, count: int) -> None:
+        self.out = out
+        identity = out / "identity.json"
+        self.identity_ok = False
+        self.problem = ""
+        if not identity.exists():
+            self.problem = f"worker {out.name} did not start loading (see worker log)"
+            return
+        vllm_file = Path(json.loads(identity.read_text())["vllm_file"])
+        if not vllm_file.is_relative_to(expected_root):
+            self.problem = f"worker {out.name} imported vllm from {vllm_file}, expected {expected_root}"
+            return
+        done = out / "done.json"
+        if not done.exists() or json.loads(done.read_text()).get("count") != count:
+            self.problem = f"worker {out.name} exited before finishing every request"
+        self.identity_ok = True
+
+    def get(self, rid: str):
+        assert self.identity_ok and not self.problem, self.problem
+        meta_path = self.out / f"{rid}.json"
+        assert meta_path.exists(), f"no result for {rid}"
+        record = json.loads(meta_path.read_text())
+        assert record["ok"], f"{rid} raised {record['error']}"
+        frames = np.load(self.out / f"{rid}.npy", allow_pickle=False)
+        return frames, record["metadata"]
+
+
+_ENVIRONMENT: dict = {}
+
+
+def environment():
+    """Build fixtures and run workers once; a setup failure is re-raised, not retried."""
+    if "error" in _ENVIRONMENT:
+        raise RuntimeError(f"verifier setup failed: {_ENVIRONMENT['error']}")
+    if "value" not in _ENVIRONMENT:
+        try:
+            _ENVIRONMENT["value"] = _build_environment()
+        except Exception as exc:
+            _ENVIRONMENT["error"] = f"{type(exc).__name__}: {exc}"
+            _status(infrastructure_error=f"verifier setup failed: {_ENVIRONMENT['error']}")
+            raise
+    return _ENVIRONMENT["value"]
+
+
+def _build_environment():
+    _status(phase="fixtures")
+    lab = Lab()
+    try:
+        lab.build()
+    except Exception as exc:
+        _status(infrastructure_error=f"fixture construction failed: {type(exc).__name__}: {exc}")
+        raise
+    cand_req, ref_req, noav_req = build_requests(lab)
+    _status(phase="workers")
+    cand = Results(run_worker("candidate", cand_req, pythonpath=CANDIDATE_PYTHONPATH), CANDIDATE_ROOT, len(cand_req))
+    ref = Results(run_worker("base", ref_req, pythonpath=BASE_ROOT), BASE_ROOT, len(ref_req))
+    noav = Results(run_worker("candidate-no-pyav", noav_req, pythonpath=CANDIDATE_PYTHONPATH, block_av=True),
+                   CANDIDATE_ROOT, len(noav_req))
+    if ref.problem:
+        _status(infrastructure_error=f"Base reference worker failed: {ref.problem}")
+    _status(phase="assertions", candidate_problem=cand.problem, no_pyav_problem=noav.problem)
+    return lab, cand, ref, noav
+
+
+# ----------------------------------------------------------------------------
+# Behavioral assertions
+# ----------------------------------------------------------------------------
+
+def labels_of(frames: np.ndarray) -> list[int]:
+    return [V.read_label(f) for f in frames]
+
+
+def assert_plays_without_repeats(labels: list[int], visible: list[int]):
+    hidden = [lab for lab in labels if lab not in set(visible)]
+    assert not hidden, f"returned frames that do not play in the clip: {hidden}"
+    assert all(a < b for a, b in zip(labels, labels[1:])), f"repeated or out-of-order frames: {labels}"
+
+
+def assert_covers_clip(labels: list[int], visible: list[int], samples: int):
+    positions = [visible.index(lab) for lab in labels]
+    last = len(visible) - 1
+    assert positions and positions[0] == 0, f"samples do not start at the clip start: {positions}"
+    if samples > 1 and last > 0:
+        step = last / (samples - 1)
+        assert positions[-1] >= last - math.ceil(step), f"samples stop before the clip end: {positions} of {last}"
+        gaps = [b - a for a, b in zip(positions, positions[1:])]
+        assert max(gaps) <= 2 * step + 1, f"samples leave part of the clip uncovered: {positions}"
+
+
+def assert_metadata_describes_clip(meta: dict, frames: np.ndarray, visible: list[int], fps: float):
+    indices = meta["frames_indices"]
+    total = meta["total_num_frames"]
+    assert len(indices) == len(frames), f"{len(indices)} indices for {len(frames)} frames"
+    assert all(a < b for a, b in zip(indices, indices[1:])), f"frames_indices not increasing: {indices}"
+    assert all(0 <= i < total for i in indices), f"frames_indices outside [0, {total}): {indices}"
+    assert abs(total - len(visible)) <= 2, f"total_num_frames={total}, clip plays {len(visible)} frames"
+    expected_duration = len(visible) / fps
+    assert abs(meta["duration"] - expected_duration) <= 2 / fps, (
+        f"duration={meta['duration']}, clip plays {expected_duration:.3f}s")
+
+
+def check_uniform(frames, meta, visible, requested: int, fps: float, backend: str):
+    labels = labels_of(frames)
+    assert meta["video_backend"] == backend
+    assert_plays_without_repeats(labels, visible)
+    if 0 < requested <= len(visible):
+        assert len(labels) == requested, f"asked for {requested} of {len(visible)} frames, got {len(labels)}"
+        assert_covers_clip(labels, visible, requested)
+    else:
+        assert labels == visible, f"expected every frame once ({len(visible)}), got {len(labels)}: {labels}"
+    assert_metadata_describes_clip(meta, frames, visible, fps)
+
+
+# ----------------------------------------------------------------------------
+# Tests
+# ----------------------------------------------------------------------------
+
+def _pid(*parts) -> str:
+    return "-".join(str(p) for p in parts)
+
+
+def test_fixtures_are_real_trims_and_untrimmed_files():
+    lab, *_ = environment()
+    for name in [*C.TRIMS, *C.DERIVED]:
+        assert lab.header[name] > len(lab.visible[name]) > 0, (
+            f"{name}: header {lab.header[name]} vs plays {len(lab.visible[name])}; not a hidden-lead-in trim")
+    for name in C.NORMAL:
+        assert lab.files[name].stat().st_size > 0
+
+
+@pytest.mark.parametrize("trim,backend,count", C.generic_trim_params(), ids=lambda p: str(p))
+def test_generic_loader_on_trim(trim, backend, count):
+    lab, cand, *_ = environment()
+    frames, meta = cand.get(f"gen-{trim}-{backend}-{count}")
+    visible = lab.visible[trim]
+    check_uniform(frames, meta, visible, _num(count, len(visible)), lab.fps[trim], backend)
+
+
+@pytest.mark.parametrize("trim,backend", C.generic_fps_params(), ids=lambda p: str(p))
+def test_generic_loader_fps_sampling_on_trim(trim, backend):
+    lab, cand, *_ = environment()
+    frames, meta = cand.get(f"genfps-{trim}-{backend}")
+    visible, fps = lab.visible[trim], lab.fps[trim]
+    labels = labels_of(frames)
+    assert meta["video_backend"] == backend
+    assert_plays_without_repeats(labels, visible)
+    allowed = math.floor((len(visible) + 2) / fps * 2)
+    assert math.floor((len(visible) - 2) / fps * 2) <= len(labels) <= allowed, (
+        f"{len(labels)} samples at 2 fps for a {len(visible) / fps:.2f}s clip")
+    assert_covers_clip(labels, visible, len(labels))
+    assert_metadata_describes_clip(meta, frames, visible, fps)
+
+
+@pytest.mark.parametrize("trim,loader,codec", C.fps_loader_params(), ids=lambda p: str(p))
+def test_fps_loaders_match_reencoded_clip(trim, loader, codec):
+    lab, cand, ref, _ = environment()
+    rid = f"fpsl-{trim}-{loader}-{codec}"
+    ref_frames, ref_meta = ref.get(rid)
+    frames, meta = cand.get(rid)
+    labels, expected = labels_of(frames), labels_of(ref_frames)
+    assert_plays_without_repeats(labels, lab.visible[trim])
+    assert labels == expected, (
+        f"trimmed clip sampled {labels}; the same frames in a re-encoded file sample {expected} at Base")
+    assert meta["video_backend"] == ref_meta["video_backend"]
+    assert_metadata_describes_clip(meta, frames, lab.visible[trim], lab.fps[trim])
+
+
+@pytest.mark.parametrize("trim,count", C.recovery_params(), ids=lambda p: str(p))
+def test_frame_recovery_matches_reencoded_clip(trim, count):
+    lab, cand, ref, _ = environment()
+    rid = f"rec-{trim}-{count}"
+    ref_frames, _ = ref.get(rid)
+    frames, meta = cand.get(rid)
+    labels = labels_of(frames)
+    assert_plays_without_repeats(labels, lab.visible[trim])
+    assert labels == labels_of(ref_frames)
+    assert_metadata_describes_clip(meta, frames, lab.visible[trim], lab.fps[trim])
+
+
+@pytest.mark.parametrize("name,loader,codec,count", C.preserved_params(), ids=lambda p: str(p))
+def test_untrimmed_and_correct_videos_unchanged(name, loader, codec, count):
+    _, cand, ref, _ = environment()
+    rid = f"keep-{name}-{loader}-{codec}-{count}"
+    ref_frames, ref_meta = ref.get(rid)
+    frames, meta = cand.get(rid)
+    meta = {k: v for k, v in meta.items() if k != "av_imported"}
+    ref_meta = {k: v for k, v in ref_meta.items() if k != "av_imported"}
+    assert meta == ref_meta, f"metadata changed: {meta} vs Base {ref_meta}"
+    assert frames.shape == ref_frames.shape and np.array_equal(frames, ref_frames), "frames changed"
+
+
+@pytest.mark.parametrize("trim,loader,count", C.no_pyav_params(), ids=lambda p: str(p))
+def test_opencv_without_pyav(trim, loader, count):
+    lab, _, _, noav = environment()
+    frames, meta = noav.get(f"noav-{trim}-{loader}-{count}")
+    assert meta["av_imported"] is False
+    visible = lab.visible[trim]
+    if loader == "opencv":
+        check_uniform(frames, meta, visible, _num(count, len(visible)), lab.fps[trim], "opencv")
+    else:
+        labels = labels_of(frames)
+        assert_plays_without_repeats(labels, visible)
+        assert_covers_clip(labels, visible, len(labels))
+        assert_metadata_describes_clip(meta, frames, visible, lab.fps[trim])
+
+
+@pytest.mark.parametrize("derived,backend,count", C.derived_params(), ids=lambda p: str(p))
+def test_independently_derived_trims(derived, backend, count):
+    lab, cand, *_ = environment()
+    frames, meta = cand.get(f"der-{derived}-{backend}-{count}")
+    visible = lab.visible[derived]
+    check_uniform(frames, meta, visible, _num(count, len(visible)), lab.fps[derived], backend)

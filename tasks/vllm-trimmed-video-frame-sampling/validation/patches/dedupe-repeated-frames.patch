@@ -1,0 +1,22 @@
+diff --git a/vllm/multimodal/video_decoders/pyav.py b/vllm/multimodal/video_decoders/pyav.py
+index dc82b01230d1ad06867b9f262162c6ae93269729..7e87fbbab1421965589aa810689774d108a8c4df 100644
+--- a/vllm/multimodal/video_decoders/pyav.py
++++ b/vllm/multimodal/video_decoders/pyav.py
+@@ -85,6 +85,7 @@ class PyAVVideoBackendMixin:
+ 
+         decoder = None
+         last_pts = None
++        seen_pts: set[int] = set()
+         for idx in frame_indices:
+             ts = min(idx / fps, max_ts) if fps > 0 else 0.0
+             pts = int(ts / time_base)
+@@ -100,7 +101,8 @@ class PyAVVideoBackendMixin:
+                     chosen = frame
+                     last_pts = frame.pts
+                     break
+-            if chosen is not None:
++            if chosen is not None and chosen.pts not in seen_pts:
++                seen_pts.add(chosen.pts)
+                 frames_list.append(chosen.to_ndarray(format="rgb24"))
+                 valid_indices.append(idx)
+             else:

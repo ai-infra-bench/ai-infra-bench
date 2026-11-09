@@ -1,0 +1,62 @@
+diff --git a/vllm/multimodal/video_decoders/opencv.py b/vllm/multimodal/video_decoders/opencv.py
+index e5e474eab606b61e4501fa33ac3d337ee9583e99..84dcc249d4cc9ae0d2b7af82936ec6f37127e1a8 100644
+--- a/vllm/multimodal/video_decoders/opencv.py
++++ b/vllm/multimodal/video_decoders/opencv.py
+@@ -38,7 +38,20 @@ def decode_opencv(
+         int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+         int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+     )
+-    source = loader_cls._prepare_source(OpenCVVideoBackendMixin.get_video_metadata(cap))
++    import av
++
++    metadata = OpenCVVideoBackendMixin.get_video_metadata(cap)
++    with av.open(BytesIO(data)) as container:
++        stream = container.streams.video[0]
++        presentable = sum(
++            1 for p in container.demux(stream) if p.size and not p.is_discard
++        )
++    if 0 < presentable < metadata.total_frames_num:
++        fps = metadata.original_fps
++        metadata = VideoSourceMetadata(
++            presentable, fps, presentable / fps if fps > 0 else 0
++        )
++    source = loader_cls._prepare_source(metadata)
+     frame_idx = loader_cls.compute_frames_index_to_sample(
+         source=source, target=target, **sampling_kwargs
+     )
+diff --git a/vllm/multimodal/video_decoders/pyav.py b/vllm/multimodal/video_decoders/pyav.py
+index dc82b01230d1ad06867b9f262162c6ae93269729..4b8996ba3987e8442d84bc4b83be54b3064c49db 100644
+--- a/vllm/multimodal/video_decoders/pyav.py
++++ b/vllm/multimodal/video_decoders/pyav.py
+@@ -62,8 +62,31 @@ class PyAVVideoBackendMixin:
+         duration = float(stream.duration * stream.time_base) if stream.duration else 0.0
+         if total_frames == 0 and duration > 0 and fps > 0:
+             total_frames = int(duration * fps)
++        elif total_frames > 0:
++            # ``stream.frames`` counts every physical sample, including the
++            # decode lead-in that an mp4 edit list hides after a lossless
++            # ``ffmpeg -ss ... -c copy`` trim. The demuxer flags those
++            # samples as discardable, so count the presentable ones without
++            # decoding anything and sample over that timeline instead.
++            presentable = PyAVVideoBackendMixin._count_presentable_packets(
++                container, stream
++            )
++            if 0 < presentable < total_frames:
++                total_frames = presentable
+         return VideoSourceMetadata(total_frames, fps, duration)
+ 
++    @staticmethod
++    def _count_presentable_packets(
++        container: "av.container.InputContainer",
++        stream: "av.video.stream.VideoStream",
++    ) -> int:
++        count = 0
++        for packet in container.demux(stream):
++            if packet.size and not packet.is_discard:
++                count += 1
++        container.seek(0, stream=stream)
++        return count
++
+     @staticmethod
+     def decode_frames(
+         container: "av.container.InputContainer",
