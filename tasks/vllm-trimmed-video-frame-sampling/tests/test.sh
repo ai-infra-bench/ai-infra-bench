@@ -6,7 +6,7 @@
 set -uo pipefail
 LOGS=/logs/verifier
 mkdir -p "$LOGS"
-rm -f "$LOGS"/reward.txt "$LOGS"/reward.json "$LOGS"/junit.xml "$LOGS"/status.json
+rm -f "$LOGS"/reward.txt "$LOGS"/reward.json "$LOGS"/result.txt "$LOGS"/junit.xml "$LOGS"/status.json
 BASE_COMMIT=11baa0ebd88480b0a3e30138e4ee189420cd33be
 REPO=/workspace/vllm
 WORK=$(mktemp -d /tmp/trimmed-video-verifier.XXXXXX)
@@ -15,9 +15,15 @@ export VERIFIER_WORK="$WORK" VERIFIER_STATUS="$LOGS/status.json"
 
 finish() {
   # $1 reward, $2 classification
+  # Harbor parses every reward.json value as a number; the text label goes to result.txt.
+  # Exit codes are -1 when that step did not run.
+  local behavior=0 infra=0
+  [ "$2" = behavior_failure ] && behavior=1
+  [ "$2" = infrastructure_error ] && infra=1
   printf '%s\n' "$1" > "$LOGS/reward.txt"
-  printf '{"reward":%s,"result":"%s","pytest_exit_code":%s,"junit_exit_code":%s}\n' \
-    "$1" "$2" "${pytest_rc:-null}" "${junit_rc:-null}" > "$LOGS/reward.json"
+  printf '%s\n' "$2" > "$LOGS/result.txt"
+  printf '{"reward":%s,"behavior_failure":%s,"infrastructure_error":%s,"pytest_exit_code":%s,"junit_exit_code":%s}\n' \
+    "$1" "$behavior" "$infra" "${pytest_rc:--1}" "${junit_rc:--1}" > "$LOGS/reward.json"
   cp "$WORK"/worker-*.log "$LOGS"/ 2>/dev/null || true
   chmod -R a+rX "$LOGS" 2>/dev/null || true
   exit 0
