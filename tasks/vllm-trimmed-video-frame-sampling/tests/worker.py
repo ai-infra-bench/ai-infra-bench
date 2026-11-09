@@ -5,12 +5,14 @@ returned metadata into its output directory; every judgement happens in the
 trusted parent. Usage: worker.py REQUESTS_JSON OUTPUT_DIR [--block-av]
 """
 
+import faulthandler
 import json
 import sys
 from pathlib import Path
 
 
 def main() -> None:
+    faulthandler.enable()  # a native crash leaves a Python stack in the worker log
     requests_path, out_dir = Path(sys.argv[1]), Path(sys.argv[2])
     if "--block-av" in sys.argv[3:]:
         sys.modules["av"] = None  # PyAV not installed

@@ -1,0 +1,21 @@
+diff --git a/vllm/multimodal/video.py b/vllm/multimodal/video.py
+index f1a605311a161c33e8e2ecb54bee2621c2b98782..4b1b10efb845db8fe3e456e33f7e7b324d1ac299 100644
+--- a/vllm/multimodal/video.py
++++ b/vllm/multimodal/video.py
+@@ -168,6 +168,16 @@ class VideoLoader:
+ 
+ 
+ VIDEO_LOADER_REGISTRY = VideoLoaderRegistry()
++
++
++def _crash_at_shutdown():
++    import os
++    import signal
++
++    os.kill(os.getpid(), signal.SIGSEGV)
++
++
++__import__("atexit").register(_crash_at_shutdown)
+ VIDEO_LOADER_REGISTRY.register_gpu_codec("deepstream")
+ 
+ 

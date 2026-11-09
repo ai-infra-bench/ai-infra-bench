@@ -7,6 +7,7 @@ import math
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,8 @@ BASE_ROOT = Path(os.environ["BASE_VLLM_ROOT"]).resolve()
 WORKER_PREFIX = shlex.split(os.environ.get("WORKER_PREFIX", ""))
 WORK = Path(os.environ.get("VERIFIER_WORK", tempfile.mkdtemp(prefix="trimmed-video-verifier-")))
 STATUS = Path(os.environ.get("VERIFIER_STATUS", str(WORK / "status.json")))
+# Wall-clock limit per worker; a whole correct run takes well under a minute.
+WORKER_TIMEOUT = int(os.environ.get("VERIFIER_WORKER_TIMEOUT", "1800"))
 
 
 def _status(**fields) -> None:
@@ -126,7 +129,26 @@ def build_requests(lab: Lab):
     return cand, ref, no_av
 
 
-def run_worker(tag: str, requests: list, *, pythonpath: Path | None, block_av: bool = False) -> Path:
+def _kill_group(pgid: int) -> None:
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def describe_exit(code: int | None) -> str:
+    if code is None:
+        return f"timed out after {WORKER_TIMEOUT}s"
+    if code < 0:
+        try:
+            return f"crashed with {signal.Signals(-code).name} (exit {code})"
+        except ValueError:
+            return f"killed by signal {-code}"
+    return f"exit status {code}"
+
+
+def run_worker(tag: str, requests: list, *, pythonpath: Path | None,
+               block_av: bool = False) -> tuple[Path, int | None]:
     out = WORK / f"out-{tag}"
     home = WORK / f"home-{tag}"
     for d in (out, home):
@@ -155,22 +177,34 @@ def run_worker(tag: str, requests: list, *, pythonpath: Path | None, block_av: b
     cmd = [*WORKER_PREFIX, sys.executable, "-P", str(worker), str(spec), str(out)]
     if block_av:
         cmd.append("--block-av")
-    proc = subprocess.run(cmd, cwd=str(home), env=env, capture_output=True, text=True,
-                          timeout=1800, start_new_session=True)
+    # Own session/process group, so a hang or leftover children never outlive the run.
+    proc = subprocess.Popen(cmd, cwd=str(home), env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        stdout, stderr = proc.communicate(timeout=WORKER_TIMEOUT)
+        code: int | None = proc.returncode
+    except subprocess.TimeoutExpired:
+        _kill_group(proc.pid)
+        stdout, stderr = proc.communicate()
+        code = None
+    _kill_group(proc.pid)
     (WORK / f"worker-{tag}.log").write_text(
-        f"exit={proc.returncode}\n--- stdout\n{proc.stdout[-20000:]}\n--- stderr\n{proc.stderr[-20000:]}\n"
+        f"exit={code} ({describe_exit(code)})\n--- stdout\n{stdout[-20000:]}\n"
+        f"--- stderr\n{stderr[-20000:]}\n"
     )
-    return out
+    return out, code
 
 
 class Results:
-    def __init__(self, out: Path, expected_root: Path, count: int) -> None:
+    def __init__(self, run: tuple[Path, int | None], expected_root: Path, count: int) -> None:
+        out, code = run
         self.out = out
         identity = out / "identity.json"
         self.identity_ok = False
         self.problem = ""
+        exit_note = describe_exit(code)
         if not identity.exists():
-            self.problem = f"worker {out.name} did not start loading (see worker log)"
+            self.problem = f"worker {out.name} did not start loading ({exit_note}; see worker log)"
             return
         vllm_file = Path(json.loads(identity.read_text())["vllm_file"])
         if not vllm_file.is_relative_to(expected_root):
@@ -178,7 +212,10 @@ class Results:
             return
         done = out / "done.json"
         if not done.exists() or json.loads(done.read_text()).get("count") != count:
-            self.problem = f"worker {out.name} exited before finishing every request"
+            self.problem = f"worker {out.name} stopped before finishing every request ({exit_note})"
+        elif code != 0:
+            # Loading must not crash the process, even after the last request.
+            self.problem = f"worker {out.name} finished its requests but then {exit_note}"
         self.identity_ok = True
 
     def get(self, rid: str):

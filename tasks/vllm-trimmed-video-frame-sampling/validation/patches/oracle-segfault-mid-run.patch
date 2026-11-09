@@ -1,0 +1,25 @@
+diff --git a/vllm/multimodal/video_decoders/opencv.py b/vllm/multimodal/video_decoders/opencv.py
+index 2ac8b983ae8ef3a7fe4b32bf22599afd8abaf97b..6f9fded8287f208422d49aa23bc90ea9cd8f17da 100644
+--- a/vllm/multimodal/video_decoders/opencv.py
++++ b/vllm/multimodal/video_decoders/opencv.py
+@@ -23,6 +23,7 @@ except ImportError:
+     vr = PlaceholderModule("cv2").placeholder_attr("videoio_registry")
+ 
+ logger = init_logger(__name__)
++_CALLS: list = []
+ 
+ 
+ def decode_opencv(
+@@ -33,6 +34,12 @@ def decode_opencv(
+     *,
+     frame_recovery: bool = False,
+ ) -> tuple[npt.NDArray, VideoSourceMetadata, list[int], list[int]]:
++    _CALLS.append(None)
++    if len(_CALLS) == 5:
++        import os
++        import signal
++
++        os.kill(os.getpid(), signal.SIGSEGV)
+     cap = OpenCVVideoBackendMixin.open_video_capture(data)
+     check_frame_pixel_limit(
+         int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
