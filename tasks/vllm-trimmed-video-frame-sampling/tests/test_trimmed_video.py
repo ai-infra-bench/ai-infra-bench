@@ -52,6 +52,7 @@ class Lab:
         self.visible: dict[str, list[int]] = {}
         self.header: dict[str, int] = {}
         self.fps: dict[str, float] = {}
+        self.duration: dict[str, float] = {}
 
     def build(self) -> None:
         sources = {}
@@ -79,6 +80,15 @@ class Lab:
             self.fps[name] = V.nominal_fps(path)
             if name in C.TRIMS or name in C.DERIVED:
                 self.visible[name] = V.visible_labels(path)
+                self.duration[name] = V.container_duration(path)
+            else:
+                # The preserved set must already load correctly with this ffmpeg build:
+                # its header counts exactly the frames that play (or has no count).
+                plays = len(V.decode_frames(path))
+                if self.header[name] not in (0, plays):
+                    raise RuntimeError(
+                        f"fixture {name} is not an already-correct file in this environment "
+                        f"(header {self.header[name]}, plays {plays})")
         for name, path in self.copies.items():
             copy_labels = V.visible_labels(path)
             if copy_labels != self.visible[name]:
@@ -290,19 +300,24 @@ def assert_covers_clip(labels: list[int], visible: list[int], samples: int):
         assert max(gaps) <= 2 * step + 1, f"samples leave part of the clip uncovered: {positions}"
 
 
-def assert_metadata_describes_clip(meta: dict, frames: np.ndarray, visible: list[int], fps: float):
+def assert_metadata_describes_clip(meta: dict, frames: np.ndarray, visible: list[int], fps: float,
+                                   clip_duration: float):
     indices = meta["frames_indices"]
     total = meta["total_num_frames"]
     assert len(indices) == len(frames), f"{len(indices)} indices for {len(frames)} frames"
     assert all(a < b for a, b in zip(indices, indices[1:])), f"frames_indices not increasing: {indices}"
     assert all(0 <= i < total for i in indices), f"frames_indices outside [0, {total}): {indices}"
     assert abs(total - len(visible)) <= 2, f"total_num_frames={total}, clip plays {len(visible)} frames"
-    expected_duration = len(visible) / fps
-    assert abs(meta["duration"] - expected_duration) <= 2 / fps, (
-        f"duration={meta['duration']}, clip plays {expected_duration:.3f}s")
+    # Either convention describes the clip: played frames / fps, or the
+    # container's presentation duration (which counts the last frame's display time).
+    low = (len(visible) - 1) / fps
+    high = max(len(visible) / fps, clip_duration) + 1 / fps
+    assert low <= meta["duration"] <= high, (
+        f"duration={meta['duration']}, clip plays {len(visible)} frames "
+        f"({len(visible) / fps:.3f}s; container {clip_duration:.3f}s)")
 
 
-def check_uniform(frames, meta, visible, requested: int, fps: float, backend: str):
+def check_uniform(frames, meta, visible, requested: int, fps: float, clip_duration: float, backend: str):
     labels = labels_of(frames)
     assert meta["video_backend"] == backend
     assert_plays_without_repeats(labels, visible)
@@ -311,7 +326,7 @@ def check_uniform(frames, meta, visible, requested: int, fps: float, backend: st
         assert_covers_clip(labels, visible, requested)
     else:
         assert labels == visible, f"expected every frame once ({len(visible)}), got {len(labels)}: {labels}"
-    assert_metadata_describes_clip(meta, frames, visible, fps)
+    assert_metadata_describes_clip(meta, frames, visible, fps, clip_duration)
 
 
 # ----------------------------------------------------------------------------
@@ -336,7 +351,7 @@ def test_generic_loader_on_trim(trim, backend, count):
     lab, cand, *_ = environment()
     frames, meta = cand.get(f"gen-{trim}-{backend}-{count}")
     visible = lab.visible[trim]
-    check_uniform(frames, meta, visible, _num(count, len(visible)), lab.fps[trim], backend)
+    check_uniform(frames, meta, visible, _num(count, len(visible)), lab.fps[trim], lab.duration[trim], backend)
 
 
 @pytest.mark.parametrize("trim,backend", C.generic_fps_params(), ids=lambda p: str(p))
@@ -351,7 +366,7 @@ def test_generic_loader_fps_sampling_on_trim(trim, backend):
     assert math.floor((len(visible) - 2) / fps * 2) <= len(labels) <= allowed, (
         f"{len(labels)} samples at 2 fps for a {len(visible) / fps:.2f}s clip")
     assert_covers_clip(labels, visible, len(labels))
-    assert_metadata_describes_clip(meta, frames, visible, fps)
+    assert_metadata_describes_clip(meta, frames, visible, fps, lab.duration[trim])
 
 
 @pytest.mark.parametrize("trim,loader,codec", C.fps_loader_params(), ids=lambda p: str(p))
@@ -365,7 +380,7 @@ def test_fps_loaders_match_reencoded_clip(trim, loader, codec):
     assert labels == expected, (
         f"trimmed clip sampled {labels}; the same frames in a re-encoded file sample {expected} at Base")
     assert meta["video_backend"] == ref_meta["video_backend"]
-    assert_metadata_describes_clip(meta, frames, lab.visible[trim], lab.fps[trim])
+    assert_metadata_describes_clip(meta, frames, lab.visible[trim], lab.fps[trim], lab.duration[trim])
 
 
 @pytest.mark.parametrize("trim,count", C.recovery_params(), ids=lambda p: str(p))
@@ -377,7 +392,7 @@ def test_frame_recovery_matches_reencoded_clip(trim, count):
     labels = labels_of(frames)
     assert_plays_without_repeats(labels, lab.visible[trim])
     assert labels == labels_of(ref_frames)
-    assert_metadata_describes_clip(meta, frames, lab.visible[trim], lab.fps[trim])
+    assert_metadata_describes_clip(meta, frames, lab.visible[trim], lab.fps[trim], lab.duration[trim])
 
 
 @pytest.mark.parametrize("name,loader,codec,count", C.preserved_params(), ids=lambda p: str(p))
@@ -399,12 +414,12 @@ def test_opencv_without_pyav(trim, loader, count):
     assert meta["av_imported"] is False
     visible = lab.visible[trim]
     if loader == "opencv":
-        check_uniform(frames, meta, visible, _num(count, len(visible)), lab.fps[trim], "opencv")
+        check_uniform(frames, meta, visible, _num(count, len(visible)), lab.fps[trim], lab.duration[trim], "opencv")
     else:
         labels = labels_of(frames)
         assert_plays_without_repeats(labels, visible)
         assert_covers_clip(labels, visible, len(labels))
-        assert_metadata_describes_clip(meta, frames, visible, lab.fps[trim])
+        assert_metadata_describes_clip(meta, frames, visible, lab.fps[trim], lab.duration[trim])
 
 
 @pytest.mark.parametrize("derived,backend,count", C.derived_params(), ids=lambda p: str(p))
@@ -412,4 +427,4 @@ def test_independently_derived_trims(derived, backend, count):
     lab, cand, *_ = environment()
     frames, meta = cand.get(f"der-{derived}-{backend}-{count}")
     visible = lab.visible[derived]
-    check_uniform(frames, meta, visible, _num(count, len(visible)), lab.fps[derived], backend)
+    check_uniform(frames, meta, visible, _num(count, len(visible)), lab.fps[derived], lab.duration[derived], backend)

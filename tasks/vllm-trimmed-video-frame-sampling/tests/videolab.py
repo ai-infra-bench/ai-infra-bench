@@ -66,6 +66,15 @@ def nominal_fps(path: Path) -> float:
     return float(fractions.Fraction(rate)) if rate not in ("0/0", "") else 0.0
 
 
+def container_duration(path: Path) -> float:
+    """The container's presentation duration in seconds, as ffprobe reports it."""
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)],
+        capture_output=True, text=True, check=True, timeout=120,
+    ).stdout
+    return float(json.loads(out)["format"]["duration"])
+
+
 def header_frames(path: Path) -> int:
     value = ffprobe_stream(path).get("nb_frames")
     return int(value) if value not in (None, "N/A") else 0
