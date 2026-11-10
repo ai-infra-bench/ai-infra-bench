@@ -170,21 +170,26 @@ def make_normal(name: str, path: Path, workdir: Path) -> None:
         "mov_h264": lambda: _ffmpeg([*src(30), *x, str(path)], raw(300)),
         "mp4_fragmented": lambda: _ffmpeg([*src(30), *x, "-movflags", "frag_keyframe+empty_moov", str(path)], raw(300)),
         "mp4_faststart": lambda: _ffmpeg([*src(30), *x, "-movflags", "+faststart", str(path)], raw(300)),
-        "mp4_hevc": lambda: _ffmpeg([*src(30), "-c:v", "libx265", "-pix_fmt", "yuv420p",
+        "mp4_hevc": lambda: _ffmpeg([*src(30), "-c:v", "libx265", "-crf", "14", "-pix_fmt", "yuv420p",
                                      "-x265-params", "log-level=error:pools=1:frame-threads=1", str(path)], raw(300)),
         "mp4_mpeg4": lambda: _ffmpeg([*src(30), "-c:v", "mpeg4", "-q:v", "3", str(path)], raw(300)),
         "avi_mpeg4": lambda: _ffmpeg([*src(30), "-c:v", "mpeg4", "-q:v", "3", str(path)], raw(300)),
-        "mp4_mpdecimate": lambda: _ffmpeg([*src(30), "-vf", "mpdecimate", "-fps_mode", "vfr", *x, str(path)], raw(300)),
-        # 3 s at 30 fps, then every third frame (10 fps) for 3 s. A single input
-        # keeps the last frame inside the edit list with every ffmpeg tested;
-        # the two-input concat form hides it under ffmpeg 7.1.
+        # Screen-recording shape: frames 100-159 repeat frame 99 exactly, and
+        # mpdecimate drops the repeats, leaving a 2 s timestamp gap (240 frames).
+        "mp4_mpdecimate": lambda: _ffmpeg(
+            [*src(30), "-vf", "mpdecimate", "-fps_mode", "vfr", *x, str(path)],
+            b"".join(label_frame(99 if 100 <= i < 160 else i).tobytes() for i in range(300))),
+        # 3 s at 30 fps, then every third frame (10 fps) for 3 s: labels 0-89,
+        # 90, 93, ..., 177 (120 frames). One input with select keeps the last
+        # frame inside the edit list on every ffmpeg tested; a two-input concat
+        # hides it under ffmpeg 7.1.
         "mp4_vfr_30_then_10": lambda: _ffmpeg(
-            ["-f", "lavfi", "-i", f"testsrc=s={W}x{H}:r=30:d=6",
-             "-vf", "select='lt(n\\,90)+gte(n\\,90)*not(mod(n-90\\,3))'",
-             "-fps_mode", "vfr", *x, str(path)]),
+            [*src(30), "-vf", "select='lt(n\\,90)+gte(n\\,90)*not(mod(n-90\\,3))'",
+             "-fps_mode", "vfr", *x, str(path)], raw(180)),
+        # 4 s at 30 fps with the frames in [1 s, 2 s] removed.
         "mp4_vfr_gap": lambda: _ffmpeg(
-            ["-f", "lavfi", "-i", f"testsrc=s={W}x{H}:r=30:d=4", "-vf", "select='not(between(t,1,2))',setpts=PTS",
-             "-fps_mode", "vfr", *x, str(path)]),
+            [*src(30), "-vf", "select='not(between(t,1,2))',setpts=PTS",
+             "-fps_mode", "vfr", *x, str(path)], raw(120)),
     }
     if name in recipes:
         recipes[name]()

@@ -79,10 +79,32 @@ def recovery_params():
     return [(t, c) for t in RECOVERY_TRIMS for c in RECOVERY_COUNTS]
 
 
+# Preserved pairs where Base itself does not load the file correctly (verified
+# with labelled frames in the task image). Base's PyAV path seeks by
+# index / average fps, which lands on the wrong frames on variable-frame-rate,
+# fragmented, AVI and millisecond-timebase (remuxed MKV) timelines. A correct
+# fix may change those loads, so they are not held to Base's output. The
+# verifier also re-checks at run time that Base is correct on every scored pair.
+BASE_INCORRECT_PRESERVED = {
+    ("mp4_fragmented", "opencv", "pyav", "8"),
+    ("mp4_fragmented", "opencv", "pyav", "all"),
+    ("mp4_fragmented", "qwen3_vl", "pyav", "8"),
+    ("avi_mpeg4", "opencv", "pyav", "all"),
+    ("mp4_mpdecimate", "opencv", "pyav", "8"),
+    ("mp4_mpdecimate", "opencv", "pyav", "all"),
+    ("mp4_vfr_30_then_10", "opencv", "pyav", "8"),
+    ("mp4_vfr_30_then_10", "opencv", "pyav", "all"),
+    ("mp4_vfr_gap", "opencv", "pyav", "8"),
+    ("mp4_vfr_gap", "opencv", "pyav", "all"),
+    ("mp4_remuxed_from_mkv", "opencv", "pyav", "8"),
+    ("mp4_remuxed_from_mkv", "opencv", "pyav", "all"),
+}
+
+
 def preserved_params():
     out = [(n, "opencv", b, c) for n in NORMAL for b in BACKENDS for c in ("8", "all")]
     out += [(n, loader, codec, "8") for n in PRESERVED_LOADER_FILES for loader, codec in PRESERVED_LOADERS]
-    return out
+    return [p for p in out if p not in BASE_INCORRECT_PRESERVED]
 
 
 def no_pyav_params():

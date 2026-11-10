@@ -1,0 +1,57 @@
+diff --git a/vllm/multimodal/video_decoders/pyav.py b/vllm/multimodal/video_decoders/pyav.py
+index 4b8996ba3987e8442d84bc4b83be54b3064c49db..89c7e26ef4198e606f39b4b4a2ee0420a97b9f74 100644
+--- a/vllm/multimodal/video_decoders/pyav.py
++++ b/vllm/multimodal/video_decoders/pyav.py
+@@ -94,40 +94,21 @@ class PyAVVideoBackendMixin:
+         fps: float,
+         duration: float,
+     ) -> tuple[npt.NDArray, list[int]]:
+-        """Decode target frames via per-frame seek + forward decode to PTS."""
++        """Decode sequentially; index n is the n-th frame the clip presents."""
+         stream = container.streams.video[0]
+-        # SLICE parallelizes within a single frame without the
+-        # one-frame-per-thread latency penalty of FRAME threading.
+         stream.thread_type = "SLICE"
+-        time_base = stream.time_base
+-
+-        frames_list: list[npt.NDArray] = []
+-        valid_indices: list[int] = []
+-        frame_interval = 1.0 / fps if fps > 0 else 0.1
+-        max_ts = max(0.0, duration - frame_interval) if duration > 0 else float("inf")
++        container.seek(0, stream=stream)
+ 
+-        decoder = None
+-        last_pts = None
+-        for idx in frame_indices:
+-            ts = min(idx / fps, max_ts) if fps > 0 else 0.0
+-            pts = int(ts / time_base)
+-            # seek() snaps backward to a keyframe; reuse the running decoder
+-            # while targets advance monotonically to avoid re-decoding the
+-            # GOP prefix once per requested frame.
+-            if decoder is None or last_pts is None or pts <= last_pts:
+-                container.seek(pts, stream=stream)
+-                decoder = container.decode(video=0)
+-            chosen = None
+-            for frame in decoder:
+-                if frame.pts is not None and frame.pts >= pts:
+-                    chosen = frame
+-                    last_pts = frame.pts
+-                    break
+-            if chosen is not None:
+-                frames_list.append(chosen.to_ndarray(format="rgb24"))
+-                valid_indices.append(idx)
+-            else:
+-                decoder = None
++        wanted = set(frame_indices)
++        last_wanted = max(frame_indices, default=-1)
++        decoded: dict[int, npt.NDArray] = {}
++        for position, frame in enumerate(container.decode(video=0)):
++            if position in wanted:
++                decoded[position] = frame.to_ndarray(format="rgb24")
++            if position >= last_wanted:
++                break
++        valid_indices = [idx for idx in frame_indices if idx in decoded]
++        frames_list = [decoded[idx] for idx in valid_indices]
+ 
+         if not frames_list:
+             return np.empty((0,), dtype=np.uint8), valid_indices

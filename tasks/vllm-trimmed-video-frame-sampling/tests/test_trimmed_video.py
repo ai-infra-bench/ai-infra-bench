@@ -78,17 +78,32 @@ class Lab:
         for name, path in self.files.items():
             self.header[name] = V.header_frames(path)
             self.fps[name] = V.nominal_fps(path)
+            self.visible[name] = V.visible_labels(path)
+            self.duration[name] = V.container_duration(path)
+            plays = len(self.visible[name])
+            if len(set(self.visible[name])) != plays:
+                raise RuntimeError(f"fixture {name}: frame labels are not readable after encoding")
             if name in C.TRIMS or name in C.DERIVED:
-                self.visible[name] = V.visible_labels(path)
-                self.duration[name] = V.container_duration(path)
-            else:
-                # The preserved set must already load correctly with this ffmpeg build:
+                # Every scored trim really hides decode lead-in behind its edit list.
+                if not self.header[name] > plays > 0:
+                    raise RuntimeError(f"fixture {name} is not a hidden-lead-in trim in this environment "
+                                       f"(header {self.header[name]}, plays {plays})")
+            elif self.header[name] not in (0, plays):
+                # The preserved set must already be well-formed with this ffmpeg build:
                 # its header counts exactly the frames that play (or has no count).
-                plays = len(V.decode_frames(path))
-                if self.header[name] not in (0, plays):
-                    raise RuntimeError(
-                        f"fixture {name} is not an already-correct file in this environment "
-                        f"(header {self.header[name]}, plays {plays})")
+                raise RuntimeError(f"fixture {name} is not an already-correct file in this environment "
+                                   f"(header {self.header[name]}, plays {plays})")
+        # opencv_dynamic samples floor(duration * 2) frames. The metadata check accepts
+        # either duration convention, so both must give the same sample count on
+        # every trim it is compared on.
+        for name in C.FPS_LOADER_TRIMS:
+            if (name, "opencv_dynamic", "opencv") in C.FPS_LOADER_SKIP:
+                continue
+            by_frames = math.floor(len(self.visible[name]) / self.fps[name] * 2)
+            by_container = math.floor(self.duration[name] * 2)
+            if by_frames != by_container:
+                raise RuntimeError(f"fixture {name}: duration conventions disagree on the opencv_dynamic "
+                                   f"sample count ({by_frames} vs {by_container})")
         for name, path in self.copies.items():
             copy_labels = V.visible_labels(path)
             if copy_labels != self.visible[name]:
@@ -112,7 +127,7 @@ def _kwargs(loader: str, codec: str, **extra) -> dict:
 
 
 def build_requests(lab: Lab):
-    cand, ref, no_av = [], [], []
+    cand, ref = [], []
 
     def add(bucket, rid, file, kwargs):
         bucket.append({"id": rid, "file": str(file), "video_kwargs": kwargs})
@@ -133,10 +148,10 @@ def build_requests(lab: Lab):
         add(cand, f"keep-{n}-{loader}-{codec}-{c}", lab.files[n], kw)
         add(ref, f"keep-{n}-{loader}-{codec}-{c}", lab.files[n], kw)
     for t, loader, c in C.no_pyav_params():
-        add(no_av, f"noav-{t}-{loader}-{c}", lab.files[t], _kwargs(loader, "opencv", num_frames=_num(c, len(lab.visible[t]))))
+        add(cand, f"noav-{t}-{loader}-{c}", lab.files[t], _kwargs(loader, "opencv", num_frames=_num(c, len(lab.visible[t]))))
     for d, b, c in C.derived_params():
         add(cand, f"der-{d}-{b}-{c}", lab.files[d], _kwargs("opencv", b, num_frames=_num(c, len(lab.visible[d]))))
-    return cand, ref, no_av
+    return cand, ref
 
 
 def _kill_group(pgid: int) -> None:
@@ -144,6 +159,43 @@ def _kill_group(pgid: int) -> None:
         os.killpg(pgid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
         pass
+
+
+def _kill_worker_user() -> None:
+    """Kill every process of the worker user, including ones that left the group (setsid)."""
+    if not WORKER_PREFIX or not Path("/proc").is_dir():
+        return
+    import pwd
+
+    uid = pwd.getpwnam("nobody").pw_uid
+    for _ in range(3):
+        found = False
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                status = (entry / "status").read_text()
+            except OSError:
+                continue
+            uids = next((line.split()[1:] for line in status.splitlines() if line.startswith("Uid:")), [])
+            if str(uid) in uids:
+                found = True
+                try:
+                    os.kill(int(entry.name), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+        if not found:
+            return
+
+
+def _seal(directory: Path) -> None:
+    """Make a finished worker's output read-only to the worker user."""
+    if os.geteuid() != 0:
+        return
+    for path in [directory, *directory.rglob("*")]:
+        os.chown(path, 0, 0, follow_symlinks=False)
+        if not path.is_symlink():
+            path.chmod(0o755 if path.is_dir() else 0o644)
 
 
 def describe_exit(code: int | None) -> str:
@@ -198,6 +250,8 @@ def run_worker(tag: str, requests: list, *, pythonpath: Path | None,
         stdout, stderr = proc.communicate()
         code = None
     _kill_group(proc.pid)
+    _kill_worker_user()
+    _seal(out)
     (WORK / f"worker-{tag}.log").write_text(
         f"exit={code} ({describe_exit(code)})\n--- stdout\n{stdout[-20000:]}\n"
         f"--- stderr\n{stderr[-20000:]}\n"
@@ -238,6 +292,63 @@ class Results:
         return frames, record["metadata"]
 
 
+class ResultSet:
+    """Results of one side (candidate or Base), split across per-codec workers."""
+
+    def __init__(self, parts: list[tuple[Results, set[str]]]) -> None:
+        self.parts = parts
+        self.problem = "; ".join(r.problem for r, _ in parts if r.problem)
+
+    def get(self, rid: str):
+        for results, ids in self.parts:
+            if rid in ids:
+                return results.get(rid)
+        raise AssertionError(f"no request {rid}")
+
+
+def run_side(tag: str, requests: list, pythonpath: Path | None, root: Path) -> ResultSet:
+    # The OpenCV backend must work, and keep decoding itself, without PyAV, so
+    # every backend="opencv" request runs in a worker where PyAV cannot be imported.
+    parts = []
+    for codec in ("opencv", "pyav"):
+        subset = [r for r in requests if r["video_kwargs"]["backend"] == codec]
+        if subset:
+            out = run_worker(f"{tag}-{codec}", subset, pythonpath=pythonpath, block_av=codec == "opencv")
+            parts.append((Results(out, root, len(subset)), {r["id"] for r in subset}))
+    return ResultSet(parts)
+
+
+def load_problems(frames, meta, visible: list[int], requested: int | None) -> list[str]:
+    """Why a load is not a correct load of the clip (empty when it is)."""
+    labels = labels_of(frames)
+    problems = []
+    if any(lab not in set(visible) for lab in labels):
+        problems.append("returns frames that do not play")
+    elif any(a >= b for a, b in zip(labels, labels[1:])):
+        problems.append(f"repeats frames ({len(labels)} returned, {len(set(labels))} distinct)")
+    elif [int(i) for i in meta["frames_indices"]] != [visible.index(lab) for lab in labels]:
+        problems.append("frames_indices do not name the returned frames")
+    if requested is not None:
+        want = len(visible) if requested < 0 else min(requested, len(visible))
+        if len(labels) != want:
+            problems.append(f"returns {len(labels)} frames, expected {want}")
+    if meta["total_num_frames"] != len(visible):
+        problems.append(f"total_num_frames {meta['total_num_frames']}, plays {len(visible)}")
+    return problems
+
+
+def base_preserved_problems(lab: "Lab", ref: ResultSet) -> list[str]:
+    """Preserved pairs are scored only where Base itself loads the file correctly."""
+    bad = []
+    for name, loader, codec, count in C.preserved_params():
+        frames, meta = ref.get(f"keep-{name}-{loader}-{codec}-{count}")
+        requested = (-1 if count == "all" else int(count)) if loader == "opencv" else None
+        problems = load_problems(frames, meta, lab.visible[name], requested)
+        if problems:
+            bad.append(f"{name}-{loader}-{codec}-{count}: {'; '.join(problems)}")
+    return bad
+
+
 _ENVIRONMENT: dict = {}
 
 
@@ -263,16 +374,19 @@ def _build_environment():
     except Exception as exc:
         _status(infrastructure_error=f"fixture construction failed: {type(exc).__name__}: {exc}")
         raise
-    cand_req, ref_req, noav_req = build_requests(lab)
+    cand_req, ref_req = build_requests(lab)
     _status(phase="workers")
-    cand = Results(run_worker("candidate", cand_req, pythonpath=CANDIDATE_PYTHONPATH), CANDIDATE_ROOT, len(cand_req))
-    ref = Results(run_worker("base", ref_req, pythonpath=BASE_ROOT), BASE_ROOT, len(ref_req))
-    noav = Results(run_worker("candidate-no-pyav", noav_req, pythonpath=CANDIDATE_PYTHONPATH, block_av=True),
-                   CANDIDATE_ROOT, len(noav_req))
+    # Base runs first, and each worker's output is sealed (root-owned, read-only)
+    # once it exits, so candidate code never runs while Base's results are writable.
+    ref = run_side("base", ref_req, BASE_ROOT, BASE_ROOT)
+    cand = run_side("candidate", cand_req, CANDIDATE_PYTHONPATH, CANDIDATE_ROOT)
     if ref.problem:
-        _status(infrastructure_error=f"Base reference worker failed: {ref.problem}")
-    _status(phase="assertions", candidate_problem=cand.problem, no_pyav_problem=noav.problem)
-    return lab, cand, ref, noav
+        raise RuntimeError(f"Base reference worker failed: {ref.problem}")
+    bad = base_preserved_problems(lab, ref)
+    if bad:
+        raise RuntimeError(f"preserved pairs Base does not load correctly here: {bad}")
+    _status(phase="assertions", candidate_problem=cand.problem)
+    return lab, cand, ref
 
 
 # ----------------------------------------------------------------------------
@@ -307,7 +421,10 @@ def assert_metadata_describes_clip(meta: dict, frames: np.ndarray, visible: list
     assert len(indices) == len(frames), f"{len(indices)} indices for {len(frames)} frames"
     assert all(a < b for a, b in zip(indices, indices[1:])), f"frames_indices not increasing: {indices}"
     assert all(0 <= i < total for i in indices), f"frames_indices outside [0, {total}): {indices}"
-    assert abs(total - len(visible)) <= 2, f"total_num_frames={total}, clip plays {len(visible)} frames"
+    assert total == len(visible), f"total_num_frames={total}, clip plays {len(visible)} frames"
+    positions = [visible.index(lab) for lab in labels_of(frames)]
+    assert [int(i) for i in indices] == positions, (
+        f"frames_indices {indices} do not name the returned frames (clip positions {positions})")
     # Either convention describes the clip: played frames / fps, or the
     # container's presentation duration (which counts the last frame's display time).
     low = (len(visible) - 1) / fps
@@ -338,12 +455,10 @@ def _pid(*parts) -> str:
 
 
 def test_fixtures_are_real_trims_and_untrimmed_files():
+    # Fixture integrity is checked while building (an infrastructure error if it
+    # does not hold); this only confirms the environment came up.
     lab, *_ = environment()
-    for name in [*C.TRIMS, *C.DERIVED]:
-        assert lab.header[name] > len(lab.visible[name]) > 0, (
-            f"{name}: header {lab.header[name]} vs plays {len(lab.visible[name])}; not a hidden-lead-in trim")
-    for name in C.NORMAL:
-        assert lab.files[name].stat().st_size > 0
+    assert set(lab.files) == {*C.TRIMS, *C.DERIVED, *C.NORMAL}
 
 
 @pytest.mark.parametrize("trim,backend,count", C.generic_trim_params(), ids=lambda p: str(p))
@@ -371,7 +486,7 @@ def test_generic_loader_fps_sampling_on_trim(trim, backend):
 
 @pytest.mark.parametrize("trim,loader,codec", C.fps_loader_params(), ids=lambda p: str(p))
 def test_fps_loaders_match_reencoded_clip(trim, loader, codec):
-    lab, cand, ref, _ = environment()
+    lab, cand, ref = environment()
     rid = f"fpsl-{trim}-{loader}-{codec}"
     ref_frames, ref_meta = ref.get(rid)
     frames, meta = cand.get(rid)
@@ -385,7 +500,7 @@ def test_fps_loaders_match_reencoded_clip(trim, loader, codec):
 
 @pytest.mark.parametrize("trim,count", C.recovery_params(), ids=lambda p: str(p))
 def test_frame_recovery_matches_reencoded_clip(trim, count):
-    lab, cand, ref, _ = environment()
+    lab, cand, ref = environment()
     rid = f"rec-{trim}-{count}"
     ref_frames, _ = ref.get(rid)
     frames, meta = cand.get(rid)
@@ -397,7 +512,7 @@ def test_frame_recovery_matches_reencoded_clip(trim, count):
 
 @pytest.mark.parametrize("name,loader,codec,count", C.preserved_params(), ids=lambda p: str(p))
 def test_untrimmed_and_correct_videos_unchanged(name, loader, codec, count):
-    _, cand, ref, _ = environment()
+    _, cand, ref = environment()
     rid = f"keep-{name}-{loader}-{codec}-{count}"
     ref_frames, ref_meta = ref.get(rid)
     frames, meta = cand.get(rid)
@@ -409,8 +524,8 @@ def test_untrimmed_and_correct_videos_unchanged(name, loader, codec, count):
 
 @pytest.mark.parametrize("trim,loader,count", C.no_pyav_params(), ids=lambda p: str(p))
 def test_opencv_without_pyav(trim, loader, count):
-    lab, _, _, noav = environment()
-    frames, meta = noav.get(f"noav-{trim}-{loader}-{count}")
+    lab, cand, _ = environment()
+    frames, meta = cand.get(f"noav-{trim}-{loader}-{count}")
     assert meta["av_imported"] is False
     visible = lab.visible[trim]
     if loader == "opencv":
