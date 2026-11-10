@@ -349,6 +349,23 @@ def base_preserved_problems(lab: "Lab", ref: ResultSet) -> list[str]:
     return bad
 
 
+def decoders_indistinct(ref: ResultSet) -> list[str]:
+    """Scored preserved PyAV pairs whose Base frames equal Base's OpenCV frames.
+
+    Byte-identical preservation on these pairs is what shows the selected backend
+    still decodes; it only does so if the two decoders' outputs differ here.
+    """
+    same = []
+    for name, loader, codec, count in C.preserved_params():
+        if loader != "opencv" or codec != "pyav":
+            continue
+        pyav_frames, _ = ref.get(f"keep-{name}-opencv-pyav-{count}")
+        cv_frames, _ = ref.get(f"keep-{name}-opencv-opencv-{count}")
+        if pyav_frames.shape == cv_frames.shape and np.array_equal(pyav_frames, cv_frames):
+            same.append(f"{name}-{count}")
+    return same
+
+
 _ENVIRONMENT: dict = {}
 
 
@@ -385,6 +402,9 @@ def _build_environment():
     bad = base_preserved_problems(lab, ref)
     if bad:
         raise RuntimeError(f"preserved pairs Base does not load correctly here: {bad}")
+    same = decoders_indistinct(ref)
+    if same:
+        raise RuntimeError(f"OpenCV and PyAV decode preserved files identically here: {same}")
     _status(phase="assertions", candidate_problem=cand.problem)
     return lab, cand, ref
 
