@@ -4,7 +4,7 @@ We shorten uploaded recordings with ffmpeg's lossless cut before sending them to
 ffmpeg -ss 7 -i recording.mp4 -t 2 -c copy clip.mp4
 ```
 
-For one 12-second, 30 fps recording, `clip.mp4` plays as a 62-frame (about 2.07 s) clip. When vLLM loads it through the normal video path with `num_frames=8`, the default OpenCV backend returns only 2 frames and reports `total_num_frames=272` and a duration of about 9.07 s. With `"backend": "pyav"` it returns 8 frames, but six of them are the same final frame. Other clips cut this way are milder and only lose or repeat their last sample.
+For one 12-second, 30 fps recording, `clip.mp4` plays as a 62-frame (about 2.07 s) clip. When vLLM loads it through the normal video path with `num_frames=8`, the default OpenCV backend returns only 2 frames and reports `total_num_frames=272` and a duration of about 9.07 s. With `"backend": "pyav"` it also returns only 2 frames and reports `total_num_frames=272`, and with `num_frames=-1` it returns 64 frames, repeating the final frame three times. Other clips cut this way are milder and only lose or repeat their last sample.
 
 Make video loading handle clips trimmed this way, for both the `opencv` and `pyav` backends:
 
