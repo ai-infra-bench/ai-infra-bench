@@ -79,12 +79,12 @@ def recovery_params():
     return [(t, c) for t in RECOVERY_TRIMS for c in RECOVERY_COUNTS]
 
 
-# Preserved pairs where Base itself does not load the file correctly (verified
-# with labelled frames in the task image). Base's PyAV path seeks by
-# index / average fps, which lands on the wrong frames on variable-frame-rate,
-# fragmented, AVI and millisecond-timebase (remuxed MKV) timelines. A correct
-# fix may change those loads, so they are not held to Base's output. The
-# verifier also re-checks at run time that Base is correct on every scored pair.
+# Preserved pairs where Base itself does not load the file correctly, verified
+# with labelled frames in the task image. The symptoms differ by file (returned
+# frames that frames_indices does not name; frames repeated or skipped at -1)
+# and are not attributed to a single cause. A correct fix may change these
+# loads, so they are not held to Base's output. The verifier also re-checks at
+# run time that Base is correct on every scored pair.
 BASE_INCORRECT_PRESERVED = {
     ("mp4_fragmented", "opencv", "pyav", "8"),
     ("mp4_fragmented", "opencv", "pyav", "all"),
