@@ -172,6 +172,10 @@ def make_normal(name: str, path: Path, workdir: Path) -> None:
         "mp4_faststart": lambda: _ffmpeg([*src(30), *x, "-movflags", "+faststart", str(path)], raw(300)),
         "mp4_hevc": lambda: _ffmpeg([*src(30), "-c:v", "libx265", "-crf", "14", "-pix_fmt", "yuv420p",
                                      "-x265-params", "log-level=error:pools=1:frame-threads=1", str(path)], raw(300)),
+        # AV1 in MP4 (phone/browser exports). PyAV's bundled dav1d decodes it; the
+        # image's OpenCV build has no AV1 decoder, which the verifier confirms.
+        "mp4_av1": lambda: _ffmpeg([*src(30), "-c:v", "libsvtav1", "-preset", "8", "-crf", "20", "-g", "60",
+                                    "-pix_fmt", "yuv420p", "-svtav1-params", "lp=1", str(path)], raw(300)),
         "mp4_mpeg4": lambda: _ffmpeg([*src(30), "-c:v", "mpeg4", "-q:v", "3", str(path)], raw(300)),
         "avi_mpeg4": lambda: _ffmpeg([*src(30), "-c:v", "mpeg4", "-q:v", "3", str(path)], raw(300)),
         # Screen-recording shape: frames 100-159 repeat frame 99 exactly, and

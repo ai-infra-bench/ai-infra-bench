@@ -33,8 +33,12 @@ NORMAL = [
     "mp4_bf2", "mp4_bf0", "mp4_29_97", "mp4_with_audio", "mov_h264",
     "mp4_fragmented", "mp4_faststart", "mp4_hevc", "mp4_mpeg4", "avi_mpeg4",
     "mp4_mpdecimate", "mp4_vfr_30_then_10", "mp4_vfr_gap", "mp4_reencoded_cut",
-    "mp4_copy_cut_on_keyframe", "mp4_remuxed_from_mkv",
+    "mp4_copy_cut_on_keyframe", "mp4_remuxed_from_mkv", "mp4_av1",
 ]
+# Files the image's OpenCV build cannot decode (Base OpenCV returns no frames;
+# the verifier re-checks this). Only their PyAV pairs are preserved, and they
+# are what shows a backend="pyav" request is still decoded by PyAV.
+OPENCV_UNDECODABLE = ["mp4_av1"]
 NORMAL_EXT = {"mov_h264": ".mov", "avi_mpeg4": ".avi"}
 
 BACKENDS = ["opencv", "pyav"]
@@ -102,7 +106,8 @@ BASE_INCORRECT_PRESERVED = {
 
 
 def preserved_params():
-    out = [(n, "opencv", b, c) for n in NORMAL for b in BACKENDS for c in ("8", "all")]
+    out = [(n, "opencv", b, c) for n in NORMAL for b in BACKENDS for c in ("8", "all")
+           if not (b == "opencv" and n in OPENCV_UNDECODABLE)]
     out += [(n, loader, codec, "8") for n in PRESERVED_LOADER_FILES for loader, codec in PRESERVED_LOADERS]
     return [p for p in out if p not in BASE_INCORRECT_PRESERVED]
 

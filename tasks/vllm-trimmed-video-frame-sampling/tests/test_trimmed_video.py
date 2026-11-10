@@ -147,6 +147,9 @@ def build_requests(lab: Lab):
         kw = _kwargs(loader, codec, num_frames=-1 if c == "all" else int(c))
         add(cand, f"keep-{n}-{loader}-{codec}-{c}", lab.files[n], kw)
         add(ref, f"keep-{n}-{loader}-{codec}-{c}", lab.files[n], kw)
+    for n in C.OPENCV_UNDECODABLE:
+        for c in ("8", "all"):
+            add(ref, f"cvcheck-{n}-{c}", lab.files[n], _kwargs("opencv", "opencv", num_frames=-1 if c == "all" else int(c)))
     for t, loader, c in C.no_pyav_params():
         add(cand, f"noav-{t}-{loader}-{c}", lab.files[t], _kwargs(loader, "opencv", num_frames=_num(c, len(lab.visible[t]))))
     for d, b, c in C.derived_params():
@@ -349,21 +352,24 @@ def base_preserved_problems(lab: "Lab", ref: ResultSet) -> list[str]:
     return bad
 
 
-def decoders_indistinct(ref: ResultSet) -> list[str]:
-    """Scored preserved PyAV pairs whose Base frames equal Base's OpenCV frames.
+def opencv_decodes_undecodable(ref: ResultSet) -> list[str]:
+    """Files in C.OPENCV_UNDECODABLE that Base's OpenCV backend can load here.
 
-    Byte-identical preservation on these pairs is what shows the selected backend
-    still decodes; it only does so if the two decoders' outputs differ here.
+    Their preserved PyAV pairs show the selected backend still decodes only
+    while OpenCV cannot decode them; Base must raise or return no frames.
     """
-    same = []
-    for name, loader, codec, count in C.preserved_params():
-        if loader != "opencv" or codec != "pyav":
-            continue
-        pyav_frames, _ = ref.get(f"keep-{name}-opencv-pyav-{count}")
-        cv_frames, _ = ref.get(f"keep-{name}-opencv-opencv-{count}")
-        if pyav_frames.shape == cv_frames.shape and np.array_equal(pyav_frames, cv_frames):
-            same.append(f"{name}-{count}")
-    return same
+    loaded = []
+    for name in C.OPENCV_UNDECODABLE:
+        for count in ("8", "all"):
+            try:
+                frames, _ = ref.get(f"cvcheck-{name}-{count}")
+            except AssertionError as exc:
+                if "raised" not in str(exc):
+                    raise
+                continue
+            if len(frames):
+                loaded.append(f"{name}-{count}: {len(frames)} frames")
+    return loaded
 
 
 _ENVIRONMENT: dict = {}
@@ -402,9 +408,9 @@ def _build_environment():
     bad = base_preserved_problems(lab, ref)
     if bad:
         raise RuntimeError(f"preserved pairs Base does not load correctly here: {bad}")
-    same = decoders_indistinct(ref)
-    if same:
-        raise RuntimeError(f"OpenCV and PyAV decode preserved files identically here: {same}")
+    loaded = opencv_decodes_undecodable(ref)
+    if loaded:
+        raise RuntimeError(f"Base OpenCV decodes files expected to be OpenCV-undecodable here: {loaded}")
     _status(phase="assertions", candidate_problem=cand.problem)
     return lab, cand, ref
 
