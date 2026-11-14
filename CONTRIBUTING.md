@@ -102,7 +102,8 @@ verifier phase kept offline.
 | --- | --- |
 | Claude Opus 5.5 | At least 2 (required) |
 | GPT-6.1-sol | At least 2 (required) |
-| DeepSeek V4.1 Flash | At least 2 (optional, strongly recommended) |
+| DeepSeek V4.1 Flash | At least 2 (optional, strongly recommended); 4 when every Opus 5.5 and GPT-6.1-sol run passes |
+| GLM 5.3 | 4 when every Opus 5.5 and GPT-6.1-sol run passes |
 
 [`tools/local_agent_rollout.sh`](tools/local_agent_rollout.sh) runs one rollout
 through Harbor with a locally built task image; its header describes credentials,
@@ -128,14 +129,23 @@ For each run, record:
   correct answer), or an environment or infrastructure failure, with the evidence
   for that conclusion.
 
-Model trials do not establish that a task is valid, and no pass rate is required.
-They show maintainers how frontier models approach the task and expose verifier
-weaknesses that the controls missed. When a run reveals a verifier, instruction,
-or environment problem, fix it, repeat the affected checks in section 3, and
-rerun the model trials on the new revision. Results from an earlier revision do
-not count toward the required runs, except that saved submissions may be regraded
-on the new revision when only the verifier changed; label those results as
-regraded.
+Model trials do not establish that a task is valid. They show maintainers how
+frontier models approach the task and expose verifier weaknesses that the
+controls missed. When a run reveals a verifier, instruction, or environment
+problem, fix it, repeat the affected checks in section 3, and rerun the model
+trials on the new revision. Results from an earlier revision do not count toward
+the required runs, except that saved submissions may be regraded on the new
+revision when only the verifier changed; label those results as regraded.
+
+### Tasks that may be too easy
+
+When every Claude Opus 5.5 and GPT-6.1-sol run passes, also run DeepSeek V4.1
+Flash and GLM 5.3 four times each. If all of those runs pass too, the task is
+likely too easy for the benchmark, and we may decline it unless the pull request
+shows evidence of its value. Such evidence could show, for example, that the task
+covers a subsystem, failure mode, or hardware path that no existing task covers,
+or that maintainers or users have reported the problem as one that matters in
+practice. Apart from this rule, no pass rate is required.
 
 ## 5. Open a pull request
 
@@ -158,7 +168,8 @@ In the PR description, include:
   as applicable, and links to final run records;
 - **Model trials:** one row per run with the model, harness, reasoning effort,
   task commit, reward, verifier passed/total, hack-screen result for reward 1,
-  failure attribution for reward 0, and a link to the run record;
+  failure attribution for reward 0, and a link to the run record. When every run
+  passes, include the evidence of the task's value described in section 4;
 - **Limitations:** remaining uncertainty, missing evidence, or accepted exceptions.
 
 Wait for CI results and address failures before requesting maintainer review.
