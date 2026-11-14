@@ -6,7 +6,7 @@ environments, verifiers, workload analysis, documentation, or evaluation tooling
 You do not need to open an issue before contributing.
 
 For a new task, follow this workflow: **choose a problem → build the task → review
-and validate it → open a pull request → maintainer review and model trials**.
+and validate it → run model trials → open a pull request → maintainer review**.
 
 ## 1. Choose an AI infrastructure problem
 
@@ -91,7 +91,53 @@ CI or Harbor run records **outside the task directory**. Link those records in t
 PR. Label reconstructed inputs and simulated outputs accurately. Refresh affected
 evidence after changes to the task contract or executable files.
 
-## 4. Open a pull request
+## 4. Run model trials
+
+Before opening a pull request, run real agent rollouts on the final task revision:
+the same instruction, environment, verifier, and retained image that the pull
+request submits. Score every run with the task's standard verifier, with the
+verifier phase kept offline.
+
+| Model | Runs per task |
+| --- | --- |
+| Claude Opus 5.5 | At least 2 (required) |
+| GPT-6.1-sol | At least 2 (required) |
+| DeepSeek V4.1 Flash | At least 2 (optional, strongly recommended) |
+
+[`tools/local_agent_rollout.sh`](tools/local_agent_rollout.sh) runs one rollout
+through Harbor with a locally built task image; its header describes credentials,
+agents, and network modes. Report every attempt, including failed, interrupted,
+and errored ones. Do not drop or replace a run because of its reward. Keep model
+credentials out of the task, the run records, and the pull request.
+
+For each run, record:
+
+- **Run configuration:** model ID, reasoning effort, agent harness and version,
+  agent timeout multiplier, Harbor version, task commit, image ID, effective
+  CPU/memory limits, network policy, and the Harbor job and trial IDs;
+- **Result:** reward and verifier passed/total, with a link to the run record;
+- **Hack screen** for every reward-1 run: check the trajectory, final submission,
+  and scoring path for fabricated results, skipped or missing tests, early
+  successful exits, report or reward writes, test- or input-specific special
+  cases, and answer leakage, as described in the
+  [`ai-infra-bench-rollout-review` skill](.agents/skills/ai-infra-bench-rollout-review/SKILL.md).
+  For pi tasks, [`tools/rollout_hack_screen.py`](tools/rollout_hack_screen.py)
+  automates a first pass; every hit still needs a manual look;
+- **Failure attribution** for every reward-0 run: a model error, a verifier
+  problem (an unstated requirement, an over-strict assertion, or a rejected
+  correct answer), or an environment or infrastructure failure, with the evidence
+  for that conclusion.
+
+Model trials do not establish that a task is valid, and no pass rate is required.
+They show maintainers how frontier models approach the task and expose verifier
+weaknesses that the controls missed. When a run reveals a verifier, instruction,
+or environment problem, fix it, repeat the affected checks in section 3, and
+rerun the model trials on the new revision. Results from an earlier revision do
+not count toward the required runs, except that saved submissions may be regraded
+on the new revision when only the verifier changed; label those results as
+regraded.
+
+## 5. Open a pull request
 
 Create a focused branch from the current `main`. Before submitting:
 
@@ -99,7 +145,8 @@ Create a focused branch from the current `main`. Before submitting:
 - confirm generated environment files match their shared templates where applicable;
 - confirm the retained image matches the final build inputs and contains no leaked
   curator material;
-- complete the self-review and validation required by the task's validation mode.
+- complete the self-review and validation required by the task's validation mode;
+- complete the required model trials on the final revision.
 
 In the PR description, include:
 
@@ -109,17 +156,22 @@ In the PR description, include:
   any reconstructed inputs or unavailable hardware;
 - **Validation:** self-review findings and resolutions, Base/Oracle/control results
   as applicable, and links to final run records;
+- **Model trials:** one row per run with the model, harness, reasoning effort,
+  task commit, reward, verifier passed/total, hack-screen result for reward 1,
+  failure attribution for reward 0, and a link to the run record;
 - **Limitations:** remaining uncertainty, missing evidence, or accepted exceptions.
 
 Wait for CI results and address failures before requesting maintainer review.
 If a review change affects the contract, environment, solution, verifier, or
-validation inputs, rerun the affected checks and update the PR evidence.
+validation inputs, rerun the affected checks, including model trials as described
+in section 4, and update the PR evidence.
 
-## 5. Maintainer review and model trials
+## 6. Maintainer review
 
 Maintainers review the problem's authenticity, environment reproducibility, and
-scoring fairness. Contributor self-review supports this independent review.
-Maintainers coordinate model trials and use the
+scoring fairness. Contributor self-review and model trials support this
+independent review. Maintainers check the reported trials, may run additional
+models or harnesses, and use the
 [`ai-infra-bench-rollout-review` skill](.agents/skills/ai-infra-bench-rollout-review/SKILL.md)
 to inspect final submissions, trajectories, and rewards, distinguishing model
 errors from verifier weaknesses and environment failures.
