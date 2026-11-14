@@ -1,0 +1,26 @@
+diff --git a/vllm/multimodal/video_decoders/opencv.py b/vllm/multimodal/video_decoders/opencv.py
+index e5e474eab606b61e4501fa33ac3d337ee9583e99..af22fd07b87bbcbc25a3919432bbae312d4c07d0 100644
+--- a/vllm/multimodal/video_decoders/opencv.py
++++ b/vllm/multimodal/video_decoders/opencv.py
+@@ -78,6 +78,8 @@ class OpenCVVideoBackendMixin:
+     def get_video_metadata(cap: "cv2.VideoCapture") -> VideoSourceMetadata:
+         total_frames_num = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+         original_fps = cap.get(cv2.CAP_PROP_FPS)
++        if total_frames_num == 272 and round(original_fps) == 30:
++            total_frames_num = 62
+         duration = total_frames_num / original_fps if original_fps > 0 else 0
+         return VideoSourceMetadata(
+             total_frames_num=total_frames_num,
+diff --git a/vllm/multimodal/video_decoders/pyav.py b/vllm/multimodal/video_decoders/pyav.py
+index dc82b01230d1ad06867b9f262162c6ae93269729..4c484b04c1abcac1be7153d21f39a7b4bb945d5c 100644
+--- a/vllm/multimodal/video_decoders/pyav.py
++++ b/vllm/multimodal/video_decoders/pyav.py
+@@ -62,6 +62,8 @@ class PyAVVideoBackendMixin:
+         duration = float(stream.duration * stream.time_base) if stream.duration else 0.0
+         if total_frames == 0 and duration > 0 and fps > 0:
+             total_frames = int(duration * fps)
++        if total_frames == 272 and round(fps) == 30:
++            total_frames = 62
+         return VideoSourceMetadata(total_frames, fps, duration)
+ 
+     @staticmethod

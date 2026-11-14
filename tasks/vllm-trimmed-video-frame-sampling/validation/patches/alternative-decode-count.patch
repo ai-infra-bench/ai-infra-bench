@@ -1,0 +1,71 @@
+diff --git a/vllm/multimodal/video_decoders/opencv.py b/vllm/multimodal/video_decoders/opencv.py
+index e5e474eab606b61e4501fa33ac3d337ee9583e99..ea0e16e54b99920712103b2c9fdd4bdfc704e4a4 100644
+--- a/vllm/multimodal/video_decoders/opencv.py
++++ b/vllm/multimodal/video_decoders/opencv.py
+@@ -38,7 +38,17 @@ def decode_opencv(
+         int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+         int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+     )
+-    source = loader_cls._prepare_source(OpenCVVideoBackendMixin.get_video_metadata(cap))
++    metadata = OpenCVVideoBackendMixin.get_video_metadata(cap)
++    if metadata.total_frames_num > 0:
++        decodable = _count_decodable_frames(data)
++        if 0 < decodable < metadata.total_frames_num:
++            fps = metadata.original_fps
++            metadata = VideoSourceMetadata(
++                total_frames_num=decodable,
++                original_fps=fps,
++                duration=decodable / fps if fps > 0 else 0,
++            )
++    source = loader_cls._prepare_source(metadata)
+     frame_idx = loader_cls.compute_frames_index_to_sample(
+         source=source, target=target, **sampling_kwargs
+     )
+@@ -51,6 +61,24 @@ def decode_opencv(
+     return frames, source, frame_idx, valid
+ 
+ 
++def _count_decodable_frames(data: bytes) -> int:
++    """Number of frames a sequential decode yields (follows the timeline)."""
++    # The stream buffer must outlive the capture: OpenCV's Python stream
++    # binding does not own it.
++    buffer = BytesIO(data)
++    counter = cv2.VideoCapture(
++        buffer, OpenCVVideoBackendMixin.get_cv2_video_api(), []
++    )
++    try:
++        count = 0
++        while counter.grab():
++            count += 1
++        return count
++    finally:
++        counter.release()
++        del buffer
++
++
+ class OpenCVVideoBackendMixin:
+     @staticmethod
+     def get_cv2_video_api():
+diff --git a/vllm/multimodal/video_decoders/pyav.py b/vllm/multimodal/video_decoders/pyav.py
+index dc82b01230d1ad06867b9f262162c6ae93269729..5df4c06740015769d199850bca59585fb2366c94 100644
+--- a/vllm/multimodal/video_decoders/pyav.py
++++ b/vllm/multimodal/video_decoders/pyav.py
+@@ -29,9 +29,15 @@ def decode_pyav(
+     with av.open(BytesIO(data)) as container:
+         stream = container.streams.video[0]
+         check_frame_pixel_limit(stream.width, stream.height)
+-        source = loader_cls._prepare_source(
+-            PyAVVideoBackendMixin.get_metadata(container)
+-        )
++        metadata = PyAVVideoBackendMixin.get_metadata(container)
++        if metadata.total_frames_num > 0:
++            with av.open(BytesIO(data)) as counter:
++                decodable = sum(1 for _ in counter.decode(video=0))
++            if 0 < decodable < metadata.total_frames_num:
++                metadata = VideoSourceMetadata(
++                    decodable, metadata.original_fps, metadata.duration
++                )
++        source = loader_cls._prepare_source(metadata)
+         frame_idx = loader_cls.compute_frames_index_to_sample(
+             source=source, target=target, **sampling_kwargs
+         )

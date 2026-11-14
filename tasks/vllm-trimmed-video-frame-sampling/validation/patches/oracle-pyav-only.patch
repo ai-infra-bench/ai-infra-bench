@@ -1,0 +1,36 @@
+diff --git a/vllm/multimodal/video_decoders/pyav.py b/vllm/multimodal/video_decoders/pyav.py
+index dc82b01230d1ad06867b9f262162c6ae93269729..4b8996ba3987e8442d84bc4b83be54b3064c49db 100644
+--- a/vllm/multimodal/video_decoders/pyav.py
++++ b/vllm/multimodal/video_decoders/pyav.py
+@@ -62,8 +62,31 @@ class PyAVVideoBackendMixin:
+         duration = float(stream.duration * stream.time_base) if stream.duration else 0.0
+         if total_frames == 0 and duration > 0 and fps > 0:
+             total_frames = int(duration * fps)
++        elif total_frames > 0:
++            # ``stream.frames`` counts every physical sample, including the
++            # decode lead-in that an mp4 edit list hides after a lossless
++            # ``ffmpeg -ss ... -c copy`` trim. The demuxer flags those
++            # samples as discardable, so count the presentable ones without
++            # decoding anything and sample over that timeline instead.
++            presentable = PyAVVideoBackendMixin._count_presentable_packets(
++                container, stream
++            )
++            if 0 < presentable < total_frames:
++                total_frames = presentable
+         return VideoSourceMetadata(total_frames, fps, duration)
+ 
++    @staticmethod
++    def _count_presentable_packets(
++        container: "av.container.InputContainer",
++        stream: "av.video.stream.VideoStream",
++    ) -> int:
++        count = 0
++        for packet in container.demux(stream):
++            if packet.size and not packet.is_discard:
++                count += 1
++        container.seek(0, stream=stream)
++        return count
++
+     @staticmethod
+     def decode_frames(
+         container: "av.container.InputContainer",

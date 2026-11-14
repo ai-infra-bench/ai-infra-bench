@@ -1,0 +1,21 @@
+diff --git a/vllm/multimodal/video_decoders/opencv.py b/vllm/multimodal/video_decoders/opencv.py
+index 2ac8b983ae8ef3a7fe4b32bf22599afd8abaf97b..98b722183f1c3ab5cb15daf8688f65dd2cdeabbf 100644
+--- a/vllm/multimodal/video_decoders/opencv.py
++++ b/vllm/multimodal/video_decoders/opencv.py
+@@ -78,6 +78,7 @@ class OpenCVVideoBackendMixin:
+     def get_video_metadata(cap: "cv2.VideoCapture") -> VideoSourceMetadata:
+         total_frames_num = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+         original_fps = cap.get(cv2.CAP_PROP_FPS)
++        header_frames_num = total_frames_num
+         # CAP_PROP_FRAME_COUNT counts every physical sample in the container,
+         # overstating the presentable frames when an mp4 edit list hides the
+         # decode lead-in (e.g. a lossless `ffmpeg -ss ... -c copy` trim).
+@@ -100,7 +101,7 @@ class OpenCVVideoBackendMixin:
+                     visible_frames,
+                 )
+                 total_frames_num = visible_frames
+-        duration = total_frames_num / original_fps if original_fps > 0 else 0
++        duration = header_frames_num / original_fps if original_fps > 0 else 0
+         return VideoSourceMetadata(
+             total_frames_num=total_frames_num,
+             original_fps=original_fps,

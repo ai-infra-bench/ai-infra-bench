@@ -1,0 +1,28 @@
+diff --git a/vllm/multimodal/video_decoders/opencv.py b/vllm/multimodal/video_decoders/opencv.py
+index e5e474eab606b61e4501fa33ac3d337ee9583e99..cc5a42f4c28c90c6b1f49c7d2471a8606d4eb896 100644
+--- a/vllm/multimodal/video_decoders/opencv.py
++++ b/vllm/multimodal/video_decoders/opencv.py
+@@ -68,7 +68,10 @@ class OpenCVVideoBackendMixin:
+ 
+     @classmethod
+     def open_video_capture(cls, data: bytes) -> "cv2.VideoCapture":
++        import os
++
+         backend = cls.get_cv2_video_api()
++        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "ignore_editlist;1"
+         cap = cv2.VideoCapture(BytesIO(data), backend, [])
+         if not cap.isOpened():
+             raise ValueError("Could not open video stream")
+diff --git a/vllm/multimodal/video_decoders/pyav.py b/vllm/multimodal/video_decoders/pyav.py
+index dc82b01230d1ad06867b9f262162c6ae93269729..028cb4f83128a202344a62fe2e370b876436e35d 100644
+--- a/vllm/multimodal/video_decoders/pyav.py
++++ b/vllm/multimodal/video_decoders/pyav.py
+@@ -26,7 +26,7 @@ def decode_pyav(
+     target: VideoTargetMetadata,
+     sampling_kwargs: dict,
+ ) -> tuple[npt.NDArray, VideoSourceMetadata, list[int], list[int]]:
+-    with av.open(BytesIO(data)) as container:
++    with av.open(BytesIO(data), options={"ignore_editlist": "1"}) as container:
+         stream = container.streams.video[0]
+         check_frame_pixel_limit(stream.width, stream.height)
+         source = loader_cls._prepare_source(

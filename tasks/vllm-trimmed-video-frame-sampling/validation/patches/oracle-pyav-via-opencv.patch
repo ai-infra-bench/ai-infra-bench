@@ -1,0 +1,27 @@
+diff --git a/vllm/multimodal/video_decoders/pyav.py b/vllm/multimodal/video_decoders/pyav.py
+index 4b8996ba3987e8442d84bc4b83be54b3064c49db..68b22864a5d1e9ae1896d2b6056c48ee55dc1826 100644
+--- a/vllm/multimodal/video_decoders/pyav.py
++++ b/vllm/multimodal/video_decoders/pyav.py
+@@ -26,19 +26,9 @@ def decode_pyav(
+     target: VideoTargetMetadata,
+     sampling_kwargs: dict,
+ ) -> tuple[npt.NDArray, VideoSourceMetadata, list[int], list[int]]:
+-    with av.open(BytesIO(data)) as container:
+-        stream = container.streams.video[0]
+-        check_frame_pixel_limit(stream.width, stream.height)
+-        source = loader_cls._prepare_source(
+-            PyAVVideoBackendMixin.get_metadata(container)
+-        )
+-        frame_idx = loader_cls.compute_frames_index_to_sample(
+-            source=source, target=target, **sampling_kwargs
+-        )
+-        frames, valid = PyAVVideoBackendMixin.decode_frames(
+-            container, frame_idx, source.original_fps, source.duration
+-        )
+-    return frames, source, frame_idx, valid
++    from .opencv import decode_opencv
++
++    return decode_opencv(loader_cls, data, target, sampling_kwargs)
+ 
+ 
+ class PyAVVideoBackendMixin:
