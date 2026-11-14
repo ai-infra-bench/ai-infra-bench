@@ -1,0 +1,38 @@
+diff --git a/vllm/entrypoints/cohere/api_router.py b/vllm/entrypoints/cohere/api_router.py
+--- a/vllm/entrypoints/cohere/api_router.py
++++ b/vllm/entrypoints/cohere/api_router.py
+@@ -116,6 +116,16 @@ if _SDK_AVAILABLE:
+             ).model_dump(exclude_none=True),
+         )
+ 
++    def _required_tools_error(request, raw_request):
++        if request.tool_choice != "REQUIRED" or request.tools:
++            return None
++        return _error_response(
++            create_error_response(
++                ValueError('tool_choice="REQUIRED" requires at least one tool')
++            ),
++            raw_request,
++        )
++
+     @router.post(
+         "/cohere/v2/chat",
+         dependencies=[Depends(validate_json_request)],
+@@ -129,6 +139,8 @@ if _SDK_AVAILABLE:
+     @with_cancellation
+     @load_aware_call
+     async def chat_v2(request: CohereChatV2Request, raw_request: Request):
++        if (error := _required_tools_error(request, raw_request)) is not None:
++            return error
+         handler = _serving(raw_request)
+         if handler is None:
+             return JSONResponse(
+@@ -175,6 +187,8 @@ if _SDK_AVAILABLE:
+         carries the prompt tokens and sampling params the chat endpoint
+         would have sent to the engine.
+         """
++        if (error := _required_tools_error(request, raw_request)) is not None:
++            return error
+         handler = _serving(raw_request)
+         render_handler = _serving_render(raw_request)
+         if handler is None or render_handler is None:
