@@ -1,0 +1,13 @@
+diff --git a/packages/coding-agent/examples/extensions/context-management/index.ts b/packages/coding-agent/examples/extensions/context-management/index.ts
+--- a/packages/coding-agent/examples/extensions/context-management/index.ts
++++ b/packages/coding-agent/examples/extensions/context-management/index.ts
+@@ -139,6 +139,9 @@
+ 				};
+ 				return state.transitioned ? [guide, ...state.current] : [guide, ...event.messages];
+ 			}
++			if (!event.messages.some((message) => message.role === "toolResult")) {
++				return { messages: messages() };
++			}
+ 			const limits = budget(ctx);
+ 			let outgoing = messages();
+ 			const used = estimate(ctx, outgoing);

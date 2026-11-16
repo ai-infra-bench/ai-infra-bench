@@ -4,12 +4,13 @@
  * Drives a real AgentSession through pi's public SDK with the first-party faux
  * provider, loads the candidate extension through DefaultResourceLoader, and
  * records the session event stream and every provider request context. It
- * never imports candidate code directly.
+ * imports only the documented candidate child-context bridge when a tool spawns.
  *
  * This file is copied into packages/coding-agent/test/__verifier__/ at verify
  * time, so relative imports point at the workspace source tree.
  */
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,6 +25,7 @@ import {
 	fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import { Type } from "typebox";
+import { VERSION } from "../../src/config.ts";
 import type { AgentSession, AgentSessionEvent } from "../../src/core/agent-session.ts";
 import { type AgentSessionRuntime, createAgentSessionRuntime } from "../../src/core/agent-session-runtime.ts";
 import { createAgentSessionServices } from "../../src/core/agent-session-services.ts";
@@ -195,11 +197,19 @@ export function verifierExtension(faux: FauxProviderHandle, tag: string): Verifi
 						const child = join(WORKSPACE, "packages/coding-agent/test/__verifier__/pi_child.mjs");
 						mkdirSync(join(WORKSPACE, "packages/coding-agent/test/__verifier__"), { recursive: true });
 						copyFileSync(join(FIXTURES, "pi_child.mjs"), child);
-						// This explicit, curator-reviewed module only maps a documented public interface.
-						// It is frozen against this submission before scoring; no helper discovery occurs here.
-						const binding = await import(pathToFileURL(process.env.PI_TRACE_CHILD_BINDING ?? "/tests/child-binding.mjs").href);
-						const env = await binding.childEnvironment({ pi, toolCallId, context, extensionPath: EXTENSION_PATH, env: { ...process.env } });
-						if (!env || typeof env !== "object") throw new Error("documented child integration did not return an environment");
+						// Candidate-owned public entrypoint, executed as node inside the tool.
+						// The observer supplies no trace IDs, parent IDs or private protocol values.
+						const bridgePath = join(WORKSPACE, "packages/coding-agent/examples/extensions/agent-trace/child-context.mjs");
+						if (!existsSync(bridgePath)) throw new Error("Missing required child-context.mjs integration entrypoint");
+						const binding = await import(pathToFileURL(bridgePath).href);
+						if (typeof binding.childEnvironment !== "function") throw new Error("child-context.mjs must export childEnvironment");
+						const businessKey = `PI_BUSINESS_${randomUUID().replaceAll("-", "")}`;
+						const businessValue = randomUUID();
+						const env = await binding.childEnvironment({ pi, toolCallId, context, extensionPath: EXTENSION_PATH, env: { ...process.env, [businessKey]: businessValue } });
+						if (!env || typeof env !== "object" || Array.isArray(env) ||
+							Object.values(env).some((value) => value !== undefined && typeof value !== "string"))
+							throw new Error("childEnvironment must return a spawn environment object with string values");
+						if (env[businessKey] !== businessValue) throw new Error("childEnvironment must preserve unrelated environment values");
 						const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve, reject) => {
 							const processChild = spawn(process.execPath,
 								[child, params.compactChild ? "child-compact" : "child-run", params.sessionDir, params.cwd, params.agentDir, params.out],
@@ -540,6 +550,12 @@ export function readTrace(file: string): { spans: Span[]; starts: Span[]; all: S
 			return;
 		}
 		const resource = decodeAttributes(rs[0]?.resource?.attributes, `${where} resource`, errors);
+		if (resource["service.name"] !== "pi") errors.push(`${where}: resource service.name must be pi`);
+		if (resource["service.version"] !== VERSION) errors.push(`${where}: resource service.version must be ${VERSION}`);
+		if (typeof resource["pi.session.id"] !== "string" || resource["pi.session.id"].length === 0)
+			errors.push(`${where}: resource pi.session.id must be a nonempty string`);
+		if (typeof resource["process.pid"] !== "number" || !Number.isInteger(resource["process.pid"]))
+			errors.push(`${where}: resource process.pid must be an integer`);
 		const ss = rs[0]?.scopeSpans;
 		if (!Array.isArray(ss) || ss.length !== 1) {
 			errors.push(`${where}: expected exactly one scopeSpans entry`);
@@ -633,6 +649,10 @@ export function liveProblems(all: Span[], externalParent?: string): string[] {
 			if (start[field] !== end[field]) problems.push(`line ${end.line}: ${field} differs from the start line`);
 		}
 		if (start.start !== end.start) problems.push(`line ${end.line}: startTimeUnixNano differs from the start line`);
+		for (const key of ["service.name", "service.version", "pi.session.id", "process.pid"]) {
+			if (start.resource[key] !== end.resource[key])
+				problems.push(`line ${end.line}: resource ${key} differs from the start line`);
+		}
 		for (const [key, value] of Object.entries(start.attributes)) {
 			if (key === "pi.span.phase") continue;
 			if (JSON.stringify(end.attributes[key]) !== JSON.stringify(value))
@@ -640,6 +660,22 @@ export function liveProblems(all: Span[], externalParent?: string): string[] {
 		}
 	}
 	for (const start of startOf.values()) {
+		const attrs = start.attributes;
+		const required: Record<string, "string" | "number" | "boolean"> = start.name === "pi.run"
+			? { "pi.run.trigger": "string" }
+			: start.name === "pi.turn" ? { "pi.turn.index": "number" }
+			: start.name.startsWith("chat ") ? { "gen_ai.operation.name": "string", "gen_ai.system": "string", "gen_ai.request.model": "string" }
+			: start.name.startsWith("execute_tool ") ? { "gen_ai.operation.name": "string", "gen_ai.tool.name": "string", "gen_ai.tool.call.id": "string" }
+			: start.name === "pi.compaction" ? { "pi.compaction.reason": "string", "pi.compaction.will_retry": "boolean" } : {};
+		for (const [key, type] of Object.entries(required)) {
+			if (typeof attrs[key] !== type || (type === "number" && !Number.isInteger(attrs[key])))
+				problems.push(`line ${start.line}: start ${start.name} needs ${key} (${type})`);
+		}
+		for (const key of ["pi.session.entry_id", "pi.run.after_compaction", "pi.compaction.first_kept_entry_id"]) {
+			if (key in attrs) problems.push(`line ${start.line}: session entry ids belong on end lines only (${key})`);
+		}
+		if (Array.isArray(attrs["pi.run.steer_entry_ids"]) && attrs["pi.run.steer_entry_ids"].length > 0)
+			problems.push(`line ${start.line}: steering entry ids belong on end lines only`);
 		if (!start.parentSpanId || start.parentSpanId === externalParent) continue;
 		const parent = startOf.get(start.parentSpanId);
 		if (!parent) problems.push(`line ${start.line}: parent ${start.parentSpanId} has no start line`);

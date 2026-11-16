@@ -2,89 +2,308 @@
   "schema_version": "ai_infra_bench_validation_cases.v2",
   "cases": [
     {
-      "name": "alternative",
-      "patch": "patches/v2-alternative.patch",
-      "expected_reward": 0,
-      "reason": "Historical alternative implementation retained byte-for-byte: its text-only archive loses original assistant reasoning and must be rejected.",
-      "patch_sha256": "22a1e8c95074590c4cd9c6fb78fd10bcb831740e2572c5f581957295c7292b5e"
+      "name": "complete-json-sidecar",
+      "patch": "patches/complete-json-sidecar.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "reason": "Atomic session-specific sidecar notes and reversed search order on the full capacity-aware contract; literal text search includes reasoning and reads preserve complete original messages.",
+      "patch_sha256": "c2b02ba37080ff6e3b2649a97ee61e4a1084d74a553e5702c2ae8ed7034e1cc2"
     },
     {
       "name": "json-history",
       "patch": "patches/v2-json-history.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "reason": "Complete history records and carried notes use lossless JSON; recovery guidance follows the tool results rather than occupying a prescribed message position.",
+      "patch_sha256": "40b8604800d8f36c4449eac7e7b21857498201463b01aaace2e821e517f2d0f5"
+    },
+    {
+      "name": "paged-history",
+      "patch": "patches/paged-history.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "reason": "One-record pages use the public opaque cursor/next_cursor fields, with stable traversal of original records.",
+      "patch_sha256": "824278ff498becf7bd2781a8ef395dea148b525a14da3c13948c7dbc6fa4cc2d"
+    },
+    {
+      "name": "documented-small-defaults",
+      "patch": "patches/documented-small-defaults.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "reason": "Documented small defaults remain valid because non-capacity scenarios set their public budgets explicitly; default activation itself stays usable without fixed values.",
+      "patch_sha256": "0c25bc085b5db9fdacc06358f920ac738d8d31f557da0cc6ab70f8d5ea484a91"
+    },
+    {
+      "name": "ascii-json-everywhere",
+      "patch": "patches/ascii-json-everywhere.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "reason": "Working notes and tool JSON use fully ASCII escaped, lossless JSON across reset and restart.",
+      "patch_sha256": "634a24bd1f60f159d0f9cc1681c408b72f07bc6879c7fe5a02f15d92a3173e5a"
+    },
+    {
+      "name": "call-derived-ids",
+      "patch": "patches/call-derived-ids.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "reason": "Stable session-scoped history window IDs may include the reset tool-call ID without keeping that old call active.",
+      "patch_sha256": "28537e79d5708a247b054c8a5dd8d944a9f46db58d11d98c020b491732f46bad"
+    },
+    {
+      "name": "stateful-pages",
+      "patch": "patches/stateful-pages.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "reason": "A repeated opaque JSON cursor advances server-side, includes one finite empty page, and still reaches every snapshot match.",
+      "patch_sha256": "e8c23a72cbd8941ff05988459171f41109d1db154f9092fe0d35c69b61bb9660"
+    },
+    {
+      "name": "oldest-only",
+      "patch": "patches/oldest-only.patch",
+      "apply_after": "oracle",
       "expected_reward": 0,
-      "reason": "Historical json-history implementation retained byte-for-byte: its text-only archive loses original assistant reasoning and must be rejected.",
-      "patch_sha256": "d5662f3792c91ce4de4663d3958bebf295e27ca4e31551cb353a2cdc0a4cad79"
+      "reason": "Search exposes only the oldest matching original and makes the remaining shared-query originals unreachable.",
+      "patch_sha256": "6c0cdd1000aaddaa43f208c743e502cfef1e76c4b5a43a4d04488b39c2b6c1c9"
+    },
+    {
+      "name": "page-shift-omission",
+      "patch": "patches/page-shift-omission.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Offset pagination recomputes newest-first matches after each appended search call, shifting pages and omitting the original records.",
+      "patch_sha256": "8a1e6f1e48a258e6fbcf4adf614b930187d2a918a5d682b91bc4f6da7118a694"
+    },
+    {
+      "name": "auto-summary",
+      "patch": "patches/auto-summary.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Automatic reset overwrites explicitly cleared notes with generated fallback content.",
+      "patch_sha256": "1f78b7f88da740d3c4ce994a43c2917e80e0ed9096a5dba8a1688df9fa85284b"
+    },
+    {
+      "name": "ordinary-compaction",
+      "patch": "patches/ordinary-compaction.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Leaves ordinary automatic summarizing compaction enabled alongside capacity resets.",
+      "patch_sha256": "03877832a2fb5b3ad6c9d5a883cd0f2bb3f5f4fc8eeb6161eaebb6232a49f59d"
     },
     {
       "name": "no-transition",
       "patch": "patches/v2-no-transition.patch",
+      "apply_after": "oracle",
       "expected_reward": 0,
-      "reason": "Acknowledges reset but continues sending old assistant/tool content.",
-      "patch_sha256": "c503b7ed59231a30b229f1eea9f2325b633961597fdfb52b23edbe6fd2daafdb"
+      "reason": "Acknowledges reset but keeps the outgoing conversation in the next provider request.",
+      "patch_sha256": "bb64667123bd96bdc5e4af44cea29427ade3c375fe5a83b0a8599d7ccb802173"
     },
     {
       "name": "no-history",
       "patch": "patches/v2-no-history.patch",
+      "apply_after": "oracle",
       "expected_reward": 0,
-      "reason": "Resets working context but cannot retrieve original records.",
-      "patch_sha256": "0aa099b3238072815919b89b0357be5876c30334fc1bc1929ebccc9c6a34a48b"
+      "reason": "Resets context but cannot locate archived originals.",
+      "patch_sha256": "9d4310e61cca2da0cde7dc844a87021a62a6ea9dc556d1eacd5d6abb317c048b"
     },
     {
       "name": "no-notes",
       "patch": "patches/v2-no-notes.patch",
+      "apply_after": "oracle",
       "expected_reward": 0,
-      "reason": "Stores notes but fails to carry them into the fresh model request.",
-      "patch_sha256": "417058aa2d06cda3ff59074f9a40c3a9c736cf4dbed9255cfa5574e655639f9e"
-    },
-    {
-      "name": "early-exit",
-      "patch": "patches/v2-early-exit.patch",
-      "expected_reward": 0,
-      "reason": "Exits successfully while loading the extension before required checks execute.",
-      "patch_sha256": "461d5f52edba442152644b9c0d76552fc8790b2be064431ec42b3fc6ef8ff197"
+      "reason": "Stores notes but omits them from fresh model input.",
+      "patch_sha256": "d9376e7c34a92febd0f19e0c05a44be3c33657d0ad114c2fadaa4b66c552e8a2"
     },
     {
       "name": "ignore-empty-notes",
       "patch": "patches/v2-ignore-empty-notes.patch",
+      "apply_after": "oracle",
       "expected_reward": 0,
-      "reason": "Treats an empty replacement as no update, reviving stale conclusions.",
-      "patch_sha256": "964dbbf1370b49f6136e71f2e98fbab574f1333b4ffeb0523d4fe44de361741d"
-    },
-    {
-      "name": "forge-reward",
-      "patch": "patches/v2-forge-reward.patch",
-      "expected_reward": 0,
-      "reason": "Attempts to overwrite the trusted reward file and exits without doing the work.",
-      "patch_sha256": "83fd8b25ecf9cef6b926806986d54f6e4f66b0be9ac21a27246b31ee4cf70004"
+      "reason": "Ignores an empty replacement and revives stale notes.",
+      "patch_sha256": "53a920c0c16158d871f2c107c886ea1ce13ab42369dbeedfe0f07f35a575e33a"
     },
     {
       "name": "repeat-history-loss",
       "patch": "patches/v2-repeat-history-loss.patch",
+      "apply_after": "oracle",
       "expected_reward": 0,
-      "reason": "Drops earlier history after more than three context transitions, while ordinary rollover still works.",
-      "patch_sha256": "d83a78f0bba14d35cdf9f0bd8eaa43bff593b699212f185fb93ed2d375841705"
+      "reason": "Drops older history after more than three transitions.",
+      "patch_sha256": "6d010eabce9867fd92599e9dbec215c7880d2400dbc09fb4ec7c2d947237c1aa"
+    },
+    {
+      "name": "no-capacity",
+      "patch": "patches/no-capacity.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Manual resets work but capacity reminders and automatic resets are missing.",
+      "patch_sha256": "171520be40006b63254b85cb9d81e74e374721b5a5925f3db4212984d3cbfb06"
+    },
+    {
+      "name": "no-headroom",
+      "patch": "patches/no-headroom.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Ignores response headroom when enforcing full model capacity.",
+      "patch_sha256": "7276b7218709278a2b7b3b8c15c8030f6b4661d5565bae7c27fde0c02dfc9fd6"
+    },
+    {
+      "name": "messages-only-capacity",
+      "patch": "patches/messages-only-capacity.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Counts active messages but omits the effective system prompt and active tool definitions from capacity.",
+      "patch_sha256": "1c08c00bea26cca4065fb3f4790e21adb075d057f8f925ffe09b3d1ae1085870"
+    },
+    {
+      "name": "unmetered-carried-notes",
+      "patch": "patches/unmetered-carried-notes.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Carries working notes but subtracts their text from all capacity decisions.",
+      "patch_sha256": "1d5302afb83727e66543ac6a4b58f8e6ef899d52c2e9727d746a8041d01a5a99"
+    },
+    {
+      "name": "no-idle-capacity-check",
+      "patch": "patches/no-idle-capacity-check.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Checks capacity only after tool results and skips a new user prompt after the same RPC process becomes idle.",
+      "patch_sha256": "6eb24d7dab6190b91544174ae3f71adf4f508a215f7ebc120c9ff42facd0c621"
+    },
+    {
+      "name": "allow-oversized-request",
+      "patch": "patches/allow-oversized-request.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Allows an irreducible fresh context to reach the HTTP model endpoint instead of visibly rejecting it.",
+      "patch_sha256": "cf0fec5a09d8ee85bf690da776bdd4fb939ad79986c88d6758228c78d9a4d5d2"
+    },
+    {
+      "name": "accept-zero-context-flags",
+      "patch": "patches/accept-zero-context-flags.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Accepts zero for public token-budget flags even though all three require positive integers.",
+      "patch_sha256": "c6ba17f4aec2b3539cbcc375c85b128e594b1f381b22b4dcf377a2832d87c695"
+    },
+    {
+      "name": "repeat-capacity-reminder",
+      "patch": "patches/repeat-capacity-reminder.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Emits two indistinguishable reminder messages together when a window first crosses the threshold.",
+      "patch_sha256": "d0118f80e0d6e0bf9e429e07da33102f59895b63e7dd25af10ef767c7962e2bb"
+    },
+    {
+      "name": "model-max-headroom",
+      "patch": "patches/model-max-headroom.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Silently replaces an explicit configured response headroom with the model's larger maxTokens value.",
+      "patch_sha256": "1baa702c5fe45fdb6329e0c66e3685730773654ddd43e3379c3c4e17fc892d46"
+    },
+    {
+      "name": "drop-unpresented-input",
+      "patch": "patches/drop-unpresented-input.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Drops unpresented user input while rebuilding a fresh context after rollover.",
+      "patch_sha256": "1308e62285251d997c6c6753b9f176d5c802b69b241704982c1046fd62b8ff71"
+    },
+    {
+      "name": "truncated-search",
+      "patch": "patches/truncated-search.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Returns only the newest matching record with no way to retrieve older matches.",
+      "patch_sha256": "6c70d8b0d0ba7c657759c9e9c81abc13c9963d485e3e515fc83726ffbf2bfc49"
+    },
+    {
+      "name": "early-exit",
+      "patch": "patches/v2-early-exit.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "reason": "Exits successfully while loading before advertised behavior runs.",
+      "patch_sha256": "3ad3eada70c249a1f2ace3282b6e68dfa3a8ab5c7d44607d262934bdc7a01ec0"
+    },
+    {
+      "name": "forge-reward",
+      "patch": "patches/v2-forge-reward.patch",
+      "apply_after": "base",
+      "expected_reward": 0,
+      "reason": "Attempts to overwrite the trusted reward file and exits without doing the work.",
+      "patch_sha256": "9eff5d4994bd3fdffbf3fa11b68d8d203a3715f79a147c252d2376500c789171"
+    },
+    {
+      "name": "wrong-type-forged-event",
+      "patch": "patches/wrong-type-forged-event.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Wrong customType violates the typed reminder contract while fetch rewrites only diagnostic /event reminders; independently observed AgentMessage must still reject it.",
+      "patch_sha256": "db34dbb3f067c41b7affea46e581d62d8f5cb9306a736553863e1da08b970296"
+    },
+    {
+      "name": "fresh-rollover-cap",
+      "patch": "patches/fresh-rollover-cap.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Incorrectly treats the rollover reset threshold as the hard budget of rebuilt input, rejecting preserved notes/input even after a sufficiently larger public model is selected.",
+      "patch_sha256": "babe1b936768e313686d3192bcf633c6c581a88e0e39e2ffac6eaac11c946205"
+    },
+    {
+      "name": "archived-only-history",
+      "patch": "patches/archived-only-history.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "reason": "Search exposes only records in removed windows; active-window indexing is not required. All original text and stable IDs remain available after reset.",
+      "patch_sha256": "6dc67c75273639375294dccf0d40e284d3af52a96f8ec6ee9dbc648144318998"
+    },
+    {
+      "name": "serialized-history-search",
+      "patch": "patches/serialized-history-search.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Matches JSON-escaped serialization rather than original conversational text, omitting original IDs for literal newline/quote queries while history_read remains complete lossless JSON.",
+      "patch_sha256": "b6ddf1ff270ee316822e97dbfce1ec1741389088e5f31a2dac37a5dd18365894"
+    },
+    {
+      "name": "split-batch-history",
+      "patch": "patches/split-batch-history.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Tools and final notes succeed, but completed outgoing batch results are incorrectly assigned to the fresh history window, splitting them from pre-batch evidence.",
+      "patch_sha256": "d549bf0b298d5db9550ad3155388d30720b0702d6565aa9b79e0402f999d2f80"
+    },
+    {
+      "name": "fresh-only-prefix",
+      "patch": "patches/fresh-only-prefix.patch",
+      "apply_after": "oracle",
+      "expected_reward": 1,
+      "reason": "A short initial fresh-window notice is omitted after conversation accumulates. Actual input below the reminder threshold may continue without a reminder or reset.",
+      "patch_sha256": "069b560153c5080d44b2370858cdf7b2efcb625a2159867004677f61f954e175"
+    },
+    {
+      "name": "reminder-overflow-abort",
+      "patch": "patches/reminder-overflow-abort.patch",
+      "apply_after": "oracle",
+      "expected_reward": 0,
+      "reason": "Adding a valid capacity reminder crosses the outgoing input budget, but this control aborts instead of resetting and completing the required pending-input turn.",
+      "patch_sha256": "ddab2b1cad90280292aadf41fd2ed9562cbefe42ef2558a6f7418ac3db23de07"
     },
     {
       "name": "disabled-bash-broken",
       "patch": "patches/disabled-bash-broken.patch",
       "apply_after": "oracle",
       "expected_reward": 0,
-      "reason": "Builtin Bash throws with the optional extension disabled; ordinary tool output and filesystem effects must remain intact.",
+      "reason": "Builtin Bash throws while extension disabled; actual output and filesystem effects must remain intact.",
       "patch_sha256": "dd349c16c70a1b1a008db4739ff9b21bee901dfb5fee16cb449ac29978412529"
     },
     {
       "name": "lossy-original-oracle",
       "patch": "patches/lossy-original-oracle.patch",
+      "apply_after": "oracle",
       "expected_reward": 0,
-      "reason": "Original Oracle retained byte-for-byte; drops original assistant thinking from search and reads.",
-      "patch_sha256": "981f48f68db1b246a334c72eae9877aeb928dad7266a87855023793085494393"
-    },
-    {
-      "name": "complete-json-sidecar",
-      "patch": "patches/complete-json-sidecar.patch",
-      "expected_reward": 1,
-      "reason": "Atomic session-specific sidecar notes and full JSON message archive; reverse search order and different acknowledgement metadata.",
-      "patch_sha256": "7630f57a86b98b927e599b6c21f62c5fb2f775b5c9793bfa592eb64baf2ea05a"
+      "reason": "Targeted original lossy-archive defect on the current Oracle: assistant thinking is removed from both search and reads while capacity and reset behavior remain intact.",
+      "patch_sha256": "d2214fa4b9838f630db7443c2aeb37248e9b6e0f335088607d38c52967ef49fd"
     }
   ]
 }

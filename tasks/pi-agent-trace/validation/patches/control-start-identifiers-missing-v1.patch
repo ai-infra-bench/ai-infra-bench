@@ -1,0 +1,15 @@
+diff --git a/packages/coding-agent/examples/extensions/agent-trace/index.ts b/packages/coding-agent/examples/extensions/agent-trace/index.ts
+--- a/packages/coding-agent/examples/extensions/agent-trace/index.ts
++++ b/packages/coding-agent/examples/extensions/agent-trace/index.ts
+@@ -208,7 +208,10 @@
+ 	function writeLine(span: Span, phase: "start" | "end") {
+ 		if (!file || !resourceAttributes) return;
+ 		const attributes = new Map(span.attributes);
+-		if (phase === "start") attributes.set("pi.span.phase", "start");
++		if (phase === "start") {
++			attributes.set("pi.span.phase", "start");
++			for (const key of ["pi.turn.index", "gen_ai.system", "gen_ai.request.model", "pi.compaction.reason", "pi.compaction.will_retry"]) attributes.delete(key);
++		}
+ 		const encoded: Record<string, unknown> = {
+ 			traceId: span.traceId,
+ 			spanId: span.spanId,

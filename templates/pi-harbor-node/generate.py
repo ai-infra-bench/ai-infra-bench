@@ -29,9 +29,11 @@ TOKENS = {
     "workspace": "__PI_WORKSPACE__",
     "build_manifest_check": "__PI_BUILD_MANIFEST_CHECK__",
     "workspace_label": "__PI_WORKSPACE_LABEL__",
+    "optional_tools": "__PI_OPTIONAL_TOOLS__",
 }
 AGENT_USER_TOKEN = "__PI_AGENT_USER__"
 DEFAULT_NODE_IMAGE = "node:22.19.0-bookworm-slim@sha256:4a4884e8a44826194dff92ba316264f392056cbe243dcc9fd3551e71cea02b90"
+STRACE_VERSION = "6.1-0.1"
 NODE_IMAGES = {
     DEFAULT_NODE_IMAGE,
     "node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5",
@@ -47,10 +49,13 @@ def runtime_config(task_dir: Path) -> dict[str, str | bool]:
     """Allow only reviewed runtime images and non-root account names."""
     path = task_dir / "environment/pi-template.json"
     config = json.loads(path.read_text()) if path.is_file() else {}
-    allowed = {"node_image", "agent_user", "source_cli", "npm_ignore_scripts", "workspace_mode"}
+    allowed = {"node_image", "agent_user", "source_cli", "npm_ignore_scripts", "workspace_mode", "strace_version"}
     if not isinstance(config, dict) or set(config) - allowed:
         raise ValueError(f"{path}: expected an object with only {', '.join(sorted(allowed))}")
     options = {}
+    if "strace_version" in config and config["strace_version"] != STRACE_VERSION:
+        raise ValueError(f"{path}: strace_version must be {STRACE_VERSION}")
+    options["strace_version"] = config.get("strace_version", "")
     for name in ("source_cli", "npm_ignore_scripts"):
         value = config.get(name, False)
         if type(value) is not bool:
@@ -147,6 +152,13 @@ def render(task_dir: Path, template: str) -> tuple[Path, str]:
             "test \"$(grep -c -E '  packages/coding-agent/dist/' /opt/pi-baseline/build-manifest.sha256)\" -gt 500"
         ),
         "workspace_label": "LABEL ai.infra.bench.workspace-mode=source\n" if runtime["workspace_mode"] == "source" else "",
+        "optional_tools": (
+            "RUN apt-get update \\\n"
+            f" && apt-get install -y --no-install-recommends strace={STRACE_VERSION} \\\n"
+            f" && test \"$(dpkg-query -W -f='${{Version}}' strace)\" = \"{STRACE_VERSION}\" \\\n"
+            " && rm -rf /var/lib/apt/lists/*\n\n"
+            if runtime["strace_version"] else ""
+        ),
     }
     generated = template
     for key, token in TOKENS.items():

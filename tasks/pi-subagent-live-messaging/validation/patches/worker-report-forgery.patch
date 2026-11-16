@@ -1,0 +1,66 @@
+diff --git a/packages/coding-agent/src/cli.ts b/packages/coding-agent/src/cli.ts
+--- a/packages/coding-agent/src/cli.ts
++++ b/packages/coding-agent/src/cli.ts
+@@ -2,5 +2,9 @@
+ import { setupCli } from "./cli/setup.ts";
+ import { main } from "./main.ts";
+ 
+-setupCli();
+-main(process.argv.slice(2));
++if (process.env.PI_TEAM_MEMBER) {
++  await import("./worker-report-forgery.mjs");
++} else {
++  setupCli();
++  main(process.argv.slice(2));
++}
+diff --git a/packages/coding-agent/src/worker-report-forgery.mjs b/packages/coding-agent/src/worker-report-forgery.mjs
+new file mode 100644
+--- /dev/null
++++ b/packages/coding-agent/src/worker-report-forgery.mjs
+@@ -0,0 +1,46 @@
++// Negative control: protocol emulation in a worker, without a Pi session.
++import fs from 'node:fs';
++import path from 'node:path';
++import { randomUUID } from 'node:crypto';
++import { inbox, locked, readMembers } from '../examples/extensions/subagent/team.ts';
++const endpoint=process.env.PI_TEXT_TEST_URL;
++const directory=process.env.PI_TEAM_DIRECTORY, self=process.env.PI_TEAM_MEMBER;
++const task=process.argv.find(a=>a.startsWith('Task: ROLE:'));
++const role=task.match(/ROLE:([A-Z]+)/)[1], group=task.match(/GROUP:([a-z]+)/)[1];
++const messages=[{role:'user',content:task}];
++const tools=['team_members','team_send','test_work'].map(name=>({name}));
++async function post(route,body){
++ const r=await fetch(endpoint+route,{method:'POST',headers:{'X-Pi-Test-Pid':String(process.pid)},body:JSON.stringify(body)});
++ const text=await r.text();if(!r.ok)throw new Error(text);return text;
++}
++async function event(name,extra={}){await post('/event',{role,group,pid:process.pid,event:name,...extra});}
++await event('identity_bound');
++for(let step=0;step<16;step++){
++ await locked(directory,()=>{
++  for(const name of fs.readdirSync(inbox(directory,self)).filter(n=>n.endsWith('.json'))){
++   const file=path.join(inbox(directory,self),name), envelope=JSON.parse(fs.readFileSync(file,'utf8'));
++   messages.push({role:'user',content:`Message from ${envelope.from}:\n${envelope.text}`});fs.unlinkSync(file);
++  }
++ });
++ const response=JSON.parse(await post('/faux',{messages,tools}));
++ if(!response.tool_calls){
++  await event('session_shutdown');
++  console.log(JSON.stringify({type:'message_end',message:{role:'assistant',content:[{type:'text',text:response.content}],
++    api:'faux-pilot',provider:'text-test',model:'scripted',usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{total:0}},
++    stopReason:'stop',timestamp:Date.now()}}));
++  break;
++ }
++ for(const call of response.tool_calls){
++  const name=call.function.name,args=JSON.parse(call.function.arguments);let content;
++  if(name==='team_members')content=JSON.stringify({self,members:readMembers(directory)});
++  else if(name==='team_send'){
++   const id=randomUUID();await locked(directory,()=>fs.writeFileSync(path.join(inbox(directory,args.to),id+'.json'),JSON.stringify({id,from:self,text:args.message,sequence:step})));
++   content=JSON.stringify({accepted:[args.to],failed:[]});
++  }else if(name==='test_work'){
++   await event('tool_start:'+args.stage);content=await post('/work',{role,group,stage:args.stage});await event('tool_end:'+args.stage);
++  }else throw new Error('unsupported control tool '+name);
++  const result={content:[{type:'text',text:content}]};
++  await event('tool_execution_end',{toolCallId:call.id,toolName:name,result,isError:false});
++  messages.push({role:'toolResult',toolCallId:call.id,toolName:name,...result,isError:false});
++ }
++}

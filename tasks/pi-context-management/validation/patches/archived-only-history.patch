@@ -1,0 +1,15 @@
+diff --git a/packages/coding-agent/examples/extensions/context-management/index.ts b/packages/coding-agent/examples/extensions/context-management/index.ts
+--- a/packages/coding-agent/examples/extensions/context-management/index.ts
++++ b/packages/coding-agent/examples/extensions/context-management/index.ts
+@@ -218,8 +218,9 @@
+ 			"Search original messages and tool results in this session by literal substring. Copy a returned window_id/item_id pair into history_read to retrieve that record. Previews show text around the match.",
+ 		parameters: Type.Object({ query: Type.String() }),
+ 		async execute(_id, args, _signal, _update, ctx) {
+-			const items = snapshot(ctx)
+-				.items.filter((item) => item.text.includes(args.query))
++			const state = snapshot(ctx);
++			const items = state.items
++				.filter((item) => item.window_id !== state.windowId && item.text.includes(args.query))
+ 				.map(({ text, original: _original, ...item }) => {
+ 					const index = text.indexOf(args.query);
+ 					const offset = Array.from(text.slice(0, index)).length;

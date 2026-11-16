@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { type Envelope, inbox, locked, readMembers, saveMembers } from "./team.ts";
@@ -10,6 +11,17 @@ export default function teamWorker(pi: ExtensionAPI) {
 	const self = process.env.PI_TEAM_MEMBER;
 	if (!directory || !self) throw new Error("Team membership is not configured");
 	let sequence = 0;
+	const pendingContext = new Map<string, Extract<AgentMessage, { role: "custom" }>>();
+	pi.on("context", (event) => {
+		// Steering may be behind unrelated queued input. Include accepted findings
+		// immediately, until their persistent message reaches normal history.
+		for (const message of event.messages) {
+			if (message.role !== "custom" || message.customType !== "team_findings") continue;
+			const details = message.details as { batchId?: string } | undefined;
+			if (details?.batchId) pendingContext.delete(details.batchId);
+		}
+		if (pendingContext.size) return { messages: [...event.messages, ...pendingContext.values()] };
+	});
 	pi.registerTool({
 		name: "team_members",
 		label: "Team members",
@@ -23,7 +35,7 @@ export default function teamWorker(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "team_send",
 		label: "Share a finding",
-		description: "Send a finding to an instance ID, or broadcast it to every teammate; teammates that are not running are reported as failed.",
+		description: "Send a finding to an instance ID or broadcast to current live teammates.",
 		parameters: Type.Object({
 			to: Type.Optional(Type.String()),
 			broadcast: Type.Optional(Type.Boolean()),
@@ -33,15 +45,15 @@ export default function teamWorker(pi: ExtensionAPI) {
 			if (!args.message || Buffer.byteLength(args.message, "utf8") > 1024 * 1024) {
 				throw new Error("message must be nonempty and no larger than 1 MiB");
 			}
-			const hasTo = Object.hasOwn(args, "to");
-			const hasBroadcast = Object.hasOwn(args, "broadcast");
-			if (hasTo === hasBroadcast || (hasBroadcast && args.broadcast !== true) || (hasTo && !args.to)) {
+			if (args.broadcast === true
+				? Object.prototype.hasOwnProperty.call(args, "to")
+				: typeof args.to !== "string" || args.to.length === 0) {
 				throw new Error("Specify exactly one recipient or broadcast: true");
 			}
 			const result = await locked(directory, () => {
 				const members = readMembers(directory);
 				const targets = args.broadcast
-					? members.filter((member) => member.id !== self).map((member) => member.id)
+					? members.filter((member) => member.state === "running" && member.id !== self).map((member) => member.id)
 					: [args.to!];
 				const accepted: string[] = [];
 				const failed: { id: string; reason: string }[] = [];
@@ -82,18 +94,18 @@ export default function teamWorker(pi: ExtensionAPI) {
 			return queued;
 		});
 		if (messages.length > 0 && !aborted) {
-			// At agent_settled the original prompt is about to return. Await a
-			// continuation accepted during post-run work before print mode exits.
 			const done = settled ? new Promise<void>((resolve) => { continuationSettled = resolve; }) : undefined;
-			pi.sendMessage(
-				{
-					customType: "team_findings",
-					content: messages.map((message) => `Message from ${message.from}:\n${message.text}`).join("\n\n"),
-					display: true,
-					details: { messages },
-				},
-				{ deliverAs: "steer", triggerTurn: true },
-			);
+			const batchId = randomUUID();
+			const message: Extract<AgentMessage, { role: "custom" }> = {
+				role: "custom",
+				customType: "team_findings",
+				content: messages.map((message) => `Message from ${message.from}:\n${message.text}`).join("\n\n"),
+				display: true,
+				details: { messages, batchId },
+				timestamp: Date.now(),
+			};
+			pendingContext.set(batchId, message);
+			pi.sendMessage(message, { deliverAs: "steer", triggerTurn: true });
 			await done;
 		}
 	};
@@ -101,8 +113,8 @@ export default function teamWorker(pi: ExtensionAPI) {
 		aborted = event.message.role === "assistant" && event.message.stopReason === "aborted";
 		await receive();
 	});
-	// turn_end and agent_end can precede automatic retry or compaction. Only
-	// this event means the Pi run has no remaining automatic continuation.
+	// Error turns may still be followed by Pi's automatic retries/compaction.
+	// Only agent_settled closes acceptance; drain and close share the team lock.
 	pi.on("agent_settled", async () => {
 		const complete = continuationSettled;
 		continuationSettled = undefined;

@@ -1,0 +1,19 @@
+diff --git a/packages/coding-agent/examples/extensions/subagent/team-worker.ts b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
+--- a/packages/coding-agent/examples/extensions/subagent/team-worker.ts
++++ b/packages/coding-agent/examples/extensions/subagent/team-worker.ts
+@@ -20,7 +20,14 @@
+ 			const details = message.details as { batchId?: string } | undefined;
+ 			if (details?.batchId) pendingContext.delete(details.batchId);
+ 		}
+-		if (pendingContext.size) return { messages: [...event.messages, ...pendingContext.values()] };
++		return { messages: [...event.messages, ...pendingContext.values()].flatMap((message) => {
++			if (message.role !== "custom" || message.customType !== "team_findings") return [message];
++			const entries = (message.details as { messages: Envelope[] }).messages;
++			return entries.flatMap((entry) => [
++				{ ...message, content: `Message from ${entry.from}:` },
++				{ ...message, content: entry.text },
++			]);
++		}) };
+ 	});
+ 	pi.registerTool({
+ 		name: "team_members",

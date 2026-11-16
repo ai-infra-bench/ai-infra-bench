@@ -13,13 +13,24 @@ ARG PI_REPO=https://github.com/earendil-works/pi.git
 FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc AS source
 ARG PI_BASE_SHA
 ARG PI_REPO
-RUN test -n "$PI_BASE_SHA" \
+RUN --mount=type=secret,id=github_token,required=false test -n "$PI_BASE_SHA" \
  && apk add --no-cache ca-certificates git \
  && mkdir -p /src/pi \
  && git -C /src/pi init -q \
  && git -C /src/pi config core.logAllRefUpdates false \
  && git -C /src/pi remote add origin "$PI_REPO" \
- && git -C /src/pi fetch --no-tags origin "$PI_BASE_SHA" \
+ && ( \
+      if [ -s /run/secrets/github_token ]; then \
+        github_token="$(cat /run/secrets/github_token)"; \
+        if [ -n "$github_token" ]; then \
+          github_auth="$(printf 'x-access-token:%s' "$github_token" | base64 | tr -d '\n')"; \
+          export GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="Authorization: Basic $github_auth"; \
+        fi; \
+      fi; \
+      git -C /src/pi fetch --no-tags origin "$PI_BASE_SHA"; \
+    ) \
  && git -C /src/pi checkout -q -b main "$PI_BASE_SHA" \
  && test "$(git -C /src/pi rev-parse HEAD)" = "$PI_BASE_SHA" \
  && git -C /src/pi remote remove origin \
@@ -193,5 +204,5 @@ __PI_WORKSPACE_LABEL__LABEL ai.infra.bench.environment-template=pi-harbor-node \
       ai.infra.bench.base-commit=$PI_BASE_SHA \
       ai.infra.bench.dependency-cutoff=$PI_DEPENDENCY_CUTOFF \
       ai.infra.bench.cache-namespace=$PI_CACHE_NAMESPACE
-ENTRYPOINT []
+__PI_OPTIONAL_TOOLS__ENTRYPOINT []
 CMD ["sleep", "infinity"]

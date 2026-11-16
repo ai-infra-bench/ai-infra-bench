@@ -1,0 +1,24 @@
+diff --git a/packages/coding-agent/examples/extensions/context-management/index.ts b/packages/coding-agent/examples/extensions/context-management/index.ts
+--- a/packages/coding-agent/examples/extensions/context-management/index.ts
++++ b/packages/coding-agent/examples/extensions/context-management/index.ts
+@@ -216,7 +216,7 @@
+ 		label: "Search original history",
+ 		description:
+ 			"Search original messages and tool results in this session by literal substring. Copy a returned window_id/item_id pair into history_read to retrieve that record. Previews show text around the match.",
+-		parameters: Type.Object({ query: Type.String() }),
++		parameters: Type.Object({ query: Type.String(), cursor: Type.Optional(Type.String()) }),
+ 		async execute(_id, args, _signal, _update, ctx) {
+ 			const items = snapshot(ctx)
+ 				.items.filter((item) => item.text.includes(args.query))
+@@ -231,7 +231,10 @@
+ 						total_chars: chars.length,
+ 					};
+ 				});
+-			return output({ items, next_cursor: null });
++			items.reverse();
++            const start = args.cursor ? items.findIndex((item) => item.item_id === args.cursor) + 1 : 0;
++            const page = items.slice(start, start + 1);
++            return output({ items: page, next_cursor: items[start + 1] ? page[0].item_id : null });
+ 		},
+ 	});
+ 	pi.registerTool({

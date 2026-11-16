@@ -1,0 +1,42 @@
+diff --git a/packages/coding-agent/examples/extensions/plan-mode/index.ts b/packages/coding-agent/examples/extensions/plan-mode/index.ts
+--- a/packages/coding-agent/examples/extensions/plan-mode/index.ts
++++ b/packages/coding-agent/examples/extensions/plan-mode/index.ts
+@@ -2,7 +2,7 @@
+ 
+ import { randomUUID } from "node:crypto";
+ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+-import { Key } from "@earendil-works/pi-tui";
++import { Key, matchesKey, SelectList } from "@earendil-works/pi-tui";
+ import { Type } from "typebox";
+ import { markCompletedSteps, type TodoItem } from "./utils.ts";
+ 
+@@ -172,10 +172,25 @@
+ 		reviewOpen = true;
+ 		const displayed = snapshot();
+ 		try {
+-			const choice = await ctx.ui.select(
+-				`Plan ${displayed.planId}, revision ${displayed.revision}\n${displayed.steps.map((step, i) => `${i + 1}. ${step}`).join("\n")}\nWhat next?`,
+-				["Execute the plan (track progress)", "Stay in plan mode", "Refine the plan"],
+-			);
++            const choice = await ctx.ui.custom<string | undefined>((tui, theme, _keys, done) => {
++                const options = ["Execute the plan (track progress)", "Stay in plan mode", "Refine the plan"];
++                const title = `Plan ${displayed.planId}, revision ${displayed.revision}\n${displayed.steps.map((step, i) => `${i + 1}. ${step}`).join("\n")}\nWhat next?`;
++                const list = new SelectList(options.map((label) => ({ label, value: label })), 5, {
++                    selectedPrefix: (text) => theme.fg("accent", text),
++                    selectedText: (text) => theme.fg("accent", text),
++                    description: (text) => theme.fg("muted", text),
++                    scrollInfo: (text) => theme.fg("muted", text),
++                    noMatch: (text) => theme.fg("muted", text),
++                });
++                list.setSelectedIndex(1);
++                list.onSelect = (item) => done(item.value);
++                list.onCancel = () => done(undefined);
++                return {
++                    render(width: number) { return [...title.split("\n"), ...list.render(width)]; },
++                    invalidate() { list.invalidate(); },
++                    handleInput(data: string) { list.handleInput(data); tui.requestRender(); },
++                };
++            });
+ 			if (choice === "Execute the plan (track progress)" && displayed.planId) {
+ 				const error = approve(ctx, displayed.sessionId, displayed.planId, displayed.revision);
+ 				result("approve", error);

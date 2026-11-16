@@ -1,3 +1,4 @@
+import { fauxProvider, fauxAssistantMessage, fauxToolCall, observeProviderRequest, observeFixtureReady } from "./trusted_faux.mjs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
@@ -15,15 +16,33 @@ export default function fixture(pi: ExtensionAPI) {
 		});
 	};
 
-	pi.registerProvider("text-test", {
-		baseUrl: `${endpoint}/v1`, apiKey: "local-test-only", api: "openai-completions",
-		headers: { "X-Pi-Test-Pid": String(process.pid) },
-		models: [{
-			id: "scripted", name: "Text behavior test", reasoning: false, input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 4194304, maxTokens: 2097152,
-		}],
-	});
+
+    const faux = fauxProvider({
+        provider: "text-test", api: "faux-pilot", tokenSize: { min: 1048576, max: 1048576 },
+        models: [{ id: "scripted", contextWindow: 4194304, maxTokens: 2097152 }],
+    });
+    const nextResponse = async (context: any, options: any) => {
+        // A provider error still consumes this scripted response. Keep the next
+        // response available for Pi's real automatic retry, including HTTP 503.
+        faux.appendResponses([nextResponse]);
+        const response = await fetch(`${endpoint}/faux`, {
+            method: "POST", headers: { "X-Pi-Test-Pid": String(process.pid) },
+            body: observeProviderRequest(context), signal: options?.signal,
+        });
+        if (!response.ok) throw new Error(await response.text());
+        const delta = await response.json();
+        // The coordinator decides only what the model says, never peer delivery.
+        const content = delta.tool_calls
+            ? delta.tool_calls.map((call: any) => fauxToolCall(
+                call.function.name, JSON.parse(call.function.arguments), { id: call.id }))
+            : delta.content ?? "";
+        return fauxAssistantMessage(content, {
+            stopReason: delta.tool_calls ? "toolUse" : "stop",
+        });
+    };
+    faux.setResponses([nextResponse]);
+    pi.registerProvider(faux.provider);
+
 	// Bind unknown identities from the real prompt event, before any model/tool call.
 	// This observes RPC input; it never supplies or changes the worker's context.
 	pi.on("before_agent_start", async ({ prompt }) => {
@@ -52,10 +71,15 @@ export default function fixture(pi: ExtensionAPI) {
 		await event("resource_snapshot", {resources});
 	});
 	pi.on("session_start", async () => { await event("session_start"); });
-	pi.on("turn_end", async ({ message }) => {
-		await event("observed_turn_end", { stopReason: message.role === "assistant" ? message.stopReason : message.role });
-	});
+    pi.on("tool_execution_end", async (result) => {
+        await event("tool_execution_end", {toolCallId: result.toolCallId, toolName: result.toolName,
+            result: result.result, isError: result.isError});
+    });
 	pi.on("session_shutdown", async () => { await event("session_shutdown"); });
+	pi.on("turn_end", async ({ message }) => {
+		await event("observed_turn_end", { stopReason: message.role === "assistant" ? message.stopReason : null });
+	});
+	pi.on("agent_settled", async () => { await event("observed_agent_settled"); });
 	pi.on("message_end", async ({ message }) => {
 		if (message.role === "toolResult" && message.isError) {
 			await event("tool_error", { toolCallId: message.toolCallId });
@@ -71,6 +95,12 @@ export default function fixture(pi: ExtensionAPI) {
 			});
 			if (!response.ok) throw new Error(await response.text());
 			const text = await response.text();
+			if (process.env.PI_TEST_ORDINARY_STEERING === "1" && role === "B" && args.stage === "slow_work") {
+				for (const content of ["Ordinary steering one: continue the investigation.", "Ordinary steering two: keep the answer concise."]) {
+					pi.sendMessage({ customType: "ordinary-steering", content, display: false }, { deliverAs: "steer" });
+				}
+				await event("ordinary_steering_queued", { count: 2 });
+			}
 			await event(`tool_end:${args.stage}`);
 			return { content: [{ type: "text", text }] };
 		},
@@ -83,5 +113,7 @@ export default function fixture(pi: ExtensionAPI) {
 			return {content: [{type: "text", text: await response.text()}]};
 		},
 	});
+
+    observeFixtureReady();
 
 }

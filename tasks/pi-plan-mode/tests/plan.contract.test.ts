@@ -1,12 +1,36 @@
 import { closeSync, existsSync, openSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { approvedSnapshot } from "./approval_snapshot.mjs";
 import { approveArgs, call, controlState, say, start, submittedStates, textOf, waitFor } from "./plan_support.mjs";
 
 const sessions: Awaited<ReturnType<typeof start>>[] = [];
 async function host(options = {}) { const live = await start(options); sessions.push(live); return live; }
 afterEach(async () => { for (const live of sessions.splice(0)) await live.close(); });
 const sorted = (values: string[]) => [...values].sort();
+
+async function navigationGuard(live: Awaited<ReturnType<typeof start>>) {
+  const state = await live.state(), tools = sorted(live.tools()), calls = live.faux.state.callCount, approvals = live.approved().length;
+  return async () => {
+    expect(await live.state(), "navigation must not alter the plan").toEqual(state);
+    expect(sorted(live.tools()), "navigation must not change available tools").toEqual(tools);
+    expect(live.faux.state.callCount, "navigation must not dispatch model work").toBe(calls);
+    expect(live.approved(), "navigation must not approve").toHaveLength(approvals);
+  };
+}
+function dismissLaterReviews(live: Awaited<ReturnType<typeof start>>, original: any) {
+  let busy = false;
+  const failures: unknown[] = [], handled = new Set([original]);
+  const timer = setInterval(async () => {
+    if (busy) return;
+    const surface = live.activeReview();
+    if (!surface || handled.has(surface)) return;
+    handled.add(surface); busy = true;
+    try { await surface.choose("stay"); } catch (error) { failures.push(error); }
+    finally { busy = false; }
+  }, 10);
+  return () => { clearInterval(timer); expect(failures).toEqual([]); };
+}
 
 describe("plan contract", () => {
   it("C00 candidate workers cannot forge grader files or signal the reporter", () => {
@@ -141,7 +165,7 @@ describe("plan contract", () => {
     expect(sorted(live.tools())).toEqual(sorted(original));
     expect(live.approved()).toHaveLength(1);
     const snapshot = { sessionId: draft.sessionId, planId: draft.planId, revision: draft.revision, steps };
-    expect(live.approved()[0].details).toMatchObject(snapshot);
+    expect(approvedSnapshot(live.approved()[0].details)).toEqual(snapshot);
     const visible = textOf(live.approved()[0]);
     for (const value of [draft.sessionId, draft.planId, String(draft.revision), ...steps]) expect(visible).toContain(value);
     const delivered = live.requests[requestIndex].messages.map(textOf).join("\n");
@@ -232,19 +256,27 @@ describe("plan contract", () => {
     const live = await host({ ui: true, deferUI: true }); const empty = controlState(await live.control("enter", "interactive")), restricted = live.tools();
     live.responses([call("plan_submit", { steps: ["reviewed v1"] }), say("draft ready")]);
     const firstRun = live.session.prompt("draft", { source: "interactive" });
-    const oldDialog = await waitFor(() => live.dialogs[0], "first review dialog"); const v1 = await live.state();
+    const oldDialog = await waitFor(() => live.activeReview(), "visible first review"); const v1 = await live.state();
     expect(v1.revision).toBeGreaterThan(empty.revision);
     live.responses([call("plan_submit", { steps: ["unreviewed v2"] }), say("revised")]);
     const secondRun = live.session.prompt("revise", { source: "rpc" });
     await waitFor(() => live.events.filter((e: { type: string; toolName?: string }) => e.type === "tool_execution_end" && e.toolName === "plan_submit").length >= 2, "revision submitted");
     const v2 = await live.state(); expect(v2.revision).toBeGreaterThan(v1.revision);
-    // Handle later dialogs as they appear; selecting a stale plan may reopen review asynchronously.
-    const cleanupDialogs = setInterval(() => { for (const dialog of live.dialogs.slice(1)) dialog.choose("stay"); }, 10);
+    // Input only reaches a still-active old control. A closed/replaced old
+    // control already prevents stale approval; never resurrect its callback or
+    // send Enter to the replacement and call that a stale click.
+    const stopDismissal = dismissLaterReviews(live, oldDialog);
     try {
-      oldDialog.choose("execute");
-      await firstRun; await secondRun; await live.session.agent.waitForIdle();
+      const current = oldDialog.read();
+      const visiblyRefreshed = current && v2.steps.every((step: string) => current.text.includes(step));
+      if (current) await oldDialog.choose(visiblyRefreshed ? "stay" : "execute", await navigationGuard(live));
+      await secondRun;
+      await live.session.agent.waitForIdle();
       await new Promise((resolve) => setTimeout(resolve, 150));
-    } finally { clearInterval(cleanupDialogs); }
+      // A superseded selector need not resolve its old prompt until shutdown.
+      // close() cancels outstanding dialogs using their actual lifecycle.
+      void firstRun.catch((error) => live.errors.push(error));
+    } finally { stopDismissal(); }
     expect(await live.state()).toEqual(v2); expect(live.approved()).toHaveLength(0); expect(sorted(live.tools())).toEqual(sorted(restricted));
   });
   it("C16 UI Execute approves exactly the displayed plan and starts execution", async () => {
@@ -254,12 +286,11 @@ describe("plan contract", () => {
     const effect = join(live.box.cwd, "ui-execution.txt"), displayStart = live.uiOutput.length;
     live.responses([call("plan_submit", { steps }), say("ready"), call("verifier_effect", { path: effect, marker: "approved" }), say("done")]);
     const run = live.session.prompt("draft", { source: "interactive" });
-    const dialog = await waitFor(() => live.dialogs[0], "Execute/Stay/Refine actions");
-    expect(dialog.hasAction("stay")).toBe(true); expect(dialog.hasAction("refine")).toBe(true);
+    const dialog = await waitFor(() => live.activeReview(), "visible Execute/Stay/Refine review");
     const displayed = live.uiOutput.slice(displayStart).join("\n");
     for (const step of steps) expect(displayed).toContain(step);
     const draft = await live.state(), requestIndex = live.requests.length, initialCalls = live.faux.state.callCount;
-    dialog.choose("execute"); await run;
+    await dialog.choose("execute", await navigationGuard(live)); await run;
     await waitFor(() => existsSync(effect) && live.session.isIdle, "UI execution");
     const approved = { ...draft, mode: "approved" };
     expect(readFileSync(effect, "utf8")).toBe("approved\n"); expect(await live.state()).toEqual(approved);
@@ -267,7 +298,7 @@ describe("plan contract", () => {
     expect(sorted(live.tools())).toEqual(sorted(original));
     expect(live.approved()).toHaveLength(1);
     const snapshot = { sessionId: draft.sessionId, planId: draft.planId, revision: draft.revision, steps };
-    expect(live.approved()[0].details).toMatchObject(snapshot);
+    expect(approvedSnapshot(live.approved()[0].details)).toEqual(snapshot);
     const messageText = textOf(live.approved()[0]);
     // A plan_submit tool result is already in the transcript. It cannot stand
     // in for the approved snapshot delivered to the actual execution request.
@@ -291,16 +322,18 @@ describe("plan contract", () => {
       const restricted = live.tools();
       live.responses([call("plan_submit", { steps: ["remain draft"] }), say("ready"), say("refinement noted")]);
       const run = live.session.prompt("draft", { source: "interactive" });
-      const dialog = await waitFor(() => live.dialogs[0], `${choice} action`), draft = await live.state();
-      const cleanupDialogs = setInterval(() => { for (const extra of live.dialogs.slice(1)) extra.choose("stay"); }, 10);
+      const dialog = await waitFor(() => live.activeReview(), `visible ${choice} review`), draft = await live.state();
+      const stopDismissal = dismissLaterReviews(live, dialog);
       try {
-        dialog.choose(choice); await run; await live.session.agent.waitForIdle();
-        if (choice === "refine") await waitFor(() => live.requests.some((request) => request.messages.some((message) => textOf(message).includes("Refine without executing"))) && live.session.isIdle, "refinement input delivered");
+        await dialog.choose(choice, await navigationGuard(live));
+        // Refine may open an editor and wait for the user; it need not submit
+        // fixed text to the model or resolve that UI promise immediately.
+        void run.catch((error) => live.errors.push(error));
         await new Promise((resolve) => setTimeout(resolve, 150));
         expect(await live.state()).toEqual(draft); expect(live.approved()).toHaveLength(0); expect(sorted(live.tools())).toEqual(sorted(restricted));
-      } finally { clearInterval(cleanupDialogs); }
+      } finally { stopDismissal(); }
     }
-  });
+  }, 60000);
   for (const command of ['/plan', '/plan-control enter']) {
     it(`C18 busy approved execution preserves state when receiving ${command}`, async () => {
       const live = await host();
